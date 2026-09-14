@@ -1070,8 +1070,12 @@ impl ShaderClass {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[],
+            bind_group_layouts: &bind_group_layouts
+                .iter()
+                .copied()
+                .map(Some)
+                .collect::<Vec<_>>(),
+            immediate_size: 0,
         });
 
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1080,11 +1084,11 @@ impl ShaderClass {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[if use_skinned_layout {
+                buffers: &[Some(if use_skinned_layout {
                     SKINNED_VERTEX_LAYOUT
                 } else {
                     REGULAR_VERTEX_LAYOUT
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1116,7 +1120,7 @@ impl ShaderClass {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -1184,8 +1188,8 @@ impl ShaderClass {
     fn create_depth_stencil_state(&self) -> wgpu::DepthStencilState {
         wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: self.get_depth_mask() == DepthMaskType::Enable,
-            depth_compare: self.depth_compare_to_wgpu(),
+            depth_write_enabled: Some(self.get_depth_mask() == DepthMaskType::Enable),
+            depth_compare: Some(self.depth_compare_to_wgpu()),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }

@@ -3,11 +3,11 @@
 //! Ground decals, radius decals, and surface markings for Command & Conquer
 //! Generals Zero Hour including explosion marks, tire tracks, and scorch marks.
 
-use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 use std::time::Instant;
 
 use super::{EffectsConfig, EffectsError};
+use glam::{Vec3};
 
 /// Unique identifier for decals
 pub type DecalId = u32;
@@ -35,8 +35,8 @@ pub enum DecalType {
 #[derive(Debug, Clone)]
 pub struct DecalSettings {
     pub decal_type: DecalType,
-    pub position: Point3<f32>,
-    pub normal: Vector3<f32>,
+    pub position: Vec3,
+    pub normal: Vec3,
     pub size: f32,
     pub rotation: f32,
     pub color: [f32; 4],
@@ -45,11 +45,11 @@ pub struct DecalSettings {
 }
 
 impl DecalSettings {
-    pub fn new(decal_type: DecalType, position: Point3<f32>) -> Self {
+    pub fn new(decal_type: DecalType, position: Vec3) -> Self {
         Self {
             decal_type,
             position,
-            normal: Vector3::new(0.0, 0.0, 1.0), // Up
+            normal: Vec3::new(0.0, 0.0, 1.0), // Up
             size: 1.0,
             rotation: 0.0,
             color: [1.0, 1.0, 1.0, 1.0],
@@ -58,7 +58,7 @@ impl DecalSettings {
         }
     }
 
-    pub fn scorch_mark(position: Point3<f32>, size: f32) -> Self {
+    pub fn scorch_mark(position: Vec3, size: f32) -> Self {
         Self {
             decal_type: DecalType::Scorch,
             position,
@@ -70,7 +70,7 @@ impl DecalSettings {
         }
     }
 
-    pub fn bullet_hole(position: Point3<f32>) -> Self {
+    pub fn bullet_hole(position: Vec3) -> Self {
         Self {
             decal_type: DecalType::BulletHole,
             position,
@@ -136,7 +136,7 @@ impl Decal {
 
 #[derive(Debug, Clone, Default)]
 pub struct DecalRenderItem {
-    pub position: Point3<f32>,
+    pub position: Vec3,
     pub size: f32,
     pub size_x: f32,
     pub size_y: f32,
@@ -148,14 +148,14 @@ pub struct DecalRenderItem {
 
 /// Special radius-based decals
 pub struct RadiusDecal {
-    pub center: Point3<f32>,
+    pub center: Vec3,
     pub radius: f32,
     pub decal_type: DecalType,
     pub alpha: f32,
 }
 
 impl RadiusDecal {
-    pub fn new(center: Point3<f32>, radius: f32, decal_type: DecalType) -> Self {
+    pub fn new(center: Vec3, radius: f32, decal_type: DecalType) -> Self {
         Self {
             center,
             radius,
@@ -206,7 +206,7 @@ impl DecalManager {
         id
     }
 
-    pub fn create_radius_decal(&mut self, center: Point3<f32>, radius: f32, decal_type: DecalType) {
+    pub fn create_radius_decal(&mut self, center: Vec3, radius: f32, decal_type: DecalType) {
         if !self.enabled {
             return;
         }
@@ -351,12 +351,12 @@ mod tests {
 
     #[test]
     fn test_decal_creation() {
-        let settings = DecalSettings::scorch_mark(Point3::new(10.0, 20.0, 0.0), 2.0);
+        let settings = DecalSettings::scorch_mark(Vec3::new(10.0, 20.0, 0.0), 2.0);
         let decal = Decal::new(1, settings.clone());
 
         assert_eq!(decal.id, 1);
         assert_eq!(decal.settings.decal_type, DecalType::Scorch);
-        assert_eq!(decal.settings.position, Point3::new(10.0, 20.0, 0.0));
+        assert_eq!(decal.settings.position, Vec3::new(10.0, 20.0, 0.0));
         assert_eq!(decal.settings.size, 2.0);
         assert!(decal.is_alive());
     }
@@ -366,7 +366,7 @@ mod tests {
         let settings = DecalSettings {
             lifetime: Some(2.0),
             fade_time: 1.0,
-            ..DecalSettings::bullet_hole(Point3::new(0.0, 0.0, 0.0))
+            ..DecalSettings::bullet_hole(Vec3::new(0.0, 0.0, 0.0))
         };
 
         let mut decal = Decal::new(1, settings);
@@ -392,13 +392,13 @@ mod tests {
         let mut manager = DecalManager::new();
 
         // Create decal
-        let settings = DecalSettings::scorch_mark(Point3::new(0.0, 0.0, 0.0), 1.0);
+        let settings = DecalSettings::scorch_mark(Vec3::new(0.0, 0.0, 0.0), 1.0);
         let id = manager.create_decal(settings);
         assert!(id > 0);
         assert_eq!(manager.active_decal_count(), 1);
 
         // Create radius decal
-        manager.create_radius_decal(Point3::new(5.0, 5.0, 0.0), 3.0, DecalType::Crater);
+        manager.create_radius_decal(Vec3::new(5.0, 5.0, 0.0), 3.0, DecalType::Crater);
         assert_eq!(manager.active_radius_decal_count(), 1);
 
         // Remove decal
@@ -414,7 +414,7 @@ mod tests {
 
         // Create 3 decals
         for i in 0..3 {
-            let settings = DecalSettings::bullet_hole(Point3::new(i as f32, 0.0, 0.0));
+            let settings = DecalSettings::bullet_hole(Vec3::new(i as f32, 0.0, 0.0));
             manager.create_decal(settings);
         }
 
@@ -424,9 +424,9 @@ mod tests {
 
     #[test]
     fn test_radius_decal() {
-        let radius_decal = RadiusDecal::new(Point3::new(1.0, 2.0, 3.0), 5.0, DecalType::Crater);
+        let radius_decal = RadiusDecal::new(Vec3::new(1.0, 2.0, 3.0), 5.0, DecalType::Crater);
 
-        assert_eq!(radius_decal.center, Point3::new(1.0, 2.0, 3.0));
+        assert_eq!(radius_decal.center, Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(radius_decal.radius, 5.0);
         assert_eq!(radius_decal.decal_type, DecalType::Crater);
         assert_eq!(radius_decal.alpha, 1.0);

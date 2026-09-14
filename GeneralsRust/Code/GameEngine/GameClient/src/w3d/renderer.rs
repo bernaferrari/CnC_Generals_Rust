@@ -384,7 +384,7 @@ impl W3DRenderer {
                     address_mode_w: AddressMode::ClampToEdge,
                     mag_filter: FilterMode::Linear,
                     min_filter: FilterMode::Linear,
-                    mipmap_filter: FilterMode::Nearest,
+                    mipmap_filter: MipmapFilterMode::Nearest,
                     ..Default::default()
                 });
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -487,7 +487,7 @@ impl W3DRenderer {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Nearest,
+            mipmap_filter: MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -863,7 +863,8 @@ impl W3DRenderer {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(&self.depth_prepass_pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -947,7 +948,8 @@ impl W3DRenderer {
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(gbuffer_pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -993,7 +995,8 @@ impl W3DRenderer {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-            });
+                multiview_mask: None,
+});
 
             render_pass.set_pipeline(lighting_pipeline);
             render_pass.set_bind_group(0, &self.lights_bind_group, &[]);
@@ -1044,6 +1047,7 @@ impl W3DRenderer {
                 ops: Operations {
                     load: if self.settings.enable_deferred_rendering {
                         LoadOp::Load // Preserve deferred lighting result
+            multiview_mask: None,
                     } else {
                         LoadOp::Clear(Color {
                             r: 0.1,
@@ -1124,7 +1128,8 @@ impl W3DRenderer {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(&self.tonemap_pipeline);
         render_pass.set_bind_group(0, &self.hdr_bind_group, &[]);
@@ -1468,8 +1473,8 @@ impl W3DRenderer {
             label: Some("W3D Depth Pre-pass Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Depth Pre-pass Layout"),
-                bind_group_layouts: &[camera_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(camera_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -1489,13 +1494,13 @@ impl W3DRenderer {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::Less),
                 stencil: StencilState::default(),
                 bias: DepthBiasState::default(),
             }),
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
     }
@@ -1569,14 +1574,14 @@ impl W3DRenderer {
             label: Some("W3D G-Buffer Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("G-Buffer Layout"),
-                bind_group_layouts: &[camera_layout, material_layout, bone_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(camera_layout), Some(material_layout), Some(bone_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[vertex_buffer_layout],
+                buffers: &[Some(vertex_buffer_layout)],
             },
             fragment: Some(FragmentState {
                 module: shader.as_ref(),
@@ -1620,13 +1625,13 @@ impl W3DRenderer {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: false, // Don't write depth (already done in pre-pass)
-                depth_compare: CompareFunction::Equal, // Only render pixels that passed depth test
+                depth_write_enabled: Some(false), // Don't write depth (already done in pre-pass)
+                depth_compare: Some(CompareFunction::Equal), // Only render pixels that passed depth test
                 stencil: StencilState::default(),
                 bias: DepthBiasState::default(),
             }),
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
     }
@@ -1704,8 +1709,8 @@ impl W3DRenderer {
             label: Some("W3D Deferred Lighting Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Deferred Lighting Layout"),
-                bind_group_layouts: &[lights_layout, gbuffer_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(lights_layout), Some(gbuffer_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -1741,7 +1746,7 @@ impl W3DRenderer {
             },
             depth_stencil: None, // No depth testing for lighting pass
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
     }
@@ -1800,14 +1805,14 @@ impl W3DRenderer {
             label: Some("W3D Forward Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Forward Layout"),
-                bind_group_layouts: &[camera_layout, lights_layout, material_layout, bone_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(camera_layout), Some(lights_layout), Some(material_layout), Some(bone_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[vertex_buffer_layout],
+                buffers: &[Some(vertex_buffer_layout)],
             },
             fragment: Some(FragmentState {
                 module: shader.as_ref(),
@@ -1841,13 +1846,13 @@ impl W3DRenderer {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::Less,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::Less),
                 stencil: StencilState::default(),
                 bias: DepthBiasState::default(),
             }),
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
     }
@@ -1887,14 +1892,14 @@ impl W3DRenderer {
             label: Some("W3D Shadow Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Shadow Layout"),
-                bind_group_layouts: &[camera_layout, bone_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(camera_layout), Some(bone_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[vertex_buffer_layout],
+                buffers: &[Some(vertex_buffer_layout)],
             },
             fragment: None,
             primitive: PrimitiveState {
@@ -1908,8 +1913,8 @@ impl W3DRenderer {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::Less),
                 stencil: StencilState::default(),
                 bias: DepthBiasState {
                     constant: 2,
@@ -1918,7 +1923,7 @@ impl W3DRenderer {
                 },
             }),
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }))
     }
@@ -2033,8 +2038,8 @@ impl W3DRenderer {
             label: Some("W3D GPU Culling Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("GPU Culling Layout"),
-                bind_group_layouts: &[&culling_bind_group_layout_0, &culling_bind_group_layout_1],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&culling_bind_group_layout_0), Some(&culling_bind_group_layout_1)],
+                immediate_size: 0,
             })),
             module: shader.as_ref(),
             entry_point: Some("main"),
@@ -2078,8 +2083,8 @@ impl W3DRenderer {
             label: Some("W3D Tone Mapping Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Tone Mapping Layout"),
-                bind_group_layouts: &[&hdr_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&hdr_bind_group_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2108,7 +2113,7 @@ impl W3DRenderer {
             },
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2202,8 +2207,8 @@ impl W3DRenderer {
             label: Some("Bloom Extract Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Bloom Extract Layout"),
-                bind_group_layouts: &[&bloom_texture_layout, &bloom_uniforms_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bloom_texture_layout), Some(&bloom_uniforms_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2224,7 +2229,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2233,8 +2238,8 @@ impl W3DRenderer {
             label: Some("Bloom Blur H Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Bloom Blur H Layout"),
-                bind_group_layouts: &[&bloom_texture_layout, &bloom_uniforms_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bloom_texture_layout), Some(&bloom_uniforms_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2255,7 +2260,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2264,8 +2269,8 @@ impl W3DRenderer {
             label: Some("Bloom Blur V Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Bloom Blur V Layout"),
-                bind_group_layouts: &[&bloom_texture_layout, &bloom_uniforms_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bloom_texture_layout), Some(&bloom_uniforms_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2286,7 +2291,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2295,8 +2300,8 @@ impl W3DRenderer {
             label: Some("Bloom Composite Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Bloom Composite Layout"),
-                bind_group_layouts: &[&bloom_texture_layout, &bloom_uniforms_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bloom_texture_layout), Some(&bloom_uniforms_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2324,7 +2329,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2484,8 +2489,8 @@ impl W3DRenderer {
             label: Some("SSAO Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("SSAO Layout"),
-                bind_group_layouts: &[&camera_layout, &ssao_texture_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&camera_layout), Some(&ssao_texture_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2506,7 +2511,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2537,8 +2542,8 @@ impl W3DRenderer {
             label: Some("SSAO Blur Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("SSAO Blur Layout"),
-                bind_group_layouts: &[&ssao_blur_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&ssao_blur_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2559,7 +2564,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -2682,8 +2687,8 @@ impl W3DRenderer {
             label: Some("TAA Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("TAA Layout"),
-                bind_group_layouts: &[&camera_layout, &taa_texture_layout, &taa_uniforms_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&camera_layout), Some(&taa_texture_layout), Some(&taa_uniforms_layout)],
+                immediate_size: 0,
             })),
             vertex: VertexState {
                 module: shader.as_ref(),
@@ -2704,7 +2709,7 @@ impl W3DRenderer {
             primitive: PrimitiveState::default(),
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 

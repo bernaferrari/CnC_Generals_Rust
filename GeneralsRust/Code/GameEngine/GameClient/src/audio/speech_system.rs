@@ -14,7 +14,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 
 use super::audio_engine::{AudioEngine, AudioHandle, AudioPosition};
 
@@ -412,7 +412,7 @@ impl SpeechSystem {
 
         // Pick a random sound file.
         let filename = if !line.sound_files.is_empty() {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             line.sound_files
                 .choose(&mut rng)
                 .cloned()

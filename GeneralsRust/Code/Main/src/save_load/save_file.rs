@@ -1238,7 +1238,7 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
     ) -> SaveLoadResult<Vec<u8>> {
-        let logic_payload = bincode::serialize(world_snapshot)
+        let logic_payload = bincode_legacy::serialize(world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
         Self::write_common_sav_chunks_with_payload(world_snapshot, save_info, logic_payload)
     }
@@ -1689,7 +1689,7 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
     ) -> SaveLoadResult<Vec<u8>> {
-        let logic_payload = bincode::serialize(world_snapshot)
+        let logic_payload = bincode_legacy::serialize(world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
         Self::encode_common_game_state_with_payload(world_snapshot, save_info, logic_payload)
     }
@@ -1752,7 +1752,7 @@ impl SaveFileManager {
         let mut header_bytes = vec![0u8; SAVE_HEADER_SIZE];
         reader.read_exact(&mut header_bytes)?;
 
-        let header: SaveFileHeader = bincode::deserialize(&header_bytes)
+        let header: SaveFileHeader = bincode_legacy::deserialize(&header_bytes)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         Ok(header)
@@ -1771,7 +1771,7 @@ impl SaveFileManager {
         let mut info_bytes = vec![0u8; size];
         reader.read_exact(&mut info_bytes)?;
 
-        let save_info: SaveGameInfo = bincode::deserialize(&info_bytes)
+        let save_info: SaveGameInfo = bincode_legacy::deserialize(&info_bytes)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         Ok(save_info)
@@ -2055,13 +2055,13 @@ mod tests {
         header.uncompressed_size = decompressed_payload.len() as u64;
         header.compressed_size = decompressed_payload.len() as u64;
 
-        let mut bytes = bincode::serialize(&header).expect("serialize GZHS header");
+        let mut bytes = bincode_legacy::serialize(&header).expect("serialize GZHS header");
         assert!(bytes.len() <= SAVE_HEADER_SIZE);
         // `read_header` reserves the native header footprint before bincode
         // consumes its compact fields; mirror the legacy writer's padding.
         bytes.resize(SAVE_HEADER_SIZE, 0);
 
-        let save_info = bincode::serialize(save_info).expect("serialize GZHS save info");
+        let save_info = bincode_legacy::serialize(save_info).expect("serialize GZHS save info");
         bytes.extend_from_slice(&(save_info.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&save_info);
         bytes.extend_from_slice(decompressed_payload);
@@ -2086,8 +2086,8 @@ mod tests {
         header.uncompressed_size = 12345;
         header.compressed_size = 6789;
 
-        let serialized = bincode::serialize(&header).unwrap();
-        let deserialized: SaveFileHeader = bincode::deserialize(&serialized).unwrap();
+        let serialized = bincode_legacy::serialize(&header).unwrap();
+        let deserialized: SaveFileHeader = bincode_legacy::deserialize(&serialized).unwrap();
 
         assert_eq!(header.magic, deserialized.magic);
         assert_eq!(header.version, deserialized.version);
@@ -2134,7 +2134,7 @@ mod tests {
         // This is the regression: bincode's positional reader cannot use the
         // current nested serde defaults to safely consume an actual v1 record.
         assert!(
-            bincode::deserialize::<WorldSnapshot>(&legacy_payload).is_err(),
+            bincode_legacy::deserialize::<WorldSnapshot>(&legacy_payload).is_err(),
             "the current positional record must not be trusted for a v1 production payload"
         );
 
@@ -2156,7 +2156,7 @@ mod tests {
         let v2_payload = serialize_pre_hacker_disable_v2_fixture(v2_source)
             .expect("serialize exact pre-HDB v2 fixture");
         assert!(
-            bincode::deserialize::<WorldSnapshot>(&v2_payload).is_err(),
+            bincode_legacy::deserialize::<WorldSnapshot>(&v2_payload).is_err(),
             "the current v3 object record must not consume a pre-HDB v2 payload"
         );
         let (v2_migrated, v2_path) = decode_bincode_world_snapshot(&v2_payload)
@@ -2193,7 +2193,7 @@ mod tests {
         let v3_payload =
             serialize_pre_v4_v3_fixture(v3_source).expect("serialize exact predecessor v3 fixture");
         assert!(
-            bincode::deserialize::<WorldSnapshot>(&v3_payload).is_err(),
+            bincode_legacy::deserialize::<WorldSnapshot>(&v3_payload).is_err(),
             "the current v4 record must not consume a v3 positional payload"
         );
         let (v3_migrated, v3_path) = decode_bincode_world_snapshot(&v3_payload)
@@ -2278,7 +2278,7 @@ mod tests {
         let v4_payload =
             serialize_pre_v5_v4_fixture(migrated).expect("serialize exact predecessor v4 fixture");
         assert!(
-            bincode::deserialize::<WorldSnapshot>(&v4_payload).is_err(),
+            bincode_legacy::deserialize::<WorldSnapshot>(&v4_payload).is_err(),
             "the current v5 record must not consume a v4 positional payload"
         );
         let (mut migrated, v4_path) = decode_bincode_world_snapshot(&v4_payload)
@@ -2293,7 +2293,7 @@ mod tests {
                 .is_none(),
             "v4 predecessor records must default the v5 collector tail"
         );
-        let current_payload = bincode::serialize(&migrated).expect("serialize current snapshot");
+        let current_payload = bincode_legacy::serialize(&migrated).expect("serialize current snapshot");
         let (current_round_trip, current_path) = decode_bincode_world_snapshot(&current_payload)
             .expect("current production snapshot should remain readable");
         assert_eq!(current_path, BincodeWorldSnapshotDecodePath::Current);

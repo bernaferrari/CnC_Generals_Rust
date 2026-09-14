@@ -11,7 +11,7 @@
 
 use dashmap::DashMap;
 use parking_lot::{Mutex, RwLock};
-use rand::{Rng, thread_rng};
+use rand::{RngExt, rng};
 use smallvec::SmallVec;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -188,21 +188,21 @@ impl SoundEffectDescriptor {
     }
 
     /// Apply random variation to base parameters
-    pub fn apply_variation(&self, rng: &mut impl Rng) -> (f32, f32, Duration) {
+    pub fn apply_variation(&self, rng: &mut impl RngExt) -> (f32, f32, Duration) {
         let volume_factor = if self.variation.volume_variation > 0.0 {
-            1.0 + rng.gen_range(-self.variation.volume_variation..self.variation.volume_variation)
+            1.0 + rng.random_range(-self.variation.volume_variation..self.variation.volume_variation)
         } else {
             1.0
         };
 
         let pitch_factor = if self.variation.pitch_variation > 0.0 {
-            1.0 + rng.gen_range(-self.variation.pitch_variation..self.variation.pitch_variation)
+            1.0 + rng.random_range(-self.variation.pitch_variation..self.variation.pitch_variation)
         } else {
             1.0
         };
 
         let delay = if self.variation.delay_variation_ms > 0 {
-            Duration::from_millis(rng.gen_range(0..self.variation.delay_variation_ms) as u64)
+            Duration::from_millis(rng.random_range(0..self.variation.delay_variation_ms) as u64)
         } else {
             Duration::ZERO
         };
@@ -215,9 +215,9 @@ impl SoundEffectDescriptor {
     }
 
     /// Get random file variation
-    pub fn get_random_file(&self, rng: &mut impl Rng) -> &String {
+    pub fn get_random_file(&self, rng: &mut impl RngExt) -> &String {
         if !self.variation.file_variations.is_empty() {
-            let index = rng.gen_range(0..self.variation.file_variations.len());
+            let index = rng.random_range(0..self.variation.file_variations.len());
             &self.variation.file_variations[index]
         } else {
             &self.file_path
@@ -225,8 +225,8 @@ impl SoundEffectDescriptor {
     }
 
     /// Check if sound should play based on probability
-    pub fn should_play(&self, rng: &mut impl Rng) -> bool {
-        rng.r#gen::<f32>() < self.variation.play_probability
+    pub fn should_play(&self, rng: &mut impl RngExt) -> bool {
+        rng.random::<f32>() < self.variation.play_probability
     }
 }
 
@@ -478,7 +478,7 @@ impl SoundEffectManager {
         }
 
         // Check if should play based on probability
-        let mut rng = thread_rng();
+        let mut rng = rng();
         if !descriptor.should_play(&mut rng) {
             return Err("Sound probability check failed".into());
         }
@@ -764,7 +764,7 @@ impl SoundEffectManager {
 
         #[cfg(feature = "audio")]
         {
-            use rodio::{Decoder, Sink, Source, SpatialSink};
+            use rodio_compat::{Decoder, Sink, Source, SpatialSink};
             use std::io::Cursor;
 
             let audio_data = self
@@ -798,7 +798,7 @@ impl SoundEffectManager {
                     Cursor::new(data)
                 }
             };
-            let source = Decoder::new(cursor)?.convert_samples();
+            let source = Decoder::new(cursor)?;
 
             let final_source: Box<dyn Source<Item = f32> + Send> = if looping {
                 if (pitch - 1.0).abs() > 0.01 {
@@ -813,7 +813,7 @@ impl SoundEffectManager {
             };
 
             if let Some(pos) = position {
-                let (stream, stream_handle) = rodio::OutputStream::try_default()?;
+                let (stream, stream_handle) = rodio_compat::OutputStream::try_default()?;
                 let spatial_sink = SpatialSink::try_new(
                     &stream_handle,
                     [pos.x, pos.y, pos.z],
@@ -824,7 +824,7 @@ impl SoundEffectManager {
                 spatial_sink.append(final_source);
                 std::mem::forget(stream);
             } else {
-                let (stream, stream_handle) = rodio::OutputStream::try_default()?;
+                let (stream, stream_handle) = rodio_compat::OutputStream::try_default()?;
                 let sink = Sink::try_new(&stream_handle)?;
                 sink.set_volume(volume.clamp(0.0, 1.0));
                 sink.append(final_source);
@@ -978,7 +978,7 @@ mod tests {
         );
         descriptor.variation = variation;
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let (volume, pitch, _delay) = descriptor.apply_variation(&mut rng);
 
         assert!(volume >= 0.8 && volume <= 1.2); // Base 1.0 +/- 0.2

@@ -4,9 +4,9 @@
 //! and correct behavior for all visual effects.
 
 #[cfg(test)]
+use glam::{Vec3};
 mod particle_system_tests {
     use super::super::*;
-    use nalgebra::{Point3, Vector3};
     use std::sync::Arc;
 
     #[test]
@@ -50,8 +50,8 @@ mod particle_system_tests {
     #[test]
     fn test_particle_creation_and_lifecycle() {
         let info = ParticleInfo {
-            position: Point3::new(1.0, 2.0, 3.0),
-            velocity: Vector3::new(0.1, 0.2, 0.3),
+            position: Vec3::new(1.0, 2.0, 3.0),
+            velocity: Vec3::new(0.1, 0.2, 0.3),
             lifetime: 60,
             size: 2.0,
             alpha_keys: [
@@ -81,8 +81,8 @@ mod particle_system_tests {
         // Initial state
         assert_eq!(particle.personality, 1);
         assert_eq!(particle.lifetime_left, 60);
-        assert_eq!(particle.position, Point3::new(1.0, 2.0, 3.0));
-        assert_eq!(particle.velocity, Vector3::new(0.1, 0.2, 0.3));
+        assert_eq!(particle.position, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(particle.velocity, Vec3::new(0.1, 0.2, 0.3));
 
         // Update particle
         let alive = particle.update();
@@ -90,7 +90,7 @@ mod particle_system_tests {
         assert_eq!(particle.lifetime_left, 59);
 
         // Position should have moved
-        assert_eq!(particle.position, Point3::new(1.1, 2.2, 3.3));
+        assert_eq!(particle.position, Vec3::new(1.1, 2.2, 3.3));
 
         // Test particle death
         particle.lifetime_left = 1;
@@ -124,13 +124,13 @@ mod particle_system_tests {
 
         // Test box emission
         let box_volume = EmissionVolume::Box {
-            half_size: Vector3::new(2.0, 3.0, 4.0),
+            half_size: Vec3::new(2.0, 3.0, 4.0),
         };
 
         // Test line emission
         let line_volume = EmissionVolume::Line {
-            start: Point3::origin(),
-            end: Point3::new(10.0, 0.0, 0.0),
+            start: Vec3::ZERO,
+            end: Vec3::new(10.0, 0.0, 0.0),
         };
 
         // Test cylinder emission
@@ -391,7 +391,6 @@ mod particle_system_tests {
 #[cfg(test)]
 mod particle_optimization_tests {
     use super::super::*;
-    use nalgebra::Point3;
 
     #[test]
     fn test_optimizer_creation() {
@@ -403,15 +402,15 @@ mod particle_optimization_tests {
     #[test]
     fn test_lod_calculation() {
         let mut optimizer = ParticleOptimizer::new();
-        optimizer.update_camera_position(Point3::origin());
+        optimizer.update_camera_position(Vec3::ZERO);
 
         // Test various distances
         let positions_and_expected = [
-            (Point3::new(50.0, 0.0, 0.0), ParticleLODLevel::High),
-            (Point3::new(200.0, 0.0, 0.0), ParticleLODLevel::Medium),
-            (Point3::new(500.0, 0.0, 0.0), ParticleLODLevel::Low),
-            (Point3::new(800.0, 0.0, 0.0), ParticleLODLevel::Minimal),
-            (Point3::new(2000.0, 0.0, 0.0), ParticleLODLevel::Culled),
+            (Vec3::new(50.0, 0.0, 0.0), ParticleLODLevel::High),
+            (Vec3::new(200.0, 0.0, 0.0), ParticleLODLevel::Medium),
+            (Vec3::new(500.0, 0.0, 0.0), ParticleLODLevel::Low),
+            (Vec3::new(800.0, 0.0, 0.0), ParticleLODLevel::Minimal),
+            (Vec3::new(2000.0, 0.0, 0.0), ParticleLODLevel::Culled),
         ];
 
         for (position, expected_lod) in positions_and_expected.iter() {
@@ -804,7 +803,6 @@ mod particle_renderer_tests {
 #[cfg(test)]
 mod integration_tests {
     use super::super::*;
-    use nalgebra::{Point3, Vector3};
     use std::sync::Arc;
 
     #[test]
@@ -877,7 +875,7 @@ mod integration_tests {
         let system = manager.find_particle_system_mut(system_id).unwrap();
 
         // Set position
-        system.set_position(Point3::new(100.0, 50.0, 10.0));
+        system.set_position(Vec3::new(100.0, 50.0, 10.0));
 
         // Trigger explosion
         system.trigger();
@@ -898,7 +896,7 @@ mod integration_tests {
         let mut optimizer = ParticleOptimizer::new();
 
         // Set camera position
-        optimizer.update_camera_position(Point3::origin());
+        optimizer.update_camera_position(Vec3::ZERO);
 
         // Create multiple particle systems at different distances
         let distances = [50.0, 200.0, 500.0, 1000.0];
@@ -909,7 +907,7 @@ mod integration_tests {
             let system_id = manager.create_particle_system(&template, false).unwrap();
 
             if let Some(system) = manager.find_particle_system_mut(system_id) {
-                system.set_position(Point3::new(distance, 0.0, 0.0));
+                system.set_position(Vec3::new(distance, 0.0, 0.0));
             }
 
             system_ids.push(system_id);

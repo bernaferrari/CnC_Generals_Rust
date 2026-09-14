@@ -464,7 +464,8 @@ impl RenderPipeline {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
-            });
+                multiview_mask: None,
+});
             render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
             render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
 

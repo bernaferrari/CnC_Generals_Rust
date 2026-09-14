@@ -34,7 +34,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(FSGM_MAGIC);
@@ -62,7 +62,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "FSGM payload truncated".to_string(),
         ));
     }
-    let payload: HelixNapalmPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: HelixNapalmPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("FSGM payload decode: {err}")))?;
     game_logic.helix_napalm = payload.registry;
     Ok(())

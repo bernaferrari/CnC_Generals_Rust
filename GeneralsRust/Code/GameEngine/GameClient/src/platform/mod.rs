@@ -62,6 +62,7 @@ impl GraphicsContext {
             compatible_surface: Some(surface.as_ref()),
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .map_err(|_| PlatformError::AdapterNotFound)?;
 
@@ -90,6 +91,7 @@ impl GraphicsContext {
         let config = SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
@@ -157,13 +159,13 @@ impl Clone for GraphicsContext {
 
 /// Minimal audio context using Kira.
 pub struct AudioContext {
-    manager: kira::manager::AudioManager<kira::manager::backend::DefaultBackend>,
+    manager: kira::AudioManager<kira::DefaultBackend>,
 }
 
 impl AudioContext {
     fn new() -> Result<Self, PlatformError> {
-        let manager = kira::manager::AudioManager::<kira::manager::backend::DefaultBackend>::new(
-            kira::manager::AudioManagerSettings::default(),
+        let manager = kira::AudioManager::<kira::DefaultBackend>::new(
+            kira::AudioManagerSettings::default(),
         )
         .map_err(|e| PlatformError::AudioInitialization(e.to_string()))?;
         Ok(Self { manager })
@@ -172,7 +174,7 @@ impl AudioContext {
     /// Obtain a mutable handle to the underlying audio manager.
     pub fn manager(
         &mut self,
-    ) -> &mut kira::manager::AudioManager<kira::manager::backend::DefaultBackend> {
+    ) -> &mut kira::AudioManager<kira::DefaultBackend> {
         &mut self.manager
     }
 }

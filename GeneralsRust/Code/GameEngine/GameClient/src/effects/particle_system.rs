@@ -6,7 +6,7 @@
 use game_engine::common::random_value::{
     get_game_client_random_value, get_game_client_random_value_real,
 };
-use nalgebra::{Matrix3, Point3, Vector3};
+use glam::{Mat3, Vec3};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
@@ -17,9 +17,9 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 /// Individual particle information (matches C++ ParticleInfo)
 #[derive(Debug, Clone)]
 pub struct ParticleInfo {
-    pub velocity: Vector3<f32>,
-    pub position: Point3<f32>,
-    pub emitter_position: Point3<f32>,
+    pub velocity: Vec3,
+    pub position: Vec3,
+    pub emitter_position: Vec3,
     pub vel_damping: f32,
 
     pub angle_z: f32,
@@ -43,9 +43,9 @@ pub struct ParticleInfo {
 impl Default for ParticleInfo {
     fn default() -> Self {
         Self {
-            velocity: Vector3::zeros(),
-            position: Point3::origin(),
-            emitter_position: Point3::origin(),
+            velocity: Vec3::ZERO,
+            position: Vec3::ZERO,
+            emitter_position: Vec3::ZERO,
             vel_damping: 1.0,
 
             angle_z: 0.0,
@@ -72,9 +72,9 @@ impl Default for ParticleInfo {
 #[derive(Debug)]
 pub struct Particle {
     // Basic properties from ParticleInfo
-    pub velocity: Vector3<f32>,
-    pub position: Point3<f32>,
-    pub emitter_position: Point3<f32>,
+    pub velocity: Vec3,
+    pub position: Vec3,
+    pub emitter_position: Vec3,
     pub vel_damping: f32,
 
     pub angle_z: f32,
@@ -95,8 +95,8 @@ pub struct Particle {
     pub particle_up_towards_emitter: bool,
 
     // Runtime state
-    pub acceleration: Vector3<f32>,
-    pub last_position: Point3<f32>,
+    pub acceleration: Vec3,
+    pub last_position: Vec3,
     pub lifetime_left: u32,
     pub create_timestamp: u32,
 
@@ -152,7 +152,7 @@ impl Particle {
             particle_up_towards_emitter: info.particle_up_towards_emitter,
 
             // Initialize runtime state
-            acceleration: Vector3::zeros(),
+            acceleration: Vec3::ZERO,
             last_position: info.position,
             lifetime_left: info.lifetime,
             create_timestamp,
@@ -194,7 +194,7 @@ impl Particle {
     /// * `shader_type` - Shader type for alpha handling (C++: m_system->getShaderType())
     pub fn update(
         &mut self,
-        drift_velocity: Vector3<f32>,
+        drift_velocity: Vec3,
         current_frame: u32,
         shader_type: ParticleShaderType,
     ) -> bool {
@@ -294,7 +294,7 @@ impl Particle {
         self.color[2] = self.color[2].clamp(0.0, 1.0);
 
         // Clear acceleration for next frame (C++ line 447)
-        self.acceleration = Vector3::zeros();
+        self.acceleration = Vec3::ZERO;
 
         // Monitor lifetime (C++ ParticleSys.cpp:453-456)
         if self.lifetime_left > 0 {
@@ -323,7 +323,7 @@ impl Particle {
     }
 
     /// Apply force to particle (matches C++ Particle::applyForce)
-    pub fn apply_force(&mut self, force: Vector3<f32>) {
+    pub fn apply_force(&mut self, force: Vec3) {
         self.acceleration += force;
     }
 
@@ -335,7 +335,7 @@ impl Particle {
     /// # Arguments
     /// * `wind_angle` - Current wind angle from the particle system
     /// * `system_pos` - Position of the particle system (emitter)
-    pub fn do_wind_motion(&mut self, wind_angle: f32, system_pos: Point3<f32>) {
+    pub fn do_wind_motion(&mut self, wind_angle: f32, system_pos: Vec3) {
         // C++ constants for wind force (lines 501-502)
         const FULL_FORCE_DISTANCE: f32 = 75.0;
         const NO_FORCE_DISTANCE: f32 = 200.0;
@@ -944,14 +944,14 @@ pub(crate) fn merge_related_particle_systems(
     merge_info
 }
 
-fn xfer_vec3(xfer: &mut dyn Xfer, value: &mut Vector3<f32>) -> Result<(), String> {
+fn xfer_vec3(xfer: &mut dyn Xfer, value: &mut Vec3) -> Result<(), String> {
     xfer.xfer_real(&mut value.x).map_err(|e| e.to_string())?;
     xfer.xfer_real(&mut value.y).map_err(|e| e.to_string())?;
     xfer.xfer_real(&mut value.z).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-fn xfer_point3(xfer: &mut dyn Xfer, value: &mut Point3<f32>) -> Result<(), String> {
+fn xfer_point3(xfer: &mut dyn Xfer, value: &mut Vec3) -> Result<(), String> {
     xfer.xfer_real(&mut value.x).map_err(|e| e.to_string())?;
     xfer.xfer_real(&mut value.y).map_err(|e| e.to_string())?;
     xfer.xfer_real(&mut value.z).map_err(|e| e.to_string())?;
@@ -960,12 +960,12 @@ fn xfer_point3(xfer: &mut dyn Xfer, value: &mut Point3<f32>) -> Result<(), Strin
 
 fn xfer_matrix3(
     xfer: &mut dyn Xfer,
-    value: &mut Matrix3<f32>,
-    translation: &mut Vector3<f32>,
+    value: &mut Mat3,
+    translation: &mut Vec3,
 ) -> Result<(), String> {
     for row in 0..3 {
         for col in 0..3 {
-            xfer.xfer_real(&mut value[(row, col)])
+            xfer.xfer_real(&mut value.col_mut(col)[row])
                 .map_err(|e| e.to_string())?;
         }
         xfer.xfer_real(&mut translation[row])
@@ -975,35 +975,35 @@ fn xfer_matrix3(
 }
 
 /// C++ ParticleSystem::computePointOnUnitSphere — cube-reject, not polar.
-fn compute_point_on_unit_sphere() -> Vector3<f32> {
+fn compute_point_on_unit_sphere() -> Vec3 {
     loop {
         let x = get_game_client_random_value_real(-1.0, 1.0);
         let y = get_game_client_random_value_real(-1.0, 1.0);
         let z = get_game_client_random_value_real(-1.0, 1.0);
         if x != 0.0 || y != 0.0 || z != 0.0 {
-            return Vector3::new(x, y, z).normalize();
+            return Vec3::new(x, y, z).normalize();
         }
     }
 }
 
 /// C++ HEMISPHERICAL velocity: cube-octant reject (z in [0,1]) then normalize.
-fn compute_point_on_unit_hemisphere() -> Vector3<f32> {
+fn compute_point_on_unit_hemisphere() -> Vec3 {
     loop {
         let x = get_game_client_random_value_real(-1.0, 1.0);
         let y = get_game_client_random_value_real(-1.0, 1.0);
         let z = get_game_client_random_value_real(0.0, 1.0);
         if x != 0.0 || y != 0.0 || z != 0.0 {
-            return Vector3::new(x, y, z).normalize();
+            return Vec3::new(x, y, z).normalize();
         }
     }
 }
 
-/// Extract nalgebra rotation + translation from a glam/SAGE 4x4 (column-major).
-fn affine_from_glam_cols(cols: [f32; 16]) -> (Matrix3<f32>, Vector3<f32>) {
-    let rot = Matrix3::from_column_slice(&[
+/// Extract rotation + translation from a glam/SAGE 4x4 (column-major).
+fn affine_from_glam_cols(cols: [f32; 16]) -> (Mat3, Vec3) {
+    let rot = Mat3::from_cols_array(&[
         cols[0], cols[1], cols[2], cols[4], cols[5], cols[6], cols[8], cols[9], cols[10],
     ]);
-    let trans = Vector3::new(cols[12], cols[13], cols[14]);
+    let trans = Vec3::new(cols[12], cols[13], cols[14]);
     (rot, trans)
 }
 
@@ -1242,7 +1242,7 @@ fn xfer_emission_volume(
         EmissionVolumeType::Line => {
             let (mut start, mut end) = match *volume {
                 EmissionVolume::Line { start, end } => (start, end),
-                _ => (Point3::origin(), Point3::origin()),
+                _ => (Vec3::ZERO, Vec3::ZERO),
             };
             xfer_point3(xfer, &mut start)?;
             xfer_point3(xfer, &mut end)?;
@@ -1251,7 +1251,7 @@ fn xfer_emission_volume(
         EmissionVolumeType::Box => {
             let mut half_size = match *volume {
                 EmissionVolume::Box { half_size } => half_size,
-                _ => Vector3::zeros(),
+                _ => Vec3::ZERO,
             };
             xfer_vec3(xfer, &mut half_size)?;
             *volume = EmissionVolume::Box { half_size };
@@ -1300,12 +1300,12 @@ pub struct ParticleSystem {
     attached_object_id: ObjectId,
 
     // Transform (C++ Matrix3D is 3x4: rotation + translation)
-    local_transform: Matrix3<f32>,
-    local_translation: Vector3<f32>,
-    transform: Matrix3<f32>,
-    transform_translation: Vector3<f32>,
-    position: Point3<f32>,
-    last_position: Point3<f32>,
+    local_transform: Mat3,
+    local_translation: Vec3,
+    transform: Mat3,
+    transform_translation: Vec3,
+    position: Vec3,
+    last_position: Vec3,
 
     // Timing
     burst_delay_left: u32,
@@ -1317,7 +1317,7 @@ pub struct ParticleSystem {
     accumulated_size_bonus: f32,
 
     // Coefficients for scaling
-    vel_coeff: Vector3<f32>,
+    vel_coeff: Vec3,
     count_coeff: f32,
     delay_coeff: f32,
     size_coeff: f32,
@@ -1328,7 +1328,7 @@ pub struct ParticleSystem {
 
     // Control particle
     control_particle: Option<usize>, // Index into particles vector
-    control_particle_pos: Option<Point3<f32>>,
+    control_particle_pos: Option<Vec3>,
     dead_controlled_systems: Vec<ParticleSystemId>,
 
     // State flags
@@ -1356,7 +1356,7 @@ pub struct ParticleSystem {
     is_shrouded: bool,
 
     // Parent transform override for attached systems
-    parent_transform: Option<Matrix3<f32>>,
+    parent_transform: Option<Mat3>,
 
     // Particle scale multiplier
     particle_scale: f32,
@@ -1395,12 +1395,12 @@ impl ParticleSystem {
             attached_drawable_id: DrawableId::INVALID,
             attached_object_id: 0,
 
-            local_transform: Matrix3::identity(),
-            local_translation: Vector3::zeros(),
-            transform: Matrix3::identity(),
-            transform_translation: Vector3::zeros(),
-            position: Point3::origin(),
-            last_position: Point3::origin(),
+            local_transform: Mat3::IDENTITY,
+            local_translation: Vec3::ZERO,
+            transform: Mat3::IDENTITY,
+            transform_translation: Vec3::ZERO,
+            position: Vec3::ZERO,
+            last_position: Vec3::ZERO,
 
             burst_delay_left: 0,
             delay_left: info.initial_delay.sample() as u32,
@@ -1409,7 +1409,7 @@ impl ParticleSystem {
 
             accumulated_size_bonus: 0.0,
 
-            vel_coeff: Vector3::new(1.0, 1.0, 1.0),
+            vel_coeff: Vec3::new(1.0, 1.0, 1.0),
             count_coeff: 1.0,
             delay_coeff: 1.0,
             size_coeff: 1.0,
@@ -1550,16 +1550,16 @@ impl ParticleSystem {
 
     /// Set position (matches C++ ParticleSystem::setPosition).
     /// Writes local Matrix3D translation and clears local-identity.
-    pub fn set_position(&mut self, pos: Point3<f32>) {
-        self.local_translation = pos.coords;
+    pub fn set_position(&mut self, pos: Vec3) {
+        self.local_translation = pos;
         self.is_local_identity = false;
         self.update_transform();
     }
 
     /// World emission origin for callers (LOD / manager). C++ getPosition
     /// returns local translation; after compose this is parent*local origin.
-    pub fn position(&self) -> Point3<f32> {
-        Point3::from(self.transform_translation)
+    pub fn position(&self) -> Vec3 {
+        Vec3::from(self.transform_translation)
     }
 
     /// Get emission volume type (uses overrides if present).
@@ -1587,15 +1587,15 @@ impl ParticleSystem {
     }
 
     /// Set local transform (matches C++ ParticleSystem::setLocalTransform)
-    pub fn set_local_transform(&mut self, matrix: Matrix3<f32>) {
+    pub fn set_local_transform(&mut self, matrix: Mat3) {
         self.local_transform = matrix;
         self.is_local_identity =
-            matrix == Matrix3::identity() && self.local_translation == Vector3::zeros();
+            matrix == Mat3::IDENTITY && self.local_translation == Vec3::ZERO;
         self.update_transform();
     }
 
     /// Scale particle launch velocity for this system instance.
-    pub fn set_velocity_multiplier(&mut self, multiplier: Vector3<f32>) {
+    pub fn set_velocity_multiplier(&mut self, multiplier: Vec3) {
         self.vel_coeff = multiplier;
     }
 
@@ -1620,7 +1620,7 @@ impl ParticleSystem {
     }
 
     /// Get drift velocity
-    pub fn drift_velocity(&self) -> Vector3<f32> {
+    pub fn drift_velocity(&self) -> Vec3 {
         self.template.info().drift_velocity
     }
 
@@ -1654,7 +1654,7 @@ impl ParticleSystem {
     }
 
     /// Get slave position offset
-    pub fn slave_position_offset(&self) -> Vector3<f32> {
+    pub fn slave_position_offset(&self) -> Vec3 {
         self.template.info().slave_pos_offset
     }
 
@@ -1733,12 +1733,12 @@ impl ParticleSystem {
     }
 
     /// Set parent transform matrix. C++ parity: ParticleSys.cpp lines 1863, 1886-1890
-    pub fn set_parent_transform(&mut self, transform: Option<Matrix3<f32>>) {
+    pub fn set_parent_transform(&mut self, transform: Option<Mat3>) {
         self.parent_transform = transform;
     }
 
     /// C++ `ParticleSystem::setControlParticle` — follow this world position.
-    pub fn set_control_particle_position(&mut self, pos: Point3<f32>) {
+    pub fn set_control_particle_position(&mut self, pos: Vec3) {
         self.control_particle_pos = Some(pos);
     }
 
@@ -1765,7 +1765,7 @@ impl ParticleSystem {
         self.last_position = self.position;
         self.position = pos;
         // C++ ParticleSys.cpp:1953-1956 — override world translation, not local.
-        self.transform_translation = pos.coords;
+        self.transform_translation = pos;
         self.is_identity = false;
     }
 
@@ -1780,7 +1780,7 @@ impl ParticleSystem {
                             let (rot, trans) =
                                 affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
                             self.parent_transform = Some(rot);
-                            self.position = Point3::from(trans);
+                            self.position = Vec3::from(trans);
                         } else {
                             self.apply_yaw_parent_pose(
                                 state.position.x,
@@ -1833,18 +1833,18 @@ impl ParticleSystem {
                                 draw_guard.get_transform_matrix().to_cols_array(),
                             );
                             self.parent_transform = Some(rot);
-                            self.position = Point3::from(trans);
+                            self.position = Vec3::from(trans);
                         } else {
                             let (rot, trans) =
                                 affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
                             self.parent_transform = Some(rot);
-                            self.position = Point3::from(trans);
+                            self.position = Vec3::from(trans);
                         }
                     } else {
                         let (rot, trans) =
                             affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
                         self.parent_transform = Some(rot);
-                        self.position = Point3::from(trans);
+                        self.position = Vec3::from(trans);
                     }
                 }
                 return;
@@ -1855,16 +1855,16 @@ impl ParticleSystem {
     }
 
     fn apply_yaw_parent_pose(&mut self, x: f32, y: f32, z: f32, yaw: f32) {
-        self.position = Point3::new(x, y, z);
+        self.position = Vec3::new(x, y, z);
         let (s, c) = yaw.sin_cos();
-        self.parent_transform = Some(Matrix3::new(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0));
+        self.parent_transform = Some(Mat3::from_cols_array(&[c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0]));
     }
 
     fn apply_host_fx_object_pose(&mut self, pose: &gamelogic::helpers::HostFxObjectPose) {
         self.last_position = self.position;
         let (rot, trans) = affine_from_glam_cols(pose.transform.to_cols_array());
         self.parent_transform = Some(rot);
-        self.position = Point3::from(trans);
+        self.position = Vec3::from(trans);
         // C++ ParticleSys.cpp:1880-1905 object-attach Fogged+ emit gate.
         self.is_shrouded = pose.is_shrouded;
     }
@@ -1877,7 +1877,7 @@ impl ParticleSystem {
     }
 
     /// Get velocity multiplier
-    pub fn velocity_multiplier(&self) -> Vector3<f32> {
+    pub fn velocity_multiplier(&self) -> Vec3 {
         self.vel_coeff
     }
 
@@ -1927,7 +1927,7 @@ impl ParticleSystem {
     }
 
     /// Local transform used for orient-to-object / rotate residuals.
-    pub fn local_transform(&self) -> Matrix3<f32> {
+    pub fn local_transform(&self) -> Mat3 {
         self.local_transform
     }
 
@@ -1941,11 +1941,11 @@ impl ParticleSystem {
     pub fn rotate_local_transform_x(&mut self, angle: f32) {
         let cos_a = angle.cos();
         let sin_a = angle.sin();
-        let rot = Matrix3::from_columns(&[
-            Vector3::new(1.0, 0.0, 0.0),
-            Vector3::new(0.0, cos_a, sin_a),
-            Vector3::new(0.0, -sin_a, cos_a),
-        ]);
+        let rot = Mat3::from_cols(
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, cos_a, sin_a),
+            Vec3::new(0.0, -sin_a, cos_a),
+        );
         self.local_transform = rot * self.local_transform;
         self.is_local_identity = false;
         self.update_transform();
@@ -1955,11 +1955,11 @@ impl ParticleSystem {
     pub fn rotate_local_transform_y(&mut self, angle: f32) {
         let cos_a = angle.cos();
         let sin_a = angle.sin();
-        let rot = Matrix3::from_columns(&[
-            Vector3::new(cos_a, 0.0, -sin_a),
-            Vector3::new(0.0, 1.0, 0.0),
-            Vector3::new(sin_a, 0.0, cos_a),
-        ]);
+        let rot = Mat3::from_cols(
+            Vec3::new(cos_a, 0.0, -sin_a),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(sin_a, 0.0, cos_a),
+        );
         self.local_transform = rot * self.local_transform;
         self.is_local_identity = false;
         self.update_transform();
@@ -1969,11 +1969,11 @@ impl ParticleSystem {
     pub fn rotate_local_transform_z(&mut self, angle: f32) {
         let cos_a = angle.cos();
         let sin_a = angle.sin();
-        let rot = Matrix3::from_columns(&[
-            Vector3::new(cos_a, sin_a, 0.0),
-            Vector3::new(-sin_a, cos_a, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-        ]);
+        let rot = Mat3::from_cols(
+            Vec3::new(cos_a, sin_a, 0.0),
+            Vec3::new(-sin_a, cos_a, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        );
         self.local_transform = rot * self.local_transform;
         self.is_local_identity = false;
         self.update_transform();
@@ -2058,7 +2058,7 @@ impl ParticleSystem {
         let wind_motion = self.template.info().wind_motion;
         let shader_type = self.template.info().shader_type;
         // C++ doWindMotion: local translation + attached parent pos (unrotated add).
-        let system_pos = Point3::from(self.position.coords + self.local_translation);
+        let system_pos = Vec3::from(self.position + self.local_translation);
 
         while i < self.particles.len() {
             let mut remove_particle = false;
@@ -2069,7 +2069,7 @@ impl ParticleSystem {
                 // Apply gravity as force (C++ update loop lines 2144-2149)
                 // Note: C++ uses positive gravity for downward force (z decreases)
                 if gravity != 0.0 {
-                    particle.apply_force(Vector3::new(0.0, 0.0, gravity));
+                    particle.apply_force(Vec3::new(0.0, 0.0, gravity));
                 }
 
                 // C++ Particle::update: accel→vel, pos+=vel+drift, THEN doWindMotion.
@@ -2147,11 +2147,11 @@ impl ParticleSystem {
         // C++ computeParticlePosition/Velocity stay in local space; transform is
         // applied below only when m_isIdentity is false (ParticleSys.cpp:1724-1771).
         particle_info.position = self.compute_particle_position();
-        particle_info.emitter_position = Point3::from(self.transform_translation);
+        particle_info.emitter_position = Vec3::from(self.transform_translation);
 
         particle_info.velocity = self.compute_particle_velocity(&particle_info.position);
         let vel_scale = 0.5 + self.particle_scale / 2.0;
-        particle_info.velocity.component_mul_assign(&self.vel_coeff);
+        particle_info.velocity *= self.vel_coeff;
         particle_info.velocity *= vel_scale;
 
         if !self.is_identity {
@@ -2163,8 +2163,8 @@ impl ParticleSystem {
             let denom = particle_count.max(1) as f32;
             let spread = 1.0 - (particle_num as f32 / denom);
             let adjustment = (self.position - last) * spread;
-            let world = self.transform * particle_info.position.coords + self.transform_translation;
-            particle_info.position = Point3::from(world) - adjustment;
+            let world = self.transform * particle_info.position + self.transform_translation;
+            particle_info.position = Vec3::from(world) - adjustment;
             particle_info.velocity = self.transform * particle_info.velocity;
         }
         // Lifetime
@@ -2215,17 +2215,17 @@ impl ParticleSystem {
     }
 
     /// Compute particle position based on emission volume (matches C++ ParticleSystem::computeParticlePosition)
-    fn compute_particle_position(&self) -> Point3<f32> {
+    fn compute_particle_position(&self) -> Vec3 {
         let info = self.template.info();
 
         let emission_volume = self.effective_emission_volume();
         let local_pos = match emission_volume {
-            EmissionVolume::Point => Vector3::zeros(),
+            EmissionVolume::Point => Vec3::ZERO,
 
             EmissionVolume::Line { start, end } => {
                 // C++ ParticleSys.cpp:1629 — t from the client stream.
                 let t = get_game_client_random_value_real(0.0, 1.0);
-                start.coords + (end - start) * t
+                start + (end - start) * t
             }
 
             EmissionVolume::Box { half_size } => {
@@ -2236,7 +2236,7 @@ impl ParticleSystem {
                     let side = get_game_client_random_value(0, 6);
                     if side % 3 == 0 {
                         // Bottom or top face (Z = -/+halfSize.z)
-                        Vector3::new(
+                        Vec3::new(
                             get_game_client_random_value_real(-half_size.x, half_size.x),
                             get_game_client_random_value_real(-half_size.y, half_size.y),
                             if side == 0 { -half_size.z } else { half_size.z },
@@ -2244,21 +2244,21 @@ impl ParticleSystem {
                     } else if side % 3 == 1 {
                         // Left or right face (X = -/+halfSize.x)
                         // C++ bug: uses halfSize.y instead of halfSize.x for X coordinate
-                        Vector3::new(
+                        Vec3::new(
                             if side == 1 { -half_size.x } else { half_size.y },
                             get_game_client_random_value_real(-half_size.y, half_size.y),
                             get_game_client_random_value_real(-half_size.z, half_size.z),
                         )
                     } else {
                         // Front or back face (Y = -/+halfSize.y)
-                        Vector3::new(
+                        Vec3::new(
                             get_game_client_random_value_real(-half_size.x, half_size.x),
                             if side == 2 { -half_size.y } else { half_size.y },
                             get_game_client_random_value_real(-half_size.z, half_size.z),
                         )
                     }
                 } else {
-                    Vector3::new(
+                    Vec3::new(
                         get_game_client_random_value_real(-half_size.x, half_size.x),
                         get_game_client_random_value_real(-half_size.y, half_size.y),
                         get_game_client_random_value_real(-half_size.z, half_size.z),
@@ -2287,14 +2287,14 @@ impl ParticleSystem {
                     get_game_client_random_value_real(0.0, radius)
                 };
                 let z = get_game_client_random_value_real(-half_length, half_length);
-                Vector3::new(r * theta.cos(), r * theta.sin(), z)
+                Vec3::new(r * theta.cos(), r * theta.sin(), z)
             }
         };
 
         // C++ parity: ParticleSys.cpp lines 1644-1646
         // C++: newPos *= (0.5f + m_particleScale/2.0f)
         let pos_scale = 0.5 + self.particle_scale / 2.0;
-        Point3::from(local_pos * pos_scale)
+        Vec3::from(local_pos * pos_scale)
     }
 
     fn effective_emission_volume(&self) -> EmissionVolume {
@@ -2303,11 +2303,11 @@ impl ParticleSystem {
     }
 
     /// Compute particle velocity based on emission properties (matches C++ ParticleSystem::computeParticleVelocity)
-    fn compute_particle_velocity(&self, position: &Point3<f32>) -> Vector3<f32> {
+    fn compute_particle_velocity(&self, position: &Vec3) -> Vec3 {
         let info = self.template.info();
 
         match info.emission_velocity {
-            EmissionVelocity::Ortho { x, y, z } => Vector3::new(x.sample(), y.sample(), z.sample()),
+            EmissionVelocity::Ortho { x, y, z } => Vec3::new(x.sample(), y.sample(), z.sample()),
 
             EmissionVelocity::Spherical { speed } => {
                 speed.sample() * compute_point_on_unit_sphere()
@@ -2322,7 +2322,7 @@ impl ParticleSystem {
                 let radial_speed = radial.sample();
                 let theta = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                 let normal_speed = normal.sample();
-                Vector3::new(
+                Vec3::new(
                     radial_speed * theta.cos(),
                     radial_speed * theta.sin(),
                     normal_speed,
@@ -2334,24 +2334,24 @@ impl ParticleSystem {
                 let other_speed_val = other_speed.sample();
 
                 match info.emission_volume_type {
-                    EmissionVolumeType::Invalid => Vector3::zeros(),
+                    EmissionVolumeType::Invalid => Vec3::ZERO,
                     EmissionVolumeType::Cylinder => {
                         let dx = position.x;
                         let dy = position.y;
                         let len = (dx * dx + dy * dy).sqrt();
                         if len > 0.0 {
-                            Vector3::new(
+                            Vec3::new(
                                 speed_val * dx / len,
                                 speed_val * dy / len,
                                 other_speed_val,
                             )
                         } else {
-                            Vector3::new(speed_val, 0.0, other_speed_val)
+                            Vec3::new(speed_val, 0.0, other_speed_val)
                         }
                     }
                     EmissionVolumeType::Box | EmissionVolumeType::Sphere => {
-                        let dir = position.coords;
-                        let len = dir.norm();
+                        let dir = position;
+                        let len = dir.length();
                         if len > 0.0 {
                             dir * (speed_val / len)
                         } else {
@@ -2362,12 +2362,12 @@ impl ParticleSystem {
                         let vol = self.effective_emission_volume();
                         if let EmissionVolume::Line { start, end } = vol {
                             let along = (end - start).normalize();
-                            let up = Vector3::new(0.0, 0.0, 1.0);
-                            let perp = up.cross(&along).normalize();
-                            let new_up = along.cross(&perp);
+                            let up = Vec3::new(0.0, 0.0, 1.0);
+                            let perp = up.cross(along).normalize();
+                            let new_up = along.cross(perp);
                             speed_val * perp + other_speed_val * new_up
                         } else {
-                            Vector3::new(0.0, 0.0, other_speed_val)
+                            Vec3::new(0.0, 0.0, other_speed_val)
                         }
                     }
                     EmissionVolumeType::Point => speed_val * compute_point_on_unit_sphere(),
@@ -2392,10 +2392,10 @@ impl ParticleSystem {
             } else if !self.is_local_identity {
                 self.transform = parent_xfrm * self.local_transform;
                 self.transform_translation =
-                    parent_xfrm * self.local_translation + self.position.coords;
+                    parent_xfrm * self.local_translation + self.position;
             } else {
                 self.transform = *parent_xfrm;
-                self.transform_translation = self.position.coords;
+                self.transform_translation = self.position;
             }
             self.is_identity = false;
         } else if !self.is_local_identity {
@@ -2403,8 +2403,8 @@ impl ParticleSystem {
             self.transform_translation = self.local_translation;
             self.is_identity = false;
         } else {
-            self.transform = Matrix3::identity();
-            self.transform_translation = Vector3::zeros();
+            self.transform = Mat3::IDENTITY;
+            self.transform_translation = Vec3::ZERO;
             self.is_identity = true;
         }
     }
@@ -2562,12 +2562,12 @@ mod tests {
     fn set_position_writes_local_translation() {
         let template = Arc::new(ParticleSystemTemplate::new("Offset".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
-        system.set_position(Point3::new(10.0, 20.0, 30.0));
-        assert_eq!(system.position(), Point3::new(10.0, 20.0, 30.0));
+        system.set_position(Vec3::new(10.0, 20.0, 30.0));
+        assert_eq!(system.position(), Vec3::new(10.0, 20.0, 30.0));
         assert!(!system.is_local_identity);
 
         let info = system.generate_particle_info(0, 1).unwrap();
-        assert_eq!(info.position, Point3::new(10.0, 20.0, 30.0));
+        assert_eq!(info.position, Vec3::new(10.0, 20.0, 30.0));
     }
 
     #[test]
@@ -2577,11 +2577,11 @@ mod tests {
         // parent 4x4 * local (including pitch/roll, not yaw-only).
         let template = Arc::new(ParticleSystemTemplate::new("BoneFx".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
-        system.set_position(Point3::new(0.0, 0.0, 10.0));
-        system.position = Point3::new(100.0, 200.0, 0.0);
+        system.set_position(Vec3::new(0.0, 0.0, 10.0));
+        system.position = Vec3::new(100.0, 200.0, 0.0);
         let (s, c) = std::f32::consts::FRAC_PI_2.sin_cos();
         // Rotate +90° about X: (0,0,10) → (0,-10,0)
-        system.parent_transform = Some(Matrix3::new(1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c));
+        system.parent_transform = Some(Mat3::from_cols_array(&[1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c]));
         system.update_transform_from_parent();
 
         let info = system.generate_particle_info(0, 1).unwrap();
@@ -2597,27 +2597,27 @@ mod tests {
         // C++ ParticleSys.cpp:1912-1915 — skipParentXfrm uses m_localTransform only.
         let template = Arc::new(ParticleSystemTemplate::new("SkipParent".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
-        system.set_position(Point3::new(0.0, 0.0, 10.0));
-        system.position = Point3::new(100.0, 200.0, 0.0);
-        system.parent_transform = Some(Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0));
+        system.set_position(Vec3::new(0.0, 0.0, 10.0));
+        system.position = Vec3::new(100.0, 200.0, 0.0);
+        system.parent_transform = Some(Mat3::from_cols_array(&[0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0]));
         system.set_skip_parent_xfrm(true);
         system.update_transform_from_parent();
 
         let info = system.generate_particle_info(0, 1).unwrap();
-        assert_eq!(info.position, Point3::new(0.0, 0.0, 10.0));
+        assert_eq!(info.position, Vec3::new(0.0, 0.0, 10.0));
     }
 
     #[test]
     fn generate_spreads_burst_along_parent_motion() {
         let template = Arc::new(ParticleSystemTemplate::new("Trail".to_string()));
         let mut system = ParticleSystem::new(template, 1, false);
-        system.set_position(Point3::origin());
-        system.position = Point3::new(10.0, 0.0, 0.0);
-        system.last_position = Point3::new(0.0, 0.0, 0.0);
+        system.set_position(Vec3::ZERO);
+        system.position = Vec3::new(10.0, 0.0, 0.0);
+        system.last_position = Vec3::new(0.0, 0.0, 0.0);
         system.is_first_pos = false;
         system.is_identity = false;
-        system.transform = Matrix3::identity();
-        system.transform_translation = Vector3::new(10.0, 0.0, 0.0);
+        system.transform = Mat3::IDENTITY;
+        system.transform_translation = Vec3::new(10.0, 0.0, 0.0);
 
         let first = system.generate_particle_info(0, 2).unwrap();
         let last = system.generate_particle_info(1, 2).unwrap();
@@ -2642,13 +2642,13 @@ mod tests {
             let info = template.info_mut();
             info.emission_volume_type = EmissionVolumeType::Line;
             info.emission_volume = EmissionVolume::Line {
-                start: Point3::new(5.0, 0.0, 0.0),
-                end: Point3::new(5.0, 0.0, 0.0),
+                start: Vec3::new(5.0, 0.0, 0.0),
+                end: Vec3::new(5.0, 0.0, 0.0),
             };
         }
         let system = ParticleSystem::new(Arc::new(template), 1, false);
         let info = system.generate_particle_info(0, 1).unwrap();
-        assert_eq!(info.position, Point3::new(5.0, 0.0, 0.0));
+        assert_eq!(info.position, Vec3::new(5.0, 0.0, 0.0));
     }
 
     #[test]
@@ -2677,9 +2677,9 @@ mod tests {
         use std::io::Cursor;
 
         let mut info = ParticleInfo::default();
-        info.velocity = Vector3::new(1.0, 2.0, 3.0);
-        info.position = Point3::new(4.0, 5.0, 6.0);
-        info.emitter_position = Point3::new(7.0, 8.0, 9.0);
+        info.velocity = Vec3::new(1.0, 2.0, 3.0);
+        info.position = Vec3::new(4.0, 5.0, 6.0);
+        info.emitter_position = Vec3::new(7.0, 8.0, 9.0);
         info.vel_damping = 0.75;
         info.angle_z = 10.0;
         info.angular_rate_z = 11.0;
@@ -2700,8 +2700,8 @@ mod tests {
         info.particle_up_towards_emitter = true;
 
         let mut saved = Particle::new(&info, 123, 456);
-        saved.acceleration = Vector3::new(16.0, 17.0, 18.0);
-        saved.last_position = Point3::new(19.0, 20.0, 21.0);
+        saved.acceleration = Vec3::new(16.0, 17.0, 18.0);
+        saved.last_position = Vec3::new(19.0, 20.0, 21.0);
         saved.lifetime_left = 77;
         saved.alpha = 0.4;
         saved.alpha_rate = 0.05;
@@ -2726,9 +2726,9 @@ mod tests {
         loaded.xfer(&mut load).unwrap();
         load.close().unwrap();
 
-        assert_eq!(loaded.velocity, Vector3::new(1.0, 2.0, 3.0));
-        assert_eq!(loaded.position, Point3::new(4.0, 5.0, 6.0));
-        assert_eq!(loaded.emitter_position, Point3::new(7.0, 8.0, 9.0));
+        assert_eq!(loaded.velocity, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(loaded.position, Vec3::new(4.0, 5.0, 6.0));
+        assert_eq!(loaded.emitter_position, Vec3::new(7.0, 8.0, 9.0));
         assert_eq!(loaded.vel_damping, 0.75);
         assert_eq!(loaded.angle_z, 10.0);
         assert_eq!(loaded.angular_rate_z, 11.0);
@@ -2744,8 +2744,8 @@ mod tests {
         assert_eq!(loaded.wind_randomness, 0.6);
         assert!(loaded.particle_up_towards_emitter);
         assert_eq!(loaded.personality, 123);
-        assert_eq!(loaded.acceleration, Vector3::new(16.0, 17.0, 18.0));
-        assert_eq!(loaded.last_position, Point3::new(19.0, 20.0, 21.0));
+        assert_eq!(loaded.acceleration, Vec3::new(16.0, 17.0, 18.0));
+        assert_eq!(loaded.last_position, Vec3::new(19.0, 20.0, 21.0));
         assert_eq!(loaded.lifetime_left, 77);
         assert_eq!(loaded.create_timestamp, 456);
         assert_eq!(loaded.alpha, 0.4);
@@ -2805,10 +2805,10 @@ mod tests {
             info.burst_delay = GameClientRandomVariable::new(9.0, 10.0);
             info.burst_count = GameClientRandomVariable::new(11.0, 12.0);
             info.initial_delay = GameClientRandomVariable::new(13.0, 14.0);
-            info.drift_velocity = Vector3::new(15.0, 16.0, 17.0);
+            info.drift_velocity = Vec3::new(15.0, 16.0, 17.0);
             info.gravity = -0.25;
             info.slave_system_name = "SlaveSystem".to_string();
-            info.slave_pos_offset = Vector3::new(18.0, 19.0, 20.0);
+            info.slave_pos_offset = Vec3::new(18.0, 19.0, 20.0);
             info.attached_system_name = "AttachedSystem".to_string();
             info.emission_velocity_type = EmissionVelocityType::Cylindrical;
             info.emission_velocity = EmissionVelocity::Cylindrical {
@@ -2836,8 +2836,8 @@ mod tests {
         }
 
         let mut saved = ParticleSystem::new(Arc::new(template), 42, false);
-        saved.local_transform = Matrix3::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0);
-        saved.transform = Matrix3::new(9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0);
+        saved.local_transform = Mat3::from_cols_array(&[1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0]);
+        saved.transform = Mat3::from_cols_array(&[9.0, 6.0, 3.0, 8.0, 5.0, 2.0, 7.0, 4.0, 1.0]);
         saved.is_local_identity = false;
         saved.is_identity = false;
         saved.wind_angle = 0.33;
@@ -2877,10 +2877,10 @@ mod tests {
         assert_eq!(loaded_info.alpha_keys[0].frame, 7);
         assert_eq!(loaded_info.color_keys[0].color, [0.1, 0.2, 0.3]);
         assert_eq!(loaded_info.color_keys[0].frame, 8);
-        assert_eq!(loaded_info.drift_velocity, Vector3::new(15.0, 16.0, 17.0));
+        assert_eq!(loaded_info.drift_velocity, Vec3::new(15.0, 16.0, 17.0));
         assert_eq!(loaded_info.gravity, -0.25);
         assert_eq!(loaded_info.slave_system_name, "SlaveSystem");
-        assert_eq!(loaded_info.slave_pos_offset, Vector3::new(18.0, 19.0, 20.0));
+        assert_eq!(loaded_info.slave_pos_offset, Vec3::new(18.0, 19.0, 20.0));
         assert_eq!(loaded_info.attached_system_name, "AttachedSystem");
         assert_eq!(
             loaded_info.emission_velocity_type,
@@ -2942,8 +2942,8 @@ mod tests {
 
         // Sphere emission stays inside the template radius, and spherical
         // speed magnitude lands in [1, 2].
-        assert!(pos_a.coords.norm() <= 5.0 + 1e-3);
-        let speed = vel_a.norm();
+        assert!(pos_a.length() <= 5.0 + 1e-3);
+        let speed = vel_a.length();
         assert!((1.0..=2.0).contains(&speed), "speed {speed} outside [1, 2]");
     }
 
@@ -3010,7 +3010,7 @@ mod tests {
         assert!(particle.is_lifetime_active());
         for frame in 0..40 {
             assert!(
-                particle.update(Vector3::zeros(), frame, ParticleShaderType::AlphaTest),
+                particle.update(Vec3::ZERO, frame, ParticleShaderType::AlphaTest),
                 "Lifetime=0 must not expire at frame {frame}"
             );
             assert_eq!(particle.lifetime_left, 0);

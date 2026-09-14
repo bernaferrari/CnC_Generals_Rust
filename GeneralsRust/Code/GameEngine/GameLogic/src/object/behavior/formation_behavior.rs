@@ -8,11 +8,11 @@ use crate::object::behavior::advanced_behavior_system::BehaviorEvent;
 use super::advanced_behavior_system::{
     AdvancedBehavior, BehaviorContext, BehaviorOutcome, BehaviorPriority, BehaviorState,
 };
+use glam::Vec2;
 use crate::GameLogicResult;
 use crate::common::*;
 use crate::object::{Object, ObjectId};
 use async_trait::async_trait;
-use nalgebra::{Point2, Vector2};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -87,7 +87,7 @@ impl Default for FormationConfig {
 #[derive(Debug, Clone)]
 pub struct FormationSlot {
     pub unit_id: ObjectId,
-    pub assigned_position: Point2<f32>,
+    pub assigned_position: Vec2,
     pub slot_index: usize,
     pub last_update: Instant,
 }
@@ -107,13 +107,13 @@ pub enum FormationState {
 pub struct FormationBehavior {
     config: FormationConfig,
     formation_state: FormationState,
-    formation_center: Point2<f32>,
+    formation_center: Vec2,
     formation_angle: f32,
     leader_id: Option<ObjectId>,
     formation_slots: Vec<FormationSlot>,
     last_reform_time: Option<Instant>,
-    cohesion_forces: HashMap<ObjectId, Vector2<f32>>,
-    target_formation_positions: Vec<Point2<f32>>,
+    cohesion_forces: HashMap<ObjectId, Vec2>,
+    target_formation_positions: Vec<Vec2>,
 }
 
 impl FormationBehavior {
@@ -125,7 +125,7 @@ impl FormationBehavior {
         Self {
             config,
             formation_state: FormationState::Forming,
-            formation_center: Point2::origin(),
+            formation_center: Vec2::ZERO,
             formation_angle: 0.0,
             leader_id: None,
             formation_slots: Vec::new(),
@@ -181,22 +181,22 @@ impl FormationBehavior {
         }
     }
 
-    fn calculate_slot_position(&self, slot_index: usize) -> Point2<f32> {
+    fn calculate_slot_position(&self, slot_index: usize) -> Vec2 {
         let spacing = self.config.unit_spacing;
 
         match self.config.formation_type {
             FormationType::Line => {
                 let offset_x =
                     (slot_index as f32 - (self.formation_slots.len() as f32 - 1.0) / 2.0) * spacing;
-                Point2::new(offset_x, 0.0)
+                Vec2::new(offset_x, 0.0)
             }
-            FormationType::Column => Point2::new(0.0, -(slot_index as f32) * spacing),
+            FormationType::Column => Vec2::new(0.0, -(slot_index as f32) * spacing),
             FormationType::Wedge => {
                 let row = ((2.0 * slot_index as f32 + 0.25).sqrt() - 0.5).floor() as usize;
                 let col = slot_index - (row * (row + 1)) / 2;
                 let offset_x = (col as f32 - row as f32 / 2.0) * spacing;
                 let offset_y = -(row as f32) * spacing * 0.866;
-                Point2::new(offset_x, offset_y)
+                Vec2::new(offset_x, offset_y)
             }
             FormationType::Box => {
                 let side_length = (self.config.max_units as f32).sqrt().ceil() as usize;
@@ -204,28 +204,28 @@ impl FormationBehavior {
                 let col = slot_index % side_length;
                 let offset_x = (col as f32 - (side_length as f32 - 1.0) / 2.0) * spacing;
                 let offset_y = (row as f32 - (side_length as f32 - 1.0) / 2.0) * spacing;
-                Point2::new(offset_x, offset_y)
+                Vec2::new(offset_x, offset_y)
             }
             FormationType::Circle => {
                 if slot_index == 0 {
-                    Point2::origin()
+                    Vec2::ZERO
                 } else {
                     let angle = (slot_index - 1) as f32 * 2.0 * std::f32::consts::PI
                         / (self.formation_slots.len() - 1) as f32;
                     let radius = spacing * 2.0;
-                    Point2::new(radius * angle.cos(), radius * angle.sin())
+                    Vec2::new(radius * angle.cos(), radius * angle.sin())
                 }
             }
             FormationType::Diamond => match slot_index {
-                0 => Point2::new(0.0, spacing),
-                1 => Point2::new(-spacing, 0.0),
-                2 => Point2::new(spacing, 0.0),
-                3 => Point2::new(0.0, -spacing),
+                0 => Vec2::new(0.0, spacing),
+                1 => Vec2::new(-spacing, 0.0),
+                2 => Vec2::new(spacing, 0.0),
+                3 => Vec2::new(0.0, -spacing),
                 _ => {
                     let extended_slot = slot_index - 4;
                     let extended_spacing = spacing * 2.0;
                     let angle = extended_slot as f32 * std::f32::consts::PI / 2.0;
-                    Point2::new(
+                    Vec2::new(
                         extended_spacing * angle.cos(),
                         extended_spacing * angle.sin(),
                     )
@@ -234,15 +234,15 @@ impl FormationBehavior {
             FormationType::Echelon => {
                 let offset_x = slot_index as f32 * spacing * 0.5;
                 let offset_y = -(slot_index as f32) * spacing * 0.866;
-                Point2::new(offset_x, offset_y)
+                Vec2::new(offset_x, offset_y)
             }
             FormationType::Custom => {
                 if slot_index < self.config.custom_positions.len() {
                     let pos = self.config.custom_positions[slot_index];
-                    Point2::new(pos.0, pos.1)
+                    Vec2::new(pos.0, pos.1)
                 } else {
                     let offset_x = slot_index as f32 * spacing;
-                    Point2::new(offset_x, 0.0)
+                    Vec2::new(offset_x, 0.0)
                 }
             }
         }
@@ -256,7 +256,7 @@ impl FormationBehavior {
             let sin_angle = self.formation_angle.sin();
             let rotated_x = local_pos.x * cos_angle - local_pos.y * sin_angle;
             let rotated_y = local_pos.x * sin_angle + local_pos.y * cos_angle;
-            let world_pos = Point2::new(
+            let world_pos = Vec2::new(
                 self.formation_center.x + rotated_x,
                 self.formation_center.y + rotated_y,
             );
@@ -273,7 +273,7 @@ impl FormationBehavior {
                 if let Some(first_slot) = self.formation_slots.first() {
                     if let Some(leader_obj) = obj_map.get(&first_slot.unit_id) {
                         let pos = leader_obj.get_position();
-                        self.formation_center = Point2::new(pos.x, pos.y);
+                        self.formation_center = Vec2::new(pos.x, pos.y);
                         self.leader_id = Some(first_slot.unit_id);
                     }
                 }
@@ -291,7 +291,7 @@ impl FormationBehavior {
                     }
                 }
                 if count > 0 {
-                    self.formation_center = Point2::new(sum_x / count as f32, sum_y / count as f32);
+                    self.formation_center = Vec2::new(sum_x / count as f32, sum_y / count as f32);
                     self.leader_id = None;
                 }
             }
@@ -309,7 +309,7 @@ impl FormationBehavior {
                 }
                 if let Some(leader_obj) = highest_rank_obj {
                     let pos = leader_obj.get_position();
-                    self.formation_center = Point2::new(pos.x, pos.y);
+                    self.formation_center = Vec2::new(pos.x, pos.y);
                     self.leader_id = Some(leader_obj.get_id());
                 }
             }
@@ -317,7 +317,7 @@ impl FormationBehavior {
                 if let Some(leader_id) = self.leader_id {
                     if let Some(leader_obj) = obj_map.get(&leader_id) {
                         let pos = leader_obj.get_position();
-                        self.formation_center = Point2::new(pos.x, pos.y);
+                        self.formation_center = Vec2::new(pos.x, pos.y);
                     }
                 }
             }
@@ -333,20 +333,20 @@ impl FormationBehavior {
         for (i, slot) in self.formation_slots.iter().enumerate() {
             if let Some(obj) = obj_map.get(&slot.unit_id) {
                 let current_pos = obj.get_position();
-                let default_target_pos = Point2::origin();
+                let default_target_pos = Vec2::ZERO;
                 let target_pos = self
                     .target_formation_positions
                     .get(i)
                     .unwrap_or(&default_target_pos);
 
                 let force_vector =
-                    Vector2::new(target_pos.x - current_pos.x, target_pos.y - current_pos.y);
+                    Vec2::new(target_pos.x - current_pos.x, target_pos.y - current_pos.y);
 
-                let force_magnitude = force_vector.norm() * self.config.cohesion_strength;
+                let force_magnitude = force_vector.length() * self.config.cohesion_strength;
                 let normalized_force = if force_magnitude > 0.0 {
                     force_vector.normalize() * force_magnitude
                 } else {
-                    Vector2::zeros()
+                    Vec2::ZERO
                 };
 
                 self.cohesion_forces.insert(slot.unit_id, normalized_force);
@@ -374,7 +374,7 @@ impl FormationBehavior {
     async fn apply_cohesion_forces(&self, objects: &mut [&mut Object]) -> GameLogicResult<()> {
         for obj in objects.iter_mut() {
             if let Some(force) = self.cohesion_forces.get(&obj.get_id()) {
-                if force.norm() > 0.1 {
+                if force.length() > 0.1 {
                     obj.apply_movement_force(force.x, force.y, 0.0)
                         .await
                         .map_err(crate::GameLogicError::ModuleError)?;

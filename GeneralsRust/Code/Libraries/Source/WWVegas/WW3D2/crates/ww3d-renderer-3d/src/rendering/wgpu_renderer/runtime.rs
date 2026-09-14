@@ -118,15 +118,13 @@ impl RuntimeBuilder {
             .surface_format
             .ok_or_else(|| Error::InvalidParameter("headless runtime requires a format".into()))?;
 
-        let instance = Arc::new(Instance::new(&InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        }));
+        let instance = Arc::new(Instance::new(InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..InstanceDescriptor::new_without_display_handle() }));
         let adapter = Arc::new(
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: self.power_preference,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             }))
             .map_err(|e| Error::AdapterNotFound(format!("No compatible adapter found: {e}")))?,
         );
@@ -145,6 +143,7 @@ impl RuntimeBuilder {
         .map_err(|e| Error::Generic(format!("Failed to request device: {e}")))?;
 
         let surface_config = SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format,
             width: width.max(1),
@@ -176,7 +175,7 @@ impl RuntimeBuilder {
             ));
         };
 
-        let instance = Arc::new(Instance::new(&InstanceDescriptor::default()));
+        let instance = Arc::new(Instance::new(InstanceDescriptor::new_without_display_handle()));
         // SAFETY: `from_window` copies the raw window/display handles out of
         // `window`; its `HasWindowHandle + HasDisplayHandle` bounds guarantee
         // the handles are valid (non-dangling), and the caller must keep the
@@ -197,6 +196,7 @@ impl RuntimeBuilder {
                 power_preference: self.power_preference,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             }))
             .map_err(|e| Error::AdapterNotFound(format!("No compatible adapter found: {e}")))?,
         );
@@ -242,6 +242,7 @@ impl RuntimeBuilder {
         let (width, height) = self.window_size.unwrap_or((1, 1));
 
         let surface_config = SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: width.max(1),

@@ -9,11 +9,11 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::ptr;
 
-use rodio::Sink;
+use rodio_compat::Sink;
 
 pub struct MilesAudioManager {
-    stream: Option<rodio::OutputStream>,
-    stream_handle: Option<rodio::OutputStreamHandle>,
+    stream: Option<rodio_compat::OutputStream>,
+    stream_handle: Option<rodio_compat::OutputStreamHandle>,
     master_volume: f32,
     initialized: bool,
     listener_position: Cell<[f32; 3]>,
@@ -40,7 +40,7 @@ impl MilesAudioManager {
         }
 
         let (stream, handle) =
-            rodio::OutputStream::try_default().map_err(|_| MilesError::InitializationFailed)?;
+            rodio_compat::OutputStream::try_default().map_err(|_| MilesError::InitializationFailed)?;
 
         self.stream = Some(stream);
         self.stream_handle = Some(handle);
@@ -76,7 +76,7 @@ impl MilesAudioManager {
 
         use std::io::BufReader;
         let decoder =
-            rodio::Decoder::new(BufReader::new(file)).map_err(|_| MilesError::SampleNotFound)?;
+            rodio_compat::Decoder::new(BufReader::new(file)).map_err(|_| MilesError::SampleNotFound)?;
 
         let sample_rate = decoder.sample_rate();
         let channels = decoder.channels();
@@ -112,7 +112,7 @@ impl MilesAudioManager {
             .ok_or(MilesError::NotInitialized)?;
         let sink = Sink::try_new(handle).map_err(|_| MilesError::HardwareError)?;
 
-        let source = rodio::buffer::SamplesBuffer::new(
+        let source = rodio_compat::samples_buffer(
             sample.channels,
             sample.sample_rate,
             sample.samples.clone(),

@@ -386,7 +386,7 @@ pub async fn integration_example() -> Result<(), Box<dyn std::error::Error>> {
     info!("C&C Generals Effects Integration Example");
 
     // Mock WGPU setup (in real game, this comes from renderer)
-    let instance = Instance::new(&wgpu::InstanceDescriptor::default());
+    let instance = Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions::default())
         .await?;

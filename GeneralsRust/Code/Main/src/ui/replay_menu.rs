@@ -285,7 +285,7 @@ impl ReplayMenu {
         file.read_to_end(&mut buffer)?;
 
         // Parse replay header
-        let header: ReplayHeader = bincode::deserialize(&buffer)
+        let header: ReplayHeader = bincode_legacy::deserialize(&buffer)
             .map_err(|e| format!("Failed to parse replay header: {}", e))?;
 
         Ok(header)

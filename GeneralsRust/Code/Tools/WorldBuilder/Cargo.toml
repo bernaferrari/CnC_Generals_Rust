@@ -1,7 +1,8 @@
 [package]
 name = "world_builder"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # UI Framework
@@ -55,7 +56,7 @@ name = "world_builder"
 path = "src/main.rs"
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = {workspace = true}
 
 [features]
 default = ["terrain_editing", "object_placement", "script_editing"]

@@ -629,7 +629,8 @@ impl Renderer {
                     }),
                     occlusion_query_set: None,
                     timestamp_writes: None,
-                });
+                    multiview_mask: None,
+});
 
             // C++ dx8wrapper::Set_Viewport parity: D3D applied the tactical
             // viewport as DEVICE state, so the terrain pre-scene pass and the

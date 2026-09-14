@@ -1,21 +1,22 @@
 [package]
 name = "ww3d-assets"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
 ww3d-gpu = { path = "../ww3d-gpu" }
-glam = { version = "0.28", features = ["bytemuck"] }
-binrw = "0.11"
-tokio = { version = "1.48", features = ["full"] }
-thiserror = "1.0"
-bytemuck = { version = "1.24", features = ["derive"] }
-wgpu = "27.0.1"
-parking_lot = "0.12"
+glam = {workspace = true, features = ["bytemuck"]}
+binrw = {workspace = true}
+tokio = {workspace = true, features = ["full"]}
+thiserror = {workspace = true}
+bytemuck = {workspace = true, features = ["derive"]}
+wgpu = {workspace = true}
+parking_lot = {workspace = true}
 
 [dev-dependencies]
-tempfile = "3.23"
-anyhow = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+tempfile = {workspace = true}
+anyhow = {workspace = true}
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}

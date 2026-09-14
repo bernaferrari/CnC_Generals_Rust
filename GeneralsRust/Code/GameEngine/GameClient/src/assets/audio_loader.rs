@@ -10,27 +10,26 @@
 //! - Audio asset management and caching
 //! - Real-time mixing and effects processing
 
+use glam::{Mat3, Quat, Vec3};
 use kira::{
-    Volume,
-    manager::{AudioManager, AudioManagerSettings},
-    sound::PlaybackRate,
+    AudioManager, AudioManagerSettings, Decibels, Tween,
+    effect::{
+        filter::{FilterBuilder, FilterHandle, FilterMode},
+        reverb::{ReverbBuilder, ReverbHandle},
+    },
+    listener::ListenerHandle,
     sound::PlaybackState as KiraPlaybackState,
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
-    spatial::{
-        emitter::{EmitterHandle, EmitterSettings},
-        listener::{ListenerHandle, ListenerSettings},
-        scene::SpatialSceneSettings,
-    },
-    track::{
-        TrackBuilder, TrackHandle,
-        effect::{
-            filter::{FilterBuilder, FilterHandle, FilterMode},
-            reverb::{ReverbBuilder, ReverbHandle},
-        },
-    },
-    tween::Tween,
+    track::{SpatialTrackBuilder, SpatialTrackHandle, TrackBuilder, TrackHandle},
 };
-use nalgebra::{UnitQuaternion, Vector3};
+
+fn kira_amplitude(amp: f64) -> Decibels {
+    if amp <= 0.0001 {
+        Decibels::SILENCE
+    } else {
+        Decibels(20.0 * (amp as f32).log10())
+    }
+}
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::io::{Cursor, Read};
@@ -139,9 +138,9 @@ pub enum PlaybackState {
 /// 3D audio settings
 #[derive(Debug, Clone)]
 pub struct Audio3DSettings {
-    pub position: Vector3<f32>,
-    pub velocity: Vector3<f32>,
-    pub orientation: Vector3<f32>,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub orientation: Vec3,
     pub min_distance: f32,
     pub max_distance: f32,
     pub rolloff_factor: f32,
@@ -154,9 +153,9 @@ pub struct Audio3DSettings {
 impl Default for Audio3DSettings {
     fn default() -> Self {
         Self {
-            position: Vector3::zeros(),
-            velocity: Vector3::zeros(),
-            orientation: Vector3::new(0.0, 0.0, -1.0),
+            position: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+            orientation: Vec3::new(0.0, 0.0, -1.0),
             min_distance: 25.0,
             max_distance: 100.0,
             rolloff_factor: 1.0,
@@ -171,20 +170,20 @@ impl Default for Audio3DSettings {
 /// Audio listener settings (camera/player position)
 #[derive(Debug, Clone)]
 pub struct AudioListener {
-    pub position: Vector3<f32>,
-    pub velocity: Vector3<f32>,
-    pub forward: Vector3<f32>,
-    pub up: Vector3<f32>,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub forward: Vec3,
+    pub up: Vec3,
     pub gain: f32,
 }
 
 impl Default for AudioListener {
     fn default() -> Self {
         Self {
-            position: Vector3::zeros(),
-            velocity: Vector3::zeros(),
-            forward: Vector3::new(0.0, 0.0, -1.0),
-            up: Vector3::new(0.0, 1.0, 0.0),
+            position: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+            forward: Vec3::new(0.0, 0.0, -1.0),
+            up: Vec3::new(0.0, 1.0, 0.0),
             gain: 1.0,
         }
     }
@@ -325,9 +324,9 @@ pub struct AudioInstance {
     pub state: PlaybackState,
     pub volume: f32,
     pub pitch: f32,
-    pub position: Option<Vector3<f32>>,
+    pub position: Option<Vec3>,
     pub sound_handle: Option<StaticSoundHandle>,
-    pub emitter_handle: Option<EmitterHandle>,
+    pub emitter_handle: Option<SpatialTrackHandle>,
     pub start_time: Instant,
     pub fade_target: Option<f32>,
     pub fade_duration: Option<Duration>,
@@ -369,7 +368,6 @@ pub struct AudioLoader {
 
     // 3D audio system
     listener: Arc<RwLock<AudioListener>>,
-    spatial_scene: Arc<Mutex<kira::spatial::scene::SpatialSceneHandle>>,
     spatial_listener: Arc<Mutex<ListenerHandle>>,
 
     // Environmental effects
@@ -477,12 +475,7 @@ impl AudioLoader {
             .add_sub_track(TrackBuilder::new())
             .map_err(|e| AudioError::TrackFailed(format!("UI track creation failed: {}", e)))?;
 
-        let mut spatial_scene = audio_manager
-            .add_spatial_scene(SpatialSceneSettings::default())
-            .map_err(|e| {
-                AudioError::EngineError(format!("Spatial scene creation failed: {}", e))
-            })?;
-        let spatial_listener = spatial_scene
+        let spatial_listener = audio_manager
             .add_listener(
                 mint::Vector3 {
                     x: 0.0,
@@ -497,7 +490,6 @@ impl AudioLoader {
                         z: 0.0,
                     },
                 },
-                ListenerSettings::default(),
             )
             .map_err(|e| AudioError::EngineError(format!("Listener creation failed: {}", e)))?;
 
@@ -550,7 +542,6 @@ impl AudioLoader {
             active_instances: Arc::new(RwLock::new(HashMap::new())),
             instance_counter: Arc::new(Mutex::new(1)),
             listener: Arc::new(RwLock::new(AudioListener::default())),
-            spatial_scene: Arc::new(Mutex::new(spatial_scene)),
             spatial_listener: Arc::new(Mutex::new(spatial_listener)),
             current_environment: Arc::new(RwLock::new(AudioEnvironment::default())),
             environments: Arc::new(RwLock::new(environments)),
@@ -748,7 +739,7 @@ impl AudioLoader {
             });
         }
         let cursor = Cursor::new(data.to_vec());
-        StaticSoundData::from_cursor(cursor, StaticSoundSettings::default()).map_err(|e| {
+        StaticSoundData::from_cursor(cursor).map_err(|e| {
             AudioError::StreamingError(format!("Failed to create streaming sound: {}", e))
         })
     }
@@ -760,11 +751,9 @@ impl AudioLoader {
         format: AudioFormat,
     ) -> Result<StaticSoundData, AudioError> {
         let cursor = Cursor::new(data.to_vec());
-        StaticSoundData::from_cursor(cursor, StaticSoundSettings::default()).map_err(|e| {
-            AudioError::DecodingFailed {
-                path: "memory_sound".to_string(),
-                error: format!("Failed to create memory sound: {}", e),
-            }
+        StaticSoundData::from_cursor(cursor).map_err(|e| AudioError::DecodingFailed {
+            path: "memory_sound".to_string(),
+            error: format!("Failed to create memory sound: {}", e),
         })
     }
 
@@ -774,7 +763,7 @@ impl AudioLoader {
         asset_handle: AssetHandle,
         volume: Option<f32>,
         pitch: Option<f32>,
-        position: Option<Vector3<f32>>,
+        position: Option<Vec3>,
     ) -> Result<u64, AudioError> {
         let asset = self
             .audio_assets
@@ -805,83 +794,65 @@ impl AudioLoader {
 
         // Apply volume and play
         let final_volume = volume.unwrap_or(asset.volume) * self.config.master_volume;
-        let mut settings = StaticSoundSettings::new()
-            .volume(Volume::Amplitude(final_volume as f64))
-            .playback_rate(PlaybackRate::Factor(pitch.unwrap_or(asset.pitch) as f64));
+        let settings = StaticSoundSettings::new()
+            .volume(kira_amplitude(final_volume as f64))
+            .playback_rate(pitch.unwrap_or(asset.pitch) as f64);
+        let sound_data = sound_data.with_settings(settings);
 
-        let emitter_handle = if let Some(position) = position {
+        let (sound_handle, emitter_handle) = if let Some(position) = position {
             let spatial_settings = asset.spatial_settings.clone().unwrap_or_default();
-            let mut scene = self.spatial_scene.lock().unwrap_or_else(|e| e.into_inner());
-            let emitter = scene
-                .add_emitter(
+            let min_distance = spatial_settings.min_distance.max(1.0);
+            let max_distance = spatial_settings.max_distance.max(min_distance);
+            let listener_id = self
+                .spatial_listener
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .id();
+            let mut manager = self
+                .audio_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            let mut spatial = manager
+                .add_spatial_sub_track(
+                    listener_id,
                     mint::Vector3 {
                         x: position.x,
                         y: position.y,
                         z: position.z,
                     },
-                    EmitterSettings::default().distances((
-                        spatial_settings.min_distance.max(1.0),
-                        spatial_settings
-                            .max_distance
-                            .max(spatial_settings.min_distance.max(1.0)),
-                    )),
+                    SpatialTrackBuilder::new()
+                        .distances((min_distance, max_distance))
+                        .persist_until_sounds_finish(true),
                 )
-                .map_err(|e| AudioError::EngineError(format!("Failed to create emitter: {}", e)))?;
-            settings = settings.output_destination(&emitter);
-            Some(emitter)
+                .map_err(|e| {
+                    AudioError::EngineError(format!("Failed to create spatial track: {}", e))
+                })?;
+            let handle = spatial.play(sound_data).map_err(|e| {
+                AudioError::EngineError(format!("Failed to play sound: {}", e))
+            })?;
+            (handle, Some(spatial))
         } else {
-            match asset.asset_type {
-                AudioAssetType::Music => {
-                    if let Some(track) = self
-                        .music_track
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .as_ref()
-                    {
-                        settings = settings.output_destination(track);
-                    }
-                }
-                AudioAssetType::Voice => {
-                    if let Some(track) = self
-                        .voice_track
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .as_ref()
-                    {
-                        settings = settings.output_destination(track);
-                    }
-                }
-                AudioAssetType::UI => {
-                    if let Some(track) = self
-                        .ui_track
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .as_ref()
-                    {
-                        settings = settings.output_destination(track);
-                    }
-                }
-                _ => {
-                    if let Some(track) = self
-                        .sfx_track
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .as_ref()
-                    {
-                        settings = settings.output_destination(track);
-                    }
-                }
-            }
-            None
+            let track_slot = match asset.asset_type {
+                AudioAssetType::Music => &self.music_track,
+                AudioAssetType::Voice => &self.voice_track,
+                AudioAssetType::UI => &self.ui_track,
+                _ => &self.sfx_track,
+            };
+            let mut track_guard = track_slot.lock().unwrap_or_else(|e| e.into_inner());
+            let handle = if let Some(track) = track_guard.as_mut() {
+                track.play(sound_data).map_err(|e| {
+                    AudioError::EngineError(format!("Failed to play sound: {}", e))
+                })?
+            } else {
+                drop(track_guard);
+                self.audio_manager
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .play(sound_data)
+                    .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?
+            };
+            (handle, None)
         };
-
-        // Play the sound using the audio manager
-        let sound_handle = self
-            .audio_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .play(sound_data.with_settings(settings))
-            .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?;
 
         let instance = AudioInstance {
             id: instance_id,
@@ -926,9 +897,7 @@ impl AudioLoader {
             instance.state = PlaybackState::Stopped;
 
             if let Some(mut handle) = instance.sound_handle.take() {
-                if let Err(err) = handle.stop(Tween::default()) {
-                    log::warn!("Failed to stop sound instance {}: {}", instance_id, err);
-                }
+                handle.stop(Tween::default());
             }
 
             let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
@@ -953,12 +922,7 @@ impl AudioLoader {
         {
             instance.state = PlaybackState::Paused;
             if let Some(handle) = instance.sound_handle.as_mut() {
-                handle.pause(Tween::default()).map_err(|e| {
-                    AudioError::EngineError(format!(
-                        "Failed to pause sound instance {}: {}",
-                        instance_id, e
-                    ))
-                })?;
+                handle.pause(Tween::default());
             }
             log::debug!("Paused sound instance: {}", instance_id);
             Ok(())
@@ -979,12 +943,7 @@ impl AudioLoader {
         {
             instance.state = PlaybackState::Playing;
             if let Some(handle) = instance.sound_handle.as_mut() {
-                handle.resume(Tween::default()).map_err(|e| {
-                    AudioError::EngineError(format!(
-                        "Failed to resume sound instance {}: {}",
-                        instance_id, e
-                    ))
-                })?;
+                handle.resume(Tween::default());
             }
             log::debug!("Resumed sound instance: {}", instance_id);
             Ok(())
@@ -1022,24 +981,17 @@ impl AudioLoader {
         instance.volume = volume;
 
         if let Some(handle) = instance.sound_handle.as_mut() {
-            handle
-                .set_volume(
-                    Volume::Amplitude((volume * self.config.master_volume) as f64),
-                    Tween::default(),
-                )
-                .map_err(|e| {
-                    AudioError::EngineError(format!(
-                        "Failed to update sound instance {} volume: {}",
-                        instance_id, e
-                    ))
-                })?;
+            handle.set_volume(
+                kira_amplitude((volume * self.config.master_volume) as f64),
+                Tween::default(),
+            );
         }
 
         Ok(())
     }
 
     /// Update 3D listener position
-    pub fn update_listener(&self, position: Vector3<f32>, forward: Vector3<f32>, up: Vector3<f32>) {
+    pub fn update_listener(&self, position: Vec3, forward: Vec3, up: Vec3) {
         let mut listener = self.listener.write().unwrap_or_else(|e| e.into_inner());
         listener.position = position;
         listener.forward = forward;
@@ -1064,7 +1016,7 @@ impl AudioLoader {
     pub fn update_sound_position(
         &self,
         instance_id: u64,
-        position: Vector3<f32>,
+        position: Vec3,
     ) -> Result<(), AudioError> {
         if let Some(instance) = self
             .active_instances
@@ -1159,26 +1111,28 @@ impl AudioLoader {
         result
     }
 
-    fn listener_orientation(
-        forward: Vector3<f32>,
-        up: Vector3<f32>,
-    ) -> Option<mint::Quaternion<f32>> {
-        if forward.norm_squared() < 0.0001 || up.norm_squared() < 0.0001 {
+    fn listener_orientation(forward: Vec3, up: Vec3) -> Option<mint::Quaternion<f32>> {
+        if forward.length_squared() < 0.0001 || up.length_squared() < 0.0001 {
             return None;
         }
         let forward_norm = forward.normalize();
         let up_norm = up.normalize();
-        if !forward_norm.iter().all(|v| v.is_finite()) || !up_norm.iter().all(|v| v.is_finite()) {
+        if !forward_norm.is_finite() || !up_norm.is_finite() {
             return None;
         }
-        let rotation = UnitQuaternion::face_towards(&forward_norm, &up_norm);
-        let rotation = rotation.into_inner();
+        let z = forward_norm;
+        let x = up_norm.cross(z).normalize();
+        let y = z.cross(x);
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        let rotation = Quat::from_mat3(&Mat3::from_cols(x, y, z));
         Some(mint::Quaternion {
             s: rotation.w,
             v: mint::Vector3 {
-                x: rotation.i,
-                y: rotation.j,
-                z: rotation.k,
+                x: rotation.x,
+                y: rotation.y,
+                z: rotation.z,
             },
         })
     }
@@ -1189,14 +1143,12 @@ impl AudioLoader {
         volume: f32,
         master: f32,
     ) {
-        if let Ok(guard) = track.lock() {
-            if let Some(track) = guard.as_ref() {
-                if let Err(err) = track.set_volume(
-                    Volume::Amplitude((volume * master) as f64),
+        if let Ok(mut guard) = track.lock() {
+            if let Some(track) = guard.as_mut() {
+                track.set_volume(
+                    kira_amplitude((volume * master) as f64),
                     Tween::default(),
-                ) {
-                    log::warn!("Failed to update track volume: {}", err);
-                }
+                );
             }
         }
     }
@@ -1228,7 +1180,7 @@ impl AudioLoader {
             if let Some(handle) = handle.as_mut() {
                 let _ = handle.set_feedback(feedback as f64, Tween::default());
                 let _ = handle.set_damping(damping as f64, Tween::default());
-                let _ = handle.set_mix(mix as f64, Tween::default());
+                let _ = handle.set_mix(mix, Tween::default());
             }
         }
     }

@@ -86,6 +86,7 @@ impl WgpuSurfaceManager {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
             present_mode,
@@ -107,8 +108,7 @@ impl WgpuSurfaceManager {
             .as_ref()
             .ok_or_else(|| Error::GenericError("Surface not created".to_string()))?;
 
-        surface
-            .get_current_texture()
+        ww3d_gpu::acquire_surface_texture(surface)
             .map_err(|e| Error::GenericError(format!("Failed to get current texture: {}", e)))
     }
 
@@ -127,9 +127,9 @@ impl WgpuSurfaceManager {
     }
 
     /// Present current frame
-    pub fn present(&mut self) {
+    pub fn present(&mut self, queue: &wgpu::Queue) {
         if let Some(texture) = self.current_texture.take() {
-            present_surface_texture(texture);
+            present_surface_texture(queue, texture);
         }
         self.current_view = None;
     }
@@ -176,7 +176,6 @@ impl WgpuSurfaceManager {
 
     /// Cleanup resources
     pub fn cleanup(&mut self) {
-        self.present(); // Present any pending frame
         self.current_view = None;
         self.current_texture = None;
         self.config = None;

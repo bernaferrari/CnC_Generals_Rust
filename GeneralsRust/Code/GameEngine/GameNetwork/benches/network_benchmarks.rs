@@ -799,7 +799,7 @@ mod benches {
         let cmd = NetCommand::keep_alive(0);
 
         b.iter(|| {
-            let bytes = bincode::serialize(&cmd).unwrap();
+            let bytes = bincode_legacy::serialize(&cmd).unwrap();
             test::black_box(bytes);
         });
     }
@@ -808,10 +808,10 @@ mod benches {
     #[bench]
     fn bench_deserialize_keepalive(b: &mut Bencher) {
         let cmd = NetCommand::keep_alive(0);
-        let bytes = bincode::serialize(&cmd).unwrap();
+        let bytes = bincode_legacy::serialize(&cmd).unwrap();
 
         b.iter(|| {
-            let deserialized: NetCommand = bincode::deserialize(&bytes).unwrap();
+            let deserialized: NetCommand = bincode_legacy::deserialize(&bytes).unwrap();
             test::black_box(deserialized);
         });
     }
@@ -822,7 +822,7 @@ mod benches {
         let cmd = NetCommand::chat(0, "Hello, world! This is a test message.".to_string(), 0xFF);
 
         b.iter(|| {
-            let bytes = bincode::serialize(&cmd).unwrap();
+            let bytes = bincode_legacy::serialize(&cmd).unwrap();
             test::black_box(bytes);
         });
     }
@@ -831,10 +831,10 @@ mod benches {
     #[bench]
     fn bench_deserialize_chat(b: &mut Bencher) {
         let cmd = NetCommand::chat(0, "Hello, world! This is a test message.".to_string(), 0xFF);
-        let bytes = bincode::serialize(&cmd).unwrap();
+        let bytes = bincode_legacy::serialize(&cmd).unwrap();
 
         b.iter(|| {
-            let deserialized: NetCommand = bincode::deserialize(&bytes).unwrap();
+            let deserialized: NetCommand = bincode_legacy::deserialize(&bytes).unwrap();
             test::black_box(deserialized);
         });
     }
@@ -857,7 +857,7 @@ mod benches {
         let cmd = NetCommand::game_command(0, 1000, game_data);
 
         b.iter(|| {
-            let bytes = bincode::serialize(&cmd).unwrap();
+            let bytes = bincode_legacy::serialize(&cmd).unwrap();
             test::black_box(bytes);
         });
     }
@@ -878,10 +878,10 @@ mod benches {
         };
 
         let cmd = NetCommand::game_command(0, 1000, game_data);
-        let bytes = bincode::serialize(&cmd).unwrap();
+        let bytes = bincode_legacy::serialize(&cmd).unwrap();
 
         b.iter(|| {
-            let deserialized: NetCommand = bincode::deserialize(&bytes).unwrap();
+            let deserialized: NetCommand = bincode_legacy::deserialize(&bytes).unwrap();
             test::black_box(deserialized);
         });
     }
@@ -900,7 +900,7 @@ mod benches {
         b.iter(|| {
             let mut all_bytes = Vec::new();
             for cmd in &commands {
-                let bytes = bincode::serialize(cmd).unwrap();
+                let bytes = bincode_legacy::serialize(cmd).unwrap();
                 all_bytes.extend_from_slice(&bytes);
             }
             test::black_box(all_bytes);
@@ -920,13 +920,13 @@ mod benches {
 
         let serialized: Vec<Vec<u8>> = commands
             .iter()
-            .map(|cmd| bincode::serialize(cmd).unwrap())
+            .map(|cmd| bincode_legacy::serialize(cmd).unwrap())
             .collect();
 
         b.iter(|| {
             let mut deserialized = Vec::new();
             for bytes in &serialized {
-                let cmd: NetCommand = bincode::deserialize(bytes).unwrap();
+                let cmd: NetCommand = bincode_legacy::deserialize(bytes).unwrap();
                 deserialized.push(cmd);
             }
             test::black_box(deserialized);

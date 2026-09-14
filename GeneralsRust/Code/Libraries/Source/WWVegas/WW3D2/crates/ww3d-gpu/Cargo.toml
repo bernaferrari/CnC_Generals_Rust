@@ -1,24 +1,22 @@
 [package]
 name = "ww3d-gpu"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "WW3D GPU Abstraction Layer - Cross-platform graphics API wrapper"
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
 wgpu = { workspace = true }
-winit = { version = "0.30", optional = true }
-raw-window-handle = "0.6"
-bytemuck = { version = "1.24", features = ["derive"] }
-thiserror = "1.0"
-bitflags = "2.10"
-parking_lot = "0.12"
-lazy_static = "1.5"
-log = "0.4"
-
-[dependencies.glam]
-version = "0.28"
-features = ["bytemuck"]
+winit = {workspace = true, optional = true}
+raw-window-handle = {workspace = true}
+bytemuck = {workspace = true, features = ["derive"]}
+thiserror = {workspace = true}
+bitflags = {workspace = true}
+parking_lot = {workspace = true}
+lazy_static = {workspace = true}
+log = {workspace = true}
+glam = {workspace = true, features = ["bytemuck"]}
 
 [features]
 default = ["winit"]

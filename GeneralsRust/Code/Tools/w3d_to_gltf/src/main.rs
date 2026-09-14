@@ -389,7 +389,7 @@ fn scan_adaptive_delta(
     fail_on_empty: bool,
 ) -> Result<()> {
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
     use walkdir::WalkDir;
     // Collect .w3d files
     let mut files = Vec::new();
@@ -422,7 +422,7 @@ fn scan_adaptive_delta(
         return Ok(());
     }
     if random {
-        files.shuffle(&mut thread_rng());
+        files.shuffle(&mut rng());
     }
     if let Some(n) = limit {
         if files.len() > n {
@@ -688,7 +688,7 @@ fn scan_animations(
     report: Option<&std::path::Path>,
 ) -> Result<()> {
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
     use walkdir::WalkDir;
     let mut files = Vec::new();
     if recursive {
@@ -720,7 +720,7 @@ fn scan_animations(
         return Ok(());
     }
     if random {
-        files.shuffle(&mut thread_rng());
+        files.shuffle(&mut rng());
     }
     if let Some(n) = limit {
         if files.len() > n {
@@ -799,7 +799,7 @@ fn scan_features(
     report: Option<&std::path::Path>,
 ) -> Result<()> {
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
     use walkdir::WalkDir;
     let mut files = Vec::new();
     if recursive {
@@ -831,7 +831,7 @@ fn scan_features(
         return Ok(());
     }
     if random {
-        files.shuffle(&mut thread_rng());
+        files.shuffle(&mut rng());
     }
     if let Some(n) = limit {
         if files.len() > n {
@@ -1070,7 +1070,7 @@ fn batch_convert(
     images_root_opt: Option<&std::path::Path>,
 ) -> Result<()> {
     use rand::seq::SliceRandom;
-    use rand::thread_rng;
+    use rand::rng;
     use std::time::Instant;
 
     std::fs::create_dir_all(out_root).ok();
@@ -1089,7 +1089,7 @@ fn batch_convert(
         anyhow::bail!("No .w3d files in {}", in_dir.display());
     }
     if random {
-        files.shuffle(&mut thread_rng());
+        files.shuffle(&mut rng());
     }
     if let Some(n) = limit {
         if files.len() > n {

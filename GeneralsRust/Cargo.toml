@@ -1,15 +1,24 @@
+# Single Cargo workspace for the Rust port.
+# Nested workspaces (Libraries/Source, WW3D2, Tools) were removed so every
+# crate shares one Cargo.lock and one target/ directory. A second workspace
+# is how this tree used to compile the same crates twice and blow past 70 GB.
+#
+# Default members are just the game. Tools/validation stay members so they
+# share the lockfile, but `cargo build` / rust-analyzer do not compile them.
+#
+# Third-party versions live ONLY in [workspace.dependencies]. Members use
+# `{ workspace = true }`. Bump a crate here, not in 60 Cargo.toml files.
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     # Main executable
     "Code/Main",
 
-    # Repository-level integration/characterization tests. These are a dedicated
-    # package so the virtual workspace root does not leave GeneralsRust/tests orphaned.
+    # Repo-level tests / validation
     "tests",
     "validation",
 
-    # Game Engine Core
+    # Game engine
     "Code/GameEngine/Common",
     "Code/GameEngine/GameEngineDevice",
     "Code/GameEngine/GameNetwork",
@@ -17,7 +26,7 @@ members = [
     "Code/GameEngine/GameClient",
     "Code/Integration",
 
-    # Libraries - WWVegas
+    # WWVegas libraries
     "Code/Libraries/Source/WWVegas/WWLib",
     "Code/Libraries/Source/WWVegas/WWLib/base_types",
     "Code/Libraries/Source/WWVegas/WWLib/string_system",
@@ -31,8 +40,9 @@ members = [
     "Code/Libraries/Source/WWVegas/WWSaveLoad",
     "Code/Libraries/Source/WWVegas/wwshade",
     "Code/Libraries/Source/WWVegas/WW3DCore",
+    "Code/Libraries/Source/WWVegas/Wwutil",
 
-    # WW3D2 Crates
+    # WW3D2 crates
     "Code/Libraries/Source/WWVegas/WW3D2/game",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine",
@@ -48,24 +58,30 @@ members = [
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision",
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu",
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-compat",
+    "Code/Libraries/Source/WWVegas/WW3D2/validation",
 
-    # Compression Libraries
+    # Compression / assets / audio
     "Code/Libraries/Source/Compression",
     "Code/Libraries/Source/Compression/EAC",
     "Code/Libraries/Source/Compression/LZHCompress",
     "Code/Libraries/Source/Compression/ZLib",
-
-    # Other Libraries
     "Code/Libraries/Source/AssetPipeline",
     "Code/Libraries/Source/WPAudio",
     "Code/Libraries/Source/WPAudio/shared",
+    "Code/Libraries/Source/Template",
+    "Code/Libraries/Source/bincode_legacy",
+    "Code/Libraries/Source/rodio_compat",
+
+    # Small experimental crates (no gpui)
+    "Code/Experimental/engine_core",
+    "Code/Experimental/game_runtime",
 
     # Tools
     "tools/module-mask-gen",
     "Code/Tools/big_unpack",
     "Code/Tools/w3d_to_gltf",
     "Code/Tools/UIFramework",
-    # "Code/GameEngine/GameClient/gui",  # Requires gpui, fails on macOS without Metal toolchain
     "Code/Tools/WorldBuilder",
     "Code/Tools/ParticleEditor",
     "Code/Tools/GUIEdit",
@@ -73,124 +89,295 @@ members = [
     "Code/Tools/ImagePacker",
     "Code/Tools/MapCacheBuilder",
     "Code/Tools/Launcher",
-    # Leftover Device archive: renamed crate, default target re-exports
-    # workspace GameEngineDevice → GameClient wgpu (not D3D).
     "Code/GameEngineDevice",
+
 ]
 
 default-members = [
     "Code/Main",
 ]
 
+# Broken / Metal-only / incomplete crates stay out of `cargo test --workspace`.
+exclude = [
+    "Code/Experimental/editor_gpui",
+    "Code/GameEngine/GameClient/gui",
+    "Code/Benchmarks",
+    "Code/Examples",
+    "Code/Libraries/Source/Benchmark",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.98"
+license = "GPL-3.0"
+
 [workspace.dependencies]
-# Core Rust - Serialization & Error Handling
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-anyhow = "1.0"
-thiserror = "1.0"
-bincode = "1.3"
+# Serialization & errors
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+anyhow = "1.0.104"
+thiserror = "2.0.20"
+# 3.0.0 is a 4 KB stub that `compile_error!`s (xkcd/2347). 2.0.1 is the
+# latest crate that actually serializes. Call sites go through `bincode_legacy`
+# so we keep the classic serialize/deserialize/Options surface on 2.x `legacy()`.
+bincode = "2.0.1"
+ron = "0.12.2"
+rmp-serde = "1.3.1"
+binrw = "0.15.2"
+toml = "1.1.6"
 
-# Logging & Diagnostics
-log = "0.4"
-env_logger = "0.10"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
+# Logging & diagnostics
+log = "0.4.34"
+env_logger = "0.11.11"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["registry", "env-filter"] }
+tracing-opentelemetry = "0.33.0"
+tracy-client = "0.19.0"
 
-# Identifiers & Time
-uuid = { version = "1.18", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+# Identifiers & time
+uuid = { version = "1.26.1", features = ["v4", "serde"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+instant = "0.1.13"
 
-# Async Runtime
-tokio = { version = "1.48", features = ["full"] }
-async-trait = "0.1"
-futures = "0.3"
-futures-util = "0.3"
+# Async
+tokio = { version = "1.53.1", features = ["full"] }
+async-trait = "0.1.92"
+futures = "0.3.34"
+futures-util = "0.3.34"
+tokio-util = "0.7.19"
+tokio-test = "0.4.5"
+pollster = "1.0.1"
 
-# Concurrency & Parallelism
-rayon = "1.11"
-parking_lot = "0.12"
-crossbeam = "0.8"
-crossbeam-channel = "0.5"
-dashmap = "5.5"
-once_cell = "1.21"
-lazy_static = "1.5"
+# Concurrency
+rayon = "1.12.0"
+parking_lot = "0.12.5"
+crossbeam = "0.8.5"
+crossbeam-channel = "0.5.17"
+dashmap = "6.2.1"
+once_cell = "1.21.4"
+lazy_static = "1.5.0"
+scoped-tls = "1.0.1"
 
-# Math & Random
-rand = "0.8"
-fastrand = "2.3"
-glam = { version = "0.28", features = ["serde", "bytemuck"] }
+# Math & random
+rand = { version = "0.10.2", features = ["std", "std_rng"] }
+rand_distr = "0.6.0"
+fastrand = "2.5.0"
+glam = { version = "0.33.7", features = ["serde", "bytemuck"] }
+cgmath = "0.18.0"
+ultraviolet = { version = "0.10.0", features = ["serde", "bytemuck"] }
+mint = "0.5.9"
+num-traits = "0.2.19"
+wide = "1.7.0"
+noise = "0.9.0"
+bracket-noise = "0.8.7"
 
-# UI and Graphics
-egui = "0.33.2"
-egui-wgpu = "0.33.2"
-egui-winit = "0.33.2"
-eframe = "0.33.2"
-winit = "0.29"
-wgpu = "27.0.1"
-bytemuck = { version = "1.24", features = ["derive"] }
-three-d = "0.16"
-image = "0.24"
-raw-window-handle = "0.6"
+# UI & graphics
+egui = "0.36.2"
+egui-wgpu = "0.36.2"
+egui-winit = "0.36.2"
+eframe = "0.36.2"
+winit = "0.30.13"
+wgpu = "30.0.1"
+wgpu-hal = "30.0.1"
+wgpu-profiler = "0.28.0"
+naga = { version = "30.0.1", default-features = false, features = ["wgsl-in", "spv-out", "hlsl-out"] }
+bytemuck = { version = "1.25.2", features = ["derive"] }
+three-d = "0.19.0"
+image = { version = "0.25.10", features = ["png", "tga", "jpeg", "bmp", "dds"] }
+raw-window-handle = "0.6.2"
+gltf = "1.4.1"
+meshopt = "0.6.2"
+mikktspace = "0.3.0"
+tiff = "0.11.3"
+half = { version = "2.7.1", features = ["bytemuck", "serde"] }
+fontdue = "0.9.4"
+cosmic-text = "0.19.0"
+fontdb = "0.24.0"
+font8x8 = "0.3.1"
+lyon = "1.0.19"
+gpu-alloc = "0.6.2"
+spirv-reflect = "0.2.3"
 
-# File Handling & I/O
-rfd = "0.14"
-walkdir = "2.5"
-toml = "0.8"
-ron = "0.8"
-byteorder = "1.5"
-memmap2 = "0.9"
-tempfile = "3.23"
-directories = "5.0"
+# Audio / input
+kira = { version = "0.12.4", features = ["mp3", "ogg", "flac", "wav"] }
+rodio = { version = "0.22.2", features = ["playback", "wav", "symphonia"] }
+cpal = "0.18.2"
+hound = "3.5.1"
+symphonia = { version = "0.6.1", features = ["all"] }
+lewton = "0.10.2"
+minimp3 = "0.6.1"
+realfft = "3.5.0"
+rubato = "5.0.0"
+gilrs = "0.11.2"
+
+# Files & I/O
+rfd = "0.17.2"
+walkdir = "2.5.0"
+byteorder = "1.5.0"
+memmap2 = "0.9.11"
+tempfile = "3.27.0"
+directories = "6.0.0"
+notify = "8.2.0"
+ignore = "0.4.33"
+tar = "0.4.46"
 
 # Compression
-zip = "0.6"
-flate2 = "1.1"
-lz4 = "1.28"
-lz4_flex = "0.11"
-zstd = "0.13"
-crc32fast = "1.5"
+zip = { version = "8.6.0", features = ["deflate"] }
+flate2 = "1.1.10"
+lz4 = "1.28.1"
+lz4_flex = "0.14.0"
+zstd = "0.14.0"
+crc32fast = "1.5.2"
 
 # Networking
-hyper = { version = "0.14", features = ["full"] }
-reqwest = { version = "0.11", features = ["rustls-tls"] }
-url = "2.5"
-if-addrs = "0.11"
+hyper = { version = "1.11.1", features = ["http1", "http2", "client", "server"] }
+hyper-util = "0.1.20"
+http = "1.5.0"
+http-body-util = "0.1.5"
+reqwest = { version = "0.13.5", features = ["rustls", "stream", "json"] }
+url = "2.5.8"
+if-addrs = "0.15.0"
+quinn = { version = "0.11.11", features = ["rustls"] }
+rustls = { version = "0.23.44", features = ["std"] }
+tungstenite = "0.30.0"
+tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-native-roots"] }
+socket2 = { version = "0.6.5", features = ["all"] }
+bytes = "1.12.1"
+igd = { version = "0.12.1", default-features = false }
+rcgen = "0.14.10"
 
-# Audio
-rodio = "0.17"
-cpal = "0.15"
-hound = "3.5"
+# Crypto
+ring = "0.17.14"
+sha2 = "0.11.0"
+hmac = "0.13.0"
+hex = "0.4.3"
+base64 = "0.23.1"
+aes-gcm = "0.11.1"
+chacha20poly1305 = "0.11.0"
+ed25519-dalek = "3.0.0"
+x25519-dalek = "3.0.0"
+jsonwebtoken = "11.0.0"
+x509-parser = "0.18.1"
+rustls-pemfile = "2.2.0"
+rustls-native-certs = "0.8.4"
+rustls-pki-types = "1.15.1"
+webpki-roots = "1.0.9"
 
-# System & Platform
-libc = "0.2"
-sysinfo = "0.30"
-num_cpus = "1.17"
-bitflags = "2.10"
-bit-vec = "0.6"
-ahash = "0.8"
+# System & platform
+libc = "0.2.189"
+sysinfo = "0.39.6"
+num_cpus = "1.17.0"
+bitflags = { version = "2.13.2", features = ["serde"] }
+bit-vec = "0.10.1"
+ahash = "0.8.12"
+nix = "0.31.3"
+winapi = "0.3.9"
+windows = "0.62.2"
+windows-sys = "0.61.2"
+objc = "0.2.7"
+cocoa = "0.27.0"
+# gpui 0.2.2 pins `=0.10.0`. 0.10.1 is newer but unresolvable next to that exact req.
+core-foundation = "0.10.0"
+metal = "0.33.0"
+IOKit-sys = "0.1.5"
+x11 = "2.21.0"
+xcursor = "0.3.11"
+wayland-client = "0.31.15"
+wayland-protocols = "0.32.13"
+evdev = "0.13.2"
+udev = "0.9.3"
+dbus = "0.9.12"
+region = "4.0.0"
+# cpal 0.18 uses alsa 0.11 / alsa-sys 0.4. alsa 0.12 pulls alsa-sys 0.6
+# and breaks the native `links = "alsa"` unify.
+alsa = "0.11.0"
+pulse = "0.5.3"
+coreaudio-rs = "0.14.2"
 
-# Collections & Utilities
-indexmap = "2.12"
-smallvec = "1.15"
-regex = "1.12"
+# Collections & utilities
+indexmap = "2.14.2"
+smallvec = { version = "1.16.1", features = ["serde"] }
+slotmap = "1.1.1"
+regex = "1.13.1"
+encoding_rs = "0.8.41"
+unicode-normalization = "0.1.25"
+bumpalo = "3.20.3"
+num_enum = "0.7.6"
+pathfinding = "4.16.0"
+petgraph = "0.8.3"
+kdtree = "0.8.1"
+rstar = "0.13.0"
+rapier3d = "0.35.3"
+ncollide3d = "0.33.0"
+parry3d = "0.30.2"
+rhai = { version = "1.26.1", features = ["sync"] }
 
-# Encoding & Strings
-encoding_rs = "0.8"
-unicode-normalization = "0.1"
+# CLI / tools / extra UI
+clap = { version = "4.6.6", features = ["derive"] }
+texture_packer = "0.30.0"
+native-dialog = "0.9.7"
+tauri = "2.11.5"
+tauri-build = "2.6.3"
+iced = "0.14.0"
+bevy_ecs = "0.19.1"
+fluent = "0.17.0"
+unic-langid = "0.9.6"
+rust-i18n = "4.2.2"
+csv = "1.4.0"
+hot-lib-reloader = "0.8.2"
+yaml-rust = "0.4.5"
+config = "0.15.25"
+device_query = "4.0.1"
 
-# Memory Management
-bumpalo = "3.19"
-region = "3.0"
+# Test / bench
+criterion = { version = "0.8.2", features = ["html_reports"] }
+approx = "0.5.1"
+proptest = "1.11.0"
+mockall = "0.15.0"
+pprof = "0.15.0"
+iai = "0.1.1"
+perf-event = "0.4.9"
+jemallocator = "0.5.4"
+tikv-jemallocator = "0.7.0"
+packed_simd = "0.3.9"
+packed_simd_2 = "0.3.8"
 
-# File Monitoring
-notify = "6.1"
+# Observability (optional GameNetwork)
+metrics = "0.24.6"
+metrics-exporter-prometheus = "0.18.3"
+opentelemetry = "0.32.0"
+opentelemetry_sdk = "0.32.1"
+opentelemetry_otlp = { version = "0.32.0", package = "opentelemetry-otlp" }
+console-subscriber = "0.5.0"
 
-# Graphics & Assets
-texture_packer = "0.3"
-pollster = "0.3"
-
-# CLI
-clap = "2.34"
+# Remaining crates used by member manifests
+ab_glyph = "0.2.32"
+adler32 = "1.2.0"
+axum = "0.8.9"
+backoff = "0.4.0"
+backtrace = "0.3.76"
+base64ct = "1.8.3"
+bcdec_rs = "0.2.0"
+bitvec = "1.1.1"
+brotli = "9.0.0"
+cc = "1.4.6"
+configparser = "3.3.0"
+dirs = "7.0.0"
+globset = "0.4.20"
+gpui = "0.2.2"
+image_compat = { version = "0.25.10", package = "image" }
+include_dir = "0.7.4"
+indicatif = "0.18.6"
+jpeg-decoder = "0.3.2"
+num-bigint = "0.5.1"
+num-integer = "0.1.47"
+obj = "0.10.2"
+png = "0.18.1"
+raw-cpuid = "11.6.0"
+rsa = "0.9.10"
+suppaftp = "12.0.0"
+tower = "0.5.3"
+tower-http = "0.7.1"
 
 # Internal workspace crates
 game_engine = { path = "Code/GameEngine/Common" }
@@ -198,15 +385,11 @@ game_network = { path = "Code/GameEngine/GameNetwork" }
 gamelogic = { path = "Code/GameEngine/GameLogic" }
 game_client = { path = "Code/GameEngine/GameClient", package = "game-client-rust" }
 game_engine_device = { path = "Code/GameEngine/GameEngineDevice" }
-
-# WWVegas Libraries
 wwlib = { path = "Code/Libraries/Source/WWVegas/WWLib", package = "wwlib-rust" }
 wwmath = { path = "Code/Libraries/Source/WWVegas/WWMath", package = "math_utilities" }
 wwaudio = { path = "Code/Libraries/Source/WWVegas/WWAudio" }
 wwdebug = { path = "Code/Libraries/Source/WWVegas/WWDebug" }
 ww3dcore = { path = "Code/Libraries/Source/WWVegas/WW3DCore" }
-
-# WW3D2 Libraries
 ww3d = { path = "Code/Libraries/Source/WWVegas/WW3D2/game", package = "ww3d-game" }
 ww3d-core = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }
 ww3d-engine = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine" }
@@ -222,34 +405,30 @@ ww3d-physics = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-physics
 ww3d-effects = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-effects" }
 ww3d-collision = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-collision" }
 ww3d-gpu = { path = "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
-
-# Compression Libraries
 generals_compression = { path = "Code/Libraries/Source/Compression" }
+bincode_legacy = { path = "Code/Libraries/Source/bincode_legacy" }
+rodio_compat = { path = "Code/Libraries/Source/rodio_compat" }
 
-# Profile configurations — keep disk usage bounded in this huge workspace.
-# Full debug on every dependency + unpacked split-debuginfo previously blew
-# GeneralsRust/target past ~50GB (mostly target/debug/deps + incremental).
+# Profiles — keep target/ bounded. Full debug + packed dSYM previously
+# pushed this workspace past ~70 GB (deps/ + incremental + per-hash .dSYM).
 [profile.dev]
 opt-level = 0
-# Line tables only for workspace crates (enough for backtraces).
-debug = 1
-# Unpacked debuginfo skips dsymutil: "packed" emitted a ~15 GB tail of
-# per-binary .dSYM bundles under deps/ (one per superseded test/bin hash —
-# Cargo never garbage-collects superseded artifacts).
+debug = "line-tables-only"
 split-debuginfo = "unpacked"
-# Incremental back ON (user-facing requirement for iteration speed). With
-# line-tables-only + deps stripped of debuginfo the caches are a fraction of
-# the old full-debug ones that forced this off.
 incremental = true
 
-# Dependencies: no debug info; mild opts for runtime without fat objects.
+# Dependencies: no debuginfo; mild opts so the game is playable in dev.
 [profile.dev.package."*"]
 opt-level = 2
 debug = false
 
+# Proc-macro / build-script crates: optimize the compilers, not the game.
+[profile.dev.build-override]
+opt-level = 3
+debug = false
+
 [profile.test]
-debug = 1
-# Same reasoning as [profile.dev]: unpacked + incremental.
+debug = "line-tables-only"
 split-debuginfo = "unpacked"
 incremental = true
 [profile.test.package."*"]
@@ -265,15 +444,14 @@ incremental = false
 
 [profile.release-with-debug]
 inherits = "release"
-debug = 1
+debug = "line-tables-only"
 strip = false
+split-debuginfo = "unpacked"
 
 [profile.bench]
 inherits = "release"
-debug = 1
+debug = "line-tables-only"
 
-# Warn-only foundation. Do not set forbid(unsafe_code) or clippy -D here.
-# Inherit with `[lints] workspace = true` in crates this plan touches.
 [workspace.lints.rust]
 unsafe_code = "warn"
 

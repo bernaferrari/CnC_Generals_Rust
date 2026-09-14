@@ -3,92 +3,92 @@
 //! Provides debug drawing capabilities for visualizing game state,
 //! collision boxes, pathfinding, and other development tools.
 
-use nalgebra::{Matrix4, Point3, Vector3};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
+use glam::{Vec3, Mat4};
 
 /// Debug shape types
 #[derive(Debug, Clone)]
 pub enum DebugShape {
     /// Line from start to end
     Line {
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
         color: [f32; 4],
     },
     /// Ray with origin and direction
     Ray {
-        origin: Point3<f32>,
-        direction: Vector3<f32>,
+        origin: Vec3,
+        direction: Vec3,
         length: f32,
         color: [f32; 4],
     },
     /// Axis-aligned bounding box
     AABB {
-        min: Point3<f32>,
-        max: Point3<f32>,
+        min: Vec3,
+        max: Vec3,
         color: [f32; 4],
     },
     /// Oriented bounding box
     OBB {
-        center: Point3<f32>,
-        half_extents: Vector3<f32>,
-        rotation: Matrix4<f32>,
+        center: Vec3,
+        half_extents: Vec3,
+        rotation: Mat4,
         color: [f32; 4],
     },
     /// Sphere
     Sphere {
-        center: Point3<f32>,
+        center: Vec3,
         radius: f32,
         color: [f32; 4],
         segments: u32,
     },
     /// Circle (in XZ plane)
     Circle {
-        center: Point3<f32>,
+        center: Vec3,
         radius: f32,
         color: [f32; 4],
         segments: u32,
     },
     /// Capsule
     Capsule {
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
         radius: f32,
         color: [f32; 4],
     },
     /// Cone
     Cone {
-        tip: Point3<f32>,
-        direction: Vector3<f32>,
+        tip: Vec3,
+        direction: Vec3,
         height: f32,
         radius: f32,
         color: [f32; 4],
     },
     /// Coordinate axes
-    Axes { origin: Point3<f32>, size: f32 },
+    Axes { origin: Vec3, size: f32 },
     /// Grid on XZ plane
     Grid {
-        center: Point3<f32>,
+        center: Vec3,
         size: f32,
         divisions: u32,
         color: [f32; 4],
     },
     /// Frustum
     Frustum {
-        corners: [Point3<f32>; 8],
+        corners: [Vec3; 8],
         color: [f32; 4],
     },
     /// Text label at 3D position
     Text {
-        position: Point3<f32>,
+        position: Vec3,
         text: String,
         color: [f32; 4],
     },
     /// Arrow from start to end
     Arrow {
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
         color: [f32; 4],
         head_size: f32,
     },
@@ -190,7 +190,7 @@ impl DebugDraw {
     }
 
     /// Draw a line
-    pub fn line(&mut self, start: Point3<f32>, end: Point3<f32>, color: [f32; 4]) {
+    pub fn line(&mut self, start: Vec3, end: Vec3, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Line {
             start,
             end,
@@ -201,8 +201,8 @@ impl DebugDraw {
     /// Draw a line with lifetime
     pub fn line_timed(
         &mut self,
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
         color: [f32; 4],
         duration: Duration,
     ) {
@@ -214,8 +214,8 @@ impl DebugDraw {
     /// Draw a ray
     pub fn ray(
         &mut self,
-        origin: Point3<f32>,
-        direction: Vector3<f32>,
+        origin: Vec3,
+        direction: Vec3,
         length: f32,
         color: [f32; 4],
     ) {
@@ -228,12 +228,12 @@ impl DebugDraw {
     }
 
     /// Draw an AABB
-    pub fn aabb(&mut self, min: Point3<f32>, max: Point3<f32>, color: [f32; 4]) {
+    pub fn aabb(&mut self, min: Vec3, max: Vec3, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::AABB { min, max, color }));
     }
 
     /// Draw a sphere
-    pub fn sphere(&mut self, center: Point3<f32>, radius: f32, color: [f32; 4]) {
+    pub fn sphere(&mut self, center: Vec3, radius: f32, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Sphere {
             center,
             radius,
@@ -243,7 +243,7 @@ impl DebugDraw {
     }
 
     /// Draw a circle
-    pub fn circle(&mut self, center: Point3<f32>, radius: f32, color: [f32; 4]) {
+    pub fn circle(&mut self, center: Vec3, radius: f32, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Circle {
             center,
             radius,
@@ -253,12 +253,12 @@ impl DebugDraw {
     }
 
     /// Draw coordinate axes
-    pub fn axes(&mut self, origin: Point3<f32>, size: f32) {
+    pub fn axes(&mut self, origin: Vec3, size: f32) {
         self.add(DebugDrawCommand::new(DebugShape::Axes { origin, size }));
     }
 
     /// Draw a grid
-    pub fn grid(&mut self, center: Point3<f32>, size: f32, divisions: u32, color: [f32; 4]) {
+    pub fn grid(&mut self, center: Vec3, size: f32, divisions: u32, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Grid {
             center,
             size,
@@ -268,7 +268,7 @@ impl DebugDraw {
     }
 
     /// Draw text at 3D position
-    pub fn text(&mut self, position: Point3<f32>, text: impl Into<String>, color: [f32; 4]) {
+    pub fn text(&mut self, position: Vec3, text: impl Into<String>, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Text {
             position,
             text: text.into(),
@@ -277,7 +277,7 @@ impl DebugDraw {
     }
 
     /// Draw an arrow
-    pub fn arrow(&mut self, start: Point3<f32>, end: Point3<f32>, color: [f32; 4]) {
+    pub fn arrow(&mut self, start: Vec3, end: Vec3, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Arrow {
             start,
             end,
@@ -287,7 +287,7 @@ impl DebugDraw {
     }
 
     /// Draw a capsule
-    pub fn capsule(&mut self, start: Point3<f32>, end: Point3<f32>, radius: f32, color: [f32; 4]) {
+    pub fn capsule(&mut self, start: Vec3, end: Vec3, radius: f32, color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Capsule {
             start,
             end,
@@ -299,8 +299,8 @@ impl DebugDraw {
     /// Draw a cone
     pub fn cone(
         &mut self,
-        tip: Point3<f32>,
-        direction: Vector3<f32>,
+        tip: Vec3,
+        direction: Vec3,
         height: f32,
         radius: f32,
         color: [f32; 4],
@@ -315,7 +315,7 @@ impl DebugDraw {
     }
 
     /// Draw a frustum
-    pub fn frustum(&mut self, corners: [Point3<f32>; 8], color: [f32; 4]) {
+    pub fn frustum(&mut self, corners: [Vec3; 8], color: [f32; 4]) {
         self.add(DebugDrawCommand::new(DebugShape::Frustum {
             corners,
             color,
@@ -325,9 +325,9 @@ impl DebugDraw {
     /// Draw OBB (oriented bounding box)
     pub fn obb(
         &mut self,
-        center: Point3<f32>,
-        half_extents: Vector3<f32>,
-        rotation: Matrix4<f32>,
+        center: Vec3,
+        half_extents: Vec3,
+        rotation: Mat4,
         color: [f32; 4],
     ) {
         self.add(DebugDrawCommand::new(DebugShape::OBB {
@@ -378,7 +378,7 @@ impl Default for DebugDraw {
 /// Helper methods for common debug visualizations
 impl DebugDraw {
     /// Draw a bounding box from center and size
-    pub fn box_from_center(&mut self, center: Point3<f32>, size: Vector3<f32>, color: [f32; 4]) {
+    pub fn box_from_center(&mut self, center: Vec3, size: Vec3, color: [f32; 4]) {
         let half = size * 0.5;
         let min = center - half;
         let max = center + half;
@@ -386,34 +386,34 @@ impl DebugDraw {
     }
 
     /// Draw a cross at position
-    pub fn cross(&mut self, position: Point3<f32>, size: f32, color: [f32; 4]) {
+    pub fn cross(&mut self, position: Vec3, size: f32, color: [f32; 4]) {
         let half = size * 0.5;
         self.line(
-            position - Vector3::new(half, 0.0, 0.0),
-            position + Vector3::new(half, 0.0, 0.0),
+            position - Vec3::new(half, 0.0, 0.0),
+            position + Vec3::new(half, 0.0, 0.0),
             color,
         );
         self.line(
-            position - Vector3::new(0.0, half, 0.0),
-            position + Vector3::new(0.0, half, 0.0),
+            position - Vec3::new(0.0, half, 0.0),
+            position + Vec3::new(0.0, half, 0.0),
             color,
         );
         self.line(
-            position - Vector3::new(0.0, 0.0, half),
-            position + Vector3::new(0.0, 0.0, half),
+            position - Vec3::new(0.0, 0.0, half),
+            position + Vec3::new(0.0, 0.0, half),
             color,
         );
     }
 
     /// Draw a path (series of connected lines)
-    pub fn path(&mut self, points: &[Point3<f32>], color: [f32; 4]) {
+    pub fn path(&mut self, points: &[Vec3], color: [f32; 4]) {
         for i in 0..points.len().saturating_sub(1) {
             self.line(points[i], points[i + 1], color);
         }
     }
 
     /// Draw a polygon
-    pub fn polygon(&mut self, points: &[Point3<f32>], color: [f32; 4]) {
+    pub fn polygon(&mut self, points: &[Vec3], color: [f32; 4]) {
         for i in 0..points.len() {
             let next = (i + 1) % points.len();
             self.line(points[i], points[next], color);
@@ -421,23 +421,23 @@ impl DebugDraw {
     }
 
     /// Draw a coordinate system with colored axes
-    pub fn coordinate_system(&mut self, origin: Point3<f32>, size: f32) {
+    pub fn coordinate_system(&mut self, origin: Vec3, size: f32) {
         // X axis (red)
         self.arrow(
             origin,
-            origin + Vector3::new(size, 0.0, 0.0),
+            origin + Vec3::new(size, 0.0, 0.0),
             [1.0, 0.0, 0.0, 1.0],
         );
         // Y axis (green)
         self.arrow(
             origin,
-            origin + Vector3::new(0.0, size, 0.0),
+            origin + Vec3::new(0.0, size, 0.0),
             [0.0, 1.0, 0.0, 1.0],
         );
         // Z axis (blue)
         self.arrow(
             origin,
-            origin + Vector3::new(0.0, 0.0, size),
+            origin + Vec3::new(0.0, 0.0, size),
             [0.0, 0.0, 1.0, 1.0],
         );
     }
@@ -445,7 +445,7 @@ impl DebugDraw {
     /// Draw normals for a set of points
     pub fn normals(
         &mut self,
-        points: &[(Point3<f32>, Vector3<f32>)],
+        points: &[(Vec3, Vec3)],
         length: f32,
         color: [f32; 4],
     ) {
@@ -485,9 +485,9 @@ mod tests {
     fn test_add_commands() {
         let mut debug_draw = DebugDraw::new();
 
-        debug_draw.line(Point3::origin(), Point3::new(1.0, 0.0, 0.0), colors::RED);
-        debug_draw.sphere(Point3::origin(), 1.0, colors::GREEN);
-        debug_draw.circle(Point3::origin(), 2.0, colors::BLUE);
+        debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
+        debug_draw.sphere(Vec3::ZERO, 1.0, colors::GREEN);
+        debug_draw.circle(Vec3::ZERO, 2.0, colors::BLUE);
 
         assert_eq!(debug_draw.count(), 3);
     }
@@ -497,8 +497,8 @@ mod tests {
         let mut debug_draw = DebugDraw::new();
 
         debug_draw.line_timed(
-            Point3::origin(),
-            Point3::new(1.0, 0.0, 0.0),
+            Vec3::ZERO,
+            Vec3::new(1.0, 0.0, 0.0),
             colors::RED,
             Duration::from_millis(1),
         );
@@ -515,8 +515,8 @@ mod tests {
     fn test_clear() {
         let mut debug_draw = DebugDraw::new();
 
-        debug_draw.line(Point3::origin(), Point3::new(1.0, 0.0, 0.0), colors::RED);
-        debug_draw.sphere(Point3::origin(), 1.0, colors::GREEN);
+        debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
+        debug_draw.sphere(Vec3::ZERO, 1.0, colors::GREEN);
 
         assert_eq!(debug_draw.count(), 2);
 
@@ -528,14 +528,14 @@ mod tests {
     fn test_enable_disable() {
         let mut debug_draw = DebugDraw::new();
 
-        debug_draw.line(Point3::origin(), Point3::new(1.0, 0.0, 0.0), colors::RED);
+        debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
         assert_eq!(debug_draw.count(), 1);
 
         debug_draw.set_enabled(false);
         assert!(!debug_draw.is_enabled());
         assert_eq!(debug_draw.count(), 0);
 
-        debug_draw.line(Point3::origin(), Point3::new(1.0, 0.0, 0.0), colors::RED);
+        debug_draw.line(Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), colors::RED);
         assert_eq!(debug_draw.count(), 0);
     }
 
@@ -546,8 +546,8 @@ mod tests {
 
         for i in 0..5 {
             debug_draw.line(
-                Point3::origin(),
-                Point3::new(i as f32, 0.0, 0.0),
+                Vec3::ZERO,
+                Vec3::new(i as f32, 0.0, 0.0),
                 colors::RED,
             );
         }
@@ -559,9 +559,9 @@ mod tests {
     fn test_helper_methods() {
         let mut debug_draw = DebugDraw::new();
 
-        debug_draw.cross(Point3::origin(), 1.0, colors::WHITE);
-        debug_draw.coordinate_system(Point3::origin(), 2.0);
-        debug_draw.box_from_center(Point3::origin(), Vector3::new(1.0, 1.0, 1.0), colors::BLUE);
+        debug_draw.cross(Vec3::ZERO, 1.0, colors::WHITE);
+        debug_draw.coordinate_system(Vec3::ZERO, 2.0);
+        debug_draw.box_from_center(Vec3::ZERO, Vec3::new(1.0, 1.0, 1.0), colors::BLUE);
 
         assert!(debug_draw.count() > 0);
     }

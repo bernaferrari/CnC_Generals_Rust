@@ -1061,14 +1061,15 @@ impl SubsystemInterface for Keyboard {
         log::info!("Initializing Keyboard subsystem");
         self.enabled = true;
         self.stats.reset();
+        // C++ Keyboard::init (Keyboard.cpp:686-696) starts the input clock.
+        self.state.input_frame = 0;
         Ok(())
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Resetting Keyboard subsystem");
-        self.state.reset();
-        self.text_input.clear();
-        self.stats.reset();
+        // C++ Keyboard::reset (Keyboard.cpp:700-704) is intentionally empty.
+        // Held-key clearing belongs to reset_pressed_keys/resetKeys.
         Ok(())
     }
 
@@ -1137,6 +1138,36 @@ mod tests {
             assert!(first.update().is_empty());
         }
         assert_eq!(first.state.input_frame, 25);
+    }
+
+    #[test]
+    fn lifecycle_init_starts_clock_and_reset_preserves_owned_state() {
+        let mut first = crate::core::subsystems::create_keyboard();
+        let mut second = crate::core::subsystems::create_keyboard();
+        first.handle_key_simple(KeyCode::A, true);
+        second.handle_key_simple(KeyCode::B, true);
+        first.update();
+        second.update();
+        first.state.input_frame = 17;
+        first.init().unwrap();
+        assert_eq!(first.state.input_frame, 0);
+        first.handle_key_simple(KeyCode::A, true);
+        first.update();
+        first.update();
+        first.handle_text_input("pending");
+        let event_count = first.stats.events_processed;
+        first.reset().unwrap();
+        assert_eq!(first.state.input_frame, 2);
+        assert_eq!(first.take_text_input(), "pending");
+        assert_eq!(first.stats.events_processed, event_count);
+        assert!(first.state.is_key_down(KeyCode::A));
+        assert!(second.state.is_key_down(KeyCode::B));
+        assert_eq!(second.state.input_frame, 1);
+        first.reset_pressed_keys();
+        assert!(!first.state.is_key_down(KeyCode::A));
+        assert_eq!(first.state.input_frame, 2);
+        assert!(second.state.is_key_down(KeyCode::B));
+        assert_eq!(second.state.input_frame, 1);
     }
 
     #[test]

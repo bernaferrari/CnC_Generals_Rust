@@ -202,7 +202,7 @@ impl GpuBuffer {
             .unwrap()
             .map_err(|_| GpuError::InvalidOperation("Failed to map buffer".to_string()))?;
 
-        let data = buffer_slice.get_mapped_range().to_vec();
+        let data = buffer_slice.get_mapped_range().expect("buffer map").to_vec();
         staging_buffer.buffer.unmap();
 
         Ok(data)

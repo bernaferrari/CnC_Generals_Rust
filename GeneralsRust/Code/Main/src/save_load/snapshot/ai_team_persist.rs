@@ -149,7 +149,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.team_targets.is_empty() && payload.orders.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(TMAI_MAGIC);
@@ -177,7 +177,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let encoded = &rest[..payload_len];
     let payload = if version == 1 {
-        let old: AiTeamPersistPayloadV1 = bincode::deserialize(encoded)
+        let old: AiTeamPersistPayloadV1 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
         AiTeamPersistPayload {
             team_targets: old.team_targets,
@@ -188,7 +188,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else {
-        bincode::deserialize(encoded)
+        bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?
     };
     apply_payload(game_logic, payload);
@@ -645,7 +645,7 @@ mod tests {
                 ..Default::default()
             }],
         };
-        let encoded = bincode::serialize(&v1).expect("v1 encode");
+        let encoded = bincode_legacy::serialize(&v1).expect("v1 encode");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(TMAI_MAGIC);
         append_u32(&mut bytes, 1);

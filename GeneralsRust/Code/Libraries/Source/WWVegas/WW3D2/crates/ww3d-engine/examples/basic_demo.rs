@@ -168,6 +168,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             g: 0.2,
                             b: 0.4,
                             a: 1.0,
+            multiview_mask: None,
                         }),
                         store: wgpu::StoreOp::Store,
                     },

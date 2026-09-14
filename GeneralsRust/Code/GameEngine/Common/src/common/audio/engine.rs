@@ -21,7 +21,7 @@ use cpal::{
 #[cfg(feature = "audio")]
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
 #[cfg(feature = "audio")]
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
 #[cfg(feature = "audio")]
 use symphonia::core::io::MediaSourceStream;
 // Always import basic channel types since they're used without features
@@ -722,14 +722,14 @@ impl AudioEngine {
                 sp.right_ear,
             )?);
             spatial_sink.set_volume(volume.clamp(0.0, 1.0));
-            spatial_sink.append(source.convert_samples::<f32>().speed(pitch));
+            spatial_sink.append(source.speed(pitch));
 
             audio_source.spatial_sink = Some(spatial_sink);
         } else {
             // Create regular sink for 2D audio
             let sink = Arc::new(Sink::try_new(output_stream_handle)?);
             sink.set_volume(volume.clamp(0.0, 1.0));
-            sink.append(source.convert_samples::<f32>().speed(pitch));
+            sink.append(source.speed(pitch));
 
             if looping {
                 // Note: Rodio doesn't have built-in looping, would need custom implementation

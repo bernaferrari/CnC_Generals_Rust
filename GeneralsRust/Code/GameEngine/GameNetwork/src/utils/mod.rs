@@ -94,8 +94,8 @@ impl NetworkUtils {
     /// Generate random port in valid range
     pub fn random_port() -> u16 {
         use rand::Rng;
-        let mut rng = rand::thread_rng();
-        rng.gen_range(1024..65535)
+        let mut rng = rand::rng();
+        rng.random_range(1024..65535)
     }
 
     /// Calculate packet overhead for protocol
@@ -331,7 +331,7 @@ pub struct SerializationUtils;
 impl SerializationUtils {
     /// Serialize to binary format
     pub fn serialize_binary<T: serde::Serialize>(value: &T) -> NetworkResult<Vec<u8>> {
-        bincode::serialize(value)
+        bincode_legacy::serialize(value)
             .map_err(|e| NetworkError::generic(format!("binary serialization error: {}", e)))
     }
 
@@ -339,7 +339,7 @@ impl SerializationUtils {
     pub fn deserialize_binary<T: for<'de> serde::Deserialize<'de>>(
         data: &[u8],
     ) -> NetworkResult<T> {
-        bincode::deserialize(data)
+        bincode_legacy::deserialize(data)
             .map_err(|e| NetworkError::generic(format!("binary deserialization error: {}", e)))
     }
 

@@ -577,7 +577,8 @@ impl W3DView {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
-            });
+                multiview_mask: None,
+});
 
             // ----------------------------------------------------------------
             // Pass 1: Terrain
@@ -692,7 +693,7 @@ impl W3DView {
         }
 
         queue.submit(Some(encoder.finish()));
-        output.present();
+        queue.present(output);
         Ok(())
     }
 
@@ -1614,7 +1615,7 @@ impl MeshRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -1688,8 +1689,8 @@ impl MeshRenderer {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("w3d_mesh_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_0_layout, &material_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_0_layout), &material_layout],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -1720,13 +1721,13 @@ impl MeshRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
         });
 
         Ok(Self {
@@ -2050,7 +2051,7 @@ impl LineRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -2091,8 +2092,8 @@ impl LineRenderer {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("segmented_line_pipeline_layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_bind_group_layout), &texture_bind_group_layout],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -2134,7 +2135,7 @@ impl LineRenderer {
             },
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
         });
 
         let vertex_buffer = device.create_buffer(&BufferDescriptor {

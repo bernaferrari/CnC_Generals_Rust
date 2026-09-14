@@ -697,8 +697,8 @@ impl W3DShaderManager {
             .device
             .create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some(&format!("{} Pipeline Layout", variant_name)),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
 
         // Convert render state to wgpu types
@@ -750,7 +750,7 @@ impl W3DShaderManager {
                 },
                 multisample: MultisampleState::default(),
                 cache: None,
-                multiview: None,
+                multiview_mask: None,
             });
 
         let shader = W3DShader {
@@ -1035,7 +1035,7 @@ impl W3DTextureManager {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 32.0,
             compare: None,

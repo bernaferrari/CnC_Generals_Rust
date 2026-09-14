@@ -41,7 +41,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(HKIN_MAGIC);
@@ -69,7 +69,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "HKIN payload truncated".to_string(),
         ));
     }
-    let payload: HackerIncomePersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: HackerIncomePersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("HKIN payload decode: {err}")))?;
     game_logic.hacker_income = payload.registry;
     Ok(())

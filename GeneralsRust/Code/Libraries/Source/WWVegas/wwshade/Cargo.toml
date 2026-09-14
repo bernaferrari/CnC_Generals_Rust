@@ -1,50 +1,52 @@
 [package]
 name = "wwshade"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Converted from C++ WWShade library"]
 description = "Rust port of the WWShade graphics/shader library from Command & Conquer Generals Zero Hour"
 license = "GPL-3.0"
 
 [dependencies]
+bincode_legacy = { workspace = true }
 # Graphics and math libraries
-wgpu = { version = "27.0.1", features = ["wgsl"] }
+wgpu = {workspace = true, features = ["wgsl"]}
 ww3d-gpu = { path = "../WW3D2/crates/ww3d-gpu" }
 ww3d-engine = { path = "../WW3D2/crates/ww3d-engine" }
-bytemuck = { version = "1.14", features = ["derive"] }
-glam = { version = "0.28", features = ["serde"] }
-bitflags = "2.4"
+bytemuck = {workspace = true, features = ["derive"]}
+glam = {workspace = true, features = ["serde"]}
+bitflags = {workspace = true}
 
 # String and container utilities
-thiserror = "1.0"
-anyhow = "1.0"
-log = "0.4"
+thiserror = {workspace = true}
+anyhow = {workspace = true}
+log = {workspace = true}
 
 # Serialization for save/load functionality
-serde = { version = "1.0", features = ["derive"] }
-bincode = "1.3"
+serde = {workspace = true, features = ["derive"]}
+bincode = {workspace = true}
 
 # Memory management
-parking_lot = "0.12"
-once_cell = "1.19"
+parking_lot = {workspace = true}
+once_cell = {workspace = true}
 # Async support
-async-trait = "0.1"
+async-trait = {workspace = true}
 
 # For including shader source files
-include_dir = "0.7"
+include_dir = {workspace = true}
 
 # Window management (optional)
-winit = { version = "0.29", optional = true }
+winit = {workspace = true, optional = true}
 
 # Modern async runtime (optional, for examples)
-tokio = { version = "1.0", features = ["full"], optional = true }
+tokio = {workspace = true, features = ["full"], optional = true}
 
 # Logging
-env_logger = { version = "0.10", optional = true }
+env_logger = {workspace = true, optional = true}
 
 [dev-dependencies]
-env_logger = "0.10"
-tokio = { version = "1.0", features = ["full"] }
+env_logger = {workspace = true}
+tokio = {workspace = true, features = ["full"]}
 
 [features]
 default = []

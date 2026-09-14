@@ -11,12 +11,21 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use kira::Volume;
-use kira::manager::{AudioManager as KiraManager, AudioManagerSettings};
-use kira::sound::PlaybackRate;
+use kira::AudioManager as KiraManager;
+use kira::AudioManagerSettings;
+use kira::Decibels;
+use kira::DefaultBackend;
+use kira::Tween;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use kira::sound::streaming::StreamingSoundSettings;
-use kira::tween::Tween;
+
+fn kira_amplitude(amp: f64) -> Decibels {
+    if amp <= 0.0001 {
+        Decibels::SILENCE
+    } else {
+        Decibels(20.0 * (amp as f32).log10())
+    }
+}
 
 use crate::system::{SubsystemInterface, TimeOfDay};
 
@@ -453,9 +462,7 @@ impl AudioEngine {
             return;
         }
         if let Some(mut instance) = self.instances.remove(&handle) {
-            if let Err(err) = instance.kira_handle.stop(Tween::default()) {
-                log::debug!("AudioEngine: stop failed for handle {}: {}", handle, err);
-            }
+            instance.kira_handle.stop(Tween::default());
         }
     }
 
@@ -521,16 +528,8 @@ impl AudioEngine {
         if let Some(inst) = self.instances.get_mut(&handle) {
             inst.volume = volume.clamp(0.0, 1.0);
             inst.fade = None;
-            if let Err(err) = inst
-                .kira_handle
-                .set_volume(Volume::Amplitude(inst.volume as f64), Tween::default())
-            {
-                log::debug!(
-                    "AudioEngine: volume update failed for handle {}: {}",
-                    handle,
-                    err
-                );
-            }
+            inst.kira_handle
+                .set_volume(kira_amplitude(inst.volume as f64), Tween::default());
             true
         } else {
             false
@@ -778,7 +777,7 @@ impl AudioEngine {
         // Pick a random filename from the sounds list.
         let filename = if !info.sounds.is_empty() {
             let idx = if info.control_flags & AudioControl::RANDOM != 0 {
-                (rand::random::<usize>()) % info.sounds.len()
+                rand::random_range(0..info.sounds.len())
             } else {
                 0
             };
@@ -924,18 +923,17 @@ impl AudioEngine {
 
         // kira's StaticSoundData::from_file handles loading directly.
         // If the file is missing we fall back gracefully.
-        let mut sound_data = StaticSoundData::from_file(
-            path,
+        let mut sound_data = StaticSoundData::from_file(path)?.with_settings(
             StaticSoundSettings::new()
-                .volume(Volume::Amplitude(volume as f64))
-                .playback_rate(PlaybackRate::Factor(1.0)),
-        )?;
+                .volume(kira_amplitude(volume as f64))
+                .playback_rate(1.0),
+        );
 
         if looping {
             sound_data = sound_data.with_settings(
                 StaticSoundSettings::new()
-                    .volume(Volume::Amplitude(volume as f64))
-                    .playback_rate(PlaybackRate::Factor(1.0))
+                    .volume(kira_amplitude(volume as f64))
+                    .playback_rate(1.0)
                     .loop_region(..),
             );
         }
@@ -969,16 +967,10 @@ impl SubsystemInterface for AudioEngine {
             };
             let new_volume = fade.from_volume + (fade.to_volume - fade.from_volume) * progress;
             inst.volume = new_volume;
-            if let Err(err) = inst.kira_handle.set_volume(
-                Volume::Amplitude(new_volume.max(0.0) as f64),
+            inst.kira_handle.set_volume(
+                kira_amplitude(new_volume.max(0.0) as f64),
                 Tween::default(),
-            ) {
-                log::debug!(
-                    "AudioEngine: fade volume update failed for handle {}: {}",
-                    inst.handle,
-                    err
-                );
-            }
+            );
 
             if progress >= 1.0 {
                 let stop_when_done = fade.stop_when_done;

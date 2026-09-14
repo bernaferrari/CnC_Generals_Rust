@@ -20,17 +20,16 @@ use std::time::{Duration, Instant, SystemTime};
 #[cfg(feature = "audio")]
 use hound::{WavReader, WavSpec};
 #[cfg(feature = "audio")]
-use symphonia::core::audio::{AudioBuffer, Signal};
+use symphonia::core::audio::conv::FromSample;
 #[cfg(feature = "audio")]
-use symphonia::core::codecs::{CODEC_TYPE_NULL, Decoder, DecoderOptions};
+use symphonia::core::audio::{Audio, AudioBuffer, GenericAudioBufferRef};
 #[cfg(feature = "audio")]
-use symphonia::core::formats::{FormatOptions, FormatReader};
+use symphonia::core::codecs::audio::AudioDecoder;
+use symphonia::core::formats::{FormatReader, TrackType};
+#[cfg(feature = "audio")]
+use symphonia::core::formats::probe::Hint;
 #[cfg(feature = "audio")]
 use symphonia::core::io::{MediaSourceStream, ReadOnlySource};
-#[cfg(feature = "audio")]
-use symphonia::core::meta::MetadataOptions;
-#[cfg(feature = "audio")]
-use symphonia::core::probe::Hint;
 
 use crate::common::audio::{AsciiString, AudioHandle, AudioType, Real, UnsignedInt};
 
@@ -301,7 +300,7 @@ pub struct StreamingReader {
     current_position: u64,
     buffer_size: usize,
     #[cfg(feature = "audio")]
-    decoder: Option<Box<dyn Decoder>>,
+    decoder: Option<Box<dyn AudioDecoder>>,
     #[cfg(feature = "audio")]
     format_reader: Option<Box<dyn FormatReader>>,
 }
@@ -661,31 +660,29 @@ impl AudioAssetManager {
                         hint.with_extension(ext);
                     }
 
-                    let format_opts = FormatOptions::default();
-                    let metadata_opts = MetadataOptions::default();
-
-                    if let Ok(format) = symphonia::default::get_probe().format(
+                    if let Ok(format) = symphonia::default::get_probe().probe(
                         &hint,
                         mss,
-                        &format_opts,
-                        &metadata_opts,
+                        Default::default(),
+                        Default::default(),
                     ) {
-                        if let Some(track) = format
-                            .format
-                            .tracks()
-                            .iter()
-                            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-                        {
-                            if let Some(sample_rate) = track.codec_params.sample_rate {
-                                audio_metadata.sample_rate = sample_rate;
+                        if let Some(track) = format.default_track(TrackType::Audio) {
+                            if let Some(params) =
+                                track.codec_params.as_ref().and_then(|p| p.audio())
+                            {
+                                if let Some(sample_rate) = params.sample_rate {
+                                    audio_metadata.sample_rate = sample_rate;
+                                }
+                                if let Some(channels) = params.channels.as_ref() {
+                                    audio_metadata.channels = channels.count() as u16;
+                                }
                             }
-                            if let Some(channels) = track.codec_params.channels {
-                                audio_metadata.channels = channels.count() as u16;
-                            }
-                            if let Some(frames) = track.codec_params.n_frames {
+                            if let Some(frames) = track.num_frames {
                                 audio_metadata.frame_count = Some(frames);
-                                audio_metadata.duration =
-                                    Some(frames as f64 / audio_metadata.sample_rate as f64);
+                                if audio_metadata.sample_rate > 0 {
+                                    audio_metadata.duration =
+                                        Some(frames as f64 / audio_metadata.sample_rate as f64);
+                                }
                             }
                         }
                     }
@@ -793,68 +790,79 @@ impl AudioAssetManager {
             hint.with_extension(ext);
         }
 
-        let format_opts = FormatOptions::default();
-        let metadata_opts = MetadataOptions::default();
-        let decoder_opts = DecoderOptions::default();
-
         let mut format = symphonia::default::get_probe()
-            .format(&hint, mss, &format_opts, &metadata_opts)
+            .probe(&hint, mss, Default::default(), Default::default())
             .map_err(|_| AudioLoadError::DecodeError("Failed to probe format".to_string()))?;
 
-        let track_id = format
-            .format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .map(|t| t.id)
+        let track = format
+            .default_track(TrackType::Audio)
             .ok_or_else(|| AudioLoadError::DecodeError("No audio track found".to_string()))?;
-
-        let codec_params = format
-            .format
-            .tracks()
-            .iter()
-            .find(|t| t.id == track_id)
-            .map(|t| t.codec_params.clone())
+        let track_id = track.id;
+        let codec_params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .cloned()
             .ok_or_else(|| AudioLoadError::DecodeError("Track not found".to_string()))?;
 
         let mut decoder = symphonia::default::get_codecs()
-            .make(&codec_params, &decoder_opts)
+            .make_audio_decoder(&codec_params, &Default::default())
             .map_err(|_| AudioLoadError::DecodeError("Failed to create decoder".to_string()))?;
 
         let mut samples = Vec::new();
 
-        while let Ok(packet) = format.format.next_packet() {
-            if packet.track_id() != track_id {
-                continue;
-            }
-
-            match decoder.decode(&packet) {
-                Ok(decoded) => {
-                    let buf = decoded.make_equivalent::<f32>();
-                    let spec = buf.spec();
-                    let ch_count = spec.channels.count();
-                    let mut converted: Vec<f32> = Vec::new();
-
-                    converted.extend_from_slice(buf.chan(0));
-
-                    if ch_count > 1 {
-                        for ch in 1..ch_count {
-                            let channel_samples = buf.chan(ch);
-                            for (i, &sample) in channel_samples.iter().enumerate() {
-                                if i * 2 + 1 < converted.len() {
-                                    converted.insert(i * 2 + 1, sample);
-                                }
-                            }
-                        }
+        loop {
+            match format.next_packet() {
+                Ok(Some(packet)) => {
+                    if packet.track_id != track_id {
+                        continue;
                     }
-
-                    samples.extend(converted);
+                    match decoder.decode(&packet) {
+                        Ok(decoded) => samples.extend(Self::interleaved_f32(&decoded)),
+                        Err(_) => continue,
+                    }
                 }
-                Err(_) => continue,
+                Ok(None) => break,
+                Err(_) => break,
             }
         }
 
         Ok(samples)
+    }
+
+    #[cfg(feature = "audio")]
+    fn interleaved_f32(buffer: &GenericAudioBufferRef<'_>) -> Vec<f32> {
+        match buffer {
+            GenericAudioBufferRef::U8(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::U16(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::U24(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::U32(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S8(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S16(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S24(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S32(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::F32(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::F64(buf) => Self::interleave_buffer(buf),
+        }
+    }
+
+    #[cfg(feature = "audio")]
+    fn interleave_buffer<S>(buf: &AudioBuffer<S>) -> Vec<f32>
+    where
+        S: symphonia::core::audio::sample::Sample,
+        f32: FromSample<S>,
+    {
+        let planes = buf.num_planes();
+        let frames = buf.frames();
+        let mut out = Vec::with_capacity(frames * planes);
+        for i in 0..frames {
+            for p in 0..planes {
+                if let Some(plane) = buf.plane(p) {
+                    out.push(f32::from_sample(plane[i]));
+                }
+            }
+        }
+        out
     }
 
     /// Get audio data from cache

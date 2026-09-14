@@ -36,7 +36,7 @@ impl GpuSurface {
     {
         let surface = instance
             .create_surface(window)
-            .map_err(|_| GpuError::SurfaceError(wgpu::SurfaceError::Lost))?;
+            .map_err(|_| GpuError::SurfaceLost)?;
 
         let capabilities = surface.get_capabilities(adapter);
 
@@ -59,6 +59,7 @@ impl GpuSurface {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width,
             height,
             present_mode,
@@ -90,8 +91,8 @@ impl GpuSurface {
     }
 
     /// Get the current frame texture
-    pub fn get_current_texture(&self) -> Result<wgpu::SurfaceTexture, wgpu::SurfaceError> {
-        self.surface.get_current_texture()
+    pub fn get_current_texture(&self) -> Result<wgpu::SurfaceTexture, GpuError> {
+        crate::acquire_surface_texture(&self.surface)
     }
 
     /// Get surface format
@@ -190,9 +191,7 @@ impl Swapchain {
 
     /// Get the next frame
     pub fn next_frame(&mut self, surface: &GpuSurface) -> Result<&wgpu::SurfaceTexture, GpuError> {
-        let frame = surface
-            .get_current_texture()
-            .map_err(GpuError::SurfaceError)?;
+        let frame = surface.get_current_texture()?;
 
         // Keep track of frames for synchronization
         if self.frames.len() < self.frame_count {
@@ -208,10 +207,10 @@ impl Swapchain {
     }
 
     /// Present the current frame
-    pub fn present(&mut self) {
+    pub fn present(&mut self, queue: &wgpu::Queue) {
         if !self.frames.is_empty() && self.current_frame < self.frames.len() {
             let frame = self.frames.swap_remove(self.current_frame);
-            crate::present_surface_texture(frame);
+            crate::present_surface_texture(queue, frame);
             // Reset current frame to 0 after presenting
             self.current_frame = 0;
         }

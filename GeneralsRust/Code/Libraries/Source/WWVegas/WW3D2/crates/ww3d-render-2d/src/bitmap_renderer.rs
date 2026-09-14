@@ -237,8 +237,8 @@ impl BitmapRenderer {
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Bitmap Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout, &uniform_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout), &uniform_bind_group_layout],
+            immediate_size: 0,
         });
 
         // Helper to create pipelines with different blend modes
@@ -249,7 +249,7 @@ impl BitmapRenderer {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[wgpu::VertexBufferLayout {
+                    buffers: &[Some(wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<QuadVertex>() as wgpu::BufferAddress,
                         step_mode: wgpu::VertexStepMode::Vertex,
                         attributes: &[
@@ -269,7 +269,7 @@ impl BitmapRenderer {
                                 format: wgpu::VertexFormat::Float32x4,
                             },
                         ],
-                    }],
+                    })],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -293,7 +293,7 @@ impl BitmapRenderer {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };

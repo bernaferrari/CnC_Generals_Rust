@@ -1,7 +1,8 @@
 [package]
 name = "image_packer"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "image_packer"
@@ -12,11 +13,11 @@ path = "src/lib.rs"
 # ui_framework = { path = "../UIFramework" }
 
 # Core dependencies
-gpui = { version = "0.2.2", optional = true }
+gpui = {workspace = true, optional = true}
 
 # Image processing and texture packing
 image = { workspace = true }
-image_compat = { package = "image", version = "0.5.4" }
+image_compat = { workspace = true }
 texture_packer = { workspace = true }
 walkdir = { workspace = true }
 

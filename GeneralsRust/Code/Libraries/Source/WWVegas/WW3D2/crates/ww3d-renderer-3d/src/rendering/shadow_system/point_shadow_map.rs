@@ -191,7 +191,8 @@ impl PointShadowMap {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
             self.render_face(face, &mut render_pass);
         }
     }

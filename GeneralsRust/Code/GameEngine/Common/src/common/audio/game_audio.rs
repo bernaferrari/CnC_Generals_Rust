@@ -28,7 +28,7 @@ use glam::Mat4;
 use hound::WavReader;
 use lewton::inside_ogg::OggStreamReader;
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Cursor;

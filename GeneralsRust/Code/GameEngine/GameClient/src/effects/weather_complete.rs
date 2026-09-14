@@ -6,10 +6,11 @@
 
 use super::particle_manager::*;
 use super::particle_system::*;
-use nalgebra::{Matrix4, Point3, Vector3};
 use rand::prelude::*;
+use rand::rng;
 use std::collections::VecDeque;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use glam::{Vec3};
 
 /// Maximum weather particles based on quality
 const MAX_RAIN_PARTICLES: usize = 2000;
@@ -53,7 +54,7 @@ impl WeatherIntensity {
 pub struct WeatherSettings {
     pub weather_type: WeatherType,
     pub intensity: f32, // 0.0 to 1.0
-    pub wind_direction: Vector3<f32>,
+    pub wind_direction: Vec3,
     pub wind_strength: f32,
     pub wind_turbulence: f32,
     pub visibility_range: f32,
@@ -68,7 +69,7 @@ impl Default for WeatherSettings {
         Self {
             weather_type: WeatherType::None,
             intensity: 0.5,
-            wind_direction: Vector3::new(1.0, 0.0, 0.0).normalize(),
+            wind_direction: Vec3::new(1.0, 0.0, 0.0).normalize(),
             wind_strength: 5.0,
             wind_turbulence: 0.2,
             visibility_range: 1000.0,
@@ -83,8 +84,8 @@ impl Default for WeatherSettings {
 /// Individual weather particle (rain drop, snowflake, dust particle)
 #[derive(Debug, Clone)]
 pub struct WeatherParticle {
-    pub position: Point3<f32>,
-    pub velocity: Vector3<f32>,
+    pub position: Vec3,
+    pub velocity: Vec3,
     pub size: f32,
     pub alpha: f32,
     pub age: f32,
@@ -96,18 +97,18 @@ pub struct WeatherParticle {
 
 impl WeatherParticle {
     /// Create a new rain drop
-    pub fn new_rain_drop(spawn_pos: Point3<f32>, wind: Vector3<f32>) -> Self {
-        let mut rng = thread_rng();
+    pub fn new_rain_drop(spawn_pos: Vec3, wind: Vec3) -> Self {
+        let mut rng = rng();
 
         Self {
             position: spawn_pos,
-            velocity: Vector3::new(
-                wind.x + rng.gen_range(-5.0..5.0),
-                wind.y + rng.gen_range(-5.0..5.0),
-                -80.0 + rng.gen_range(-20.0..20.0), // Falling down
+            velocity: Vec3::new(
+                wind.x + rng.random_range(-5.0..5.0),
+                wind.y + rng.random_range(-5.0..5.0),
+                -80.0 + rng.random_range(-20.0..20.0), // Falling down
             ),
-            size: rng.gen_range(0.5..2.0),
-            alpha: rng.gen_range(0.6..1.0),
+            size: rng.random_range(0.5..2.0),
+            alpha: rng.random_range(0.6..1.0),
             age: 0.0,
             lifetime: 5.0,
             rotation: 0.0,
@@ -117,45 +118,45 @@ impl WeatherParticle {
     }
 
     /// Create a new snowflake
-    pub fn new_snowflake(spawn_pos: Point3<f32>, wind: Vector3<f32>) -> Self {
-        let mut rng = thread_rng();
+    pub fn new_snowflake(spawn_pos: Vec3, wind: Vec3) -> Self {
+        let mut rng = rng();
 
         Self {
             position: spawn_pos,
-            velocity: Vector3::new(
-                wind.x + rng.gen_range(-3.0..3.0),
-                wind.y + rng.gen_range(-3.0..3.0),
-                -15.0 + rng.gen_range(-5.0..5.0), // Gentle fall
+            velocity: Vec3::new(
+                wind.x + rng.random_range(-3.0..3.0),
+                wind.y + rng.random_range(-3.0..3.0),
+                -15.0 + rng.random_range(-5.0..5.0), // Gentle fall
             ),
-            size: rng.gen_range(1.0..3.0),
-            alpha: rng.gen_range(0.8..1.0),
+            size: rng.random_range(1.0..3.0),
+            alpha: rng.random_range(0.8..1.0),
             age: 0.0,
             lifetime: 10.0,
-            rotation: rng.r#gen::<f32>() * std::f32::consts::TAU,
-            rotation_speed: rng.gen_range(-2.0..2.0),
+            rotation: rng.random::<f32>() * std::f32::consts::TAU,
+            rotation_speed: rng.random_range(-2.0..2.0),
             color: [1.0, 1.0, 1.0, 1.0], // Pure white
         }
     }
 
     /// Create a new dust particle
-    pub fn new_dust_particle(spawn_pos: Point3<f32>, wind: Vector3<f32>) -> Self {
-        let mut rng = thread_rng();
+    pub fn new_dust_particle(spawn_pos: Vec3, wind: Vec3) -> Self {
+        let mut rng = rng();
 
-        let dust_color_variation = rng.gen_range(0.8..1.0);
+        let dust_color_variation = rng.random_range(0.8..1.0);
 
         Self {
             position: spawn_pos,
-            velocity: Vector3::new(
-                wind.x * rng.gen_range(0.5..1.5) + rng.gen_range(-10.0..10.0),
-                wind.y * rng.gen_range(0.5..1.5) + rng.gen_range(-10.0..10.0),
-                rng.gen_range(-5.0..5.0), // Some vertical motion
+            velocity: Vec3::new(
+                wind.x * rng.random_range(0.5..1.5) + rng.random_range(-10.0..10.0),
+                wind.y * rng.random_range(0.5..1.5) + rng.random_range(-10.0..10.0),
+                rng.random_range(-5.0..5.0), // Some vertical motion
             ),
-            size: rng.gen_range(2.0..8.0),
-            alpha: rng.gen_range(0.3..0.7),
+            size: rng.random_range(2.0..8.0),
+            alpha: rng.random_range(0.3..0.7),
             age: 0.0,
             lifetime: 15.0,
-            rotation: rng.r#gen::<f32>() * std::f32::consts::TAU,
-            rotation_speed: rng.gen_range(-1.0..1.0),
+            rotation: rng.random::<f32>() * std::f32::consts::TAU,
+            rotation_speed: rng.random_range(-1.0..1.0),
             color: [
                 0.7 * dust_color_variation,
                 0.6 * dust_color_variation,
@@ -166,7 +167,7 @@ impl WeatherParticle {
     }
 
     /// Update particle physics
-    pub fn update(&mut self, delta_time: f32, wind: Vector3<f32>, turbulence: f32) -> bool {
+    pub fn update(&mut self, delta_time: f32, wind: Vec3, turbulence: f32) -> bool {
         self.age += delta_time;
 
         if self.age >= self.lifetime {
@@ -174,11 +175,11 @@ impl WeatherParticle {
         }
 
         // Apply turbulence
-        let mut rng = thread_rng();
-        let turbulence_force = Vector3::new(
-            rng.gen_range(-turbulence..turbulence),
-            rng.gen_range(-turbulence..turbulence),
-            rng.gen_range(-turbulence..turbulence),
+        let mut rng = rng();
+        let turbulence_force = Vec3::new(
+            rng.random_range(-turbulence..turbulence),
+            rng.random_range(-turbulence..turbulence),
+            rng.random_range(-turbulence..turbulence),
         );
 
         // Apply wind and turbulence
@@ -206,7 +207,7 @@ pub struct RainSystem {
     particles: VecDeque<WeatherParticle>,
     settings: WeatherSettings,
     spawn_accumulator: f32,
-    camera_position: Point3<f32>,
+    camera_position: Vec3,
     enabled: bool,
 }
 
@@ -216,12 +217,12 @@ impl RainSystem {
             particles: VecDeque::with_capacity(MAX_RAIN_PARTICLES),
             settings,
             spawn_accumulator: 0.0,
-            camera_position: Point3::origin(),
+            camera_position: Vec3::ZERO,
             enabled: true,
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, camera_pos: Point3<f32>) {
+    pub fn update(&mut self, delta_time: f32, camera_pos: Vec3) {
         if !self.enabled {
             return;
         }
@@ -239,7 +240,7 @@ impl RainSystem {
 
         // Cull particles far from camera
         self.particles.retain(|particle| {
-            let distance = (particle.position - self.camera_position).norm();
+            let distance = (particle.position - self.camera_position).length();
             distance < self.settings.spawn_area_radius
         });
 
@@ -269,14 +270,14 @@ impl RainSystem {
         }
     }
 
-    fn generate_spawn_position(&self) -> Point3<f32> {
-        let mut rng = thread_rng();
+    fn generate_spawn_position(&self) -> Vec3 {
+        let mut rng = rng();
         let radius = self.settings.spawn_area_radius;
 
-        Point3::new(
-            self.camera_position.x + rng.gen_range(-radius..radius),
-            self.camera_position.y + rng.gen_range(-radius..radius),
-            self.camera_position.z + rng.gen_range(50.0..150.0), // Spawn above
+        Vec3::new(
+            self.camera_position.x + rng.random_range(-radius..radius),
+            self.camera_position.y + rng.random_range(-radius..radius),
+            self.camera_position.z + rng.random_range(50.0..150.0), // Spawn above
         )
     }
 
@@ -301,7 +302,7 @@ pub struct SnowSystem {
     particles: VecDeque<WeatherParticle>,
     settings: WeatherSettings,
     spawn_accumulator: f32,
-    camera_position: Point3<f32>,
+    camera_position: Vec3,
     enabled: bool,
 }
 
@@ -311,12 +312,12 @@ impl SnowSystem {
             particles: VecDeque::with_capacity(MAX_SNOW_PARTICLES),
             settings,
             spawn_accumulator: 0.0,
-            camera_position: Point3::origin(),
+            camera_position: Vec3::ZERO,
             enabled: true,
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, camera_pos: Point3<f32>) {
+    pub fn update(&mut self, delta_time: f32, camera_pos: Vec3) {
         if !self.enabled {
             return;
         }
@@ -342,7 +343,7 @@ impl SnowSystem {
 
         // Cull distant particles
         self.particles.retain(|particle| {
-            let distance = (particle.position - self.camera_position).norm();
+            let distance = (particle.position - self.camera_position).length();
             distance < self.settings.spawn_area_radius
         });
 
@@ -372,14 +373,14 @@ impl SnowSystem {
         }
     }
 
-    fn generate_spawn_position(&self) -> Point3<f32> {
-        let mut rng = thread_rng();
+    fn generate_spawn_position(&self) -> Vec3 {
+        let mut rng = rng();
         let radius = self.settings.spawn_area_radius;
 
-        Point3::new(
-            self.camera_position.x + rng.gen_range(-radius..radius),
-            self.camera_position.y + rng.gen_range(-radius..radius),
-            self.camera_position.z + rng.gen_range(50.0..120.0),
+        Vec3::new(
+            self.camera_position.x + rng.random_range(-radius..radius),
+            self.camera_position.y + rng.random_range(-radius..radius),
+            self.camera_position.z + rng.random_range(50.0..120.0),
         )
     }
 
@@ -404,7 +405,7 @@ pub struct DustStormSystem {
     particles: VecDeque<WeatherParticle>,
     settings: WeatherSettings,
     spawn_accumulator: f32,
-    camera_position: Point3<f32>,
+    camera_position: Vec3,
     enabled: bool,
     storm_intensity_pulse: f32, // Pulsing effect
 }
@@ -415,13 +416,13 @@ impl DustStormSystem {
             particles: VecDeque::with_capacity(MAX_DUST_PARTICLES),
             settings,
             spawn_accumulator: 0.0,
-            camera_position: Point3::origin(),
+            camera_position: Vec3::ZERO,
             enabled: true,
             storm_intensity_pulse: 0.0,
         }
     }
 
-    pub fn update(&mut self, delta_time: f32, camera_pos: Point3<f32>) {
+    pub fn update(&mut self, delta_time: f32, camera_pos: Vec3) {
         if !self.enabled {
             return;
         }
@@ -443,7 +444,7 @@ impl DustStormSystem {
 
         // Cull distant particles
         self.particles.retain(|particle| {
-            let distance = (particle.position - self.camera_position).norm();
+            let distance = (particle.position - self.camera_position).length();
             distance < self.settings.spawn_area_radius * 1.5 // Larger area for dust
         });
 
@@ -474,14 +475,14 @@ impl DustStormSystem {
         }
     }
 
-    fn generate_spawn_position(&self) -> Point3<f32> {
-        let mut rng = thread_rng();
+    fn generate_spawn_position(&self) -> Vec3 {
+        let mut rng = rng();
         let radius = self.settings.spawn_area_radius * 1.5;
 
-        Point3::new(
-            self.camera_position.x + rng.gen_range(-radius..radius),
-            self.camera_position.y + rng.gen_range(-radius..radius),
-            self.camera_position.z + rng.gen_range(-10.0..30.0), // Ground level to low altitude
+        Vec3::new(
+            self.camera_position.x + rng.random_range(-radius..radius),
+            self.camera_position.y + rng.random_range(-radius..radius),
+            self.camera_position.z + rng.random_range(-10.0..30.0), // Ground level to low altitude
         )
     }
 
@@ -555,7 +556,7 @@ impl WeatherSystem {
     }
 
     /// Update weather system
-    pub fn update(&mut self, delta_time: f32, camera_pos: Point3<f32>) {
+    pub fn update(&mut self, delta_time: f32, camera_pos: Vec3) {
         if !self.enabled {
             return;
         }
@@ -757,7 +758,7 @@ mod tests {
         };
 
         let mut rain = RainSystem::new(settings);
-        rain.update(0.1, Point3::origin());
+        rain.update(0.1, Vec3::ZERO);
 
         assert!(rain.particle_count() > 0);
     }
@@ -772,7 +773,7 @@ mod tests {
         };
 
         let mut snow = SnowSystem::new(settings);
-        snow.update(0.1, Point3::origin());
+        snow.update(0.1, Vec3::ZERO);
 
         assert!(snow.particle_count() > 0);
     }
@@ -787,7 +788,7 @@ mod tests {
         };
 
         let mut dust = DustStormSystem::new(settings);
-        dust.update(0.1, Point3::origin());
+        dust.update(0.1, Vec3::ZERO);
 
         assert!(dust.particle_count() > 0);
 
@@ -805,7 +806,7 @@ mod tests {
         // Simulate transition
         for _ in 0..35 {
             // 3.5 seconds at 0.1s per frame
-            weather.update(0.1, Point3::origin());
+            weather.update(0.1, Vec3::ZERO);
         }
 
         assert!(!weather.is_transitioning());
@@ -814,8 +815,8 @@ mod tests {
 
     #[test]
     fn test_particle_lifecycle() {
-        let spawn_pos = Point3::new(0.0, 0.0, 100.0);
-        let wind = Vector3::new(10.0, 0.0, 0.0);
+        let spawn_pos = Vec3::new(0.0, 0.0, 100.0);
+        let wind = Vec3::new(10.0, 0.0, 0.0);
 
         let mut particle = WeatherParticle::new_rain_drop(spawn_pos, wind);
 

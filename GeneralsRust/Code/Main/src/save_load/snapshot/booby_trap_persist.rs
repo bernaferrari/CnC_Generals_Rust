@@ -37,7 +37,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(BTRY_MAGIC);
@@ -63,7 +63,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "BTRY payload truncated".to_string(),
         ));
     }
-    let payload: BoobyTrapPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: BoobyTrapPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("BTRY payload decode: {err}")))?;
     apply_payload(game_logic, payload);
     Ok(())

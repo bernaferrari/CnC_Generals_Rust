@@ -1,0 +1,11 @@
+[package]
+name = "bincode_legacy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "bincode 1 serialize/deserialize/Options surface on bincode 2 legacy config"
+publish = false
+
+[dependencies]
+bincode = { workspace = true, features = ["serde"] }
+serde = { workspace = true }

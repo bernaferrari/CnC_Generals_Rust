@@ -58,7 +58,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.abilities.is_empty() && payload.hijackers.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(SABL_MAGIC);
@@ -84,7 +84,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "SABL payload truncated".to_string(),
         ));
     }
-    let payload: AbilityHijackPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: AbilityHijackPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("SABL payload decode: {err}")))?;
     apply_payload(game_logic, payload);
     Ok(())

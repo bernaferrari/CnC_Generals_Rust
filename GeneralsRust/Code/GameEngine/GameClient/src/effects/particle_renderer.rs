@@ -6,7 +6,6 @@
 
 use bytemuck::{Pod, Zeroable};
 use image::{DynamicImage, GenericImageView};
-use nalgebra::{Matrix4, Point3, Vector3, Vector4};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use wgpu::util::DeviceExt;
@@ -16,6 +15,7 @@ use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
 use crate::system::smudge::{SmudgeSetHandle, get_smudge_manager};
+use glam::{Vec2, Vec3, Mat4};
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
 ///
@@ -90,8 +90,8 @@ pub struct ParticleUniforms {
 impl Default for ParticleUniforms {
     fn default() -> Self {
         Self {
-            view_matrix: Matrix4::identity().into(),
-            projection_matrix: Matrix4::identity().into(),
+            view_matrix: Mat4::IDENTITY.to_cols_array_2d(),
+            projection_matrix: Mat4::IDENTITY.to_cols_array_2d(),
             camera_position: [0.0; 3],
             time: 0.0,
             screen_size: [1024.0, 768.0],
@@ -277,13 +277,13 @@ impl ParticleBatch {
             return;
         }
 
-        let view_dir = Vector3::new(
+        let view_dir = Vec3::new(
             particle.position.x - camera_position[0],
             particle.position.y - camera_position[1],
             particle.position.z - camera_position[2],
         )
-        .try_normalize(0.0001)
-        .unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
+        .try_normalize()
+        .unwrap_or_else(|| Vec3::new(0.0, 0.0, 1.0));
 
         let spacing = particle.size / layer_count as f32;
         let first_offset = -0.5 * spacing * (layer_count.saturating_sub(1) as f32);
@@ -732,8 +732,8 @@ impl ParticleRenderer {
         // Create render pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Particle Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_bind_group_layout), Some(&texture_bind_group_layout)],
+            immediate_size: 0,
         });
 
         // Load shaders
@@ -892,7 +892,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[billboard_layout.clone(), vertex_buffer_layout.clone()],
+                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -927,13 +927,13 @@ impl ParticleRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false, // Particles don't write depth
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false), // Particles don't write depth
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -944,7 +944,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[billboard_layout.clone(), vertex_buffer_layout.clone()],
+                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -963,13 +963,13 @@ impl ParticleRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -980,7 +980,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[billboard_layout.clone(), vertex_buffer_layout.clone()],
+                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -999,13 +999,13 @@ impl ParticleRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: true, // Alpha test writes depth
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true), // Alpha test writes depth
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1016,7 +1016,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[billboard_layout.clone(), vertex_buffer_layout.clone()],
+                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1038,13 +1038,13 @@ impl ParticleRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1082,7 +1082,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &heat_haze_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[heat_haze_layout],
+                buffers: &[Some(heat_haze_layout)],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1101,13 +1101,13 @@ impl ParticleRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1117,7 +1117,7 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &decal_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[decal_vertex_layout.clone()],
+                buffers: &[Some(decal_vertex_layout.clone())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1136,13 +1136,13 @@ impl ParticleRenderer {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1153,7 +1153,7 @@ impl ParticleRenderer {
                 vertex: wgpu::VertexState {
                     module: &decal_shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[decal_vertex_layout.clone()],
+                    buffers: &[Some(decal_vertex_layout.clone())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -1179,13 +1179,13 @@ impl ParticleRenderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: depth_format,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -1196,7 +1196,7 @@ impl ParticleRenderer {
                 vertex: wgpu::VertexState {
                     module: &decal_shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[decal_vertex_layout],
+                    buffers: &[Some(decal_vertex_layout)],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -1226,13 +1226,13 @@ impl ParticleRenderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: depth_format,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -1247,7 +1247,7 @@ impl ParticleRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -1357,7 +1357,8 @@ impl ParticleRenderer {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
 
             // Set uniform bind group
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1486,7 +1487,8 @@ impl ParticleRenderer {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
 
             render_pass.set_pipeline(&self.alpha_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1601,7 +1603,8 @@ impl ParticleRenderer {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
             render_pass.set_pipeline(&self.additive_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_bind_group(1, &self.default_bind_group, &[]);
@@ -1676,7 +1679,8 @@ impl ParticleRenderer {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
             render_pass.set_pipeline(&self.heat_haze_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             let scene_bind_group = self
@@ -1762,7 +1766,8 @@ impl ParticleRenderer {
                     }),
                     occlusion_query_set: None,
                     timestamp_writes: None,
-                });
+                    multiview_mask: None,
+});
 
                 let pipeline = if shadow_type == SHADOW_ADDITIVE_DECAL_TYPE {
                     &self.decal_additive_pipeline
@@ -2030,7 +2035,7 @@ impl ParticleRenderer {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -2148,15 +2153,15 @@ mod tests {
     fn streak_system_emits_polyline_segments_in_creation_order() {
         let mut system = test_system(ParticleType::Streak, 0);
         let mut first = ParticleInfo::default();
-        first.position = Point3::new(0.0, 0.0, 2.0);
+        first.position = Vec3::new(0.0, 0.0, 2.0);
         first.size = 0.5;
         first.color_keys[0].color = [1.0, 0.0, 0.0];
         let mut second = ParticleInfo::default();
-        second.position = Point3::new(4.0, 3.0, 2.0);
+        second.position = Vec3::new(4.0, 3.0, 2.0);
         second.size = 0.5;
         second.color_keys[0].color = [0.0, 1.0, 0.0];
         let mut third = ParticleInfo::default();
-        third.position = Point3::new(4.0, 3.0, 6.0);
+        third.position = Vec3::new(4.0, 3.0, 6.0);
         third.size = 0.25;
         third.color_keys[0].color = [0.0, 0.0, 1.0];
         system.push_particle(Particle::new(&first, 0, 0));
@@ -2197,7 +2202,7 @@ mod tests {
         template.info_mut().is_ground_aligned = true;
         let mut system = ParticleSystem::new(Arc::new(template), 1, false);
         let mut info = ParticleInfo::default();
-        info.position = Point3::new(10.0, 5.0, 20.0);
+        info.position = Vec3::new(10.0, 5.0, 20.0);
         info.size = 4.0;
         system.push_particle(Particle::new(&info, 0, 0));
 
@@ -2235,7 +2240,7 @@ mod tests {
     fn volume_particle_emits_default_depth_layers() {
         let system = test_system(ParticleType::VolumeParticle, 0);
         let mut info = ParticleInfo::default();
-        info.position = Point3::new(0.0, 0.0, 3.0);
+        info.position = Vec3::new(0.0, 0.0, 3.0);
         info.size = 6.0;
         let particle = Particle::new(&info, 0, 0);
         let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
@@ -2277,7 +2282,7 @@ mod tests {
 
     fn live_particle(x: f32, y: f32, z: f32, size: f32, alpha: f32) -> Particle {
         let mut info = ParticleInfo::default();
-        info.position = Point3::new(x, y, z);
+        info.position = Vec3::new(x, y, z);
         info.size = size;
         let mut particle = Particle::new(&info, 0, 0);
         particle.alpha = alpha;
@@ -2317,7 +2322,7 @@ mod tests {
             .unwrap()
             .collect_decal_render_items();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].position, Point3::new(10.0, 20.0, 30.0));
+        assert_eq!(items[0].position, Vec3::new(10.0, 20.0, 30.0));
         assert_eq!(items[0].size, 8.0);
         assert!((items[0].color[3] - 0.4).abs() < f32::EPSILON);
 
@@ -2380,7 +2385,7 @@ mod tests {
             .unwrap()
             .collect_decal_render_items();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].position, Point3::new(4.0, 5.0, 6.0));
+        assert_eq!(items[0].position, Vec3::new(4.0, 5.0, 6.0));
         assert_eq!(items[0].size, 2.5);
         assert!((items[0].color[3] - 0.55).abs() < f32::EPSILON);
 

@@ -10,9 +10,9 @@ use game_engine::common::system::{Coord3D, Xfer, XferMode, XferVersion};
 use gamelogic::common::{
     AsciiString, Bool, LOGICFRAMES_PER_SECOND, Real, SHADOW_ALPHA_DECAL, SHADOW_NAMES, UnsignedInt,
 };
+use glam::Vec3;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::player::{Player, ThePlayerList};
-use nalgebra::Point3;
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
@@ -208,7 +208,7 @@ impl ProjectedShadowManager {
                 continue;
             }
             items.push(DecalRenderItem {
-                position: Point3::new(decal.position.x, decal.position.y, decal.position.z),
+                position: Vec3::new(decal.position.x, decal.position.y, decal.position.z),
                 size,
                 size_x,
                 size_y,
@@ -838,7 +838,7 @@ mod tests {
 
         let items = manager.collect_render_items();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].position, Point3::new(10.0, 20.0, 3.0));
+        assert_eq!(items[0].position, Vec3::new(10.0, 20.0, 3.0));
         assert_eq!(items[0].size, 80.0);
         assert_eq!(items[0].size_x, 80.0);
         assert_eq!(items[0].size_y, 80.0);

@@ -75,6 +75,18 @@ fn locomotor_rows_accept_all_source_set_tokens_and_reject_unknown() {
         .parse_ini_content("Object Loco\n Locomotor =\nEnd\n", "empty.ini")
         .expect_err("missing source locomotor set must fail");
     assert!(error.to_string().contains("missing Locomotor set token"));
+
+    let duplicate = "Object Loco\n Locomotor = SET_NORMAL Ground\n Locomotor = SET_NORMAL Wheels\nEnd\n";
+    let mut parser = IniParser::new();
+    assert!(parser.parse_ini_content(duplicate, "duplicate.ini").is_err());
+    let mut parser = IniParser::new();
+    parser
+        .parse_ini_content_with_overrides(duplicate, "duplicate_override.ini", true)
+        .expect("create overrides replaces duplicate row");
+    assert_eq!(
+        parser.get_definition("Loco").unwrap().locomotor_sets[0].locomotor_names,
+        vec!["Wheels"]
+    );
 }
 
 #[test]

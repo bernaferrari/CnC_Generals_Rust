@@ -16,6 +16,7 @@ use super::map_loader::{Coord3D, MapLoader};
 use super::player_init::{PlayerIndex, PlayerList};
 use crate::scripting::engine::get_script_engine;
 use std::collections::HashMap;
+use glam::{Vec3};
 
 /// Camera position and orientation
 #[derive(Debug, Clone, Copy)]
@@ -246,7 +247,7 @@ impl MinimapGenerator {
         };
 
         // Fixed light direction for readable terrain embossing.
-        let light_dir = nalgebra::Vector3::new(0.45_f32, 0.55_f32, 0.70_f32).normalize();
+        let light_dir = Vec3::new(0.45_f32, 0.55_f32, 0.70_f32).normalize();
 
         for y in 0..self.height {
             for x in 0..self.width {
@@ -261,8 +262,8 @@ impl MinimapGenerator {
 
                 let dx = (right - left) / 255.0;
                 let dy = (down - up) / 255.0;
-                let normal = nalgebra::Vector3::new(-dx, -dy, 1.0).normalize();
-                let shade = normal.dot(&light_dir).clamp(0.2, 1.0);
+                let normal = Vec3::new(-dx, -dy, 1.0).normalize();
+                let shade = normal.dot(light_dir).clamp(0.2, 1.0);
 
                 let elevation = ((h - min_h as f32) / range_h).clamp(0.0, 1.0);
 

@@ -38,7 +38,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use game_engine::common::global_data;
-use nalgebra::{Point3, Vector3};
+use glam::{Vec3};
 
 // ---------------------------------------------------------------------------
 // Unique IDs
@@ -64,7 +64,7 @@ pub struct FXBase {
     /// Unique ID assigned at creation time.
     pub id: FXId,
     /// World-space position of the effect origin.
-    pub position: Point3<f32>,
+    pub position: Vec3,
     /// RGBA color.
     pub color: [f32; 4],
     /// Current opacity (0.0–1.0), animated over lifetime.
@@ -79,7 +79,7 @@ pub struct FXBase {
 
 impl FXBase {
     /// Create a new base with the given position and lifetime.
-    fn new(position: Point3<f32>, color: [f32; 4], lifetime_secs: f32) -> Self {
+    fn new(position: Vec3, color: [f32; 4], lifetime_secs: f32) -> Self {
         Self {
             id: next_fx_id(),
             position,
@@ -128,7 +128,7 @@ impl FXBase {
 pub struct FXPoint {
     pub base: FXBase,
     /// Current velocity (world units / second).
-    pub velocity: Vector3<f32>,
+    pub velocity: Vec3,
     /// Current rendered size (world units).
     pub size: f32,
     /// Size at creation.
@@ -142,9 +142,9 @@ pub struct FXPoint {
 impl FXPoint {
     /// Create a new point effect.
     pub fn new(
-        position: Point3<f32>,
+        position: Vec3,
         color: [f32; 4],
-        velocity: Vector3<f32>,
+        velocity: Vec3,
         size: f32,
         lifetime_secs: f32,
     ) -> Self {
@@ -163,9 +163,9 @@ impl FXPoint {
 
     /// Create with explicit gravity and drag.
     pub fn with_physics(
-        position: Point3<f32>,
+        position: Vec3,
         color: [f32; 4],
-        velocity: Vector3<f32>,
+        velocity: Vec3,
         size: f32,
         lifetime_secs: f32,
         gravity: f32,
@@ -229,28 +229,28 @@ impl FXPoint {
 pub struct FXLine {
     pub base: FXBase,
     /// Line start point.
-    pub start: Point3<f32>,
+    pub start: Vec3,
     /// Line end point.
-    pub end: Point3<f32>,
+    pub end: Vec3,
     /// Original start (for progress-based extension).
-    pub start_origin: Point3<f32>,
+    pub start_origin: Vec3,
     /// Original end (for progress-based extension).
-    pub end_origin: Point3<f32>,
+    pub end_origin: Vec3,
     /// Line width in world units.
     pub width: f32,
     /// How far along the line has been drawn (0.0–1.0).
     pub progress: f32,
     /// Velocity applied to the start point each frame.
-    pub velocity_start: Vector3<f32>,
+    pub velocity_start: Vec3,
     /// Velocity applied to the end point each frame.
-    pub velocity_end: Vector3<f32>,
+    pub velocity_end: Vec3,
 }
 
 impl FXLine {
     /// Create a new line effect from `start` to `end`.
     pub fn new(
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
         color: [f32; 4],
         width: f32,
         lifetime_secs: f32,
@@ -265,15 +265,15 @@ impl FXLine {
             end_origin: end,
             width,
             progress: 0.0,
-            velocity_start: Vector3::zeros(),
-            velocity_end: Vector3::zeros(),
+            velocity_start: Vec3::ZERO,
+            velocity_end: Vec3::ZERO,
         }
     }
 
     /// Create a line that extends from start to end over its lifetime.
     pub fn extending(
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
         color: [f32; 4],
         width: f32,
         lifetime_secs: f32,
@@ -286,7 +286,7 @@ impl FXLine {
     }
 
     /// Set endpoint velocities for tracking moving targets.
-    pub fn with_velocities(mut self, vel_start: Vector3<f32>, vel_end: Vector3<f32>) -> Self {
+    pub fn with_velocities(mut self, vel_start: Vec3, vel_end: Vec3) -> Self {
         self.velocity_start = vel_start;
         self.velocity_end = vel_end;
         self
@@ -302,10 +302,10 @@ impl FXLine {
         let t = self.base.life_fraction();
 
         // Move endpoints if velocities are set
-        if self.velocity_start.norm() > 1e-6 {
+        if self.velocity_start.length() > 1e-6 {
             self.start_origin += self.velocity_start * dt;
         }
-        if self.velocity_end.norm() > 1e-6 {
+        if self.velocity_end.length() > 1e-6 {
             self.end_origin += self.velocity_end * dt;
         }
 
@@ -331,7 +331,7 @@ impl FXLine {
 
     /// Current line length.
     pub fn length(&self) -> f32 {
-        (self.end - self.start).norm()
+        (self.end - self.start).length()
     }
 }
 
@@ -358,13 +358,13 @@ pub struct FXRing {
     /// Ring thickness (world units).
     pub thickness: f32,
     /// Normal vector defining the ring plane (default: +Z).
-    pub normal: Vector3<f32>,
+    pub normal: Vec3,
 }
 
 impl FXRing {
     /// Create a new expanding ring effect.
     pub fn new(
-        position: Point3<f32>,
+        position: Vec3,
         color: [f32; 4],
         start_radius: f32,
         end_radius: f32,
@@ -378,12 +378,12 @@ impl FXRing {
             start_radius,
             end_radius,
             thickness,
-            normal: Vector3::new(0.0, 0.0, 1.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
         }
     }
 
     /// Create with a custom plane normal.
-    pub fn with_normal(mut self, normal: Vector3<f32>) -> Self {
+    pub fn with_normal(mut self, normal: Vec3) -> Self {
         self.normal = normal;
         self
     }
@@ -497,7 +497,7 @@ impl FXShaderParam {
 impl FXShader {
     /// Create a new shader effect.
     pub fn new(
-        position: Point3<f32>,
+        position: Vec3,
         color: [f32; 4],
         shader_name: String,
         lifetime_secs: f32,
@@ -603,7 +603,7 @@ impl FXHandle {
     }
 
     /// Get the effect's world position.
-    pub fn position(&self) -> Point3<f32> {
+    pub fn position(&self) -> Vec3 {
         self.base().position
     }
 }
@@ -959,7 +959,7 @@ pub struct FXFactory;
 
 impl FXFactory {
     /// Create a muzzle flash point effect.
-    pub fn muzzle_flash(position: Point3<f32>, direction: Vector3<f32>) -> FXPoint {
+    pub fn muzzle_flash(position: Vec3, direction: Vec3) -> FXPoint {
         let speed = 2.0;
         let velocity = direction.normalize() * speed;
         FXPoint::with_physics(
@@ -974,17 +974,17 @@ impl FXFactory {
     }
 
     /// Create an impact spark effect.
-    pub fn impact_spark(position: Point3<f32>, normal: Vector3<f32>) -> FXPoint {
+    pub fn impact_spark(position: Vec3, normal: Vec3) -> FXPoint {
         let spread = 5.0;
-        let up = Vector3::new(0.0, 0.0, 1.0);
-        let rand_dir = if normal.norm() > 0.01 {
+        let up = Vec3::new(0.0, 0.0, 1.0);
+        let rand_dir = if normal.length() > 0.01 {
             normal.normalize()
         } else {
             up
         };
         // Scatter sparks around the normal
         let angle = rand::random::<f32>() * std::f32::consts::TAU;
-        let scatter = Vector3::new(angle.cos(), angle.sin(), 0.5);
+        let scatter = Vec3::new(angle.cos(), angle.sin(), 0.5);
         let velocity = (rand_dir + scatter * 0.5).normalize() * spread;
 
         FXPoint::with_physics(
@@ -999,18 +999,18 @@ impl FXFactory {
     }
 
     /// Create an explosion flash (bright point that fades quickly).
-    pub fn explosion_flash(position: Point3<f32>, size: f32) -> FXPoint {
+    pub fn explosion_flash(position: Vec3, size: f32) -> FXPoint {
         FXPoint::new(
             position,
             [1.0, 1.0, 0.8, 1.0], // Bright white-yellow
-            Vector3::zeros(),     // Stationary
+            Vec3::ZERO,     // Stationary
             size,
             0.2, // 200ms flash
         )
     }
 
     /// Create a laser beam line effect.
-    pub fn laser_beam(start: Point3<f32>, end: Point3<f32>) -> FXLine {
+    pub fn laser_beam(start: Vec3, end: Vec3) -> FXLine {
         FXLine::new(
             start,
             end,
@@ -1021,7 +1021,7 @@ impl FXFactory {
     }
 
     /// Create a projectile trail (extending line).
-    pub fn projectile_trail(start: Point3<f32>, end: Point3<f32>, color: [f32; 4]) -> FXLine {
+    pub fn projectile_trail(start: Vec3, end: Vec3, color: [f32; 4]) -> FXLine {
         FXLine::extending(
             start, end, color, 0.08, // thin trail
             0.5,  // 500ms
@@ -1029,7 +1029,7 @@ impl FXFactory {
     }
 
     /// Create a shockwave ring effect.
-    pub fn shockwave_ring(center: Point3<f32>, max_radius: f32) -> FXRing {
+    pub fn shockwave_ring(center: Vec3, max_radius: f32) -> FXRing {
         FXRing::new(
             center,
             [0.8, 0.8, 0.8, 0.7], // White-grey
@@ -1041,7 +1041,7 @@ impl FXFactory {
     }
 
     /// Create a selection ring indicator.
-    pub fn selection_ring(center: Point3<f32>, radius: f32, color: [f32; 4]) -> FXRing {
+    pub fn selection_ring(center: Vec3, radius: f32, color: [f32; 4]) -> FXRing {
         FXRing::new(
             center, color, radius, radius, // No expansion
             0.3,    // Thin ring
@@ -1061,9 +1061,9 @@ mod tests {
     #[test]
     fn test_fx_point_update() {
         let mut point = FXPoint::new(
-            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             [1.0, 0.0, 0.0, 1.0],
-            Vector3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
             5.0,
             1.0,
         );
@@ -1091,9 +1091,9 @@ mod tests {
         };
 
         let point = FXPoint::new(
-            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             [1.0, 1.0, 1.0, 1.0],
-            Vector3::zeros(),
+            Vec3::ZERO,
             1.0,
             1.0,
         );
@@ -1105,8 +1105,8 @@ mod tests {
 
     #[test]
     fn test_fx_line_update() {
-        let start = Point3::new(0.0, 0.0, 0.0);
-        let end = Point3::new(10.0, 0.0, 0.0);
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let end = Vec3::new(10.0, 0.0, 0.0);
         let mut line = FXLine::extending(start, end, [1.0, 1.0, 0.0, 1.0], 0.2, 1.0);
 
         assert!(line.is_alive());
@@ -1123,7 +1123,7 @@ mod tests {
     #[test]
     fn test_fx_ring_update() {
         let mut ring = FXRing::new(
-            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             [1.0, 1.0, 1.0, 0.8],
             1.0,
             20.0,
@@ -1143,7 +1143,7 @@ mod tests {
     #[test]
     fn test_fx_shader_update() {
         let mut shader = FXShader::new(
-            Point3::new(5.0, 5.0, 5.0),
+            Vec3::new(5.0, 5.0, 5.0),
             [0.5, 0.5, 1.0, 1.0],
             "pulse_glow".to_string(),
             2.0,
@@ -1169,8 +1169,8 @@ mod tests {
     fn test_fx_list_update_and_cleanup() {
         let mut list = FXList::new();
 
-        let p1 = FXPoint::new(Point3::origin(), [1.0; 4], Vector3::zeros(), 1.0, 0.1);
-        let p2 = FXPoint::new(Point3::origin(), [1.0; 4], Vector3::zeros(), 1.0, 2.0);
+        let p1 = FXPoint::new(Vec3::ZERO, [1.0; 4], Vec3::ZERO, 1.0, 0.1);
+        let p2 = FXPoint::new(Vec3::ZERO, [1.0; 4], Vec3::ZERO, 1.0, 2.0);
         let id1 = list.add_point(p1);
         let id2 = list.add_point(p2);
 
@@ -1188,21 +1188,21 @@ mod tests {
         let mut list = FXList::new();
 
         list.add_point(FXPoint::new(
-            Point3::new(1.0, 2.0, 3.0),
+            Vec3::new(1.0, 2.0, 3.0),
             [1.0, 0.0, 0.0, 1.0],
-            Vector3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
             4.0,
             1.0,
         ));
         list.add_line(FXLine::new(
-            Point3::origin(),
-            Point3::new(10.0, 0.0, 0.0),
+            Vec3::ZERO,
+            Vec3::new(10.0, 0.0, 0.0),
             [0.0, 1.0, 0.0, 1.0],
             0.5,
             1.0,
         ));
         list.add_ring(FXRing::new(
-            Point3::new(5.0, 5.0, 0.0),
+            Vec3::new(5.0, 5.0, 0.0),
             [0.0, 0.0, 1.0, 1.0],
             1.0,
             10.0,
@@ -1226,14 +1226,14 @@ mod tests {
     #[test]
     fn test_fx_factory_muzzle_flash() {
         let flash =
-            FXFactory::muzzle_flash(Point3::new(10.0, 20.0, 5.0), Vector3::new(1.0, 0.0, 0.0));
+            FXFactory::muzzle_flash(Vec3::new(10.0, 20.0, 5.0), Vec3::new(1.0, 0.0, 0.0));
         assert!(flash.is_alive());
         assert!((flash.base.position.x - 10.0).abs() < 0.01);
     }
 
     #[test]
     fn test_fx_factory_shockwave() {
-        let ring = FXFactory::shockwave_ring(Point3::origin(), 30.0);
+        let ring = FXFactory::shockwave_ring(Vec3::ZERO, 30.0);
         assert!(ring.is_alive());
         assert!((ring.end_radius - 30.0).abs() < 0.01);
     }
@@ -1242,7 +1242,7 @@ mod tests {
     fn test_persistent_effect() {
         // Lifetime 0.0 = never expires
         let mut ring = FXRing::new(
-            Point3::origin(),
+            Vec3::ZERO,
             [1.0; 4],
             10.0,
             10.0,

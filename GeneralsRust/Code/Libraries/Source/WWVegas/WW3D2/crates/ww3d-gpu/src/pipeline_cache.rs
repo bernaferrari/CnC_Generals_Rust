@@ -267,7 +267,7 @@ mod tests {
             front_face: wgpu::FrontFace::Ccw,
             depth_stencil_format: Some(wgpu::TextureFormat::Depth24Plus),
             depth_compare: Some(wgpu::CompareFunction::Less),
-            depth_write_enabled: true,
+            depth_write_enabled: Some(true),
             color_formats: vec![wgpu::TextureFormat::Rgba8UnormSrgb],
             blend_mode: None,
             sample_count: 1,

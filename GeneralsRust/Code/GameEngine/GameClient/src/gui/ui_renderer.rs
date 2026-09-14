@@ -324,7 +324,7 @@ impl UIRenderer {
                 let source: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(bytes);
                 font_system
                     .db_mut()
-                    .load_font_source(fontdb::Source::Binary(source));
+                    .load_font_source(cosmic_text::fontdb::Source::Binary(source));
             }
         }
         let text_buffer = TextBuffer::new(&mut font_system, Metrics::new(14.0, 16.0));
@@ -382,8 +382,8 @@ impl UIRenderer {
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("UI Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout, &texture_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_bind_group_layout), Some(&texture_bind_group_layout)],
+            immediate_size: 0,
         });
 
         // Create vertex buffer layout
@@ -416,7 +416,7 @@ impl UIRenderer {
             vertex: VertexState {
                 module: &ui_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(FragmentState {
@@ -440,7 +440,7 @@ impl UIRenderer {
             },
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -450,7 +450,7 @@ impl UIRenderer {
             vertex: VertexState {
                 module: &ui_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(FragmentState {
@@ -474,7 +474,7 @@ impl UIRenderer {
             },
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -484,7 +484,7 @@ impl UIRenderer {
             vertex: VertexState {
                 module: &ui_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(FragmentState {
@@ -519,7 +519,7 @@ impl UIRenderer {
             },
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -530,7 +530,7 @@ impl UIRenderer {
                 vertex: VertexState {
                     module: &ui_shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[vertex_buffer_layout.clone()],
+                    buffers: &[Some(vertex_buffer_layout.clone())],
                     compilation_options: Default::default(),
                 },
                 fragment: Some(FragmentState {
@@ -554,7 +554,7 @@ impl UIRenderer {
                 },
                 depth_stencil: None,
                 multisample: MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 
@@ -564,7 +564,7 @@ impl UIRenderer {
             vertex: VertexState {
                 module: &text_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: &[Some(vertex_buffer_layout.clone())],
                 compilation_options: Default::default(),
             },
             fragment: Some(FragmentState {
@@ -588,7 +588,7 @@ impl UIRenderer {
             },
             depth_stencil: None,
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -679,7 +679,7 @@ impl UIRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -690,7 +690,7 @@ impl UIRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -1363,10 +1363,10 @@ impl UIRenderer {
                 .expect("UIRenderer font runtime poisoned");
             let mut text_buffer = runtime.text_buffer.borrow_with(&mut runtime.font_system);
             text_buffer.set_metrics(metrics);
-            text_buffer.set_size(canvas_width as f32, canvas_height as f32);
+            text_buffer.set_size(Some(canvas_width as f32), Some(canvas_height as f32));
             text_buffer.set_wrap(wrap_mode);
-            text_buffer.set_text(&text, attrs, Shaping::Advanced);
-            text_buffer.shape_until_scroll();
+            text_buffer.set_text(&text, &attrs, Shaping::Advanced, None);
+            text_buffer.shape_until_scroll(true);
             text_buffer.draw(
                 &mut runtime.swash_cache,
                 text_color,

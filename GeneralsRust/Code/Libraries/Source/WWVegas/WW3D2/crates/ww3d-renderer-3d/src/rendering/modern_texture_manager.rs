@@ -344,7 +344,7 @@ impl ModernTextureManager {
                 address_mode_w: Self::convert_wrap_mode(wrap),
                 mag_filter: Self::convert_filter_mode(filter),
                 min_filter: Self::convert_filter_mode(filter),
-                mipmap_filter: Self::convert_filter_mode(filter),
+                mipmap_filter: Self::convert_mipmap_filter_mode(filter),
                 lod_min_clamp: 0.0,
                 lod_max_clamp: 100.0,
                 compare: None,
@@ -369,6 +369,13 @@ impl ModernTextureManager {
             TextureFilter::Linear => wgpu::FilterMode::Linear,
             TextureFilter::Point => wgpu::FilterMode::Nearest,
             TextureFilter::Anisotropic => wgpu::FilterMode::Linear, // Fall back to linear
+        }
+    }
+
+    fn convert_mipmap_filter_mode(filter: TextureFilter) -> wgpu::MipmapFilterMode {
+        match filter {
+            TextureFilter::Nearest | TextureFilter::Point => wgpu::MipmapFilterMode::Nearest,
+            TextureFilter::Linear | TextureFilter::Anisotropic => wgpu::MipmapFilterMode::Linear,
         }
     }
 

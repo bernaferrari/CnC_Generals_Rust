@@ -54,11 +54,14 @@ impl TerrainVisualImpl {
         self.terrain_camera_bind_group_layout = Some(Arc::clone(&camera_layout));
         self.terrain_texture_bind_group_layout = Some(Arc::clone(&texture_layout));
 
-        let bind_group_layouts = [camera_layout.as_ref(), texture_layout.as_ref()];
+        let bind_group_layouts = [
+            Some(camera_layout.as_ref()),
+            Some(texture_layout.as_ref()),
+        ];
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Terrain Pipeline Layout"),
             bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         self.terrain_pipeline = Some(device.create_render_pipeline(
@@ -68,7 +71,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[TerrainVertex::desc()],
+                    buffers: &[Some(TerrainVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -92,8 +95,8 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -102,7 +105,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ));
@@ -110,8 +113,8 @@ impl TerrainVisualImpl {
         let depth_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Terrain Depth Pipeline Layout"),
-                bind_group_layouts: &[camera_layout.as_ref()],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(camera_layout.as_ref())],
+                immediate_size: 0,
             });
 
         self.terrain_depth_pipeline = Some(device.create_render_pipeline(
@@ -121,7 +124,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[TerrainVertex::desc()],
+                    buffers: &[Some(TerrainVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: None,
@@ -136,8 +139,8 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -146,7 +149,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ));
@@ -171,11 +174,14 @@ impl TerrainVisualImpl {
             label: Some("Terrain Extra Blend Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/terrain.wgsl").into()),
         });
-        let bind_group_layouts = [camera_layout.as_ref(), texture_layout.as_ref()];
+        let bind_group_layouts = [
+            Some(camera_layout.as_ref()),
+            Some(texture_layout.as_ref()),
+        ];
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Terrain Extra Blend Pipeline Layout"),
             bind_group_layouts: &bind_group_layouts,
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         self.extra_blend_pipeline = Some(device.create_render_pipeline(
@@ -185,7 +191,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[TerrainVertex::desc()],
+                    buffers: &[Some(TerrainVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -209,8 +215,8 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -219,7 +225,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ));
@@ -259,8 +265,8 @@ impl TerrainVisualImpl {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Terrain Skybox Background Pipeline Layout"),
-            bind_group_layouts: &[bind_group_layout.as_ref()],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(bind_group_layout.as_ref())],
+            immediate_size: 0,
         });
 
         self.skybox_background_pipeline = Some(device.create_render_pipeline(
@@ -294,8 +300,8 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Always,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -304,7 +310,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ));
@@ -355,8 +361,8 @@ impl TerrainVisualImpl {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Water Pipeline Layout"),
-            bind_group_layouts: &[camera_layout.as_ref(), texture_layout.as_ref()],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(camera_layout.as_ref()), Some(texture_layout.as_ref())],
+            immediate_size: 0,
         });
         self.water_texture_bind_group_layout = Some(texture_layout);
 
@@ -367,7 +373,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[WaterVertex::desc()],
+                    buffers: &[Some(WaterVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -394,8 +400,8 @@ impl TerrainVisualImpl {
                 // z-test against the whole scene it renders after.
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -404,7 +410,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };
@@ -473,8 +479,8 @@ impl TerrainVisualImpl {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Road Pipeline Layout"),
-            bind_group_layouts: &[camera_layout.as_ref(), texture_layout.as_ref()],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(camera_layout.as_ref()), Some(texture_layout.as_ref())],
+            immediate_size: 0,
         });
         self.road_texture_bind_group_layout = Some(texture_layout);
 
@@ -485,7 +491,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[RoadVertex::desc()],
+                    buffers: &[Some(RoadVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -509,8 +515,8 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::LessEqual, // Roads should render on top of terrain
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual), // Roads should render on top of terrain
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -519,7 +525,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             }),
         );
@@ -530,7 +536,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[RoadVertex::desc()],
+                    buffers: &[Some(RoadVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -555,8 +561,8 @@ impl TerrainVisualImpl {
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
                     // C++ W3DSnow.cpp:384 _PresetAlphaShader DEPTH_WRITE_DISABLE.
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -565,7 +571,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             }),
         );
@@ -614,8 +620,8 @@ impl TerrainVisualImpl {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Tree Pipeline Layout"),
-            bind_group_layouts: &[camera_layout.as_ref(), atlas_layout.as_ref()],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(camera_layout.as_ref()), Some(atlas_layout.as_ref())],
+            immediate_size: 0,
         });
         self.tree_atlas_bind_group_layout = Some(atlas_layout);
 
@@ -626,7 +632,7 @@ impl TerrainVisualImpl {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[TreeGpuVertex::desc()],
+                    buffers: &[Some(TreeGpuVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -650,8 +656,8 @@ impl TerrainVisualImpl {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TERRAIN_PIPELINES_DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -660,7 +666,7 @@ impl TerrainVisualImpl {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             }),
         );

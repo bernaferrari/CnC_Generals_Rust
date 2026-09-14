@@ -1,7 +1,8 @@
 [package]
 name = "ui_framework"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # Core UI
@@ -33,7 +34,7 @@ rfd = { workspace = true }
 image = { workspace = true }
 
 # Optional GPUI host (macOS tools stay on the default egui path)
-gpui = { version = "0.2.2", optional = true }
+gpui = {workspace = true, optional = true}
 
 [features]
 default = ["3d_viewport", "asset_browser", "property_panels"]

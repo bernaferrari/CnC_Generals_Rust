@@ -1,7 +1,8 @@
 [package]
 name = "base_types"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = {workspace = true, features = ["derive"]}

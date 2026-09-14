@@ -9,7 +9,7 @@
 use std::sync::{Mutex, OnceLock};
 
 use gamelogic::object::draw::{DrawModule, TracerDrawInterface};
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Vec3, Vec4, Mat4};
 
 /// Live tracer created by FXList (wgpu stand-in for the Drawable + Line3D).
 #[derive(Debug, Clone, PartialEq)]
@@ -478,7 +478,6 @@ mod tests {
     use super::*;
     use crate::effects::fxlist_integration::{FXContext, FXNugget, TracerFXNugget};
     use crate::effects::particle_manager::ParticleSystemManager;
-    use nalgebra::Point3;
 
     fn mesh_centerline(mesh: &TracerGpuMesh) -> ([f32; 3], [f32; 3]) {
         assert_eq!(mesh.vertices.len(), 4);
@@ -579,10 +578,10 @@ mod tests {
         };
         FXNugget::do_fx_pos(
             &nugget,
-            Point3::new(primary[0], primary[1], primary[2]),
+            Vec3::new(primary[0], primary[1], primary[2]),
             None,
             99.0,
-            Some(Point3::new(secondary[0], secondary[1], secondary[2])),
+            Some(Vec3::new(secondary[0], secondary[1], secondary[2])),
             0.0,
             &mut ctx,
         );
@@ -702,10 +701,10 @@ mod tests {
         };
         FXNugget::do_fx_pos(
             &nugget,
-            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             None,
             12.0,
-            Some(Point3::new(40.0, 0.0, 0.0)),
+            Some(Vec3::new(40.0, 0.0, 0.0)),
             0.0,
             &mut ctx,
         );

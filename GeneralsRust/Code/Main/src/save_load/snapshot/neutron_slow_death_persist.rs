@@ -34,7 +34,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.fields.is_empty() && payload.spawned_total == 0 {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(NMSD_MAGIC);
@@ -63,7 +63,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "NMSD payload truncated".to_string(),
         ));
     }
-    let payload: NeutronSlowDeathPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: NeutronSlowDeathPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("NMSD payload decode: {err}")))?;
     game_logic
         .special_power_strikes_mut()

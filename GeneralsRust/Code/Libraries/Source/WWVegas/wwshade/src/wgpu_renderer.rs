@@ -81,16 +81,14 @@ pub struct Light {
 impl WgpuRenderer {
     /// Create a new WGPU renderer (headless mode)
     pub async fn new() -> ShdResult<Self> {
-        let instance = Instance::new(InstanceDescriptor {
-            backends: Backends::all(),
-            ..Default::default()
-        });
+        let instance = Instance::new(InstanceDescriptor { backends: Backends::all(), ..InstanceDescriptor::new_without_display_handle() });
 
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await
             .ok_or_else(|| {
@@ -155,6 +153,7 @@ impl WgpuRenderer {
         let config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],
@@ -227,6 +226,7 @@ impl WgpuRenderer {
                             g: 0.2,
                             b: 0.3,
                             a: 1.0,
+            multiview_mask: None,
                         }),
                         store: StoreOp::Store,
                     },
@@ -256,7 +256,7 @@ impl WgpuRenderer {
             ww3d_engine::OutOfFrameReason::StandaloneShade,
         );
         if !ww3d_engine::frame_is_active() {
-            present_surface_texture(output);
+            present_surface_texture(&self.queue, output);
         }
 
         Ok(())

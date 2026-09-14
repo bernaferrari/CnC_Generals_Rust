@@ -88,10 +88,7 @@ impl SimpleRenderer {
     async fn new(window: Arc<winit::window::Window>) -> Result<Self> {
         let size = window.inner_size();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         let surface = instance.create_surface(window)?;
 
@@ -100,6 +97,7 @@ impl SimpleRenderer {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await?;
 
@@ -123,6 +121,7 @@ impl SimpleRenderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],
@@ -283,8 +282,8 @@ impl SimpleRenderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&camera_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&camera_bind_group_layout)],
+                immediate_size: 0,
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -322,7 +321,7 @@ impl SimpleRenderer {
                 alpha_to_coverage_enabled: false,
             },
             cache: None,
-            multiview: None,
+            multiview_mask: None,
         });
 
         // Set initial camera position (RTS-style elevated view)
@@ -396,6 +395,7 @@ impl SimpleRenderer {
                             g: 0.7,
                             b: 1.0,
                             a: 1.0,
+            multiview_mask: None,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -413,7 +413,7 @@ impl SimpleRenderer {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        present_surface_texture(output);
+        present_surface_texture(&self.queue, output);
 
         Ok(())
     }

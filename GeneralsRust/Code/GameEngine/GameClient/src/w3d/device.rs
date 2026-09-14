@@ -131,7 +131,7 @@ impl Default for W3DDeviceSettings {
                 max_buffer_size: 268435456, // 256MB
                 max_vertex_attributes: 32,
                 max_vertex_buffer_array_stride: 2048,
-                max_inter_stage_shader_components: 128,
+                max_inter_stage_shader_variables: 128,
                 max_color_attachments: 8,
                 max_color_attachment_bytes_per_sample: 32,
                 max_compute_workgroup_storage_size: 32768,
@@ -140,7 +140,7 @@ impl Default for W3DDeviceSettings {
                 max_compute_workgroup_size_y: 1024,
                 max_compute_workgroup_size_z: 64,
                 max_compute_workgroups_per_dimension: 65535,
-                max_push_constant_size: 256,
+                max_immediate_size: 256,
                 min_uniform_buffer_offset_alignment: 256,
                 min_storage_buffer_offset_alignment: 256,
                 ..Default::default()
@@ -332,7 +332,7 @@ impl W3DDevice {
         let mut backend_options = wgpu::BackendOptions::default();
         backend_options.dx12.shader_compiler = Dx12Compiler::default();
 
-        let instance = Instance::new(&InstanceDescriptor {
+        let instance = Instance::new(InstanceDescriptor {
             backends: Backends::all(),
             flags: if cfg!(debug_assertions) {
                 InstanceFlags::DEBUG | InstanceFlags::VALIDATION
@@ -354,6 +354,7 @@ impl W3DDevice {
                 power_preference: settings.power_preference,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await
             .map_err(|_| W3DDeviceError::AdapterNotFound)?;
@@ -412,6 +413,7 @@ impl W3DDevice {
         let surface_config = SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: settings.width,
             height: settings.height,
             present_mode,

@@ -10,7 +10,7 @@
 use crate::assets::archive::ArchiveFileSystem;
 use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::mpsc;
@@ -432,7 +432,7 @@ impl AudioManager {
         let source = match Decoder::new(cursor) {
             Ok(decoder) => {
                 // Convert to f32 samples to prevent audio corruption and noise
-                let f32_source = decoder.convert_samples::<f32>();
+                let f32_source = decoder;
                 f32_source.repeat_infinite()
             }
             Err(e) => {
@@ -519,8 +519,7 @@ impl AudioManager {
 
         // Create decoder with proper noise prevention
         let source = Decoder::new(cursor)
-            .map_err(|e| anyhow!("Failed to decode sound effect {}: {}", sound_name, e))?
-            .convert_samples::<f32>(); // Convert to f32 to prevent audio noise
+            .map_err(|e| anyhow!("Failed to decode sound effect {}: {}", sound_name, e))?;
 
         // Create sink and play
         if let Some(ref handle) = self.handle {
@@ -881,8 +880,7 @@ impl AudioManager {
 
         // Create decoder with noise prevention
         let source = Decoder::new(cursor)
-            .map_err(|e| anyhow!("Failed to decode audio file {}: {}", sound_name, e))?
-            .convert_samples::<f32>(); // Convert to f32 to prevent audio noise
+            .map_err(|e| anyhow!("Failed to decode audio file {}: {}", sound_name, e))?;
 
         // Create sink
         if let Some(ref handle) = self.handle {
@@ -1182,12 +1180,12 @@ mod tests {
         // rodio 0.17: control types are already Send + Sync. OutputStream is not
         // (cpal::Stream / NotSendSyncAcrossAllPlatforms); it lives on a dedicated
         // owner thread so AudioManager can sit in Mutex<AssetManager>.
-        assert_send::<rodio::Sink>();
-        assert_send::<rodio::SpatialSink>();
-        assert_send::<rodio::OutputStreamHandle>();
-        assert_sync::<rodio::Sink>();
-        assert_sync::<rodio::SpatialSink>();
-        assert_sync::<rodio::OutputStreamHandle>();
+        assert_send::<rodio_compat::Sink>();
+        assert_send::<rodio_compat::SpatialSink>();
+        assert_send::<rodio_compat::OutputStreamHandle>();
+        assert_sync::<rodio_compat::Sink>();
+        assert_sync::<rodio_compat::SpatialSink>();
+        assert_sync::<rodio_compat::OutputStreamHandle>();
         assert_send::<AudioManager>();
         assert_send::<OutputStreamKeepalive>();
 

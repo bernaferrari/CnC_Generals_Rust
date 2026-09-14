@@ -3,11 +3,11 @@
 //! Provides laser beams, particle beams, and other ray-based visual effects.
 //! Used for weapon effects like particle cannons, lasers, and energy beams.
 
-use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::{EffectsError, EffectsLOD};
+use glam::{Vec3};
 
 /// Unique identifier for ray effects
 pub type RayEffectId = u64;
@@ -34,10 +34,10 @@ pub struct RayEffectConfig {
     pub ray_type: RayType,
 
     /// Start position
-    pub start: Point3<f32>,
+    pub start: Vec3,
 
     /// End position
-    pub end: Point3<f32>,
+    pub end: Vec3,
 
     /// Primary color (RGBA)
     pub color: [f32; 4],
@@ -80,8 +80,8 @@ impl Default for RayEffectConfig {
     fn default() -> Self {
         Self {
             ray_type: RayType::Laser,
-            start: Point3::origin(),
-            end: Point3::new(0.0, 0.0, 10.0),
+            start: Vec3::ZERO,
+            end: Vec3::new(0.0, 0.0, 10.0),
             color: [1.0, 0.0, 0.0, 1.0], // Red
             color_secondary: None,
             width: 0.2,
@@ -167,7 +167,7 @@ impl RayEffectConfig {
     }
 
     /// Set start and end positions
-    pub fn between(mut self, start: Point3<f32>, end: Point3<f32>) -> Self {
+    pub fn between(mut self, start: Vec3, end: Vec3) -> Self {
         self.start = start;
         self.end = end;
         self
@@ -224,12 +224,12 @@ impl RayEffect {
     }
 
     /// Get start position
-    pub fn start(&self) -> Point3<f32> {
+    pub fn start(&self) -> Vec3 {
         self.config.start
     }
 
     /// Get end position
-    pub fn end(&self) -> Point3<f32> {
+    pub fn end(&self) -> Vec3 {
         self.config.end
     }
 
@@ -289,15 +289,15 @@ impl RayEffect {
     }
 
     /// Update positions (for tracking moving targets)
-    pub fn update_positions(&mut self, start: Point3<f32>, end: Point3<f32>) {
+    pub fn update_positions(&mut self, start: Vec3, end: Vec3) {
         self.config.start = start;
         self.config.end = end;
     }
 
     /// Calculate points along the beam for rendering
-    pub fn generate_beam_points(&self, time: f32) -> Vec<Point3<f32>> {
+    pub fn generate_beam_points(&self, time: f32) -> Vec<Vec3> {
         let direction = self.config.end - self.config.start;
-        let length = direction.norm();
+        let length = direction.length();
         let normalized_dir = direction.normalize();
 
         let mut points = Vec::with_capacity(self.config.segments as usize + 1);
@@ -317,19 +317,19 @@ impl RayEffect {
                             * self.config.noise_amount;
                         let noise_z = ((t * 6.0 + time * 4.0).sin() * (t * 11.0).cos())
                             * self.config.noise_amount;
-                        Vector3::new(noise_x, noise_y, noise_z)
+                        Vec3::new(noise_x, noise_y, noise_z)
                     }
                     _ => {
                         // Subtle wave for other beams
                         let noise = (t * 20.0 + time * 10.0).sin() * self.config.noise_amount * 0.1;
                         // Perpendicular offset
                         let perpendicular = if normalized_dir.y.abs() < 0.9 {
-                            Vector3::new(0.0, 1.0, 0.0)
-                                .cross(&normalized_dir)
+                            Vec3::new(0.0, 1.0, 0.0)
+                                .cross(normalized_dir)
                                 .normalize()
                         } else {
-                            Vector3::new(1.0, 0.0, 0.0)
-                                .cross(&normalized_dir)
+                            Vec3::new(1.0, 0.0, 0.0)
+                                .cross(normalized_dir)
                                 .normalize()
                         };
                         perpendicular * noise
@@ -435,14 +435,14 @@ impl RayEffectManager {
     /// Apply LOD (Level of Detail) to effects based on distance
     pub fn apply_lod(
         &self,
-        camera_position: Point3<f32>,
+        camera_position: Vec3,
         lod_config: &super::EffectsConfig,
     ) -> Vec<(RayEffectId, EffectsLOD)> {
         self.effects
             .values()
             .map(|effect| {
                 let mid_point = effect.start() + (effect.end() - effect.start()) * 0.5;
-                let distance = (mid_point - camera_position).norm();
+                let distance = (mid_point - camera_position).length();
                 let lod = super::calculate_effects_lod(distance, lod_config);
                 (effect.id(), lod)
             })
@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn test_beam_point_generation() {
         let config =
-            RayEffectConfig::default().between(Point3::origin(), Point3::new(0.0, 0.0, 10.0));
+            RayEffectConfig::default().between(Vec3::ZERO, Vec3::new(0.0, 0.0, 10.0));
         let effect = RayEffect::new(1, config);
 
         let points = effect.generate_beam_points(0.0);
@@ -576,8 +576,8 @@ mod tests {
         let first = points.first().unwrap();
         let last = points.last().unwrap();
 
-        assert!((first - effect.start()).norm() < 0.1);
-        assert!((last - effect.end()).norm() < 0.1);
+        assert!((first - effect.start()).length() < 0.1);
+        assert!((last - effect.end()).length() < 0.1);
     }
 
     #[test]

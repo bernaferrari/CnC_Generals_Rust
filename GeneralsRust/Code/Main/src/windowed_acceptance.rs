@@ -212,11 +212,8 @@ fn os_session_has_display() -> bool {
 }
 
 fn wgpu_adapter_can_present() -> bool {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-    });
-    let adapters = instance.enumerate_adapters(wgpu::Backends::all());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let adapters = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
     adapters
         .into_iter()
         .any(|adapter| !matches!(adapter.get_info().device_type, wgpu::DeviceType::Other))

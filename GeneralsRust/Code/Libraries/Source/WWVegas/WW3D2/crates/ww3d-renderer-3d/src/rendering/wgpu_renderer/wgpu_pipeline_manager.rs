@@ -382,8 +382,8 @@ impl WgpuPipelineManager {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("WW3D Pipeline Layout"),
-            bind_group_layouts: &bgls,
-            push_constant_ranges: &[],
+            bind_group_layouts: &bgls.iter().copied().map(Some).collect::<Vec<_>>(),
+            immediate_size: 0,
         });
 
         // Vertex formats based on vertex format type
@@ -525,7 +525,7 @@ impl WgpuPipelineManager {
             vertex: wgpu::VertexState {
                 module: &module,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout],
+                buffers: &[Some(vertex_layout)],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -567,7 +567,7 @@ impl WgpuPipelineManager {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -592,15 +592,13 @@ mod tests {
     /// compiling the Rust source that includes them.
     #[test]
     fn projected_shroud_pipelines_validate_on_available_adapter() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+            apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -657,15 +655,13 @@ mod tests {
     /// may skip the test, just like the pipeline ABI test above.
     #[test]
     fn projected_shroud_headless_target_is_multiplied_by_frozen_level() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+            apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -981,6 +977,7 @@ mod tests {
                             g: 0.4,
                             b: 0.2,
                             a: 1.0,
+            multiview_mask: None,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -1043,7 +1040,7 @@ mod tests {
             .recv()
             .expect("readback callback")
             .expect("readback map");
-        let bytes = slice.get_mapped_range();
+        let bytes = slice.get_mapped_range().expect("buffer map");
         let expected = [102u8, 51u8, 26u8, 255u8];
         assert!(
             bytes[..4]
@@ -1184,8 +1181,8 @@ fn create_depth_stencil_state_from_shader(
 ) -> wgpu::DepthStencilState {
     wgpu::DepthStencilState {
         format,
-        depth_write_enabled: shader.get_depth_mask() == DepthMaskType::Enable,
-        depth_compare: to_compare_func(shader.get_depth_compare()),
+        depth_write_enabled: Some(shader.get_depth_mask() == DepthMaskType::Enable),
+        depth_compare: Some(to_compare_func(shader.get_depth_compare())),
         stencil: wgpu::StencilState::default(),
         bias,
     }

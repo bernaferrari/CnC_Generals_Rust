@@ -79,7 +79,7 @@ impl Default for TextureFilter {
         Self {
             min_filter: FilterMode::Linear,
             mag_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             anisotropy: 4,
         }
     }
@@ -439,7 +439,7 @@ impl TextureManager {
                     address_mode_w: AddressMode::Repeat,
                     mag_filter: FilterMode::Linear,
                     min_filter: FilterMode::Linear,
-                    mipmap_filter: FilterMode::Linear,
+                    mipmap_filter: MipmapFilterMode::Linear,
                     lod_min_clamp: 0.0,
                     lod_max_clamp: 100.0,
                     compare: None,

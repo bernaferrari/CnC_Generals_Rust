@@ -245,11 +245,11 @@ impl StreakSubdivider {
         } else {
             // Random perpendicular offset
             let perpendicular = Self::get_perpendicular(direction);
-            let angle = self.rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+            let angle = self.rng.random::<f32>() * 2.0 * std::f32::consts::PI;
             let rotation = glam::Quat::from_axis_angle(*direction, angle);
             let offset_dir = rotation * perpendicular;
 
-            offset_dir * amplitude * self.rng.r#gen::<f32>()
+            offset_dir * amplitude * self.rng.random::<f32>()
         }
     }
 
@@ -398,16 +398,16 @@ impl LightningStreak {
         self.main_streak.add_point(point);
 
         // Generate intermediate points
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for i in 1..segments {
             let t = i as f32 / segments as f32;
             let target_pos = start.lerp(end, t);
 
             // Add some randomness
             let perpendicular = Self::get_perpendicular(&direction);
-            let angle = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+            let angle = rng.random::<f32>() * 2.0 * std::f32::consts::PI;
             let rotation = glam::Quat::from_axis_angle(direction, angle);
-            let offset = rotation * perpendicular * rng.r#gen::<f32>() * segment_length * 0.3;
+            let offset = rotation * perpendicular * rng.random::<f32>() * segment_length * 0.3;
 
             current_pos = target_pos + offset;
 
@@ -417,7 +417,7 @@ impl LightningStreak {
             self.main_streak.add_point(point);
 
             // Maybe create branch
-            if rng.r#gen::<f32>() < self.branch_probability {
+            if rng.random::<f32>() < self.branch_probability {
                 self.create_branch(current_pos, direction, t);
             }
         }
@@ -431,16 +431,16 @@ impl LightningStreak {
 
     /// Create a lightning branch
     fn create_branch(&mut self, start: Vec3, main_direction: Vec3, scale: f32) {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut branch = AdvancedStreak::new();
 
         // Random branch direction
         let perpendicular = Self::get_perpendicular(&main_direction);
-        let angle = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
+        let angle = rng.random::<f32>() * 2.0 * std::f32::consts::PI;
         let rotation = glam::Quat::from_axis_angle(main_direction, angle);
         let side_dir = rotation * perpendicular;
 
-        let branch_angle = self.branch_angle * (rng.r#gen::<f32>() * 0.5 + 0.5);
+        let branch_angle = self.branch_angle * (rng.random::<f32>() * 0.5 + 0.5);
         let branch_rotation = glam::Quat::from_axis_angle(side_dir, branch_angle);
         let branch_dir = branch_rotation * main_direction;
 

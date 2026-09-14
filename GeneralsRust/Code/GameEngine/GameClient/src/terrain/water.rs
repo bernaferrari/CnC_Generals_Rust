@@ -5,8 +5,7 @@
 //! and interaction with terrain and gameplay elements.
 
 use crate::terrain::{TerrainError, TerrainResult};
-use glam::{Mat4, Vec3};
-use nalgebra::{Point2, Vector2};
+use glam::{Vec2, Vec3, Mat4};
 use std::collections::HashMap;
 use wgpu::RenderPass;
 
@@ -39,7 +38,7 @@ pub enum WaterType {
         wave_height: f32,
         wave_frequency: f32,
         tide_level: f32,
-        current_direction: Vector2<f32>,
+        current_direction: Vec2,
     },
 
     /// Marshland and swamps
@@ -129,7 +128,7 @@ pub struct WaterAnimation {
     pub speed_multiplier: f32,
 
     /// Texture scrolling speed for flowing water
-    pub texture_scroll_speed: Vector2<f32>,
+    pub texture_scroll_speed: Vec2,
 
     /// Time offset for animation variation
     pub time_offset: f32,
@@ -249,7 +248,7 @@ pub struct WaterSegmentProperties {
     pub color_tint: [f32; 4],
 
     /// Custom texture UV scaling
-    pub texture_scale: Vector2<f32>,
+    pub texture_scale: Vec2,
 }
 
 /// Rendering geometry for water segments
@@ -305,7 +304,7 @@ pub struct ShoreGeometry {
 #[derive(Debug, Clone)]
 pub struct WaterFlowData {
     /// Flow velocity field
-    pub velocity_field: Vec<Vector2<f32>>,
+    pub velocity_field: Vec<Vec2>,
 
     /// Flow field resolution
     pub field_resolution: (u32, u32),
@@ -323,7 +322,7 @@ pub struct WaterFlowData {
 /// Obstacles that affect water flow
 #[derive(Debug, Clone)]
 pub struct FlowObstacle {
-    pub position: Point2<f32>,
+    pub position: Vec2,
     pub radius: f32,
     pub height: f32,
     pub flow_resistance: f32,
@@ -439,7 +438,7 @@ impl Default for WaterAnimation {
             wave_amplitude: 0.05,
             wave_frequency: 0.5,
             speed_multiplier: 1.0,
-            texture_scroll_speed: Vector2::new(0.1, 0.0),
+            texture_scroll_speed: Vec2::new(0.1, 0.0),
             time_offset: 0.0,
             enabled: true,
         }
@@ -467,7 +466,7 @@ impl Default for WaterSegmentProperties {
             depth_multiplier: 1.0,
             animation_speed: 1.0,
             color_tint: [1.0, 1.0, 1.0, 1.0],
-            texture_scale: Vector2::new(1.0, 1.0),
+            texture_scale: Vec2::new(1.0, 1.0),
         }
     }
 }
@@ -552,7 +551,7 @@ impl WaterBody {
     }
 
     /// Calculate wave height at position and time
-    pub fn calculate_wave_height(&self, position: Point2<f32>, time: f32) -> f32 {
+    pub fn calculate_wave_height(&self, position: Vec2, time: f32) -> f32 {
         if !self.animation.enabled {
             return 0.0;
         }
@@ -578,7 +577,7 @@ impl WaterSegment {
             return None;
         }
 
-        let mut center = Vector2::zeros();
+        let mut center = Vec2::ZERO;
         for v in ring {
             center.x += v.position[0];
             center.y += v.position[2];
@@ -593,11 +592,11 @@ impl WaterSegment {
             let mut outer = vertex.clone();
 
             let outward =
-                Vector2::new(vertex.position[0] - center.x, vertex.position[2] - center.y);
-            let outward = if outward.norm_squared() > f32::EPSILON {
+                Vec2::new(vertex.position[0] - center.x, vertex.position[2] - center.y);
+            let outward = if outward.length_squared() > f32::EPSILON {
                 outward.normalize()
             } else {
-                Vector2::new(1.0, 0.0)
+                Vec2::new(1.0, 0.0)
             };
 
             outer.position[0] += outward.x * blend_distance;
@@ -848,7 +847,7 @@ impl WaterSegment {
                 let pos_y = center.y + water_body.water_level;
 
                 let wave_height = water_body.calculate_wave_height(
-                    Point2::new(pos_x, pos_z),
+                    Vec2::new(pos_x, pos_z),
                     0.0, // Will be updated during rendering
                 );
 
@@ -915,7 +914,7 @@ impl WaterSegment {
         let mut depth_samples = Vec::new();
 
         // Center vertex
-        let center_wave = water_body.calculate_wave_height(Point2::new(center.x, center.z), 0.0);
+        let center_wave = water_body.calculate_wave_height(Vec2::new(center.x, center.z), 0.0);
         let center_depth =
             ((center.y - (center.y + water_body.water_level + center_wave)).abs()).max(0.0);
         depth_samples.push(center_depth);
@@ -941,7 +940,7 @@ impl WaterSegment {
             let u = 0.5 + 0.5 * angle.cos();
             let v = 0.5 + 0.5 * angle.sin();
 
-            let wave_height = water_body.calculate_wave_height(Point2::new(x, z), 0.0);
+            let wave_height = water_body.calculate_wave_height(Vec2::new(x, z), 0.0);
             let depth =
                 ((center.y - (center.y + water_body.water_level + wave_height)).abs()).max(0.0);
             depth_samples.push(depth);
@@ -1001,7 +1000,7 @@ impl WaterSegment {
         // Add all polygon vertices
         for (i, point) in vertices_points.iter().enumerate() {
             let u = i as f32 / (vertices_points.len() - 1) as f32;
-            let wave_height = water_body.calculate_wave_height(Point2::new(point.x, point.z), 0.0);
+            let wave_height = water_body.calculate_wave_height(Vec2::new(point.x, point.z), 0.0);
             let depth =
                 ((point.y - (point.y + water_body.water_level + wave_height)).abs()).max(0.0);
             depth_samples.push(depth);
@@ -1085,7 +1084,7 @@ impl WaterSegment {
 
             // Left vertex
             let left_wave =
-                water_body.calculate_wave_height(Point2::new(left_pos.x, left_pos.z), 0.0);
+                water_body.calculate_wave_height(Vec2::new(left_pos.x, left_pos.z), 0.0);
             let left_depth =
                 ((left_pos.y - (left_pos.y + water_body.water_level + left_wave)).abs()).max(0.0);
             depth_samples.push(left_depth);
@@ -1104,7 +1103,7 @@ impl WaterSegment {
 
             // Right vertex
             let right_wave =
-                water_body.calculate_wave_height(Point2::new(right_pos.x, right_pos.z), 0.0);
+                water_body.calculate_wave_height(Vec2::new(right_pos.x, right_pos.z), 0.0);
             let right_depth = ((right_pos.y - (right_pos.y + water_body.water_level + right_wave))
                 .abs())
             .max(0.0);
@@ -1431,10 +1430,10 @@ impl WaterManager {
             flow: &WaterFlowData,
             bounds: &WaterBounds,
             world_pos: Vec3,
-        ) -> Vector2<f32> {
+        ) -> Vec2 {
             let (w, h) = flow.field_resolution;
             if w == 0 || h == 0 {
-                return Vector2::zeros();
+                return Vec2::ZERO;
             }
 
             let size = bounds.max - bounds.min;
@@ -1486,7 +1485,7 @@ impl WaterManager {
 
             let expected = (w * h) as usize;
             if flow.velocity_field.len() != expected {
-                flow.velocity_field = vec![Vector2::zeros(); expected];
+                flow.velocity_field = vec![Vec2::ZERO; expected];
             }
             if flow.pressure_field.len() != expected {
                 flow.pressure_field = vec![0.0; expected];
@@ -1511,7 +1510,7 @@ impl WaterManager {
                     let mut velocity = flow.velocity_field[idx];
 
                     // Smooth with neighbors to mimic shallow water diffusion.
-                    let mut neighbor_sum = Vector2::zeros();
+                    let mut neighbor_sum = Vec2::ZERO;
                     let mut neighbor_count = 0.0;
                     for (nx, ny) in [
                         (x.saturating_sub(1), y),
@@ -1530,22 +1529,22 @@ impl WaterManager {
                     // Apply obstacle resistance and deflection.
                     let world_x = bounds.min.x + (x as f32 + 0.5) * cell_w;
                     let world_z = bounds.min.z + (y as f32 + 0.5) * cell_h;
-                    let cell_pos = Point2::new(world_x, world_z);
+                    let cell_pos = Vec2::new(world_x, world_z);
                     for obstacle in &flow.obstacles {
                         let offset = cell_pos - obstacle.position;
-                        let dist = offset.norm().max(0.001);
+                        let dist = offset.length().max(0.001);
                         if dist < obstacle.radius {
                             let resistance = obstacle.flow_resistance.clamp(0.0, 1.0);
                             velocity *= 1.0 - resistance;
                             let push = offset.normalize() * (obstacle.radius - dist);
-                            velocity += Vector2::new(push.x, push.y) * resistance;
+                            velocity += Vec2::new(push.x, push.y) * resistance;
                         }
                     }
 
                     // Damping to stabilize the flow field.
                     velocity *= (1.0 - 0.4 * dt).clamp(0.0, 1.0);
                     new_field[idx] = velocity;
-                    flow.pressure_field[idx] = velocity.norm();
+                    flow.pressure_field[idx] = velocity.length();
                 }
             }
 
@@ -1766,14 +1765,14 @@ mod tests {
             wave_height: 1.0,
             wave_frequency: 0.5,
             tide_level: 0.0,
-            current_direction: Vector2::new(1.0, 0.0),
+            current_direction: Vec2::new(1.0, 0.0),
         };
 
         let mut body = WaterBody::new(1, "Test Ocean".to_string(), water_type);
         body.animation.wave_amplitude = 0.5;
 
-        let wave_height1 = body.calculate_wave_height(Point2::new(0.0, 0.0), 0.0);
-        let wave_height2 = body.calculate_wave_height(Point2::new(10.0, 0.0), 0.0);
+        let wave_height1 = body.calculate_wave_height(Vec2::new(0.0, 0.0), 0.0);
+        let wave_height2 = body.calculate_wave_height(Vec2::new(10.0, 0.0), 0.0);
 
         // Wave heights should be different at different positions
         assert_ne!(wave_height1, wave_height2);

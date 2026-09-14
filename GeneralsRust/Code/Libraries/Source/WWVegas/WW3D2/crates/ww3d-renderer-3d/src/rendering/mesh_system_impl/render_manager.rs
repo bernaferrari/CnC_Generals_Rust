@@ -304,7 +304,7 @@ impl MeshRenderManager {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         }));
 
@@ -660,7 +660,8 @@ impl MeshRenderManager {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
-            });
+                multiview_mask: None,
+});
             if let Some((_, light_bg)) = light_groups.get(layer) {
                 pass.set_bind_group(0, light_bg, &[]);
             }
@@ -724,7 +725,7 @@ impl MeshRenderManager {
             vertex: wgpu::VertexState {
                 module,
                 entry_point: Some("vs_main"),
-                buffers: &[Self::cascade_depth_vertex_layout(skinned)],
+                buffers: &[Some(Self::cascade_depth_vertex_layout(skinned))],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: None,
@@ -739,8 +740,8 @@ impl MeshRenderManager {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState {
                     constant: 2,
@@ -753,7 +754,7 @@ impl MeshRenderManager {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         })
     }
@@ -791,8 +792,8 @@ impl MeshRenderManager {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("live_csm_depth_layout"),
-            bind_group_layouts: &[&light_bgl, &model_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&light_bgl), Some(&model_bgl)],
+            immediate_size: 0,
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("live_csm_depth_shader"),
@@ -1898,15 +1899,13 @@ mod per_mesh_lighting_tests {
     fn live_cascade_fill_draws_opaque_casters() {
         // C++ W3DDisplay.cpp:1840 updateRenderTargetTextures writes occluder
         // depth before the scene. An empty clear+enable is not a fill.
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+            apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -1984,15 +1983,13 @@ mod per_mesh_lighting_tests {
 
     #[test]
     fn live_cascade_fill_skips_hidden_and_decal_meshes() {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+            apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -2038,15 +2035,13 @@ mod per_mesh_lighting_tests {
         // 64x64 offscreen target. Painting here while the live game hides
         // bodies isolates the defect to Main's frame assembly; failing here
         // bisects inside the lane itself.
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
+            apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -2187,7 +2182,8 @@ mod per_mesh_lighting_tests {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
             pass.set_viewport(0.0, 0.0, 64.0, 64.0, 0.0, 1.0);
             pass.set_scissor_rect(0, 0, 64, 64);
             manager
@@ -2233,7 +2229,7 @@ mod per_mesh_lighting_tests {
         });
         let _ = gpu.wgpu_device().poll(wgpu::PollType::wait_indefinitely());
         rx.recv().expect("utb readback map").expect("utb readback map ok");
-        let data = slice.get_mapped_range();
+        let data = slice.get_mapped_range().expect("buffer map");
         let mut painted = 0usize;
         for y in 0..64usize {
             for x in 0..64usize {

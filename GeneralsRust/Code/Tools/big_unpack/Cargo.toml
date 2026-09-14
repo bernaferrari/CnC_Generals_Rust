@@ -1,7 +1,8 @@
 [package]
 name = "big_unpack"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "big_unpack"
@@ -12,6 +13,6 @@ name = "big_unpack"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1"
-clap = { version = "4", features = ["derive"] }
-walkdir = "2"
+anyhow = {workspace = true}
+clap = {workspace = true, features = ["derive"]}
+walkdir = {workspace = true}

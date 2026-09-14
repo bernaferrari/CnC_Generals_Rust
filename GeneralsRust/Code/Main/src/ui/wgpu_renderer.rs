@@ -191,10 +191,7 @@ pub struct WgpuUIRenderer {
 
 impl WgpuUIRenderer {
     pub async fn new(window: &winit::window::Window) -> Result<Self, Box<dyn std::error::Error>> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         // SAFETY: window is a live winit window; from_window yields a
         // valid raw target for this surface's lifetime (kept alive by
@@ -208,6 +205,7 @@ impl WgpuUIRenderer {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await?;
 
@@ -234,6 +232,7 @@ impl WgpuUIRenderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],
@@ -311,8 +310,11 @@ impl WgpuUIRenderer {
         // Create render pipeline
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("UI Pipeline Layout"),
-            bind_group_layouts: &[&projection_bind_group_layout, &texture_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[
+                Some(&projection_bind_group_layout),
+                Some(&texture_bind_group_layout),
+            ],
+            immediate_size: 0,
         });
 
         let ui_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -321,7 +323,7 @@ impl WgpuUIRenderer {
             vertex: wgpu::VertexState {
                 module: &ui_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[UIVertex::desc()],
+                buffers: &[Some(UIVertex::desc())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -350,7 +352,7 @@ impl WgpuUIRenderer {
                 alpha_to_coverage_enabled: false,
             },
             cache: None,
-            multiview: None,
+            multiview_mask: None,
         });
 
         // Create a default 1x1 white texture so untextured UI draws still satisfy
@@ -395,7 +397,7 @@ impl WgpuUIRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
         let default_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -532,7 +534,7 @@ impl WgpuUIRenderer {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -570,7 +572,7 @@ impl WgpuUIRenderer {
 
     /// Render UI draw commands
     pub fn render(&mut self, commands: &[UIDrawCommand]) -> Result<(), Box<dyn std::error::Error>> {
-        let output = self.surface.get_current_texture()?;
+        let output = ww3d_gpu::acquire_surface_texture(&self.surface)?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -596,7 +598,8 @@ impl WgpuUIRenderer {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
 
             render_pass.set_pipeline(&self.ui_pipeline);
             render_pass.set_bind_group(0, &self.projection_bind_group, &[]);
@@ -647,7 +650,7 @@ impl WgpuUIRenderer {
             encoder.finish(),
             ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
         );
-        present_surface_texture(output);
+        present_surface_texture(&self.queue, output);
 
         Ok(())
     }

@@ -1,18 +1,19 @@
 [package]
 name = "ww3d-geometry"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "WW3D Geometry Engine - Mesh geometry, collision detection, and spatial partitioning"
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
-glam = { version = "0.28", features = ["bytemuck"] }
-bytemuck = { version = "1.24", features = ["derive"] }
-thiserror = "1.0"
-bitflags = "2.10"
+glam = {workspace = true, features = ["bytemuck"]}
+bytemuck = {workspace = true, features = ["derive"]}
+thiserror = {workspace = true}
+bitflags = {workspace = true}
 ww3d-assets = { path = "../ww3d-assets", optional = true }
-binrw = "0.11"
-rand = "0.8"
+binrw = {workspace = true}
+rand = {workspace = true}
 
 wgpu = { workspace = true, optional = true }
 

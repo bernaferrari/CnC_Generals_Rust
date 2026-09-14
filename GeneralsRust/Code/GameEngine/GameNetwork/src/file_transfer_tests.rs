@@ -229,8 +229,8 @@ mod tests {
             transfer_type: TransferType::Map,
         };
 
-        let serialized = bincode::serialize(&metadata).unwrap();
-        let deserialized: FileMetadata = bincode::deserialize(&serialized).unwrap();
+        let serialized = bincode_legacy::serialize(&metadata).unwrap();
+        let deserialized: FileMetadata = bincode_legacy::deserialize(&serialized).unwrap();
 
         assert_eq!(metadata.filename, deserialized.filename);
         assert_eq!(metadata.file_size, deserialized.file_size);

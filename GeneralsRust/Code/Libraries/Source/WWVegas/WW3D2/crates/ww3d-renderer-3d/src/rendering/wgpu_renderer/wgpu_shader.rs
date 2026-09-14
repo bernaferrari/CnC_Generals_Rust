@@ -323,7 +323,7 @@ impl ShaderUtils {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Basic Pipeline Layout"),
             bind_group_layouts: &[],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         // Pre-create color targets to avoid lifetime issues
@@ -339,7 +339,7 @@ impl ShaderUtils {
             vertex: wgpu::VertexState {
                 module: shader_module,
                 entry_point: Some("main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: 20, // 3 * 4 + 2 * 4 bytes
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
@@ -354,7 +354,7 @@ impl ShaderUtils {
                             format: wgpu::VertexFormat::Float32x2,
                         },
                     ],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: shader
@@ -376,7 +376,7 @@ impl ShaderUtils {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 

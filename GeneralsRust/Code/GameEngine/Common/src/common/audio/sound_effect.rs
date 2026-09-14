@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver};
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Source, Sink, SpatialSink};
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Source, Sink, SpatialSink};
 use symphonia::core::io::MediaSourceStream;
 
 use crate::common::audio::{

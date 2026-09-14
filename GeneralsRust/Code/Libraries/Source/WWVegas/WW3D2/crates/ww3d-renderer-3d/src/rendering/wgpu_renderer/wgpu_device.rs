@@ -18,15 +18,13 @@ pub struct WgpuDeviceManager {
 impl WgpuDeviceManager {
     /// Create new device manager
     pub fn new(_window_handle: Option<*mut std::ffi::c_void>) -> RendererResult<Self> {
-        let instance = Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }))
         .map_err(|e| Error::Generic(format!("Failed to find suitable adapter: {e}")))?;
 

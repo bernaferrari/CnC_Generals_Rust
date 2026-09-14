@@ -5,8 +5,7 @@
 
 use crate::terrain::{TerrainError, TerrainResult};
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
-use glam::{Mat4, Vec3};
-use nalgebra::Point2;
+use glam::{Vec2, Vec3, Mat4};
 use std::collections::HashMap;
 use wgpu::RenderPass;
 
@@ -199,7 +198,7 @@ pub struct RoadGeometry {
     pub indices: Vec<u32>,
 
     /// UV coordinates for texturing
-    pub uvs: Vec<Point2<f32>>,
+    pub uvs: Vec<Vec2>,
 
     /// Vertex colors for detail
     pub colors: Vec<[f32; 4]>,
@@ -697,7 +696,7 @@ impl RoadSegment {
 
         let uvs = vertices
             .iter()
-            .map(|vertex| Point2::new(vertex.tex_coords[0], vertex.tex_coords[1]))
+            .map(|vertex| Vec2::new(vertex.tex_coords[0], vertex.tex_coords[1]))
             .collect();
         let colors = vertices.iter().map(|vertex| vertex.color).collect();
         Ok(RoadGeometry {
@@ -1733,7 +1732,7 @@ impl RoadManager {
                 total_memory = total_memory.saturating_add(
                     (geometry.vertices.len() * std::mem::size_of::<RoadVertex>()) as u64
                         + (geometry.indices.len() * std::mem::size_of::<u32>()) as u64
-                        + (geometry.uvs.len() * std::mem::size_of::<Point2<f32>>()) as u64
+                        + (geometry.uvs.len() * std::mem::size_of::<Vec2>()) as u64
                         + (geometry.colors.len() * std::mem::size_of::<[f32; 4]>()) as u64,
                 );
             }

@@ -21,19 +21,19 @@ use super::decals::DecalManager;
 use super::particle_manager::*;
 use super::particle_presets;
 use super::ray_effects::{RayEffectConfig, RayEffectManager};
-use nalgebra::{Matrix3, Point3, Vector3};
 use std::collections::HashMap;
 use std::sync::Arc;
+use glam::{Vec3, Mat3};
 
 /// FX nugget trait - all FX nuggets implement this
 pub trait FXNugget: Send + Sync {
     /// Execute FX at a position (matches C++ doFXPos)
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        primary_mtx: Option<&Mat3>,
         primary_speed: f32,
-        secondary: Option<Point3<f32>>,
+        secondary: Option<Vec3>,
         override_radius: f32,
         context: &mut FXContext,
     );
@@ -41,9 +41,9 @@ pub trait FXNugget: Send + Sync {
     /// Execute FX on objects (matches C++ doFXObj)
     fn do_fx_obj(
         &self,
-        primary_pos: Option<Point3<f32>>,
-        primary_mtx: Option<&Matrix3<f32>>,
-        secondary_pos: Option<Point3<f32>>,
+        primary_pos: Option<Vec3>,
+        primary_mtx: Option<&Mat3>,
+        secondary_pos: Option<Vec3>,
         context: &mut FXContext,
     ) {
         // Default: delegate to do_fx_pos
@@ -66,8 +66,8 @@ pub struct FXContext<'a> {
 /// Current client bone transform resolved from the primary object/drawable.
 #[derive(Clone, Copy, Debug)]
 pub struct FXBoneTransform {
-    pub position: Point3<f32>,
-    pub transform: Matrix3<f32>,
+    pub position: Vec3,
+    pub transform: Mat3,
 }
 
 /// Adapter for C++ `Drawable::getCurrentClientBonePositions`.
@@ -94,10 +94,10 @@ impl SoundFXNugget {
 impl FXNugget for SoundFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        _secondary: Option<Point3<f32>>,
+        _secondary: Option<Vec3>,
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
@@ -115,9 +115,9 @@ impl FXNugget for SoundFXNugget {
 
     fn do_fx_obj(
         &self,
-        primary_pos: Option<Point3<f32>>,
-        _primary_mtx: Option<&Matrix3<f32>>,
-        _secondary_pos: Option<Point3<f32>>,
+        primary_pos: Option<Vec3>,
+        _primary_mtx: Option<&Mat3>,
+        _secondary_pos: Option<Vec3>,
         _context: &mut FXContext,
     ) {
         // C++ SoundFXNugget::doFXObj (FXList.cpp:90-99): setPlayerIndex + setPosition.
@@ -185,10 +185,10 @@ impl TracerFXNugget {
 impl FXNugget for TracerFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         primary_speed: f32,
-        secondary: Option<Point3<f32>>,
+        secondary: Option<Vec3>,
         _override_radius: f32,
         context: &mut FXContext,
     ) {
@@ -221,16 +221,16 @@ impl FXNugget for TracerFXNugget {
 /// Ray Effect FX nugget (matches C++ RayEffectFXNugget)
 pub struct RayEffectFXNugget {
     pub template_name: String,
-    pub primary_offset: Vector3<f32>,
-    pub secondary_offset: Vector3<f32>,
+    pub primary_offset: Vec3,
+    pub secondary_offset: Vec3,
 }
 
 impl Default for RayEffectFXNugget {
     fn default() -> Self {
         Self {
             template_name: String::new(),
-            primary_offset: Vector3::zeros(),
-            secondary_offset: Vector3::zeros(),
+            primary_offset: Vec3::ZERO,
+            secondary_offset: Vec3::ZERO,
         }
     }
 }
@@ -247,10 +247,10 @@ impl RayEffectFXNugget {
 impl FXNugget for RayEffectFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        secondary: Option<Point3<f32>>,
+        secondary: Option<Vec3>,
         _override_radius: f32,
         context: &mut FXContext,
     ) {
@@ -294,10 +294,10 @@ impl Default for LightPulseFXNugget {
 impl FXNugget for LightPulseFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        _secondary: Option<Point3<f32>>,
+        _secondary: Option<Vec3>,
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
@@ -339,10 +339,10 @@ impl Default for ViewShakeFXNugget {
 impl FXNugget for ViewShakeFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        _secondary: Option<Point3<f32>>,
+        _secondary: Option<Vec3>,
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
@@ -392,10 +392,10 @@ impl Default for TerrainScorchFXNugget {
 impl FXNugget for TerrainScorchFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        _secondary: Option<Point3<f32>>,
+        _secondary: Option<Vec3>,
         _override_radius: f32,
         context: &mut FXContext,
     ) {
@@ -438,10 +438,10 @@ impl FXListAtBonePosFXNugget {
 impl FXNugget for FXListAtBonePosFXNugget {
     fn do_fx_pos(
         &self,
-        _primary: Point3<f32>,
-        _primary_mtx: Option<&Matrix3<f32>>,
+        _primary: Vec3,
+        _primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        _secondary: Option<Point3<f32>>,
+        _secondary: Option<Vec3>,
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
@@ -452,9 +452,9 @@ impl FXNugget for FXListAtBonePosFXNugget {
 
     fn do_fx_obj(
         &self,
-        primary_pos: Option<Point3<f32>>,
-        primary_mtx: Option<&Matrix3<f32>>,
-        _secondary_pos: Option<Point3<f32>>,
+        primary_pos: Option<Vec3>,
+        primary_mtx: Option<&Mat3>,
+        _secondary_pos: Option<Vec3>,
         context: &mut FXContext,
     ) {
         let Some(fx_list) = &self.fx_list else {
@@ -492,7 +492,7 @@ impl FXNugget for FXListAtBonePosFXNugget {
 /// `ThePartitionManager->getShroudStatusForPlayer(localPlayer, primary) == CELLSHROUD_CLEAR`.
 /// `PartitionManager.cpp:3017-3023` returns `CELLSHROUD_SHROUDED` for
 /// `playerIndex < 0` or a missing cell (including an uninitialized grid).
-fn fx_pos_cell_is_clear(primary: Point3<f32>, local_player_index: i32) -> bool {
+fn fx_pos_cell_is_clear(primary: Vec3, local_player_index: i32) -> bool {
     if local_player_index < 0 {
         return false;
     }
@@ -537,10 +537,10 @@ impl FXList {
     /// `ThePartitionManager->getShroudStatusForPlayer(local, primary) == CELLSHROUD_CLEAR`.
     pub fn execute_fx_pos(
         &self,
-        primary: Point3<f32>,
-        primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        primary_mtx: Option<&Mat3>,
         primary_speed: f32,
-        secondary: Option<Point3<f32>>,
+        secondary: Option<Vec3>,
         override_radius: f32,
         context: &mut FXContext,
     ) {
@@ -565,9 +565,9 @@ impl FXList {
     /// the cell `CELLSHROUD_CLEAR` gate. Invalid local player is fail-closed.
     pub fn execute_fx_obj(
         &self,
-        primary_pos: Option<Point3<f32>>,
-        primary_mtx: Option<&Matrix3<f32>>,
-        secondary_pos: Option<Point3<f32>>,
+        primary_pos: Option<Vec3>,
+        primary_mtx: Option<&Mat3>,
+        secondary_pos: Option<Vec3>,
         context: &mut FXContext,
     ) {
         if primary_pos.is_some() && context.local_player_index < 0 {
@@ -629,7 +629,7 @@ pub struct ParticleSystemFXNugget {
     pub count: i32,
 
     /// Offset from primary position
-    pub offset: Vector3<f32>,
+    pub offset: Vec3,
 
     /// Random radius distribution
     pub radius: GameClientRandomVariable,
@@ -658,7 +658,7 @@ impl Default for ParticleSystemFXNugget {
         Self {
             template_name: String::new(),
             count: 1,
-            offset: Vector3::zeros(),
+            offset: Vec3::ZERO,
             radius: GameClientRandomVariable::new(0.0, 0.0),
             height: GameClientRandomVariable::new(0.0, 0.0),
             delay: GameClientRandomVariable::new(-1.0, -1.0),
@@ -687,8 +687,8 @@ impl ParticleSystemFXNugget {
     /// Matches C++ ParticleSystemFXNugget::doFXPos
     pub fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        primary_mtx: Option<&Mat3>,
         override_radius: f32,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
@@ -699,8 +699,8 @@ impl ParticleSystemFXNugget {
     /// Matches C++ ParticleSystemFXNugget::doFXObj
     pub fn do_fx_obj(
         &self,
-        primary: Point3<f32>,
-        primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        primary_mtx: Option<&Mat3>,
         object_id: Option<ObjectId>,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
@@ -711,8 +711,8 @@ impl ParticleSystemFXNugget {
     /// Matches C++ ParticleSystemFXNugget::reallyDoFX (lines 570-641)
     fn really_do_fx(
         &self,
-        primary: Point3<f32>,
-        mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        mtx: Option<&Mat3>,
         object_id: Option<ObjectId>,
         override_radius: f32,
         manager: &mut ParticleSystemManager,
@@ -738,7 +738,7 @@ impl ParticleSystemFXNugget {
             let radius = self.radius.sample();
             let angle = crate::GameClientRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
 
-            let mut spawn_pos = Point3::new(
+            let mut spawn_pos = Vec3::new(
                 primary.x + offset.x + radius * angle.cos(),
                 primary.y + offset.y + radius * angle.sin(),
                 primary.z + offset.z,
@@ -834,10 +834,10 @@ impl ParticleSystemFXNugget {
 impl FXNugget for ParticleSystemFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Point3<f32>,
-        primary_mtx: Option<&Matrix3<f32>>,
+        primary: Vec3,
+        primary_mtx: Option<&Mat3>,
         _primary_speed: f32,
-        _secondary: Option<Point3<f32>>,
+        _secondary: Option<Vec3>,
         override_radius: f32,
         context: &mut FXContext,
     ) {
@@ -879,8 +879,8 @@ impl FXListParticleBridge {
     pub fn execute_fx(
         &mut self,
         name: &str,
-        position: Point3<f32>,
-        transform: Option<&Matrix3<f32>>,
+        position: Vec3,
+        transform: Option<&Mat3>,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
         if let Some(nugget) = self.nuggets.get(name) {
@@ -896,8 +896,8 @@ impl FXListParticleBridge {
     pub fn execute_fx_on_object(
         &mut self,
         name: &str,
-        position: Point3<f32>,
-        transform: Option<&Matrix3<f32>>,
+        position: Vec3,
+        transform: Option<&Mat3>,
         object_id: ObjectId,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
@@ -939,7 +939,7 @@ pub mod helpers {
 
     /// Create explosion FX at position
     pub fn create_explosion_at(
-        position: Point3<f32>,
+        position: Vec3,
         explosion_type: &str,
         manager: &mut ParticleSystemManager,
     ) -> Option<ParticleSystemId> {
@@ -956,8 +956,8 @@ pub mod helpers {
 
     /// Create weapon fire FX (muzzle flash + smoke)
     pub fn create_weapon_fire_fx(
-        muzzle_position: Point3<f32>,
-        muzzle_direction: Vector3<f32>,
+        muzzle_position: Vec3,
+        muzzle_direction: Vec3,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
         let mut systems = Vec::new();
@@ -978,7 +978,7 @@ pub mod helpers {
             if let Ok(smoke_id) = manager.create_particle_system(&smoke_template, false) {
                 if let Some(smoke_system) = manager.find_particle_system_mut(smoke_id) {
                     // Offset slightly to side for ejection
-                    let side_offset = Vector3::new(-muzzle_direction.y, muzzle_direction.x, 0.0)
+                    let side_offset = Vec3::new(-muzzle_direction.y, muzzle_direction.x, 0.0)
                         .normalize()
                         * 2.0;
                     smoke_system.set_position(muzzle_position + side_offset);
@@ -993,7 +993,7 @@ pub mod helpers {
 
     /// Create building destruction FX
     pub fn create_building_destruction_fx(
-        building_center: Point3<f32>,
+        building_center: Vec3,
         building_size: f32,
         manager: &mut ParticleSystemManager,
     ) -> Vec<ParticleSystemId> {
@@ -1037,16 +1037,16 @@ mod tests {
 
     #[derive(Default)]
     struct RecordingNugget {
-        positions: Arc<Mutex<Vec<Point3<f32>>>>,
+        positions: Arc<Mutex<Vec<Vec3>>>,
     }
 
     impl FXNugget for RecordingNugget {
         fn do_fx_pos(
             &self,
-            primary: Point3<f32>,
-            _primary_mtx: Option<&Matrix3<f32>>,
+            primary: Vec3,
+            _primary_mtx: Option<&Mat3>,
             _primary_speed: f32,
-            _secondary: Option<Point3<f32>>,
+            _secondary: Option<Vec3>,
             _override_radius: f32,
             _context: &mut FXContext,
         ) {
@@ -1067,17 +1067,17 @@ mod tests {
             assert_eq!(max_bones, FXListAtBonePosFXNugget::MAX_BONE_POINTS);
             match start_index {
                 0 => vec![FXBoneTransform {
-                    position: Point3::new(1.0, 2.0, 3.0),
-                    transform: Matrix3::identity(),
+                    position: Vec3::new(1.0, 2.0, 3.0),
+                    transform: Mat3::IDENTITY,
                 }],
                 1 => vec![
                     FXBoneTransform {
-                        position: Point3::new(4.0, 5.0, 6.0),
-                        transform: Matrix3::identity(),
+                        position: Vec3::new(4.0, 5.0, 6.0),
+                        transform: Mat3::IDENTITY,
                     },
                     FXBoneTransform {
-                        position: Point3::new(7.0, 8.0, 9.0),
-                        transform: Matrix3::identity(),
+                        position: Vec3::new(7.0, 8.0, 9.0),
+                        transform: Mat3::IDENTITY,
                     },
                 ],
                 _ => Vec::new(),
@@ -1151,9 +1151,9 @@ mod tests {
 
         let positions = positions.lock().unwrap();
         assert_eq!(positions.len(), 3);
-        assert_eq!(positions[0], Point3::new(1.0, 2.0, 3.0));
-        assert_eq!(positions[1], Point3::new(4.0, 5.0, 6.0));
-        assert_eq!(positions[2], Point3::new(7.0, 8.0, 9.0));
+        assert_eq!(positions[0], Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(positions[1], Vec3::new(4.0, 5.0, 6.0));
+        assert_eq!(positions[2], Vec3::new(7.0, 8.0, 9.0));
     }
 
     #[test]
@@ -1172,7 +1172,7 @@ mod tests {
         }));
         let mut manager = ParticleSystemManager::new();
         let mut context = test_context(&mut manager, None);
-        let primary = Point3::new(100.0, 100.0, 0.0);
+        let primary = Vec3::new(100.0, 100.0, 0.0);
 
         list.execute_fx_pos(primary, None, 0.0, None, 0.0, &mut context);
         assert!(
@@ -1213,7 +1213,7 @@ mod tests {
         let mut manager = ParticleSystemManager::new();
         let mut context = test_context(&mut manager, None);
         context.local_player_index = -1;
-        list.execute_fx_obj(Some(Point3::new(10.0, 10.0, 0.0)), None, None, &mut context);
+        list.execute_fx_obj(Some(Vec3::new(10.0, 10.0, 0.0)), None, None, &mut context);
         assert!(
             positions.lock().unwrap().is_empty(),
             "hq-nyjgg: invalid local player must fail-close doFXObj"
@@ -1223,7 +1223,7 @@ mod tests {
     #[test]
     fn test_explosion_helper() {
         let mut manager = ParticleSystemManager::new();
-        let position = Point3::new(100.0, 200.0, 0.0);
+        let position = Vec3::new(100.0, 200.0, 0.0);
 
         let system_id = helpers::create_explosion_at(position, "SmallExplosion", &mut manager);
         assert!(system_id.is_some());
@@ -1237,8 +1237,8 @@ mod tests {
     #[test]
     fn test_weapon_fire_helper() {
         let mut manager = ParticleSystemManager::new();
-        let muzzle_pos = Point3::new(10.0, 20.0, 5.0);
-        let muzzle_dir = Vector3::new(1.0, 0.0, 0.0);
+        let muzzle_pos = Vec3::new(10.0, 20.0, 5.0);
+        let muzzle_dir = Vec3::new(1.0, 0.0, 0.0);
 
         let systems = helpers::create_weapon_fire_fx(muzzle_pos, muzzle_dir, &mut manager);
         assert!(!systems.is_empty());
@@ -1247,7 +1247,7 @@ mod tests {
     #[test]
     fn test_building_destruction_helper() {
         let mut manager = ParticleSystemManager::new();
-        let building_center = Point3::new(50.0, 50.0, 0.0);
+        let building_center = Vec3::new(50.0, 50.0, 0.0);
 
         let systems = helpers::create_building_destruction_fx(building_center, 20.0, &mut manager);
         assert!(!systems.is_empty());

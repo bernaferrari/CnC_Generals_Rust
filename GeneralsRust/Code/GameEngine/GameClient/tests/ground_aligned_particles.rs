@@ -9,8 +9,8 @@ use game_client_rust::effects::particle_manager::{ParticleSystemTemplate, Partic
 use game_client_rust::effects::particle_renderer::{
     bake_particle_system_gpu_mesh, expand_particle_world_corners,
 };
+use glam::Vec3;
 use game_client_rust::effects::particle_system::{Particle, ParticleInfo, ParticleSystem};
-use nalgebra::Point3;
 
 #[test]
 fn collect_system_particles_emits_world_xz_quads_when_ground_aligned() {
@@ -19,7 +19,7 @@ fn collect_system_particles_emits_world_xz_quads_when_ground_aligned() {
     template.info_mut().is_ground_aligned = true;
     let mut system = ParticleSystem::new(Arc::new(template), 1, false);
     let mut info = ParticleInfo::default();
-    info.position = Point3::new(10.0, 5.0, 20.0);
+    info.position = Vec3::new(10.0, 5.0, 20.0);
     info.size = 4.0;
     system.push_particle(Particle::new(&info, 0, 0));
 

@@ -823,8 +823,8 @@ impl GpuCuller {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("W3D GPU Culling Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let cull_pipeline = device.create_compute_pipeline(&ComputePipelineDescriptor {
@@ -986,7 +986,7 @@ impl GpuCuller {
             return Ok(Self::cpu_fallback_cull(objects, camera));
         }
 
-        let mapped = slice.get_mapped_range();
+        let mapped = slice.get_mapped_range().expect("buffer map");
         let visibility: Vec<u32> = cast_slice(&mapped).to_vec();
         drop(mapped);
         readback_buffer.unmap();

@@ -84,10 +84,7 @@ impl Win32GameEngine {
         info!("Creating Win32GameEngine with provided window...");
 
         // Initialize graphics (equivalent to C++ W3DDisplay creation)
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         let surface = instance.create_surface(window.clone())?;
 
@@ -96,6 +93,7 @@ impl Win32GameEngine {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await?;
 
@@ -122,6 +120,7 @@ impl Win32GameEngine {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],
@@ -181,8 +180,8 @@ impl Win32GameEngine {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -191,7 +190,7 @@ impl Win32GameEngine {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Self::vertex_buffer_layout()],
+                buffers: &[Some(Self::vertex_buffer_layout())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -220,7 +219,7 @@ impl Win32GameEngine {
                 alpha_to_coverage_enabled: false,
             },
             cache: None,
-            multiview: None,
+            multiview_mask: None,
         });
 
         // Setup RTS camera (matching C++ camera system)
@@ -370,7 +369,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     /// Render W3D models (no fallbacks - faithful to C++ version)
     #[allow(dead_code)] // Legacy stub: superseded by CncGameEngine render pipeline
     fn render_w3d_objects(&mut self) -> Result<()> {
-        let output = self.surface.get_current_texture()?;
+        let output = ww3d_gpu::acquire_surface_texture(&self.surface)?;
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -409,6 +408,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
                 depth_stencil_attachment: None,
                 occlusion_query_set: None,
                 timestamp_writes: None,
+                multiview_mask: None,
             });
 
             render_pass.set_pipeline(&self.render_pipeline);
@@ -424,7 +424,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             encoder.finish(),
             ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
         );
-        present_surface_texture(output);
+        present_surface_texture(&self.queue, output);
 
         Ok(())
     }

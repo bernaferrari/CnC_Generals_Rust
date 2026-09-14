@@ -9,7 +9,7 @@ use glam::{Mat4, Vec3, Vec4};
 use pollster::block_on;
 use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::{
-    Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, SurfaceError, SurfaceTexture,
+    Adapter, Device, Instance, Queue, Surface, SurfaceConfiguration, SurfaceTexture,
 };
 
 use super::wgpu_buffer::{EngineRef, WgpuIndexBuffer, WgpuVertexBuffer};
@@ -263,7 +263,7 @@ impl WgpuWrapper {
     where
         W: Into<wgpu::SurfaceTarget<'static>>,
     {
-        let instance = Arc::new(Instance::new(&wgpu::InstanceDescriptor::default()));
+        let instance = Arc::new(Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()));
 
         // Create surface using SurfaceTarget which safely handles window ownership
         // This avoids the need for unsafe transmute by letting wgpu manage the lifetime
@@ -277,6 +277,7 @@ impl WgpuWrapper {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             }))
             .map_err(|e| Error::AdapterNotFound(format!("No compatible adapter: {e}")))?,
         );
@@ -319,6 +320,7 @@ impl WgpuWrapper {
             .unwrap_or(wgpu::TextureFormat::Bgra8Unorm);
 
         let surface_config = SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.0.max(1),
@@ -341,12 +343,13 @@ impl WgpuWrapper {
 
     /// Create a wrapper using an off-screen texture as the render target.
     pub fn new_headless(size: (u32, u32), format: wgpu::TextureFormat) -> Result<Self> {
-        let instance = Arc::new(Instance::new(&wgpu::InstanceDescriptor::default()));
+        let instance = Arc::new(Instance::new(wgpu::InstanceDescriptor::new_without_display_handle()));
         let adapter = Arc::new(
             block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             }))
             .map_err(|e| Error::AdapterNotFound(format!("No adapter available: {e}")))?,
         );
@@ -363,6 +366,7 @@ impl WgpuWrapper {
         .map_err(|e| Error::Generic(format!("Failed to request device: {e}")))?;
 
         let surface_config = SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             format,
             width: size.0.max(1),
@@ -471,7 +475,7 @@ impl WgpuWrapper {
 
             if flip_frame {
                 if let Some(output) = frame.surface_output.take() {
-                    output.present();
+                    self.queue.present(output);
                 }
             }
         }
@@ -789,6 +793,7 @@ impl WgpuWrapper {
                             depth_stencil_attachment: depth_attachment,
                             occlusion_query_set: None,
                             timestamp_writes: None,
+            multiview_mask: None,
                         });
 
                 resources.apply_to_render_pass(&mut render_pass);
@@ -957,6 +962,7 @@ impl WgpuWrapper {
                     depth_stencil_attachment: depth_attachment,
                     occlusion_query_set: None,
                     timestamp_writes: None,
+            multiview_mask: None,
                 });
             resources.apply_to_render_pass(&mut render_pass);
 
@@ -1017,6 +1023,7 @@ impl WgpuWrapper {
                     depth_stencil_attachment: None,
                     occlusion_query_set: None,
                     timestamp_writes: None,
+            multiview_mask: None,
                 }),
         );
 
@@ -1245,22 +1252,18 @@ impl WgpuWrapper {
         }
 
         let (surface_output, color_view) = match &self.surface {
-            Some(surface) => match surface.get_current_texture() {
+            Some(surface) => match ww3d_gpu::acquire_surface_texture(surface) {
                 Ok(output) => {
                     let view = output
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
                     (Some(output), view)
                 }
-                Err(SurfaceError::Lost) => {
+                Err(ww3d_gpu::GpuError::SurfaceLost) => {
                     if let Some(surface) = &self.surface {
                         surface.configure(&self.device, &self.surface_config);
                     }
                     return Err(Error::RenderError("Surface lost".into()));
-                }
-                Err(SurfaceError::OutOfMemory) => {
-                    self.is_device_lost = true;
-                    return Err(Error::RenderError("Out of memory".into()));
                 }
                 Err(e) => {
                     return Err(Error::RenderError(format!(

@@ -13,7 +13,6 @@
 use bytemuck::{Pod, Zeroable};
 use dashmap::DashMap;
 use memmap2::MmapOptions;
-use nalgebra::Vector3;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -32,6 +31,7 @@ use crate::drawable::drawable_draw_pipeline::{MeshVertex, with_drawable_pipeline
 use crate::effects::particle_renderer::with_particle_renderer;
 use crate::system::SubsystemInterface;
 use image::GenericImageView;
+use glam::{Vec3};
 
 // Re-export sub-modules
 pub mod audio_bridge;
@@ -421,7 +421,7 @@ impl AssetManager {
         handle: AssetHandle,
         volume: Option<f32>,
         pitch: Option<f32>,
-        position: Option<Vector3<f32>>,
+        position: Option<Vec3>,
     ) -> Result<u64, AudioError> {
         self.audio_loader
             .play_sound(handle, volume, pitch, position)

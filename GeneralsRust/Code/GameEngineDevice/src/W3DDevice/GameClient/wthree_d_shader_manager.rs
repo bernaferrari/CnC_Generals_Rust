@@ -807,8 +807,8 @@ impl W3DShaderManager {
             });
             let layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Shader Manager Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
             let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(Self::shader_label(shader_type)),
@@ -830,7 +830,7 @@ impl W3DShaderManager {
                 primitive: PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
             self.compiled_shaders.insert(

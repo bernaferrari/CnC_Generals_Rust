@@ -43,7 +43,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
     if payload.states.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(WHCR_MAGIC);
@@ -71,7 +71,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> S
             "WHCR payload truncated".to_string(),
         ));
     }
-    let payload: WarehouseCripplingPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: WarehouseCripplingPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("WHCR payload decode: {err}")))?;
     apply_payload(payload);
     Ok(())

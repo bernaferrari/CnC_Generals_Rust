@@ -4,7 +4,7 @@ use crate::assets::{AssetManager, AssetPriority};
 use game_engine::common::audio::{
     AudioEventRts, AudioHandle, AudioType, SoundPlaybackHook, register_sound_playback_hook,
 };
-use nalgebra::Vector3;
+use glam::Vec3;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -117,10 +117,10 @@ impl AssetAudioPlaybackHook {
         base.join(path)
     }
 
-    fn resolve_position(event: &AudioEventRts) -> Option<Vector3<f32>> {
+    fn resolve_position(event: &AudioEventRts) -> Option<Vec3> {
         if event.is_positional() || event.object_id != 0 || event.drawable_id != 0 {
             let pos = event.get_position();
-            Some(Vector3::new(pos.x, pos.y, pos.z))
+            Some(Vec3::new(pos.x, pos.y, pos.z))
         } else {
             None
         }

@@ -3,13 +3,13 @@
 //! Loads particle system definitions from INI files, matching the C++ parser exactly.
 //! Supports all C++ particle system properties and parameters.
 
-use nalgebra::{Point3, Vector3};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use super::particle_manager::*;
 use game_engine::common::ini::{INI, INIError, INILoadType};
+use glam::{Vec3};
 
 /// Particle system INI field parser
 pub struct ParticleSystemINIParser {
@@ -451,11 +451,11 @@ impl ParticleSystemINIParser {
                         EmissionVolumeType::Invalid => EmissionVolume::Point,
                         EmissionVolumeType::Point => EmissionVolume::Point,
                         EmissionVolumeType::Line => EmissionVolume::Line {
-                            start: Point3::origin(),
-                            end: Point3::new(1.0, 0.0, 0.0),
+                            start: Vec3::ZERO,
+                            end: Vec3::new(1.0, 0.0, 0.0),
                         },
                         EmissionVolumeType::Box => EmissionVolume::Box {
-                            half_size: Vector3::new(1.0, 1.0, 1.0),
+                            half_size: Vec3::new(1.0, 1.0, 1.0),
                         },
                         EmissionVolumeType::Sphere => EmissionVolume::Sphere { radius: 1.0 },
                         EmissionVolumeType::Cylinder => EmissionVolume::Cylinder {
@@ -469,14 +469,14 @@ impl ParticleSystemINIParser {
                     let value = ini.get_field_value(&field_name)?;
                     let coord = self.parse_coord3d(&value)?;
                     if let EmissionVolume::Line { ref mut start, .. } = info.emission_volume {
-                        *start = Point3::new(coord.x, coord.y, coord.z);
+                        *start = Vec3::new(coord.x, coord.y, coord.z);
                     }
                 }
                 "VolLineEnd" => {
                     let value = ini.get_field_value(&field_name)?;
                     let coord = self.parse_coord3d(&value)?;
                     if let EmissionVolume::Line { ref mut end, .. } = info.emission_volume {
-                        *end = Point3::new(coord.x, coord.y, coord.z);
+                        *end = Vec3::new(coord.x, coord.y, coord.z);
                     }
                 }
 
@@ -587,14 +587,14 @@ impl ParticleSystemINIParser {
         value.parse::<u32>().map_err(|_| INIError::InvalidValue)
     }
 
-    fn parse_coord3d(&self, value: &str) -> Result<Vector3<f32>, INIError> {
+    fn parse_coord3d(&self, value: &str) -> Result<Vec3, INIError> {
         let parts: Vec<&str> = value.split_whitespace().collect();
         let uses_labels = parts.iter().any(|part| part.contains(':'));
         if !uses_labels {
             if parts.len() != 3 {
                 return Err(INIError::InvalidValue);
             }
-            return Ok(Vector3::new(
+            return Ok(Vec3::new(
                 self.parse_float(parts[0])?,
                 self.parse_float(parts[1])?,
                 self.parse_float(parts[2])?,
@@ -617,7 +617,7 @@ impl ParticleSystemINIParser {
             }
         }
 
-        Ok(Vector3::new(
+        Ok(Vec3::new(
             x.ok_or(INIError::InvalidValue)?,
             y.ok_or(INIError::InvalidValue)?,
             z.ok_or(INIError::InvalidValue)?,
@@ -978,7 +978,7 @@ End
         assert_eq!(info.particle_type_name, "EXSmokNew1.tga");
         assert_eq!(info.color_keys[0].color, [1.0, 127.0 / 255.0, 0.0]);
         assert_eq!(info.color_keys[0].frame, 5);
-        assert_eq!(info.drift_velocity, Vector3::new(1.25, -2.5, 3.75));
+        assert_eq!(info.drift_velocity, Vec3::new(1.25, -2.5, 3.75));
         assert_eq!(info.emission_velocity_type, EmissionVelocityType::Invalid);
         assert_eq!(info.emission_volume_type, EmissionVolumeType::Invalid);
         assert_eq!(info.wind_motion, WindMotion::NotUsed);

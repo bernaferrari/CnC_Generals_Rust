@@ -5,6 +5,7 @@
 //! - `W3DGameClient::createRayEffectByTemplate` midpoint drawable + addRayEffect
 
 use std::sync::{Mutex, OnceLock};
+use glam::{Vec3};
 
 /// C++ `RayEffectSystem::MAX_RAY_EFFECTS`.
 pub const MAX_RAY_EFFECTS: usize = 128;
@@ -331,7 +332,6 @@ mod tests {
     use super::*;
     use crate::effects::fxlist_integration::{FXContext, FXNugget, RayEffectFXNugget};
     use crate::effects::particle_manager::ParticleSystemManager;
-    use nalgebra::{Point3, Vector3};
 
     #[test]
     fn fxlist_ray_effect_nugget_gpu_mesh_matches_cpp_midpoint_and_offsets() {
@@ -344,8 +344,8 @@ mod tests {
 
         let mut nugget = RayEffectFXNugget::new("GenericLaser".to_string());
         nugget.primary_offset =
-            Vector3::new(primary_offset[0], primary_offset[1], primary_offset[2]);
-        nugget.secondary_offset = Vector3::new(
+            Vec3::new(primary_offset[0], primary_offset[1], primary_offset[2]);
+        nugget.secondary_offset = Vec3::new(
             secondary_offset[0],
             secondary_offset[1],
             secondary_offset[2],
@@ -362,10 +362,10 @@ mod tests {
         };
         FXNugget::do_fx_pos(
             &nugget,
-            Point3::new(primary[0], primary[1], primary[2]),
+            Vec3::new(primary[0], primary[1], primary[2]),
             None,
             0.0,
-            Some(Point3::new(secondary[0], secondary[1], secondary[2])),
+            Some(Vec3::new(secondary[0], secondary[1], secondary[2])),
             0.0,
             &mut ctx,
         );

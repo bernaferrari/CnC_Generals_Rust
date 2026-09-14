@@ -290,7 +290,8 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
         renderer.render(&mut ui_pass)
     };
     renderer.end_frame();

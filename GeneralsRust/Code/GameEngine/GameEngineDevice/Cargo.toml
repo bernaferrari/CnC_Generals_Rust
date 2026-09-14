@@ -1,7 +1,8 @@
 [package]
 name = "game_engine_device"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["Westwood Studios <contact@ea.com>"]
 description = "GameEngineDevice - Complete hardware abstraction layer for C&C Generals Zero Hour"
 license = "GPL-3.0"
@@ -35,65 +36,65 @@ debug = ["log"]
 
 [dependencies]
 # Single comprehensive audio library for games
-kira = { version = "0.8", features = ["symphonia", "wav", "ogg", "flac", "mp3"], optional = true }
-rubato = "0.14"  # Audio resampling (still needed for real-time processing)
-realfft = "3.5"  # FFT for audio analysis (still needed for effects)
+kira = {workspace = true, features = ["symphonia", "wav", "ogg", "flac", "mp3"], optional = true}
+rubato = {workspace = true}  # Audio resampling (still needed for real-time processing)
+realfft = {workspace = true}  # FFT for audio analysis (still needed for effects)
 
 # Video and graphics dependencies  
-wgpu = { version = "27.0.1", features = ["wgsl", "spirv"], optional = true }
-wgpu-profiler = { version = "0.25.0", optional = true }
-winit = { version = "0.30", features = ["serde"], optional = true }
-bytemuck = { version = "1.24", features = ["derive"], optional = true }
-glam = { version = "0.28", features = ["bytemuck", "serde"], optional = true }
-image = { version = "0.24", features = ["png", "jpeg", "tiff", "bmp"] }
-naga = { version = "0.19", features = ["wgsl-in", "spv-out"], optional = true }
-raw-window-handle = { version = "0.6", optional = true }
+wgpu = {workspace = true, features = ["wgsl", "spirv"], optional = true}
+wgpu-profiler = {workspace = true, optional = true}
+winit = {workspace = true, features = ["serde"], optional = true}
+bytemuck = {workspace = true, features = ["derive"], optional = true}
+glam = {workspace = true, features = ["bytemuck", "serde"], optional = true}
+image = {workspace = true, features = ["png", "jpeg", "tiff", "bmp"]}
+naga = {workspace = true, features = ["wgsl-in", "spv-out"], optional = true}
+raw-window-handle = {workspace = true, optional = true}
 
 # Async runtime
-tokio = { version = "1.48", features = ["full"] }
-async-trait = "0.1"
-futures = "0.3"
+tokio = {workspace = true, features = ["full"]}
+async-trait = {workspace = true}
+futures = {workspace = true}
 
 # Utility crates
 thiserror = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
-serde_json = "1.0"
-uuid = { version = "1.18", features = ["v4", "serde"] }
-dashmap = "5.5"
-parking_lot = "0.12"
-crossbeam-channel = "0.5"
-rayon = "1.11"
-bitflags = "2.10"  # For modifier key flags
+serde_json = {workspace = true}
+uuid = {workspace = true, features = ["v4", "serde"]}
+dashmap = {workspace = true}
+parking_lot = {workspace = true}
+crossbeam-channel = {workspace = true}
+rayon = {workspace = true}
+bitflags = {workspace = true}  # For modifier key flags
 game_client = { path = "../GameClient", package = "game-client-rust" }
 game_engine = { path = "../Common" }
 ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu", optional = true }
 ww3d-engine = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine", optional = true }
-libc = { version = "0.2", optional = true } # Platform syscall bridge for legacy parity paths
+libc = {workspace = true, optional = true} # Platform syscall bridge for legacy parity paths
 
 # File system operations
-walkdir = "2.5"        # Directory traversal
-ignore = "0.4"         # Advanced gitignore-style patterns
-memmap2 = "0.9"        # Memory-mapped files
-notify = "6.1"         # File system watching
+walkdir = {workspace = true}        # Directory traversal
+ignore = {workspace = true}         # Advanced gitignore-style patterns
+memmap2 = {workspace = true}        # Memory-mapped files
+notify = {workspace = true}         # File system watching
 
 # Compression and archives
-flate2 = "1.1"  # Standard zlib
-zip = { version = "0.6", features = ["deflate"] }
-tar = "0.4"
+flate2 = {workspace = true}  # Standard zlib
+zip = {workspace = true, features = ["deflate"]}
+tar = {workspace = true}
 
 # 2025 Performance optimizations
-fastrand = "2.3"  # Modern, fast random number generation
-num_cpus = "1.17"  # CPU core detection
+fastrand = {workspace = true}  # Modern, fast random number generation
+num_cpus = {workspace = true}  # CPU core detection
 
 # Logging and profiling
-log = { version = "0.4", optional = true }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+log = {workspace = true, optional = true}
+tracing = {workspace = true}
+tracing-subscriber = {workspace = true, features = ["env-filter"]}
 
 # Platform-specific dependencies
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.52", features = [
+windows = { workspace = true, features = [
     "Win32_Media_Audio",
     "Win32_System_Threading",
     "Win32_Foundation",
@@ -114,21 +115,21 @@ windows = { version = "0.52", features = [
     "Win32_System_ProcessStatus",
 ] }
 # Modern input handling for Windows
-gilrs = { version = "0.10", optional = true }  # Cross-platform gamepad support
-device_query = { version = "2.1", optional = true }  # Simple device query for fallback input
+gilrs = { workspace = true, optional = true }
+device_query = { workspace = true, optional = true }
 
 # Cross-platform dependencies
-gpu-alloc = "0.6"
+gpu-alloc = { workspace = true }
 
 # Note: cpal has been replaced with modern Kira-based audio system
 # cpal = "0.15" # Replaced with Kira audio system
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-tokio-test = "0.4"
-tempfile = "3.23"
-proptest = "1.9"
-mockall = "0.12"
+criterion = {workspace = true, features = ["html_reports"]}
+tokio-test = {workspace = true}
+tempfile = {workspace = true}
+proptest = {workspace = true}
+mockall = {workspace = true}
 
 # Internal dependencies (placeholder - will be implemented as needed)
 # wwaudio = { path = "../Libraries/Source/WWVegas/WWAudio" }

@@ -81,7 +81,7 @@ impl ModernShaderSystem {
     /// Create a new modern shader system
     pub async fn new() -> ShdResult<Self> {
         // Create wgpu instance with all backends
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(), // Vulkan, Metal, DX12, DX11, GL, WebGPU
             ..Default::default()
         });
@@ -92,6 +92,7 @@ impl ModernShaderSystem {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await
             .map_err(|_| {
@@ -236,8 +237,8 @@ impl ModernShaderSystem {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Bump Mapping Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
 
         // Create render pipeline
@@ -273,14 +274,14 @@ impl ModernShaderSystem {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 cache: None,
-                multiview: None,
+                multiview_mask: None,
             });
 
         self.pipelines.insert(pipeline_id.clone(), pipeline);

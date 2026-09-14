@@ -330,14 +330,14 @@ pub async fn run_cnc_game(
                         error!("❌ RENDER ERROR: {:?}", e);
                         if let Some(source_err) = e.source() {
                             if let Some(surface_err) =
-                                source_err.downcast_ref::<wgpu::SurfaceError>()
+                                source_err.downcast_ref::<ww3d_gpu::GpuError>()
                             {
                                 match surface_err {
-                                    wgpu::SurfaceError::Lost => {
+                                    ww3d_gpu::GpuError::SurfaceLost => {
                                         error!("🔄 SURFACE LOST: Attempting resize");
                                         engine.resize(current_window.inner_size());
                                     }
-                                    wgpu::SurfaceError::OutOfMemory => {
+                                    ww3d_gpu::GpuError::OutOfMemory => {
                                         error!("💥 OUT OF MEMORY: Exiting");
                                         elwt.exit();
                                     }

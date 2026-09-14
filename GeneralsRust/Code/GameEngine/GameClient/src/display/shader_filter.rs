@@ -203,7 +203,7 @@ impl ShaderFilterGpu {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
@@ -269,8 +269,8 @@ impl ShaderFilterGpu {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("W3D filter pipeline layout"),
-            bind_group_layouts: &[&bind_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("W3D filter composite"),
@@ -297,7 +297,7 @@ impl ShaderFilterGpu {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         Self {
@@ -498,7 +498,8 @@ pub fn filter_post_render(
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
-        });
+            multiview_mask: None,
+});
         pass.set_pipeline(&gpu.pipeline);
         pass.set_bind_group(0, &bind, &[]);
         pass.draw(0..3, 0..1);

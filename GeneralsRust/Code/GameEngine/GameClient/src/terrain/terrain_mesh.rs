@@ -5,8 +5,9 @@
 
 use std::collections::HashMap;
 
-use nalgebra::{Matrix4, Point3, Vector3};
 use wgpu::{Buffer, Device, Queue, RenderPass};
+
+use glam::{Mat4, Vec3};
 
 use super::{
     calculate_terrain_lod, ChunkId, HeightMap, TerrainConfig, TerrainError, TerrainLOD,
@@ -173,7 +174,7 @@ impl TerrainTile {
     /// Update LOD level based on camera distance
     pub fn update_lod(&mut self, camera_position: Vec3, config: &TerrainConfig) {
         // Calculate distance from camera to tile center
-        self.camera_distance = (camera_position - self.center).norm();
+        self.camera_distance = (camera_position - self.center).length();
 
         // Determine LOD level based on distance
         let terrain_lod = calculate_terrain_lod(self.camera_distance, config);

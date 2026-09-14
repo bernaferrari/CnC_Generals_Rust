@@ -7,8 +7,8 @@
 
 use crate::world::PlayerId;
 use crate::world::entity_generation::next_world_epoch;
-use nalgebra::Point3;
 use std::collections::HashMap;
+use glam::Vec3;
 
 #[path = "../entity_lifecycle.rs"]
 pub mod entity_lifecycle;
@@ -197,7 +197,7 @@ impl TemplateRef {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
     /// World-space position (X/Y/Z).
-    pub position: Point3<f32>,
+    pub position: Vec3,
     /// Facing angle in radians.
     pub orientation: f32,
 }
@@ -206,7 +206,7 @@ impl Transform {
     /// Create a new transform.
     pub fn new(position: [f32; 3], orientation: f32) -> Self {
         Self {
-            position: Point3::from(position),
+            position: Vec3::from(position),
             orientation,
         }
     }
@@ -215,7 +215,7 @@ impl Transform {
 impl Default for Transform {
     fn default() -> Self {
         Self {
-            position: Point3::new(0.0, 0.0, 0.0),
+            position: Vec3::new(0.0, 0.0, 0.0),
             orientation: 0.0,
         }
     }

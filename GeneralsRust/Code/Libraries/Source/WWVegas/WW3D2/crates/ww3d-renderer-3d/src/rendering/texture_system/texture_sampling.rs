@@ -221,14 +221,18 @@ impl TextureSamplerManager {
             TextureFilterQuality::Point => (
                 FilterMode::Nearest,
                 FilterMode::Nearest,
-                FilterMode::Nearest,
+                wgpu::MipmapFilterMode::Nearest,
             ),
-            TextureFilterQuality::Bilinear => {
-                (FilterMode::Linear, FilterMode::Linear, FilterMode::Nearest)
-            }
-            TextureFilterQuality::Trilinear | TextureFilterQuality::Anisotropic => {
-                (FilterMode::Linear, FilterMode::Linear, FilterMode::Linear)
-            }
+            TextureFilterQuality::Bilinear => (
+                FilterMode::Linear,
+                FilterMode::Linear,
+                wgpu::MipmapFilterMode::Nearest,
+            ),
+            TextureFilterQuality::Trilinear | TextureFilterQuality::Anisotropic => (
+                FilterMode::Linear,
+                FilterMode::Linear,
+                wgpu::MipmapFilterMode::Linear,
+            ),
         };
 
         let address_mode_u = Self::convert_address_mode(config.address_mode_u);

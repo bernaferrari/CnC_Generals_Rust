@@ -565,8 +565,8 @@ fn bink_miles_hook() -> &'static Mutex<BinkMilesHook> {
 }
 
 fn try_bind_kira_output() -> bool {
-    match kira::manager::AudioManager::<kira::manager::backend::DefaultBackend>::new(
-        kira::manager::AudioManagerSettings::default(),
+    match kira::AudioManager::<kira::DefaultBackend>::new(
+        kira::AudioManagerSettings::default(),
     ) {
         Ok(manager) => {
             store_kira_manager(manager);
@@ -577,7 +577,7 @@ fn try_bind_kira_output() -> bool {
 }
 
 struct KiraPlayback {
-    manager: kira::manager::AudioManager<kira::manager::backend::DefaultBackend>,
+    manager: kira::AudioManager<kira::DefaultBackend>,
     handle: Option<kira::sound::static_sound::StaticSoundHandle>,
 }
 
@@ -587,8 +587,16 @@ fn kira_playback() -> &'static Mutex<Option<KiraPlayback>> {
     &KIRA_PLAYBACK
 }
 
+fn kira_amplitude(amp: f64) -> kira::Decibels {
+    if amp <= 0.0001 {
+        kira::Decibels::SILENCE
+    } else {
+        kira::Decibels(20.0 * (amp as f32).log10())
+    }
+}
+
 fn store_kira_manager(
-    manager: kira::manager::AudioManager<kira::manager::backend::DefaultBackend>,
+    manager: kira::AudioManager<kira::DefaultBackend>,
 ) {
     let mut slot = kira_playback().lock().unwrap_or_else(|e| e.into_inner());
     *slot = Some(KiraPlayback {
@@ -601,7 +609,7 @@ fn stop_bink_playback() {
     let mut slot = kira_playback().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(playback) = slot.as_mut() {
         if let Some(handle) = playback.handle.as_mut() {
-            let _ = handle.stop(kira::tween::Tween::default());
+            let _ = handle.stop(kira::Tween::default());
         }
         playback.handle = None;
     }
@@ -620,14 +628,15 @@ pub fn play_bink_pcm_through_miles(samples: &[f32], sample_rate: u32, channels: 
         sample_rate,
         frames: frames.into(),
         settings: kira::sound::static_sound::StaticSoundSettings::new()
-            .volume(kira::Volume::Amplitude(volume.max(0.0001) as f64)),
+            .volume(kira_amplitude(volume.max(0.0001) as f64)),
+        slice: None,
     };
     let mut slot = kira_playback().lock().unwrap_or_else(|e| e.into_inner());
     let Some(playback) = slot.as_mut() else {
         return;
     };
     if let Some(handle) = playback.handle.as_mut() {
-        let _ = handle.stop(kira::tween::Tween::default());
+        let _ = handle.stop(kira::Tween::default());
     }
     match playback.manager.play(data) {
         Ok(handle) => playback.handle = Some(handle),
@@ -635,11 +644,11 @@ pub fn play_bink_pcm_through_miles(samples: &[f32], sample_rate: u32, channels: 
     }
 }
 
-fn pcm_to_frames(samples: &[f32], channels: u8) -> Vec<kira::dsp::Frame> {
+fn pcm_to_frames(samples: &[f32], channels: u8) -> Vec<kira::Frame> {
     if channels >= 2 {
         samples
             .chunks(2)
-            .map(|pair| kira::dsp::Frame {
+            .map(|pair| kira::Frame {
                 left: pair[0],
                 right: pair.get(1).copied().unwrap_or(pair[0]),
             })
@@ -648,7 +657,7 @@ fn pcm_to_frames(samples: &[f32], channels: u8) -> Vec<kira::dsp::Frame> {
         samples
             .iter()
             .copied()
-            .map(kira::dsp::Frame::from_mono)
+            .map(kira::Frame::from_mono)
             .collect()
     }
 }

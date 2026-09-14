@@ -289,7 +289,7 @@ impl SkyRenderingSystem {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -339,8 +339,8 @@ impl SkyRenderingSystem {
         let skybox_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Skybox Pipeline Layout"),
-                bind_group_layouts: &[&skybox_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&skybox_bind_group_layout)],
+                immediate_size: 0,
             });
 
         let skybox_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -371,13 +371,13 @@ impl SkyRenderingSystem {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: false, // Don't write depth for skybox
-                depth_compare: wgpu::CompareFunction::LessEqual, // Draw at far plane
+                depth_write_enabled: Some(false), // Don't write depth for skybox
+                depth_compare: Some(wgpu::CompareFunction::LessEqual), // Draw at far plane
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
         });
 
         Self {

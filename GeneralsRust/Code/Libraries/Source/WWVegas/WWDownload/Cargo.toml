@@ -1,54 +1,55 @@
 [package]
 name = "wwdownload"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "WWDownload - Modern download library for Command & Conquer Generals Zero Hour"
 license = "GPL-3.0"
 authors = ["Electronic Arts Inc."]
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.0", features = ["full"] }
+tokio = {workspace = true, features = ["full"]}
 
 # FTP client
-suppaftp = { version = "5.3", features = ["async", "native-tls", "async-secure"] }
+suppaftp = { workspace = true, features = ["tokio", "native-tls", "async-secure"] }
 
 # HTTP client for HTTP downloads
-reqwest = { version = "0.12", features = ["stream", "json"] }
+reqwest = {workspace = true, features = ["stream", "json"]}
 
 # Error handling
-thiserror = "1.0"
-anyhow = "1.0"
+thiserror = {workspace = true}
+anyhow = {workspace = true}
 
 # Async traits and utilities
-async-trait = "0.1"
-futures = "0.3"
+async-trait = {workspace = true}
+futures = {workspace = true}
 
 # File system operations
-tokio-util = { version = "0.7", features = ["io"] }
+tokio-util = {workspace = true, features = ["io"]}
 
 # Progress tracking
-indicatif = "0.17"
+indicatif = {workspace = true}
 
 # Logging
-log = "0.4"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+log = {workspace = true}
+tracing = {workspace = true}
+tracing-subscriber = {workspace = true, features = ["env-filter"]}
 
 # Cross-platform configuration storage
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-dirs = "5.0"
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+dirs = {workspace = true}
 
 # URL parsing and building
-url = "2.4"
+url = {workspace = true}
 
 # Retry logic
-backoff = { version = "0.4", features = ["tokio"] }
+backoff = {workspace = true, features = ["tokio"]}
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.52", features = ["Win32_System_Registry"] }
+windows = { workspace = true, features = ["Win32_System_Registry"] }
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.8"
+tokio-test = {workspace = true}
+tempfile = {workspace = true}

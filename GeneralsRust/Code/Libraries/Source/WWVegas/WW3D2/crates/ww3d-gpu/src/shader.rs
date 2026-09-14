@@ -1133,8 +1133,8 @@ impl ShaderCache {
         let depth_stencil = if shader.get_depth_mask() != DepthMaskType::WriteDisable {
             Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: shader.get_depth_mask() == DepthMaskType::WriteEnable,
-                depth_compare: shader.get_depth_compare().to_wgpu(),
+                depth_write_enabled: Some(shader.get_depth_mask() == DepthMaskType::WriteEnable),
+                depth_compare: Some(shader.get_depth_compare().to_wgpu()),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             })

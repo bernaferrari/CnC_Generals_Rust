@@ -17,7 +17,7 @@ pub struct GpuCompressor {
 impl GpuCompressor {
     /// Create new GPU compressor
     pub async fn new(level: CompressionLevel) -> Result<Self> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())

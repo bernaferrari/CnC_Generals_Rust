@@ -4,8 +4,7 @@
 //! including height sampling, normal calculation, and spatial queries.
 
 use crate::terrain::{TerrainError, TerrainResult};
-use glam::Vec3;
-use nalgebra::Point2;
+use glam::{Vec2, Vec3};
 use std::collections::HashMap;
 
 /// Collision query result containing hit information
@@ -164,7 +163,7 @@ pub struct CollisionGrid {
     grid_size: (i32, i32),
 
     /// Grid origin (world position of grid[0][0])
-    origin: Point2<f32>,
+    origin: Vec2,
 
     /// Grid cells containing collision data
     cells: HashMap<(i32, i32), CollisionCell>,
@@ -503,11 +502,11 @@ impl CollisionTriangle {
     }
 
     /// Get height at world position (assuming triangle is roughly horizontal)
-    pub fn get_height_at_position(&self, position: Point2<f32>) -> Option<f32> {
+    pub fn get_height_at_position(&self, position: Vec2) -> Option<f32> {
         // Use barycentric coordinates to interpolate height
-        let v0 = Point2::new(self.vertices[0].x, self.vertices[0].z);
-        let v1 = Point2::new(self.vertices[1].x, self.vertices[1].z);
-        let v2 = Point2::new(self.vertices[2].x, self.vertices[2].z);
+        let v0 = Vec2::new(self.vertices[0].x, self.vertices[0].z);
+        let v1 = Vec2::new(self.vertices[1].x, self.vertices[1].z);
+        let v2 = Vec2::new(self.vertices[2].x, self.vertices[2].z);
 
         let denom = (v1.y - v2.y) * (v0.x - v2.x) + (v2.x - v1.x) * (v0.y - v2.y);
         if denom.abs() < f32::EPSILON {
@@ -528,7 +527,7 @@ impl CollisionTriangle {
 
 impl CollisionGrid {
     /// Create new collision grid
-    pub fn new(cell_size: f32, origin: Point2<f32>, size: (i32, i32)) -> Self {
+    pub fn new(cell_size: f32, origin: Vec2, size: (i32, i32)) -> Self {
         Self {
             cell_size,
             grid_size: size,
@@ -538,7 +537,7 @@ impl CollisionGrid {
     }
 
     /// Convert world position to grid coordinates
-    pub fn world_to_grid(&self, position: Point2<f32>) -> (i32, i32) {
+    pub fn world_to_grid(&self, position: Vec2) -> (i32, i32) {
         let local_pos = position - self.origin;
         let grid_x = (local_pos.x / self.cell_size).floor() as i32;
         let grid_y = (local_pos.y / self.cell_size).floor() as i32;
@@ -579,8 +578,8 @@ impl CollisionGrid {
             .map(|v| v.z)
             .fold(f32::NEG_INFINITY, f32::max);
 
-        let min_grid = self.world_to_grid(Point2::new(min_x, min_z));
-        let max_grid = self.world_to_grid(Point2::new(max_x, max_z));
+        let min_grid = self.world_to_grid(Vec2::new(min_x, min_z));
+        let max_grid = self.world_to_grid(Vec2::new(max_x, max_z));
 
         for grid_y in min_grid.1..=max_grid.1 {
             for grid_x in min_grid.0..=max_grid.0 {
@@ -600,7 +599,7 @@ impl CollisionGrid {
     }
 
     /// Query height at world position
-    pub fn query_height(&self, position: Point2<f32>) -> Option<f32> {
+    pub fn query_height(&self, position: Vec2) -> Option<f32> {
         let grid_pos = self.world_to_grid(position);
 
         if let Some(cell) = self.get_cell(grid_pos) {
@@ -625,7 +624,7 @@ impl CollisionGrid {
     }
 
     /// Query material at world position
-    pub fn query_material(&self, position: Point2<f32>) -> Option<TerrainMaterial> {
+    pub fn query_material(&self, position: Vec2) -> Option<TerrainMaterial> {
         let grid_pos = self.world_to_grid(position);
 
         if let Some(cell) = self.get_cell(grid_pos) {
@@ -643,7 +642,7 @@ impl TerrainCollision {
     pub fn new(config: CollisionConfig) -> Self {
         let grid = CollisionGrid::new(
             config.grid_cell_size,
-            Point2::new(0.0, 0.0),
+            Vec2::new(0.0, 0.0),
             (100, 100), // Default grid size
         );
 
@@ -686,7 +685,7 @@ impl TerrainCollision {
             let sample_point = ray.point_at_distance(distance);
             let grid_pos = self
                 .grid
-                .world_to_grid(Point2::new(sample_point.x, sample_point.z));
+                .world_to_grid(Vec2::new(sample_point.x, sample_point.z));
 
             if let Some(cell) = self.grid.get_cell(grid_pos) {
                 for triangle in &cell.triangles {
@@ -706,19 +705,19 @@ impl TerrainCollision {
     }
 
     /// Get terrain height at world position
-    pub fn get_height_at_position(&mut self, position: Point2<f32>) -> f32 {
+    pub fn get_height_at_position(&mut self, position: Vec2) -> f32 {
         self.stats.height_queries += 1;
 
         self.grid.query_height(position).unwrap_or(0.0)
     }
 
     /// Get terrain material at world position
-    pub fn get_material_at_position(&self, position: Point2<f32>) -> TerrainMaterial {
+    pub fn get_material_at_position(&self, position: Vec2) -> TerrainMaterial {
         self.grid.query_material(position).unwrap_or_default()
     }
 
     /// Get surface properties at world position
-    pub fn get_surface_properties(&self, position: Point2<f32>) -> SurfaceProperties {
+    pub fn get_surface_properties(&self, position: Vec2) -> SurfaceProperties {
         let material = self.get_material_at_position(position);
         let mut properties = SurfaceProperties::from_material(&material);
 
@@ -727,11 +726,11 @@ impl TerrainCollision {
         let h_center = self.grid.query_height(position).unwrap_or(0.0);
         let h_right = self
             .grid
-            .query_height(Point2::new(position.x + offset, position.y))
+            .query_height(Vec2::new(position.x + offset, position.y))
             .unwrap_or(h_center);
         let h_up = self
             .grid
-            .query_height(Point2::new(position.x, position.y + offset))
+            .query_height(Vec2::new(position.x, position.y + offset))
             .unwrap_or(h_center);
 
         let dx = h_right - h_center;
@@ -751,7 +750,7 @@ impl TerrainCollision {
         let grid_radius = (sphere.radius / self.config.grid_cell_size).ceil() as i32;
         let center_grid = self
             .grid
-            .world_to_grid(Point2::new(sphere.center.x, sphere.center.z));
+            .world_to_grid(Vec2::new(sphere.center.x, sphere.center.z));
 
         for grid_y in (center_grid.1 - grid_radius)..=(center_grid.1 + grid_radius) {
             for grid_x in (center_grid.0 - grid_radius)..=(center_grid.0 + grid_radius) {
@@ -876,7 +875,7 @@ impl TerrainCollision {
     }
 
     /// Check if position is traversable
-    pub fn is_traversable(&self, position: Point2<f32>) -> bool {
+    pub fn is_traversable(&self, position: Vec2) -> bool {
         let properties = self.get_surface_properties(position);
         properties.is_traversable(self.config.max_traversable_slope)
     }
@@ -960,17 +959,17 @@ mod tests {
         let triangle = CollisionTriangle::new(vertices, material);
 
         // Test height query inside triangle
-        let height = triangle.get_height_at_position(Point2::new(5.0, 3.0));
+        let height = triangle.get_height_at_position(Vec2::new(5.0, 3.0));
         assert!(height.is_some());
 
         // Test height query outside triangle
-        let height_outside = triangle.get_height_at_position(Point2::new(15.0, 3.0));
+        let height_outside = triangle.get_height_at_position(Vec2::new(15.0, 3.0));
         assert!(height_outside.is_none());
     }
 
     #[test]
     fn test_collision_grid() {
-        let mut grid = CollisionGrid::new(10.0, Point2::new(0.0, 0.0), (10, 10));
+        let mut grid = CollisionGrid::new(10.0, Vec2::new(0.0, 0.0), (10, 10));
 
         let triangle = CollisionTriangle::new(
             [
@@ -984,17 +983,17 @@ mod tests {
         grid.add_triangle(triangle);
 
         // Test height query
-        let height = grid.query_height(Point2::new(10.0, 8.0));
+        let height = grid.query_height(Vec2::new(10.0, 8.0));
         assert!(height.is_some());
 
         // Test material query
-        let material = grid.query_material(Point2::new(10.0, 8.0));
+        let material = grid.query_material(Vec2::new(10.0, 8.0));
         assert!(material.is_some());
     }
 
     #[test]
     fn test_collision_grid_height_sample_bilinear_fallback() {
-        let mut grid = CollisionGrid::new(10.0, Point2::new(0.0, 0.0), (10, 10));
+        let mut grid = CollisionGrid::new(10.0, Vec2::new(0.0, 0.0), (10, 10));
         grid.cells.insert(
             (0, 0),
             CollisionCell {
@@ -1005,7 +1004,7 @@ mod tests {
             },
         );
 
-        let height = grid.query_height(Point2::new(5.0, 5.0));
+        let height = grid.query_height(Vec2::new(5.0, 5.0));
         assert_eq!(height, Some(15.0));
     }
 
@@ -1029,11 +1028,11 @@ mod tests {
         collision_system.add_triangle(triangle);
 
         // Test height query
-        let height = collision_system.get_height_at_position(Point2::new(0.0, 0.0));
+        let height = collision_system.get_height_at_position(Vec2::new(0.0, 0.0));
         assert_eq!(height, 0.0);
 
         // Test traversability
-        let traversable = collision_system.is_traversable(Point2::new(0.0, 0.0));
+        let traversable = collision_system.is_traversable(Vec2::new(0.0, 0.0));
         assert!(traversable);
 
         // Test ray cast

@@ -25,7 +25,7 @@ pub enum NetworkError {
 
     /// Serialization/deserialization errors
     #[error("Serialization error: {0}")]
-    Serialization(#[from] bincode::Error),
+    Serialization(#[from] bincode_legacy::Error),
 
     /// JSON serialization errors
     #[error("JSON error: {0}")]
@@ -146,7 +146,7 @@ impl NetworkError {
 
     /// Create a new serialization error
     pub fn serialization<S: Into<String>>(message: S) -> Self {
-        Self::Serialization(bincode::Error::from(std::io::Error::new(
+        Self::Serialization(bincode_legacy::Error::from(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             message.into(),
         )))

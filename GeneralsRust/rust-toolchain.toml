@@ -1,0 +1,6 @@
+# Same pin as the repo root. rustup walks up from cwd, but commands started
+# inside GeneralsRust should not depend on finding the parent file.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "default"

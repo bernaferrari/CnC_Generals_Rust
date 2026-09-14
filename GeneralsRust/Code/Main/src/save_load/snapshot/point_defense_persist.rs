@@ -46,7 +46,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.ready.is_empty() && payload.ready_1.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(PDLS_MAGIC);
@@ -73,12 +73,12 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     let encoded = &rest[..payload_len];
     let (ready, ready_1) = match version {
         PDLS_VERSION_V1 => {
-            let payload: PointDefensePersistPayloadV1 = bincode::deserialize(encoded)
+            let payload: PointDefensePersistPayloadV1 = bincode_legacy::deserialize(encoded)
                 .map_err(|err| SaveLoadError::Corrupted(format!("PDLS payload decode: {err}")))?;
             (payload.ready, Vec::new())
         }
         PDLS_VERSION => {
-            let payload: PointDefensePersistPayload = bincode::deserialize(encoded)
+            let payload: PointDefensePersistPayload = bincode_legacy::deserialize(encoded)
                 .map_err(|err| SaveLoadError::Corrupted(format!("PDLS payload decode: {err}")))?;
             (payload.ready, payload.ready_1)
         }

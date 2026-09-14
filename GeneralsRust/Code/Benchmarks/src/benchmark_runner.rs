@@ -310,12 +310,12 @@ impl BenchmarkRunner {
         use glam::{Vec3, Mat4};
         use rand::Rng;
         
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let iterations = 1_000_000;
         
         // Generate test data
         let mut vectors: Vec<Vec3> = (0..iterations)
-            .map(|_| Vec3::new(rng.r#gen(), rng.r#gen(), rng.r#gen()))
+            .map(|_| Vec3::new(rng.random(), rng.random(), rng.random()))
             .collect();
         
         let start = Instant::now();

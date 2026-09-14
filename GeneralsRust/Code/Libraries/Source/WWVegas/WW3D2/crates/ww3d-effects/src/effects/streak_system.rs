@@ -877,7 +877,7 @@ mod tests {
     #[test]
     fn test_streak_renderer() {
         // Create mock device and queue for testing
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
                 .unwrap();

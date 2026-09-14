@@ -166,6 +166,7 @@ impl RenderTarget {
             depth_stencil_attachment,
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         })
     }
 
@@ -296,7 +297,7 @@ impl ShadowMap {
                 address_mode_w: wgpu::AddressMode::ClampToEdge,
                 mag_filter: wgpu::FilterMode::Linear,
                 min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
                 compare: Some(wgpu::CompareFunction::LessEqual),
                 ..Default::default()
             });
@@ -330,6 +331,7 @@ impl ShadowMap {
             depth_stencil_attachment: Some(depth_stencil_attachment),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         })
     }
 

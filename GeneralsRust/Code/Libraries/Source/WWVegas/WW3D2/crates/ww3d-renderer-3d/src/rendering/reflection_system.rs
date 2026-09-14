@@ -285,6 +285,7 @@ impl ReflectionSystem {
             }),
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         }))
     }
 

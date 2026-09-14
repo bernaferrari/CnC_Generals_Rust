@@ -1638,7 +1638,7 @@ impl GameClient {
                 let camera_pos = with_tactical_view_ref(|view| view.get_3d_camera_position());
                 weather.update(
                     delta_time,
-                    Point3::new(camera_pos.x, camera_pos.y, camera_pos.z),
+                    glam::Vec3::new(camera_pos.x, camera_pos.y, camera_pos.z),
                 );
             }
         }

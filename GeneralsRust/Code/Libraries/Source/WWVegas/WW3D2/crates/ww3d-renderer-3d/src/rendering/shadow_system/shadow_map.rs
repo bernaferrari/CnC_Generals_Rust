@@ -157,7 +157,7 @@ impl ShadowMap {
                 ShadowFilterMode::None => wgpu::FilterMode::Nearest,
                 _ => wgpu::FilterMode::Linear,
             },
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: 1.0,
             compare: Some(wgpu::CompareFunction::LessEqual),
@@ -446,7 +446,8 @@ impl ShadowMapRenderer {
             }),
             occlusion_query_set: None,
             timestamp_writes: None,
-        })
+            multiview_mask: None,
+})
     }
 
     /// Render scene to shadow map

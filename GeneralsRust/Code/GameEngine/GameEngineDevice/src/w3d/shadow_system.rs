@@ -2054,7 +2054,7 @@ impl W3DShadowMapper {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             ..Default::default()
         });
 
@@ -2065,7 +2065,7 @@ impl W3DShadowMapper {
             address_mode_w: AddressMode::ClampToEdge,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             compare: Some(CompareFunction::LessEqual),
             ..Default::default()
         });
@@ -2164,8 +2164,8 @@ impl W3DShadowMapper {
             .device
             .create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Shadow Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
 
         // Create depth-only pipeline
@@ -2191,8 +2191,8 @@ impl W3DShadowMapper {
                 },
                 depth_stencil: Some(DepthStencilState {
                     format: TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(CompareFunction::Less),
                     stencil: StencilState::default(),
                     bias: DepthBiasState {
                         constant: 2, // Depth bias for shadow acne
@@ -2202,7 +2202,7 @@ impl W3DShadowMapper {
                 }),
                 multisample: wgpu::MultisampleState::default(),
                 cache: None,
-                multiview: None,
+                multiview_mask: None,
             },
         ));
 
@@ -2427,7 +2427,8 @@ impl W3DShadowMapper {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
-            });
+                multiview_mask: None,
+});
 
             // Set pipeline and viewport
             render_pass.set_pipeline(pipeline);

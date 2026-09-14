@@ -243,13 +243,13 @@ impl ParticleSystem {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Particle System Pipeline Layout"),
             bind_group_layouts: &layouts,
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let depth_stencil = Some(wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth24PlusStencil8,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         });
@@ -287,7 +287,7 @@ impl ParticleSystem {
                 },
                 depth_stencil,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             }),
         );

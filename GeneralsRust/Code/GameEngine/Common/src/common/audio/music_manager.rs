@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use symphonia::core::io::MediaSourceStream;
 
 use crate::common::audio::{
@@ -258,9 +258,9 @@ impl Playlist {
 
         // Fisher-Yates shuffle
         use rand::Rng;
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for i in (1..self.shuffle_order.len()).rev() {
-            let j = rng.gen_range(0..=i);
+            let j = rng.random_range(0..=i);
             self.shuffle_order.swap(i, j);
         }
     }

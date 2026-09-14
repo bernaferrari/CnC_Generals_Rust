@@ -42,16 +42,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Initialize WGPU
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-    });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
     let surface = instance.create_surface(window.clone())?;
     let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
         force_fallback_adapter: false,
+            apply_limit_buckets: false,
     }).await?;
 
     // STANDALONE DEVICE: WW3D2 example binary, not on the game path.
@@ -80,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Fifo,
@@ -187,6 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     g: 0.15,
                                     b: 0.2,
                                     a: 1.0,
+            multiview_mask: None,
                                 }),
                                 store: wgpu::StoreOp::Store,
                             },
@@ -201,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 queue.submit(std::iter::once(encoder.finish()));
-                present_surface_texture(output);
+                present_surface_texture(&queue, output);
 
                 // Performance stats
                 if show_stats && last_stats_time.elapsed() >= Duration::from_secs(1) {
@@ -466,8 +466,8 @@ fn create_shader_pipeline(device: &wgpu::Device) -> Result<(), Box<dyn std::erro
     // Create pipeline layout
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Advanced Pipeline Layout"),
-        bind_group_layouts: &[&material_bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&material_bind_group_layout)],
+        immediate_size: 0,
     });
 
     println!("  ✅ Created advanced pipeline layout");

@@ -36,12 +36,12 @@ impl SkirmishGameInfo {
 
     /// Serialize to bytes (matches C++ xfer in save mode)
     pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
-        bincode::serialize(self).map_err(|e| format!("Serialization error: {}", e))
+        bincode_legacy::serialize(self).map_err(|e| format!("Serialization error: {}", e))
     }
 
     /// Deserialize from bytes (matches C++ xfer in load mode)
     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
-        bincode::deserialize(data).map_err(|e| format!("Deserialization error: {}", e))
+        bincode_legacy::deserialize(data).map_err(|e| format!("Deserialization error: {}", e))
     }
 
     /// Calculate CRC for snapshot (matches C++ crc method - currently empty)
@@ -232,12 +232,12 @@ impl GameInfoSnapshot {
 
     /// Serialize to bytes
     pub fn to_bytes(&self) -> Result<Vec<u8>, String> {
-        bincode::serialize(self).map_err(|e| format!("Serialization error: {}", e))
+        bincode_legacy::serialize(self).map_err(|e| format!("Serialization error: {}", e))
     }
 
     /// Deserialize from bytes
     pub fn from_bytes(data: &[u8]) -> Result<Self, String> {
-        bincode::deserialize(data).map_err(|e| format!("Deserialization error: {}", e))
+        bincode_legacy::deserialize(data).map_err(|e| format!("Deserialization error: {}", e))
     }
 
     /// Check if version is compatible

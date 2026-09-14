@@ -19,7 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "audio")]
-use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
+
 
 use crate::common::audio::{
     AudioFormat, AudioHandle, AudioLoadError, AudioMetadata, Bool, Real, UnsignedInt,

@@ -418,10 +418,10 @@ impl CnCGameEngine {
         };
 
         let cursor = std::io::Cursor::new(bytes);
-        let Ok(decoder) = rodio::Decoder::new(cursor) else {
+        let Ok(decoder) = rodio_compat::Decoder::new(cursor) else {
             return;
         };
-        let source = decoder.convert_samples::<f32>();
+        let source = decoder;
         sink.append(source);
         self.sound_effects.push(sink);
     }
