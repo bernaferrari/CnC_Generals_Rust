@@ -247,17 +247,7 @@ pub struct TileBuildInfo {
 }
 
 /// 3D region structure
-#[derive(Debug, Clone)]
-pub struct Region3D {
-    pub lo: Coord3D,
-    pub hi: Coord3D,
-}
-
-impl Region3D {
-    pub fn is_in_region_no_z(&self, point: &Coord3D) -> bool {
-        point.x >= self.lo.x && point.x <= self.hi.x && point.y >= self.lo.y && point.y <= self.hi.y
-    }
-}
+pub use crate::common::system::geometry::Region3D;
 
 /// Geometry information for objects
 #[derive(Debug, Clone)]

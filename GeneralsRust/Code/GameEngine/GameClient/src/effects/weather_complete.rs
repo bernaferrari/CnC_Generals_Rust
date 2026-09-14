@@ -6,11 +6,13 @@
 
 use super::particle_manager::*;
 use super::particle_system::*;
-use rand::prelude::*;
-use rand::rng;
 use std::collections::VecDeque;
 use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use glam::{Vec3};
+
+fn client_real(lo: f32, hi: f32) -> f32 {
+    crate::GameClientRandomValueReal!(lo, hi)
+}
 
 /// Maximum weather particles based on quality
 const MAX_RAIN_PARTICLES: usize = 2000;
@@ -98,17 +100,15 @@ pub struct WeatherParticle {
 impl WeatherParticle {
     /// Create a new rain drop
     pub fn new_rain_drop(spawn_pos: Vec3, wind: Vec3) -> Self {
-        let mut rng = rng();
-
         Self {
             position: spawn_pos,
             velocity: Vec3::new(
-                wind.x + rng.random_range(-5.0..5.0),
-                wind.y + rng.random_range(-5.0..5.0),
-                -80.0 + rng.random_range(-20.0..20.0), // Falling down
+                wind.x + client_real(-5.0, 5.0),
+                wind.y + client_real(-5.0, 5.0),
+                -80.0 + client_real(-20.0, 20.0), // Falling down
             ),
-            size: rng.random_range(0.5..2.0),
-            alpha: rng.random_range(0.6..1.0),
+            size: client_real(0.5, 2.0),
+            alpha: client_real(0.6, 1.0),
             age: 0.0,
             lifetime: 5.0,
             rotation: 0.0,
@@ -119,44 +119,40 @@ impl WeatherParticle {
 
     /// Create a new snowflake
     pub fn new_snowflake(spawn_pos: Vec3, wind: Vec3) -> Self {
-        let mut rng = rng();
-
         Self {
             position: spawn_pos,
             velocity: Vec3::new(
-                wind.x + rng.random_range(-3.0..3.0),
-                wind.y + rng.random_range(-3.0..3.0),
-                -15.0 + rng.random_range(-5.0..5.0), // Gentle fall
+                wind.x + client_real(-3.0, 3.0),
+                wind.y + client_real(-3.0, 3.0),
+                -15.0 + client_real(-5.0, 5.0), // Gentle fall
             ),
-            size: rng.random_range(1.0..3.0),
-            alpha: rng.random_range(0.8..1.0),
+            size: client_real(1.0, 3.0),
+            alpha: client_real(0.8, 1.0),
             age: 0.0,
             lifetime: 10.0,
-            rotation: rng.random::<f32>() * std::f32::consts::TAU,
-            rotation_speed: rng.random_range(-2.0..2.0),
+            rotation: client_real(0.0, std::f32::consts::TAU),
+            rotation_speed: client_real(-2.0, 2.0),
             color: [1.0, 1.0, 1.0, 1.0], // Pure white
         }
     }
 
     /// Create a new dust particle
     pub fn new_dust_particle(spawn_pos: Vec3, wind: Vec3) -> Self {
-        let mut rng = rng();
-
-        let dust_color_variation = rng.random_range(0.8..1.0);
+        let dust_color_variation = client_real(0.8, 1.0);
 
         Self {
             position: spawn_pos,
             velocity: Vec3::new(
-                wind.x * rng.random_range(0.5..1.5) + rng.random_range(-10.0..10.0),
-                wind.y * rng.random_range(0.5..1.5) + rng.random_range(-10.0..10.0),
-                rng.random_range(-5.0..5.0), // Some vertical motion
+                wind.x * client_real(0.5, 1.5) + client_real(-10.0, 10.0),
+                wind.y * client_real(0.5, 1.5) + client_real(-10.0, 10.0),
+                client_real(-5.0, 5.0), // Some vertical motion
             ),
-            size: rng.random_range(2.0..8.0),
-            alpha: rng.random_range(0.3..0.7),
+            size: client_real(2.0, 8.0),
+            alpha: client_real(0.3, 0.7),
             age: 0.0,
             lifetime: 15.0,
-            rotation: rng.random::<f32>() * std::f32::consts::TAU,
-            rotation_speed: rng.random_range(-1.0..1.0),
+            rotation: client_real(0.0, std::f32::consts::TAU),
+            rotation_speed: client_real(-1.0, 1.0),
             color: [
                 0.7 * dust_color_variation,
                 0.6 * dust_color_variation,
@@ -175,11 +171,10 @@ impl WeatherParticle {
         }
 
         // Apply turbulence
-        let mut rng = rng();
         let turbulence_force = Vec3::new(
-            rng.random_range(-turbulence..turbulence),
-            rng.random_range(-turbulence..turbulence),
-            rng.random_range(-turbulence..turbulence),
+            client_real(-turbulence, turbulence),
+            client_real(-turbulence, turbulence),
+            client_real(-turbulence, turbulence),
         );
 
         // Apply wind and turbulence
@@ -271,13 +266,12 @@ impl RainSystem {
     }
 
     fn generate_spawn_position(&self) -> Vec3 {
-        let mut rng = rng();
         let radius = self.settings.spawn_area_radius;
 
         Vec3::new(
-            self.camera_position.x + rng.random_range(-radius..radius),
-            self.camera_position.y + rng.random_range(-radius..radius),
-            self.camera_position.z + rng.random_range(50.0..150.0), // Spawn above
+            self.camera_position.x + client_real(-radius, radius),
+            self.camera_position.y + client_real(-radius, radius),
+            self.camera_position.z + client_real(50.0, 150.0), // Spawn above
         )
     }
 
@@ -374,13 +368,12 @@ impl SnowSystem {
     }
 
     fn generate_spawn_position(&self) -> Vec3 {
-        let mut rng = rng();
         let radius = self.settings.spawn_area_radius;
 
         Vec3::new(
-            self.camera_position.x + rng.random_range(-radius..radius),
-            self.camera_position.y + rng.random_range(-radius..radius),
-            self.camera_position.z + rng.random_range(50.0..120.0),
+            self.camera_position.x + client_real(-radius, radius),
+            self.camera_position.y + client_real(-radius, radius),
+            self.camera_position.z + client_real(50.0, 120.0),
         )
     }
 
@@ -476,13 +469,12 @@ impl DustStormSystem {
     }
 
     fn generate_spawn_position(&self) -> Vec3 {
-        let mut rng = rng();
         let radius = self.settings.spawn_area_radius * 1.5;
 
         Vec3::new(
-            self.camera_position.x + rng.random_range(-radius..radius),
-            self.camera_position.y + rng.random_range(-radius..radius),
-            self.camera_position.z + rng.random_range(-10.0..30.0), // Ground level to low altitude
+            self.camera_position.x + client_real(-radius, radius),
+            self.camera_position.y + client_real(-radius, radius),
+            self.camera_position.z + client_real(-10.0, 30.0), // Ground level to low altitude
         )
     }
 

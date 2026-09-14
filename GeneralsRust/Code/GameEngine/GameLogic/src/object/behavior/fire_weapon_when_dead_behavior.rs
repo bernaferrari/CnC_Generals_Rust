@@ -16,23 +16,7 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// 3D coordinate representation
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self::default()
-    }
-}
+pub use crate::common::Coord3D;
 
 /// Object ID type
 pub type ObjectId = u32;

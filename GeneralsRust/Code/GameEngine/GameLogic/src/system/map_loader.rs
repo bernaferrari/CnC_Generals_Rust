@@ -47,51 +47,7 @@ pub const K_OBJECTS_VERSION_2: u32 = 2;
 const FLAG_BRIDGE_POINT1: i32 = 0x00000010;
 const FLAG_BRIDGE_POINT2: i32 = 0x00000020;
 
-/// 3D coordinate structure
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self::new(0.0, 0.0, 0.0)
-    }
-
-    pub fn origin() -> Self {
-        Self::zero()
-    }
-}
-
-// Re-export ICoord2D from common types
-pub use crate::common::ICoord2D;
-
-/// 3D region bounds
-#[derive(Debug, Clone, Copy)]
-pub struct Region3D {
-    pub lo: Coord3D,
-    pub hi: Coord3D,
-}
-
-impl Region3D {
-    pub fn new(lo: Coord3D, hi: Coord3D) -> Self {
-        Self { lo, hi }
-    }
-
-    pub fn width(&self) -> f32 {
-        self.hi.x - self.lo.x
-    }
-
-    pub fn height(&self) -> f32 {
-        self.hi.y - self.lo.y
-    }
-}
+pub use crate::common::{Coord3D, ICoord2D, Region3D};
 
 /// Waypoint map - maps waypoint names to positions
 /// Matches C++ WaypointMap from MapUtil.cpp
@@ -126,7 +82,7 @@ impl Default for MapMetaData {
             is_official: false,
             is_multiplayer: false,
             num_players: 1,
-            extent: Region3D::new(Coord3D::origin(), Coord3D::origin()),
+            extent: Region3D::new(Coord3D::ZERO, Coord3D::ZERO),
             display_name: String::new(),
             name_lookup_tag: String::new(),
             waypoints: HashMap::new(),
@@ -1086,13 +1042,13 @@ mod tests {
         // Add player start waypoints
         loader
             .waypoints
-            .insert("Player_1_Start".to_string(), Coord3D::origin());
+            .insert("Player_1_Start".to_string(), Coord3D::ZERO);
         loader
             .waypoints
-            .insert("Player_2_Start".to_string(), Coord3D::origin());
+            .insert("Player_2_Start".to_string(), Coord3D::ZERO);
         loader
             .waypoints
-            .insert("Player_3_Start".to_string(), Coord3D::origin());
+            .insert("Player_3_Start".to_string(), Coord3D::ZERO);
 
         assert_eq!(loader.count_start_spots(), 3);
     }

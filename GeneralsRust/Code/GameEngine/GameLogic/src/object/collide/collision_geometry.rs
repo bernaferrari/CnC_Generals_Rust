@@ -278,7 +278,7 @@ pub fn normalize_coord_3d(coord: &Coord3D) -> Coord3D {
     if length > 0.0 {
         Coord3D::new(coord.x / length, coord.y / length, coord.z / length)
     } else {
-        Coord3D::zero()
+        Coord3D::ZERO
     }
 }
 
@@ -871,7 +871,7 @@ mod tests {
         ));
 
         // Overlapping circles with collision info
-        let mut cinfo = CollideLocAndNormal::new(Coord3D::zero(), Coord3D::zero());
+        let mut cinfo = CollideLocAndNormal::new(Coord3D::ZERO, Coord3D::ZERO);
         assert!(xy_collide_test_circle_circle(
             &pos_a,
             &pos_b,

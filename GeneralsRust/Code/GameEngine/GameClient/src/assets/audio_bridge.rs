@@ -119,8 +119,9 @@ impl AssetAudioPlaybackHook {
 
     fn resolve_position(event: &AudioEventRts) -> Option<Vec3> {
         if event.is_positional() || event.object_id != 0 || event.drawable_id != 0 {
-            let pos = event.get_position();
-            Some(Vec3::new(pos.x, pos.y, pos.z))
+            event
+                .get_position()
+                .map(|pos| Vec3::new(pos.x, pos.y, pos.z))
         } else {
             None
         }

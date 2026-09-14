@@ -341,17 +341,7 @@ impl CellShroudStatus {
 }
 
 /// 2D integer coordinates (matches C++ ICoord2D)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl ICoord2D {
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-}
+pub use crate::common::system::geometry::ICoord2D;
 
 /// Check whether a radar coordinate lies inside the fixed C++ radar cell grid.
 ///
@@ -582,21 +572,7 @@ fn fade_event_color(
 pub use crate::common::system::geometry::Coord3D;
 
 /// 3D region (matches C++ Region3D)
-#[derive(Debug, Clone, Copy)]
-pub struct Region3D {
-    pub lo: Coord3D,
-    pub hi: Coord3D,
-}
-
-impl Region3D {
-    pub fn width(&self) -> f32 {
-        self.hi.x - self.lo.x
-    }
-
-    pub fn height(&self) -> f32 {
-        self.hi.y - self.lo.y
-    }
-}
+pub use crate::common::system::geometry::Region3D;
 
 /// Radar event data (matches C++ Radar::RadarEvent)
 #[derive(Debug, Clone)]

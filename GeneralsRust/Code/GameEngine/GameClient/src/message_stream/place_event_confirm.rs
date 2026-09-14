@@ -20,7 +20,7 @@ pub fn placement_angle_from_world_drag(start: &Coord3D, end: &Coord3D) -> Option
     if dx.abs() <= f32::EPSILON && dy.abs() <= f32::EPSILON {
         return None;
     }
-    Some(dy.atan2(dx))
+    Some(game_engine::common::system::geometry::coord2d_to_angle(dx, dy))
 }
 
 /// `BuildAssistant::isLineBuildTemplate` — KINDOF_LINEBUILD only.

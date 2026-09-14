@@ -233,31 +233,10 @@ impl Point2 {
     }
 }
 
-/// Basic 3D point
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Point3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Point3 {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-
-    pub fn origin() -> Self {
-        Self::zero()
-    }
-}
+/// C++ `View` stores and passes `Coord3D` (`BaseType.h`).
+pub type Coord3D = game_engine::common::system::geometry::Coord3D;
+/// Compatibility name used by older GameClient call sites.
+pub type Point3 = Coord3D;
 
 /// Basic 2D vector
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -352,21 +331,7 @@ impl std::ops::Mul<f32> for Vector3 {
     }
 }
 
-impl std::ops::Add<Vector3> for Point3 {
-    type Output = Point3;
 
-    fn add(self, vec: Vector3) -> Point3 {
-        Point3::new(self.x + vec.x, self.y + vec.y, self.z + vec.z)
-    }
-}
-
-impl std::ops::Sub for Point3 {
-    type Output = Vector3;
-
-    fn sub(self, other: Point3) -> Vector3 {
-        Vector3::new(self.x - other.x, self.y - other.y, self.z - other.z)
-    }
-}
 
 /// Integer 2D point for screen coordinates
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -756,7 +721,7 @@ impl View {
             current_height_above_ground: 0.0,
             view_filter_type: FilterType::Null,
             view_filter_mode: FilterMode::Null,
-            view_filter_pos: Point3::zero(),
+            view_filter_pos: Point3::ZERO,
             view_filter_pos_valid: false,
             fade_total_frames: 0,
             fade_progress_frames: 0,
@@ -2007,7 +1972,7 @@ impl View {
     /// Calculate distance from camera to point
     pub fn distance_to_point(&self, point: &Point3) -> f32 {
         let camera_pos = self.get_3d_camera_position();
-        (*point - camera_pos).magnitude()
+        point.distance(&camera_pos)
     }
 
     // Debug accessors
@@ -2838,7 +2803,7 @@ impl View {
             ease_out,
             track_object: true,
             target_object_id: Some(object_id),
-            target_position: Point3::zero(),
+            target_position: Point3::ZERO,
             start_angle: 0.0,
             end_angle: 0.0,
         });
@@ -3556,10 +3521,10 @@ mod tests {
         let p2 = Point3::new(4.0, 5.0, 6.0);
         let v = Vector3::new(1.0, 1.0, 1.0);
 
-        let diff = p2 - p1;
+        let diff = Vector3::new(p2.x - p1.x, p2.y - p1.y, p2.z - p1.z);
         assert_eq!(diff, Vector3::new(3.0, 3.0, 3.0));
 
-        let moved = p1 + v;
+        let moved = Point3::new(p1.x + v.x, p1.y + v.y, p1.z + v.z);
         assert_eq!(moved, Point3::new(2.0, 3.0, 4.0));
     }
 

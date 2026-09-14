@@ -159,7 +159,7 @@ fn xfer_list_ascii_string_coord3d(
             list.clear();
             for _ in 0..count {
                 let mut entry_name = String::new();
-                let mut entry_coord = Coord3D::zero();
+                let mut entry_coord = Coord3D::ZERO;
                 xfer.xfer_ascii_string(&mut entry_name)?;
                 xfer.xfer_real(&mut entry_coord.x)?;
                 xfer.xfer_real(&mut entry_coord.y)?;

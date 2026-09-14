@@ -10,6 +10,7 @@ use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
 use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
 use crate::W3DDevice::GameClient::wthree_d_segmented_line::SegmentedLine;
 use cgmath::{Point3, Vector3};
+use game_engine::common::random_value::get_game_client_random_value_real;
 
 /// RGB color for rope rendering (matching C++ RGBColor).
 #[derive(Debug, Clone, Copy)]
@@ -221,7 +222,8 @@ impl W3DRopeDraw {
         let mut scene_guard = scene.write();
 
         for _ in 0..num_segs {
-            let axis = fastrand::f32() * 2.0 * std::f32::consts::PI;
+            // C++: Real axis = GameClientRandomValueReal(0, 2*PI);
+            let axis = get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
             let wobble_axis_x = axis.cos();
             let wobble_axis_y = axis.sin();
 

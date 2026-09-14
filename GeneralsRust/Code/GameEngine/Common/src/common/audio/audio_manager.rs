@@ -335,7 +335,7 @@ impl AudioManager {
             misc_audio: MiscAudio::default(),
             _stream: stream,
             stream_handle,
-            listener_position: Coord3D::new(),
+            listener_position: Coord3D::ZERO,
             listener_orientation: Coord3D {
                 x: 0.0,
                 y: 1.0,

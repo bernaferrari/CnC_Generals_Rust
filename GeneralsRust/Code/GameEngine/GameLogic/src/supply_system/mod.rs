@@ -15,7 +15,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use crate::action_manager::ActionManager;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, Coord3D as LogicCoord3D, KindOf, ModelConditionFlags, SECONDS_PER_LOGICFRAME_REAL,
+    AsciiString, Coord3D as LogicCoord3D, Coord3DExt, KindOf, ModelConditionFlags,
+    SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::compat::{ClassicState, register_classic_state};
 use crate::helpers::{

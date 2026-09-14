@@ -8,6 +8,7 @@ use crate::W3DDevice::GameClient::shadow::{
 };
 use crate::W3DDevice::GameClient::wthree_d_display::W3DDisplay;
 use crate::W3DDevice::GameClient::wthree_d_scene::RenderObjectId;
+use game_engine::common::random_value::get_game_client_random_value_real;
 
 
 /// C++ `doHideShowProjectileObjects`: numbered launch bones only when the
@@ -120,8 +121,8 @@ pub fn duration_frame_rate_multiplier(natural_ms: f32, desired_ms: f32) -> f32 {
 
 pub fn pick_anim_speed_factor(min_factor: f32, max_factor: f32) -> f32 {
     if min_factor <= max_factor && min_factor.is_finite() && max_factor.is_finite() {
-        // Deterministic mid-point until GameClientRandomValueReal is wired here.
-        ((min_factor + max_factor) * 0.5).max(0.0)
+        // C++ W3DModelDraw: GameClientRandomValueReal(m_animMinSpeedFactor, m_animMaxSpeedFactor)
+        get_game_client_random_value_real(min_factor, max_factor).max(0.0)
     } else {
         1.0
     }

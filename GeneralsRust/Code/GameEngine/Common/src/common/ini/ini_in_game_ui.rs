@@ -10,18 +10,10 @@ use std::sync::{OnceLock, RwLock};
 static INGAME_UI_SETTINGS: OnceLock<RwLock<InGameUISettings>> = OnceLock::new();
 
 /// 2D integer coordinate
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
+pub use crate::common::system::geometry::ICoord2D;
 
 /// 2D floating-point coordinate
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Coord2D {
-    pub x: f32,
-    pub y: f32,
-}
+pub use crate::common::system::geometry::Coord2D;
 
 /// RGBA color as integers (0-255)
 #[derive(Debug, Clone, Copy, Default)]

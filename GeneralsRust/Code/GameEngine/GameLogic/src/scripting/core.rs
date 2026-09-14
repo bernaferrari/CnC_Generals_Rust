@@ -45,27 +45,7 @@ const K_SCRIPT_CONDITION_VERSION_4: u16 = 4;
 const K_SCRIPT_OR_CONDITION_DATA_VERSION_1: u16 = 1;
 static SCRIPT_GROUP_ID: AtomicU32 = AtomicU32::new(0);
 
-/// Coordinate 3D structure matching C++
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-}
+pub use crate::common::Coord3D;
 
 /// Script action type enumeration matching the C++ ScriptActionType
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -6,7 +6,7 @@
 use crate::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 
-/// 2D Point structure
+/// 2D Point structure (`Coord2D` in C++ `BaseType.h`).
 #[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub struct Point2D {
     pub x: f32,
@@ -14,12 +14,63 @@ pub struct Point2D {
 }
 
 impl Point2D {
+    pub const ZERO: Point2D = Point2D { x: 0.0, y: 0.0 };
+
     pub fn new(x: f32, y: f32) -> Self {
         Point2D { x, y }
     }
 
+    pub fn zero() -> Self {
+        Self::ZERO
+    }
+
     pub fn distance(&self, other: &Point2D) -> f32 {
         ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
+
+    /// C++ `Coord2D::length`.
+    pub fn length(&self) -> f32 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    /// C++ `Coord2D::normalize` — in-place; a zero vector stays zero.
+    pub fn normalize_in_place(&mut self) {
+        let len = self.length();
+        if len != 0.0 {
+            self.x /= len;
+            self.y /= len;
+        }
+    }
+
+    /// Returning copy of C++ `Coord2D::normalize`.
+    pub fn normalize(&self) -> Point2D {
+        let mut copy = *self;
+        copy.normalize_in_place();
+        copy
+    }
+
+    /// C++ `Coord2D::toAngle` — angle 0 is +X, negative Y is clockwise.
+    pub fn to_angle(&self) -> f32 {
+        coord2d_to_angle(self.x, self.y)
+    }
+}
+
+/// C++ `Coord2D::toAngle`. Shared so glam `Vec2` ports can match exactly.
+pub fn coord2d_to_angle(x: f32, y: f32) -> f32 {
+    let len = (x * x + y * y).sqrt();
+    if len == 0.0 {
+        return 0.0;
+    }
+    let mut c = x / len;
+    if c < -1.0 {
+        c = -1.0;
+    } else if c > 1.0 {
+        c = 1.0;
+    }
+    if y < 0.0 {
+        -c.acos()
+    } else {
+        c.acos()
     }
 }
 
@@ -28,6 +79,22 @@ impl Point2D {
 pub struct GeometryRegion2D {
     pub lo: Point2D,
     pub hi: Point2D,
+}
+
+impl GeometryRegion2D {
+    pub fn new(lo: Point2D, hi: Point2D) -> Self {
+        Self { lo, hi }
+    }
+
+    /// C++ `Region2D::width`.
+    pub fn width(&self) -> f32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// C++ `Region2D::height`.
+    pub fn height(&self) -> f32 {
+        self.hi.y - self.lo.y
+    }
 }
 
 /// 3D Point structure
@@ -43,6 +110,12 @@ impl Point3D {
         x: 0.0,
         y: 0.0,
         z: 0.0,
+    };
+
+    pub const ONE: Point3D = Point3D {
+        x: 1.0,
+        y: 1.0,
+        z: 1.0,
     };
 
     pub fn new(x: f32, y: f32, z: f32) -> Self {
@@ -122,24 +195,39 @@ impl Point3D {
     }
 
     /// C++ `Coord3D::add`.
-    pub fn add_coord(&mut self, a: &Point3D) {
+    pub fn add(&mut self, a: &Point3D) {
         self.x += a.x;
         self.y += a.y;
         self.z += a.z;
     }
 
+    /// C++ `Coord3D::add` (legacy name).
+    pub fn add_coord(&mut self, a: &Point3D) {
+        self.add(a);
+    }
+
     /// C++ `Coord3D::sub`.
-    pub fn sub_coord(&mut self, a: &Point3D) {
+    pub fn sub(&mut self, a: &Point3D) {
         self.x -= a.x;
         self.y -= a.y;
         self.z -= a.z;
     }
 
+    /// C++ `Coord3D::sub` (legacy name).
+    pub fn sub_coord(&mut self, a: &Point3D) {
+        self.sub(a);
+    }
+
     /// C++ `Coord3D::set(const Coord3D *)`.
-    pub fn set_from(&mut self, a: &Point3D) {
+    pub fn set(&mut self, a: &Point3D) {
         self.x = a.x;
         self.y = a.y;
         self.z = a.z;
+    }
+
+    /// C++ `Coord3D::set` (legacy name).
+    pub fn set_from(&mut self, a: &Point3D) {
+        self.set(a);
     }
 
     /// C++ `Coord3D::set(Real, Real, Real)`.
@@ -236,6 +324,210 @@ impl BoundingBox {
 
 /// 3D Coordinate structure (alias for Point3D for compatibility)
 pub type Coord3D = Point3D;
+
+/// C++ `Coord2D`.
+pub type Coord2D = Point2D;
+
+/// C++ `Region2D`.
+pub type Region2D = GeometryRegion2D;
+
+/// C++ `ICoord2D`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ICoord2D {
+    pub x: i32,
+    pub y: i32,
+}
+
+impl ICoord2D {
+    pub const ZERO: ICoord2D = ICoord2D { x: 0, y: 0 };
+
+    pub fn new(x: i32, y: i32) -> Self {
+        Self { x, y }
+    }
+
+    pub fn zero() -> Self {
+        Self::ZERO
+    }
+
+    /// C++ `ICoord2D::length` — `(Int)sqrt((double)(x*x + y*y))`.
+    pub fn length(&self) -> i32 {
+        let sum = self
+            .x
+            .wrapping_mul(self.x)
+            .wrapping_add(self.y.wrapping_mul(self.y));
+        (sum as f64).sqrt() as i32
+    }
+}
+
+/// C++ `ICoord3D`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct ICoord3D {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
+}
+
+impl ICoord3D {
+    pub const ZERO: ICoord3D = ICoord3D { x: 0, y: 0, z: 0 };
+
+    pub fn new(x: i32, y: i32, z: i32) -> Self {
+        Self { x, y, z }
+    }
+
+    pub fn zero() -> Self {
+        Self::ZERO
+    }
+
+    /// C++ `ICoord3D::length` — `(Int)sqrt((double)(x*x + y*y + z*z))`.
+    pub fn length(&self) -> i32 {
+        let sum = self
+            .x
+            .wrapping_mul(self.x)
+            .wrapping_add(self.y.wrapping_mul(self.y))
+            .wrapping_add(self.z.wrapping_mul(self.z));
+        (sum as f64).sqrt() as i32
+    }
+
+    /// C++ `ICoord3D::zero`.
+    pub fn zero_in_place(&mut self) {
+        self.x = 0;
+        self.y = 0;
+        self.z = 0;
+    }
+}
+
+/// C++ `Region3D` — exclusive interior tests (`lo < q < hi`).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct Region3D {
+    pub lo: Coord3D,
+    pub hi: Coord3D,
+}
+
+impl Region3D {
+    pub fn new(lo: Coord3D, hi: Coord3D) -> Self {
+        Self { lo, hi }
+    }
+
+    /// C++ `Region3D::width`.
+    pub fn width(&self) -> f32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// C++ `Region3D::height`.
+    pub fn height(&self) -> f32 {
+        self.hi.y - self.lo.y
+    }
+
+    /// C++ `Region3D::depth`.
+    pub fn depth(&self) -> f32 {
+        self.hi.z - self.lo.z
+    }
+
+    /// C++ `Region3D::zero`.
+    pub fn zero(&mut self) {
+        self.lo.zero_in_place();
+        self.hi.zero_in_place();
+    }
+
+    pub fn zeroed() -> Self {
+        Self {
+            lo: Coord3D::ZERO,
+            hi: Coord3D::ZERO,
+        }
+    }
+
+    /// `hi - lo` convenience (not a C++ method).
+    pub fn get_size(&self) -> Coord3D {
+        Coord3D::new(self.width(), self.height(), self.depth())
+    }
+
+    /// C++ `Region3D::isInRegionNoZ` — strict inequalities.
+    pub fn is_in_region_no_z(&self, query: &Coord3D) -> bool {
+        self.lo.x < query.x
+            && query.x < self.hi.x
+            && self.lo.y < query.y
+            && query.y < self.hi.y
+    }
+
+    /// C++ `Region3D::isInRegionWithZ` — strict inequalities.
+    pub fn is_in_region_with_z(&self, query: &Coord3D) -> bool {
+        self.is_in_region_no_z(query) && self.lo.z < query.z && query.z < self.hi.z
+    }
+}
+
+/// C++ `IRegion2D`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct IRegion2D {
+    pub lo: ICoord2D,
+    pub hi: ICoord2D,
+}
+
+impl IRegion2D {
+    pub fn new(lo: ICoord2D, hi: ICoord2D) -> Self {
+        Self { lo, hi }
+    }
+
+    pub fn width(&self) -> i32 {
+        self.hi.x - self.lo.x
+    }
+
+    pub fn height(&self) -> i32 {
+        self.hi.y - self.lo.y
+    }
+}
+
+/// C++ `IRegion3D`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct IRegion3D {
+    pub lo: ICoord3D,
+    pub hi: ICoord3D,
+}
+
+impl IRegion3D {
+    pub fn new(lo: ICoord3D, hi: ICoord3D) -> Self {
+        Self { lo, hi }
+    }
+
+    pub fn width(&self) -> i32 {
+        self.hi.x - self.lo.x
+    }
+
+    pub fn height(&self) -> i32 {
+        self.hi.y - self.lo.y
+    }
+
+    pub fn depth(&self) -> i32 {
+        self.hi.z - self.lo.z
+    }
+}
+
+/// C++ `RGBColor` (`red`/`green`/`blue` in 0..1).
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub struct RGBColor {
+    pub red: f32,
+    pub green: f32,
+    pub blue: f32,
+}
+
+impl RGBColor {
+    pub fn new(red: f32, green: f32, blue: f32) -> Self {
+        Self { red, green, blue }
+    }
+
+    /// C++ `RGBColor::getAsInt`.
+    pub fn get_as_int(&self) -> i32 {
+        ((self.red * 255.0) as i32) << 16
+            | ((self.green * 255.0) as i32) << 8
+            | ((self.blue * 255.0) as i32)
+    }
+
+    /// C++ `RGBColor::setFromInt`.
+    pub fn set_from_int(&mut self, c: i32) {
+        self.red = ((c >> 16) & 0xff) as f32 / 255.0;
+        self.green = ((c >> 8) & 0xff) as f32 / 255.0;
+        self.blue = (c & 0xff) as f32 / 255.0;
+    }
+}
 
 /// 3D Matrix structure for transformations
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -504,26 +796,15 @@ impl GeometryInfo {
         self.depth
     }
 
+    /// C++ `GeometryInfo::setMajorRadius` — writes only `m_majorRadius`.
     pub fn set_major_radius(&mut self, r: f32) {
         self.width = r;
-        if matches!(
-            self.geometry_type,
-            GeometryType::Sphere | GeometryType::Cylinder
-        ) {
-            self.depth = r;
-        }
-        if self.geometry_type == GeometryType::Sphere {
-            self.height = r;
-        }
         self.calc_bounding_stuff();
     }
 
+    /// C++ `GeometryInfo::setMinorRadius` — writes only `m_minorRadius`.
     pub fn set_minor_radius(&mut self, r: f32) {
         self.depth = r;
-        if self.geometry_type == GeometryType::Sphere {
-            self.width = r;
-            self.height = r;
-        }
         self.calc_bounding_stuff();
     }
 
@@ -887,7 +1168,7 @@ impl Snapshotable for GeometryInfo {
     /// 1: Initial version
     ///
     /// Fields xfer'd (Geometry.cpp lines 553-571):
-    ///   1. type (GeometryType via xferUser, sizeof=1 byte as u8)
+    ///   1. type (GeometryType via xferUser, sizeof(enum)=4 on MSVC)
     ///   2. isSmall (Bool)
     ///   3. height (Real)
     ///   4. majorRadius (Real)
@@ -900,9 +1181,9 @@ impl Snapshotable for GeometryInfo {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("GeometryInfo::xfer version error: {}", e))?;
 
-        // C++ line 553: xferUser(&m_type, sizeof(GeometryType))
-        let mut geo_type = self.geometry_type as u8;
-        xfer.xfer_unsigned_byte(&mut geo_type)
+        // C++ Geometry.cpp:553 `xferUser(&m_type, sizeof(GeometryType))` — unscoped enum is int.
+        let mut geo_type = self.geometry_type as i32;
+        xfer.xfer_int(&mut geo_type)
             .map_err(|e| format!("GeometryInfo::xfer type error: {}", e))?;
         self.geometry_type = match geo_type {
             0 => GeometryType::Sphere,
@@ -993,5 +1274,76 @@ mod coord3d_cpp_parity {
         let zup = host_yup_to_cpp_zup(10.0, 5.0, 20.0);
         assert_eq!(zup, Coord3D::new(10.0, 20.0, 5.0));
         assert_eq!(cpp_zup_to_host_yup(zup), (10.0, 5.0, 20.0));
+    }
+}
+
+#[cfg(test)]
+mod basetype_cpp_parity {
+    use super::{coord2d_to_angle, Coord2D, ICoord2D, ICoord3D, RGBColor, Region3D};
+
+    #[test]
+    fn coord2d_length_and_zero_normalize() {
+        let c = Coord2D::new(3.0, 4.0);
+        assert_eq!(c.length(), 5.0);
+        let mut z = Coord2D::new(0.0, 0.0);
+        z.normalize_in_place();
+        assert_eq!(z, Coord2D::ZERO);
+    }
+
+    #[test]
+    fn coord2d_to_angle_matches_base_type() {
+        assert_eq!(coord2d_to_angle(0.0, 0.0), 0.0);
+        assert!((Coord2D::new(1.0, 0.0).to_angle() - 0.0).abs() < 1e-6);
+        assert!((Coord2D::new(0.0, 1.0).to_angle() - std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+        assert!((Coord2D::new(-1.0, 0.0).to_angle() - std::f32::consts::PI).abs() < 1e-6);
+        assert!((Coord2D::new(0.0, -1.0).to_angle() + std::f32::consts::FRAC_PI_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn iccoord_length_truncates_like_cpp() {
+        assert_eq!(ICoord2D::new(3, 4).length(), 5);
+        assert_eq!(ICoord2D::new(1, 1).length(), 1);
+        assert_eq!(ICoord3D::new(2, 3, 6).length(), 7);
+    }
+
+    #[test]
+    fn region3d_is_exclusive_like_cpp() {
+        let r = Region3D::new(
+            super::Coord3D::new(0.0, 0.0, 0.0),
+            super::Coord3D::new(100.0, 100.0, 100.0),
+        );
+        assert!(r.is_in_region_no_z(&super::Coord3D::new(50.0, 50.0, 0.0)));
+        assert!(!r.is_in_region_no_z(&super::Coord3D::new(0.0, 50.0, 0.0)));
+        assert!(!r.is_in_region_no_z(&super::Coord3D::new(100.0, 50.0, 0.0)));
+        assert!(r.is_in_region_with_z(&super::Coord3D::new(50.0, 50.0, 50.0)));
+        assert!(!r.is_in_region_with_z(&super::Coord3D::new(50.0, 50.0, 0.0)));
+        assert!(!r.is_in_region_with_z(&super::Coord3D::new(50.0, 50.0, 100.0)));
+    }
+
+    #[test]
+    fn rgb_color_get_as_int_matches_cpp() {
+        let c = RGBColor::new(1.0, 0.5, 0.0);
+        assert_eq!(c.get_as_int(), (255 << 16) | (127 << 8) | 0);
+        let mut back = RGBColor::default();
+        back.set_from_int(c.get_as_int());
+        assert!((back.red - 1.0).abs() < 1e-5);
+        assert_eq!((back.green * 255.0) as i32, 127);
+        assert_eq!((back.blue * 255.0) as i32, 0);
+    }
+}
+
+#[cfg(test)]
+mod geometry_info_cpp_parity {
+    use super::{GeometryInfo, GeometryType};
+
+    #[test]
+    fn set_major_radius_writes_only_major() {
+        let mut info = GeometryInfo::new(GeometryType::Cylinder, false, 10.0, 20.0, 5.0);
+        info.depth = 5.0;
+        info.height = 20.0;
+        info.set_major_radius(12.0);
+        assert_eq!(info.width, 12.0);
+        assert_eq!(info.depth, 5.0);
+        assert_eq!(info.height, 20.0);
     }
 }

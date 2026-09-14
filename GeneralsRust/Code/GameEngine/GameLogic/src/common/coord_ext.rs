@@ -26,6 +26,9 @@ pub trait Coord3DExt {
 
     /// C++ `Coord3D::normalize` — in-place; zero stays zero.
     fn normalize_in_place(&mut self);
+
+    /// 2D (x,y) distance matching C++ `Coord3D` ground-plane length.
+    fn distance_2d(&self, other: &Coord3D) -> Real;
 }
 
 impl Coord3DExt for Coord3D {
@@ -64,6 +67,12 @@ impl Coord3DExt for Coord3D {
     fn normalize_in_place(&mut self) {
         *self = self.normalized();
     }
+
+    fn distance_2d(&self, other: &Coord3D) -> Real {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        (dx * dx + dy * dy).sqrt()
+    }
 }
 
 /// Extension trait for Coord2D (Vec2) operations
@@ -82,6 +91,12 @@ pub trait Coord2DExt {
 
     /// Get squared length (faster, no sqrt)
     fn length_squared(&self) -> Real;
+
+    /// C++ `Coord2D::normalize` — in-place; zero stays zero.
+    fn normalize_in_place(&mut self);
+
+    /// C++ `Coord2D::toAngle`.
+    fn to_angle(&self) -> Real;
 }
 
 impl Coord2DExt for Coord2D {
@@ -97,7 +112,12 @@ impl Coord2DExt for Coord2D {
 
     #[inline]
     fn normalized(&self) -> Coord2D {
-        self.normalize()
+        let len = glam::Vec2::length(*self);
+        if len == 0.0 {
+            Coord2D::ZERO
+        } else {
+            *self / len
+        }
     }
 
     #[inline]
@@ -108,5 +128,13 @@ impl Coord2DExt for Coord2D {
     #[inline]
     fn length_squared(&self) -> Real {
         glam::Vec2::length_squared(*self)
+    }
+
+    fn normalize_in_place(&mut self) {
+        *self = self.normalized();
+    }
+
+    fn to_angle(&self) -> Real {
+        game_engine::common::system::geometry::coord2d_to_angle(self.x, self.y)
     }
 }

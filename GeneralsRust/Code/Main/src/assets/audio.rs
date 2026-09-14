@@ -245,7 +245,7 @@ fn leftover_volume_inputs(
     Option<std::sync::Arc<game_engine::common::audio::AudioEventInfo>>,
 ) {
     use game_engine::common::audio::{Coord3D, MilesVolumeSliders};
-    let defaults = (Coord3D::new(), MilesVolumeSliders::default(), None);
+    let defaults = (Coord3D::ZERO, MilesVolumeSliders::default(), None);
     let Some(mgr) = game_engine::common::audio::game_audio::get_global_audio_manager() else {
         return defaults;
     };

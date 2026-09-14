@@ -764,6 +764,24 @@ impl Coord3D {
         self.y *= scale;
         self.z *= scale;
     }
+
+    pub fn set_xyz(&mut self, x: f32, y: f32, z: f32) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+    }
+
+    pub fn cross_product(a: &Coord3D, b: &Coord3D) -> Coord3D {
+        Coord3D {
+            x: a.y * b.z - a.z * b.y,
+            y: a.z * b.x - a.x * b.z,
+            z: a.x * b.y - a.y * b.x,
+        }
+    }
+
+    pub fn equals(&self, other: &Coord3D) -> bool {
+        self.x == other.x && self.y == other.y && self.z == other.z
+    }
 }
 
 // DamageInfo struct based on C++ Damage.h

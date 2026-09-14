@@ -11,10 +11,7 @@ use super::types::*;
 
 /// C++ `Region3D::isInRegionNoZ` used by leftover `computePath` off-map gate.
 pub fn leftover_is_in_region_no_z(region: &Region3D, position: &Coord3D) -> bool {
-    position.x >= region.lo.x
-        && position.x <= region.hi.x
-        && position.y >= region.lo.y
-        && position.y <= region.hi.y
+    region.is_in_region_no_z(position)
 }
 
 /// Leftover `UnitAIUpdate::should_force_direct_path_for_off_map_start`

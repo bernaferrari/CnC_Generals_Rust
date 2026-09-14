@@ -58,8 +58,9 @@ pub mod save_game;
 // Re-export commonly used types
 pub use data_chunk_io::{DataChunkInfo, DataChunkInput, DataChunkOutput, DataChunkVersionType};
 pub use geometry::{
-    BoundingBox, Coord3D, GeometryInfo, GeometryRegion2D, GeometryType, Matrix3D, Point2D, Point3D,
-    Rectangle,
+    BoundingBox, Coord2D, Coord3D, GeometryInfo, GeometryRegion2D, GeometryType, ICoord2D,
+    ICoord3D, IRegion2D, IRegion3D, Matrix3D, Point2D, Point3D, RGBColor, Rectangle, Region2D,
+    Region3D,
 };
 pub use radar::{
     RadarBridgeSample, RadarDataSink, RadarEventFeedback, RadarMapSource, RadarObjectInsert,
@@ -80,9 +81,8 @@ pub use snapshot::Snapshotable;
 pub use snapshot::{Snapshot, SnapshotManager};
 pub use subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState};
 pub use xfer::{
-    Color, ICoord2D, ICoord3D, IRegion2D, IRegion3D, RGBAColorInt, RGBAColorReal, RGBColor,
-    RealRange, Region2D, Region3D, Xfer, XferBlockSize, XferMode, XferOptions, XferStatus,
-    XferVersion, Xferable,
+    Color, RGBAColorInt, RGBAColorReal, RealRange, Xfer, XferBlockSize, XferMode, XferOptions,
+    XferStatus, XferVersion, Xferable,
 };
 
 // Trait for overridable objects

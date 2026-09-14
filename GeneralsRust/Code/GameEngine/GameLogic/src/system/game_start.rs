@@ -49,7 +49,7 @@ impl CameraPosition {
 
 impl Default for CameraPosition {
     fn default() -> Self {
-        Self::new(Coord3D::origin())
+        Self::new(Coord3D::ZERO)
     }
 }
 

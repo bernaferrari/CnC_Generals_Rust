@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use fastrand;
+use game_engine::common::random_value::get_game_client_random_value_real;
 use glam::{Mat4, Vec3};
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -122,11 +122,8 @@ impl RandomVariable {
     }
 
     pub fn get_value(&self) -> f32 {
-        if self.low == self.high {
-            self.low
-        } else {
-            fastrand::f32() * (self.high - self.low) + self.low
-        }
+        // C++ GameClientRandomValueReal: if hi <= lo return hi
+        get_game_client_random_value_real(self.low, self.high)
     }
 }
 
@@ -595,7 +592,7 @@ impl ParticleSystem {
             color_rate: Vec3::ZERO,
             color_target_key: 0,
             color_scale: self.template.color_scale.get_value(),
-            wind_randomness: fastrand::f32(),
+            wind_randomness: get_game_client_random_value_real(0.0, 1.0),
             particle_up_towards_emitter: self.template.is_particle_up_towards_emitter,
             personality: self.personality_counter,
             is_culled: false,
@@ -608,9 +605,9 @@ impl ParticleSystem {
             EmissionVolumeType::Box => {
                 if let Some(half_size) = self.template.box_params {
                     Vec3::new(
-                        (fastrand::f32() - 0.5) * 2.0 * half_size.x,
-                        (fastrand::f32() - 0.5) * 2.0 * half_size.y,
-                        (fastrand::f32() - 0.5) * 2.0 * half_size.z,
+                        get_game_client_random_value_real(-half_size.x, half_size.x),
+                        get_game_client_random_value_real(-half_size.y, half_size.y),
+                        get_game_client_random_value_real(-half_size.z, half_size.z),
                     )
                 } else {
                     Vec3::ZERO
@@ -618,12 +615,13 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Sphere => {
                 if let Some(radius) = self.template.sphere_radius {
-                    let theta = fastrand::f32() * 2.0 * std::f32::consts::PI;
-                    let phi = fastrand::f32() * std::f32::consts::PI;
+                    let theta =
+                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI);
                     let r = if self.template.is_emission_volume_hollow {
                         radius
                     } else {
-                        fastrand::f32() * radius
+                        get_game_client_random_value_real(0.0, radius)
                     };
 
                     Vec3::new(
@@ -637,13 +635,15 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Cylinder => {
                 if let Some((radius, length)) = self.template.cylinder_params {
-                    let angle = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let angle =
+                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                     let r = if self.template.is_emission_volume_hollow {
                         radius
                     } else {
-                        fastrand::f32() * radius
+                        get_game_client_random_value_real(0.0, radius)
                     };
-                    let z = (fastrand::f32() - 0.5) * length;
+                    let half_length = length * 0.5;
+                    let z = get_game_client_random_value_real(-half_length, half_length);
 
                     Vec3::new(r * angle.cos(), r * angle.sin(), z)
                 } else {
@@ -652,7 +652,7 @@ impl ParticleSystem {
             }
             EmissionVolumeType::Line => {
                 if let Some((start, end)) = self.template.line_params {
-                    let t = fastrand::f32();
+                    let t = get_game_client_random_value_real(0.0, 1.0);
                     start.lerp(end, t)
                 } else {
                     Vec3::ZERO
@@ -675,8 +675,9 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Spherical => {
                 if let Some(speed) = self.template.spherical_speed.as_ref() {
-                    let theta = fastrand::f32() * 2.0 * std::f32::consts::PI;
-                    let phi = fastrand::f32() * std::f32::consts::PI;
+                    let theta =
+                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi = get_game_client_random_value_real(0.0, std::f32::consts::PI);
                     let speed_value = speed.get_value();
 
                     Vec3::new(
@@ -690,8 +691,10 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Hemispherical => {
                 if let Some(speed) = self.template.spherical_speed.as_ref() {
-                    let theta = fastrand::f32() * 2.0 * std::f32::consts::PI;
-                    let phi = fastrand::f32() * std::f32::consts::PI * 0.5; // Hemisphere
+                    let theta =
+                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+                    let phi =
+                        get_game_client_random_value_real(0.0, std::f32::consts::PI * 0.5); // Hemisphere
                     let speed_value = speed.get_value();
 
                     Vec3::new(
@@ -705,7 +708,8 @@ impl ParticleSystem {
             }
             EmissionVelocityType::Cylindrical => {
                 if let Some((radial, normal)) = self.template.cylindrical_params.as_ref() {
-                    let angle = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                    let angle =
+                        get_game_client_random_value_real(0.0, 2.0 * std::f32::consts::PI);
                     let radial_speed = radial.get_value();
                     let normal_speed = normal.get_value();
 
