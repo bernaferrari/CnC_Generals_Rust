@@ -147,17 +147,17 @@ impl CameraShaker {
     /// Create a new camera shaker
     /// C++ Reference: camerashakesystem.cpp lines 71-93
     fn new(position: Vec3, radius: f32, duration: f32, intensity: f32) -> Self {
-        // Initialize random sinusoid values
+        // Initialize random sinusoid values (C++ WWMath::Random_Float → client stream)
         let omega = Vec3::new(
-            rand::random::<f32>() * (MAX_OMEGA - MIN_OMEGA) + MIN_OMEGA,
-            rand::random::<f32>() * (MAX_OMEGA - MIN_OMEGA) + MIN_OMEGA,
-            rand::random::<f32>() * (MAX_OMEGA - MIN_OMEGA) + MIN_OMEGA,
+            crate::GameClientRandomValueReal!(MIN_OMEGA, MAX_OMEGA),
+            crate::GameClientRandomValueReal!(MIN_OMEGA, MAX_OMEGA),
+            crate::GameClientRandomValueReal!(MIN_OMEGA, MAX_OMEGA),
         );
 
         let phi = Vec3::new(
-            rand::random::<f32>() * (MAX_PHI - MIN_PHI) + MIN_PHI,
-            rand::random::<f32>() * (MAX_PHI - MIN_PHI) + MIN_PHI,
-            rand::random::<f32>() * (MAX_PHI - MIN_PHI) + MIN_PHI,
+            crate::GameClientRandomValueReal!(MIN_PHI, MAX_PHI),
+            crate::GameClientRandomValueReal!(MIN_PHI, MAX_PHI),
+            crate::GameClientRandomValueReal!(MIN_PHI, MAX_PHI),
         );
 
         Self {
@@ -216,9 +216,9 @@ impl CameraShaker {
             // C++ creates and adds one secondary random vector inside the axis loop,
             // so the non-periodic perturbation is accumulated three times per shaker.
             let minor_intensity = intensity * 0.5;
-            angles.x += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
-            angles.y += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
-            angles.z += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
+            angles.x += crate::GameClientRandomValueReal!(-minor_intensity, minor_intensity);
+            angles.y += crate::GameClientRandomValueReal!(-minor_intensity, minor_intensity);
+            angles.z += crate::GameClientRandomValueReal!(-minor_intensity, minor_intensity);
         }
 
         angles

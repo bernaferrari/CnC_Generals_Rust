@@ -983,7 +983,7 @@ impl FXFactory {
             up
         };
         // Scatter sparks around the normal
-        let angle = rand::random::<f32>() * std::f32::consts::TAU;
+        let angle = crate::GameClientRandomValueReal!(0.0, std::f32::consts::TAU);
         let scatter = Vec3::new(angle.cos(), angle.sin(), 0.5);
         let velocity = (rand_dir + scatter * 0.5).normalize() * spread;
 
@@ -992,8 +992,8 @@ impl FXFactory {
             [1.0, 0.7, 0.3, 1.0], // Orange spark
             velocity,
             1.5,
-            0.3 + rand::random::<f32>() * 0.2, // 300-500ms
-            -15.0,                             // heavy gravity
+            crate::GameClientRandomValueReal!(0.3, 0.5), // 300-500ms
+            -15.0,                                      // heavy gravity
             2.0,
         )
     }

@@ -260,9 +260,8 @@ impl GeneralPersona {
     /// Returns a random taunt sound from the three available
     /// Matches C++ getRandomTauntSound (ChallengeGenerals.h lines 84-91)
     pub fn random_taunt_sound(&self) -> &str {
-        use rand::RngExt;
-        let mut rng = rand::rng();
-        match rng.random_range(0..3) {
+        // C++: rand()%3; client stream inclusive [0, 2]
+        match crate::GameClientRandomValue!(0, 2) {
             0 => &self.taunt_sound_1,
             1 => &self.taunt_sound_2,
             _ => &self.taunt_sound_3,

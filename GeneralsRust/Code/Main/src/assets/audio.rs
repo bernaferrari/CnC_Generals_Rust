@@ -158,7 +158,8 @@ pub fn leftover_world_sfx_event(
     if let Some(id) = object_id.filter(|&id| id != 0) {
         event.set_object_id(id);
     } else if let Some((x, y, z)) = position_host_yup {
-        event.set_position(&(x, z, y));
+        let leftover = game_engine::common::system::geometry::host_yup_to_cpp_zup(x, y, z);
+        event.set_position(&(leftover.x, leftover.y, leftover.z));
     }
     event
 }
@@ -218,7 +219,12 @@ pub fn live_gameplay_sfx_volume_with(
     use game_engine::common::audio::{AudioEventRts, Coord3D, miles_get_effective_volume};
 
     let mut event = if let Some((x, y, z)) = position_host_yup {
-        let leftover = Coord3D { x, y: z, z: y };
+        let converted = game_engine::common::system::geometry::host_yup_to_cpp_zup(x, y, z);
+        let leftover = Coord3D {
+            x: converted.x,
+            y: converted.y,
+            z: converted.z,
+        };
         AudioEventRts::with_position(event_name, &leftover)
     } else {
         AudioEventRts::with_event_name(event_name)

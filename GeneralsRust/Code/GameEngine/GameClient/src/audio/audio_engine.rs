@@ -775,9 +775,10 @@ impl AudioEngine {
         }
 
         // Pick a random filename from the sounds list.
+        // C++ AudioEventRTS: GameAudioRandomValue(0, sounds.size()-1) on RANDOM.
         let filename = if !info.sounds.is_empty() {
             let idx = if info.control_flags & AudioControl::RANDOM != 0 {
-                rand::random_range(0..info.sounds.len())
+                crate::GameClientRandomValue!(0, (info.sounds.len() - 1) as i32) as usize
             } else {
                 0
             };

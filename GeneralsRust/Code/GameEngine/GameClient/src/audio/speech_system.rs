@@ -14,8 +14,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use rand::seq::IndexedRandom;
-
 use super::audio_engine::{AudioEngine, AudioHandle, AudioPosition};
 
 // ---------------------------------------------------------------------------
@@ -410,11 +408,11 @@ impl SpeechSystem {
             return;
         }
 
-        // Pick a random sound file.
+        // Pick a random sound file (client stream index in [0, n-1]).
         let filename = if !line.sound_files.is_empty() {
-            let mut rng = rand::rng();
+            let idx = crate::GameClientRandomValue!(0, (line.sound_files.len() - 1) as i32) as usize;
             line.sound_files
-                .choose(&mut rng)
+                .get(idx)
                 .cloned()
                 .unwrap_or_default()
         } else {

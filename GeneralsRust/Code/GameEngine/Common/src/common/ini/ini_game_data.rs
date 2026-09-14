@@ -130,32 +130,7 @@ impl Default for RGBColor {
 }
 
 /// 3D coordinate representation
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-}
-
-impl Default for Coord3D {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 /// 2D coordinate representation
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -106,16 +106,18 @@ impl DefaultCommandHandler {
             }
         }
 
-        // Deterministic jitter seeded by frame/player
-        let seed = (context.current_frame as u64) ^ ((context.player_id as u64) << 32);
-        let mut rng = StdRng::seed_from_u64(seed);
+        // GameLogic RNG jitter (C++ GetGameLogicRandomValueReal stream)
         let mut all_ok = true;
 
         if let Some(ai_manager) = &context.ai_manager {
             if let Ok(mut ai) = ai_manager.write() {
                 for (object_id, pos) in positions {
-                    let angle = rng.random::<f32>() * std::f32::consts::TAU;
-                    let radius = rng.random_range(8.0f32..22.0f32);
+                    let angle = crate::helpers::get_game_logic_random_value_real(
+                        0.0,
+                        std::f32::consts::TAU,
+                    );
+                    let radius =
+                        crate::helpers::get_game_logic_random_value_real(8.0, 22.0);
                     let dx = radius * angle.cos();
                     let dz = radius * angle.sin();
                     let dest = Coord3D::new(pos.x + dx, pos.y, pos.z + dz);

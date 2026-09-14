@@ -95,7 +95,10 @@ impl SoundEffectsTable {
         if variants.is_empty() {
             return None;
         }
-        let pick = variants[fastrand::usize(..variants.len())].as_str();
+        let hi = (variants.len() - 1) as i32;
+        let pick = variants[game_engine::common::random_value::get_game_client_random_value(0, hi)
+            as usize]
+            .as_str();
         Some(format!("Data/Audio/Sounds/{pick}.wav"))
     }
 

@@ -849,10 +849,11 @@ impl VisualEffectsManager {
 
         let shake_intensity = shake_params.intensity * distance_falloff;
 
-        // Add random shake displacement
-        let shake_x = (fastrand::f32() - 0.5) * shake_intensity;
-        let shake_y = (fastrand::f32() - 0.5) * shake_intensity;
-        let shake_z = (fastrand::f32() - 0.5) * shake_intensity * 0.5; // Less Z shake
+        // Add random shake displacement (client-only stream)
+        use game_engine::common::random_value::get_game_client_random_value_real;
+        let shake_x = get_game_client_random_value_real(-0.5, 0.5) * shake_intensity;
+        let shake_y = get_game_client_random_value_real(-0.5, 0.5) * shake_intensity;
+        let shake_z = get_game_client_random_value_real(-0.5, 0.5) * shake_intensity * 0.5; // Less Z shake
 
         self.screen_shake_accumulator += Vec3::new(shake_x, shake_y, shake_z);
     }

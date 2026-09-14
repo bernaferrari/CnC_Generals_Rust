@@ -455,7 +455,10 @@ impl UnitBehavior {
                 // Set a random patrol destination
                 let current_pos = obj.get_position();
                 let patrol_radius = 100.0;
-                let random_angle = fastrand::f32() * 2.0 * std::f32::consts::PI;
+                let random_angle = game_engine::common::random_value::get_game_logic_random_value_real(
+                    0.0,
+                    2.0 * std::f32::consts::PI,
+                );
                 let patrol_pos = Vec3::new(
                     current_pos.x + patrol_radius * random_angle.cos(),
                     current_pos.y,

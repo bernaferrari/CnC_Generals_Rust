@@ -342,22 +342,7 @@ pub enum GameDifficulty {
 }
 
 /// 3D Coordinate type for positions
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn origin() -> Self {
-        Self::new(0.0, 0.0, 0.0)
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 // =========================================================
 // BuildListInfo - Build list entry for AI construction

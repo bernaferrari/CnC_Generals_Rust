@@ -8,7 +8,6 @@
 // This file mirrors the enhanced audio features from C++ implementation
 // Provides 3D audio, event management, and faction-specific audio
 
-use fastrand;
 use glam::Vec3;
 use log::{debug, error, info, warn};
 use rodio_compat::{Decoder, Sink, Source, SpatialSink};
@@ -272,7 +271,9 @@ impl AudioEvent {
         if self.file_paths.is_empty() {
             return None;
         }
-        let index = fastrand::usize(0..self.file_paths.len());
+        let hi = (self.file_paths.len() - 1) as i32;
+        let index =
+            game_engine::common::random_value::get_game_client_random_value(0, hi) as usize;
         Some(&self.file_paths[index])
     }
 
@@ -281,7 +282,10 @@ impl AudioEvent {
         if self.pitch_min == self.pitch_max {
             self.pitch_min
         } else {
-            fastrand::f32() * (self.pitch_max - self.pitch_min) + self.pitch_min
+            game_engine::common::random_value::get_game_client_random_value_real(
+                self.pitch_min,
+                self.pitch_max,
+            )
         }
     }
 }

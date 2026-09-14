@@ -20,40 +20,7 @@ use crate::common::system::quoted_printable::{
 pub const MAX_SLOTS: usize = 8;
 
 /// 3D coordinate representation
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub const ZERO: Self = Self {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self::ZERO
-    }
-}
-
-impl Default for Coord3D {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
-
-impl From<(f32, f32, f32)> for Coord3D {
-    fn from(tuple: (f32, f32, f32)) -> Self {
-        Self::new(tuple.0, tuple.1, tuple.2)
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 /// 3D region representation
 #[derive(Debug, Clone, Copy, PartialEq)]
