@@ -67,6 +67,36 @@ pub struct Region3D {
     pub hi: crate::system::Coord3D,
 }
 
+impl Region3D {
+    /// C++ `Region3D::width`.
+    pub fn width(&self) -> f32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// C++ `Region3D::height`.
+    pub fn height(&self) -> f32 {
+        self.hi.y - self.lo.y
+    }
+
+    /// C++ `Region3D::depth`.
+    pub fn depth(&self) -> f32 {
+        self.hi.z - self.lo.z
+    }
+
+    /// C++ `Region3D::isInRegionNoZ` — strict `lo < q < hi`.
+    pub fn is_in_region_no_z(&self, query: &crate::system::Coord3D) -> bool {
+        self.lo.x < query.x
+            && query.x < self.hi.x
+            && self.lo.y < query.y
+            && query.y < self.hi.y
+    }
+
+    /// C++ `Region3D::isInRegionWithZ` — strict `lo < q < hi`.
+    pub fn is_in_region_with_z(&self, query: &crate::system::Coord3D) -> bool {
+        self.is_in_region_no_z(query) && self.lo.z < query.z && query.z < self.hi.z
+    }
+}
+
 /// Time of day enumeration for lighting and visual effects
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TimeOfDayType {

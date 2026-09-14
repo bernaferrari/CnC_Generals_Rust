@@ -137,12 +137,7 @@ pub type XferBlockSize = i32;
 pub type Color = i32;
 
 /// RGB Color structure
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RGBColor {
-    pub red: f32,
-    pub green: f32,
-    pub blue: f32,
-}
+pub use super::geometry::RGBColor;
 
 /// RGBA Color structure (Real components)
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -163,53 +158,21 @@ pub struct RGBAColorInt {
 }
 
 /// 2D Coordinate (integer)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
-
-/// 3D Coordinate (integer)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ICoord3D {
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
-}
-
-/// 2D Region (float)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Region2D {
-    pub lo: Point2D,
-    pub hi: Point2D,
-}
-
-/// 3D Region (float)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Region3D {
-    pub lo: Coord3D,
-    pub hi: Coord3D,
-}
-
-/// 2D Region (integer)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct IRegion2D {
-    pub lo: ICoord2D,
-    pub hi: ICoord2D,
-}
-
-/// 3D Region (integer)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct IRegion3D {
-    pub lo: ICoord3D,
-    pub hi: ICoord3D,
-}
+pub use super::geometry::{ICoord2D, ICoord3D, IRegion2D, IRegion3D, Region2D, Region3D};
 
 /// Real range structure
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RealRange {
     pub lo: f32,
     pub hi: f32,
+}
+
+impl RealRange {
+    /// C++ `RealRange::combine`.
+    pub fn combine(&mut self, other: &RealRange) {
+        self.lo = self.lo.min(other.lo);
+        self.hi = self.hi.max(other.hi);
+    }
 }
 
 /// Main Xfer trait - matches C++ Xfer class (Xfer.h lines 87-163)

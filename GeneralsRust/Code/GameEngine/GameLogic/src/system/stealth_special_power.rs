@@ -10,11 +10,13 @@
 //!
 //! Faithful to C++ implementation (GrantStealthBehavior and SpyVisionSpecialPower)
 
-use crate::common::{ObjectID, UnsignedInt};
+use crate::common::{Coord3DExt, ObjectID, UnsignedInt};
 use log::{debug, trace, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::sync::OnceLock;
+
+pub use crate::common::Coord3D;
 
 /// Permanent stealth marker (matches C++ convention of -1)
 pub const PERMANENT_STEALTH: i32 = -1;
@@ -207,29 +209,6 @@ impl SpyVisionGrant {
     /// Check if grant is permanent
     pub fn is_permanent(&self) -> bool {
         self.frames_remaining == PERMANENT_STEALTH
-    }
-}
-
-/// Coordinate system for 3D positions
-#[derive(Debug, Clone, Copy)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    /// Create new coordinate
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    /// Calculate distance to another coordinate
-    pub fn distance_to(&self, other: &Coord3D) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        let dz = self.z - other.z;
-        (dx * dx + dy * dy + dz * dz).sqrt()
     }
 }
 

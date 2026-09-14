@@ -117,56 +117,7 @@ impl Default for AudioEventInfo {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Coord3D {
-    pub x: Real,
-    pub y: Real,
-    pub z: Real,
-}
-
-impl Coord3D {
-    pub fn new() -> Self {
-        Coord3D {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-
-    pub fn zero(&mut self) {
-        self.x = 0.0;
-        self.y = 0.0;
-        self.z = 0.0;
-    }
-
-    pub fn set(&mut self, other: &Coord3D) {
-        self.x = other.x;
-        self.y = other.y;
-        self.z = other.z;
-    }
-
-    pub fn sub(&mut self, other: &Coord3D) {
-        self.x -= other.x;
-        self.y -= other.y;
-        self.z -= other.z;
-    }
-
-    pub fn add(&mut self, other: &Coord3D) {
-        self.x += other.x;
-        self.y += other.y;
-        self.z += other.z;
-    }
-
-    pub fn scale(&mut self, factor: Real) {
-        self.x *= factor;
-        self.y *= factor;
-        self.z *= factor;
-    }
-
-    pub fn length(&self) -> Real {
-        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 // Enums
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -195,11 +146,13 @@ pub enum AudioPriority {
     Critical,
 }
 
+/// C++ `AudioEventInfo.h` `AT_Music=0`, `AT_Streaming=1`, `AT_SoundEffect=2`.
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AudioType {
-    Music,
-    SoundEffect,
-    Streaming,
+    Music = 0,
+    Streaming = 1,
+    SoundEffect = 2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -618,7 +571,7 @@ impl AudioEventRts {
             priority: AP_NORMAL,
             volume: -1.0,
             time_of_day: TIME_OF_DAY_AFTERNOON,
-            position_of_audio: Coord3D::new(),
+            position_of_audio: Coord3D::ZERO,
             object_id: INVALID_ID,
             drawable_id: INVALID_DRAWABLE_ID,
             owner_type: OwnerType::Invalid,
@@ -890,8 +843,13 @@ impl AudioEventRts {
         self.priority = priority;
     }
 
-    pub fn get_position(&self) -> &Coord3D {
-        &self.position_of_audio
+    /// C++ `AudioEventRTS::getPosition` — `NULL` when owner is `OT_INVALID`.
+    pub fn get_position(&self) -> Option<&Coord3D> {
+        if self.owner_type != OwnerType::Invalid {
+            Some(&self.position_of_audio)
+        } else {
+            None
+        }
     }
 
     pub fn set_position(&mut self, position: &Coord3D) {
@@ -1144,7 +1102,7 @@ impl AudioEventRts {
         self.priority = AP_NORMAL;
         self.volume = -1.0;
         self.time_of_day = TIME_OF_DAY_AFTERNOON;
-        self.position_of_audio.zero();
+        self.position_of_audio.zero_in_place();
         self.object_id = INVALID_ID;
         self.drawable_id = INVALID_DRAWABLE_ID;
         self.owner_type = OwnerType::Invalid;
@@ -1656,6 +1614,14 @@ mod tests {
         assert_eq!(event.volume, -1.0);
         assert_eq!(event.priority, AP_NORMAL);
         assert_eq!(event.owner_type, OwnerType::Invalid);
+        assert!(event.get_position().is_none());
+    }
+
+    #[test]
+    fn audio_type_discriminants_match_cpp() {
+        assert_eq!(AudioType::Music as u32, 0);
+        assert_eq!(AudioType::Streaming as u32, 1);
+        assert_eq!(AudioType::SoundEffect as u32, 2);
     }
 
     #[test]
@@ -1676,11 +1642,12 @@ mod tests {
         assert_eq!(event.position_of_audio.y, 20.0);
         assert_eq!(event.position_of_audio.z, 30.0);
         assert_eq!(event.owner_type, OwnerType::Positional);
+        assert_eq!(event.get_position().copied(), Some(pos));
     }
 
     #[test]
     fn test_coord3d_operations() {
-        let mut coord = Coord3D::new();
+        let mut coord = Coord3D::ZERO;
         assert_eq!(coord.x, 0.0);
         assert_eq!(coord.y, 0.0);
         assert_eq!(coord.z, 0.0);

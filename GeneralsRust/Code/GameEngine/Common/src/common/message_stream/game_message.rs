@@ -23,24 +23,7 @@ pub type DrawableID = u32;
 pub use crate::common::system::geometry::Coord3D;
 
 /// 2D integer coordinate
-#[derive(Debug, Clone, PartialEq)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl Default for ICoord2D {
-    fn default() -> Self {
-        Self { x: 0, y: 0 }
-    }
-}
-
-impl ICoord2D {
-    #[must_use]
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-}
+pub use crate::common::system::geometry::ICoord2D;
 
 /// 2D integer region
 #[derive(Debug, Clone, PartialEq)]

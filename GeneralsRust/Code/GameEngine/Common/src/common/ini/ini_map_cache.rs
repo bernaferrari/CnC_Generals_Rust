@@ -23,47 +23,7 @@ pub const MAX_SLOTS: usize = 8;
 pub use crate::common::system::geometry::Coord3D;
 
 /// 3D region representation
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Region3D {
-    pub lo: Coord3D,
-    pub hi: Coord3D,
-}
-
-impl Region3D {
-    pub fn new(lo: Coord3D, hi: Coord3D) -> Self {
-        Self { lo, hi }
-    }
-
-    pub fn zero() -> Self {
-        Self {
-            lo: Coord3D::ZERO,
-            hi: Coord3D::ZERO,
-        }
-    }
-
-    pub fn get_size(&self) -> Coord3D {
-        Coord3D::new(
-            self.hi.x - self.lo.x,
-            self.hi.y - self.lo.y,
-            self.hi.z - self.lo.z,
-        )
-    }
-
-    pub fn contains(&self, point: Coord3D) -> bool {
-        point.x >= self.lo.x
-            && point.x <= self.hi.x
-            && point.y >= self.lo.y
-            && point.y <= self.hi.y
-            && point.z >= self.lo.z
-            && point.z <= self.hi.z
-    }
-}
-
-impl Default for Region3D {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
+pub use crate::common::system::geometry::Region3D;
 
 /// Windows timestamp representation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -853,8 +813,8 @@ mod tests {
         assert_eq!(size.y, 100.0);
         assert_eq!(size.z, 100.0);
 
-        assert!(region.contains(Coord3D::new(50.0, 50.0, 50.0)));
-        assert!(!region.contains(Coord3D::new(150.0, 50.0, 50.0)));
+        assert!(region.is_in_region_with_z(&Coord3D::new(50.0, 50.0, 50.0)));
+        assert!(!region.is_in_region_with_z(&Coord3D::new(150.0, 50.0, 50.0)));
     }
 
     #[test]

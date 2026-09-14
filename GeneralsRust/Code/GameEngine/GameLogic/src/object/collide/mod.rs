@@ -42,7 +42,7 @@ pub use partition_manager::{
 };
 
 use crate::common::{
-    GameError, INVALID_ID, ObjectId, ObjectStatusMaskType, ObjectStatusTypes, PlayerId,
+    Coord3DExt, GameError, INVALID_ID, ObjectId, ObjectStatusMaskType, ObjectStatusTypes, PlayerId,
     Relationship, VeterancyLevel,
 };
 use crate::damage::{
@@ -52,44 +52,7 @@ use crate::object::Object;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
-/// 3D coordinate structure used by collision modules
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub const ZERO: Self = Self {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-    };
-
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self::ZERO
-    }
-
-    pub fn origin() -> Self {
-        Self::ZERO
-    }
-
-    pub fn dot(&self, other: &Coord3D) -> f32 {
-        self.x * other.x + self.y * other.y + self.z * other.z
-    }
-
-    pub fn distance_to(&self, other: &Coord3D) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        let dz = self.z - other.z;
-        (dx * dx + dy * dy + dz * dz).sqrt()
-    }
-}
+pub use crate::common::Coord3D;
 
 /// Object status mask type for tracking unit states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -335,7 +298,7 @@ impl GameObject for Arc<RwLock<Object>> {
                 let pos = obj.get_position();
                 Coord3D::new(pos.x, pos.y, pos.z)
             })
-            .unwrap_or_else(|_| Coord3D::origin())
+            .unwrap_or(Coord3D::ZERO)
     }
 
     fn get_orientation(&self) -> f32 {
@@ -707,7 +670,7 @@ mod tests {
         let pos1 = Coord3D::new(1.0, 2.0, 3.0);
         let pos2 = Coord3D::new(4.0, 5.0, 6.0);
 
-        assert_eq!(pos1.dot(&pos2), 32.0);
+        assert_eq!(pos1.dot(pos2), 32.0);
         assert!((pos1.distance_to(&pos2) - 5.196).abs() < 0.01);
     }
 

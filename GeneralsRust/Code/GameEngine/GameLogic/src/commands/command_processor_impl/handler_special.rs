@@ -964,10 +964,7 @@ impl DefaultCommandHandler {
     }
 
     fn is_in_region_no_z(region: &crate::common::Region3D, position: &Coord3D) -> bool {
-        position.x >= region.lo.x
-            && position.x <= region.hi.x
-            && position.y >= region.lo.y
-            && position.y <= region.hi.y
+        region.is_in_region_no_z(position)
     }
 
     fn resolve_beacon_template_for_player(

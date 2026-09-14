@@ -8,16 +8,17 @@ use crate::common::audio::audio_event_rts::{
     AudioType as EngineAudioType,
 };
 use crate::common::audio::game_audio::{get_global_audio_manager, initialize_global_audio_manager};
-use rand::Rng;
 use std::collections::HashMap;
 
 /// Audio type enumeration
+/// C++ `AT_Music=0`, `AT_Streaming=1`, `AT_SoundEffect=2`. `Voice` is Rust-only.
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioType {
-    Music,
-    SoundEffect,
-    Streaming,
-    Voice,
+    Music = 0,
+    Streaming = 1,
+    SoundEffect = 2,
+    Voice = 3,
 }
 
 impl Default for AudioType {
@@ -317,10 +318,7 @@ impl AudioEventInfo {
         let min: i32 = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
         let max: i32 = tokens[1].parse().map_err(|_| INIError::InvalidData)?;
 
-        if min < 0 || max < min {
-            return Err(INIError::InvalidData);
-        }
-
+        // C++ `parseDelay` DEBUG_ASSERTCRASH then always stores.
         Ok((min, max))
     }
 
@@ -333,11 +331,8 @@ impl AudioEventInfo {
         let min_percent: f32 = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
         let max_percent: f32 = tokens[1].parse().map_err(|_| INIError::InvalidData)?;
 
-        if min_percent <= -100.0 || max_percent < min_percent {
-            return Err(INIError::InvalidData);
-        }
-
-        // Convert percentages to multipliers
+        // C++ `parsePitchShift` DEBUG_ASSERTCRASH then always stores
+        // `1 + percent/100`.
         let min_multiplier = 1.0 + min_percent / 100.0;
         let max_multiplier = 1.0 + max_percent / 100.0;
 
@@ -368,7 +363,10 @@ impl AudioEventInfo {
         if self.pitch_shift_min == self.pitch_shift_max {
             self.pitch_shift_min
         } else {
-            rand::random_range(self.pitch_shift_min..=self.pitch_shift_max)
+            crate::common::random_value::get_game_audio_random_value_real(
+                self.pitch_shift_min,
+                self.pitch_shift_max,
+            )
         }
     }
 
@@ -377,7 +375,7 @@ impl AudioEventInfo {
         if self.delay_min == self.delay_max {
             self.delay_min
         } else {
-            rand::random_range(self.delay_min..=self.delay_max)
+            crate::common::random_value::get_game_audio_random_value(self.delay_min, self.delay_max)
         }
     }
 
@@ -688,10 +686,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_delay_invalid() {
+    fn test_parse_delay_invalid_still_stores_like_cpp() {
         let tokens = vec!["-50", "100"];
         let result = AudioEventInfo::parse_delay(&tokens);
-        assert!(result.is_err());
+        assert_eq!(result.unwrap(), (-50, 100));
     }
 
     #[test]

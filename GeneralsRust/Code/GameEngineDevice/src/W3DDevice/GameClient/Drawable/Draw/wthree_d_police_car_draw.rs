@@ -10,6 +10,7 @@
 
 use crate::W3DDevice::GameClient::wthree_d_dynamic_light::W3DDynamicLight;
 use cgmath::{Matrix4, Point3, Vector3};
+use game_engine::common::random_value::get_game_client_random_value_real;
 
 /// Light height above car (C++: floatAmt)
 const LIGHT_HEIGHT: f32 = 8.0;
@@ -45,7 +46,8 @@ impl W3DPoliceCarDraw {
     pub fn new() -> Self {
         Self {
             light: None,
-            cur_frame: fastrand::f32() * 10.0,
+            // C++: m_curFrame = GameClientRandomValueReal(0, 10)
+            cur_frame: get_game_client_random_value_real(0.0, 10.0),
             num_frames: 15.0,
             has_render_object: false,
             drawable_pos: Point3::new(0.0, 0.0, 0.0),

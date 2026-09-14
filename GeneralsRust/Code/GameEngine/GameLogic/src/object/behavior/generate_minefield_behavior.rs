@@ -7,7 +7,9 @@
 //! Converted to Rust: 2025
 
 use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Coord3D, ModuleData, PathfindLayerEnum, Real, UpgradeMaskType};
+use crate::common::{
+    AsciiString, Coord3D, Coord3DExt, ModuleData, PathfindLayerEnum, Real, UpgradeMaskType,
+};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
@@ -32,27 +34,6 @@ use std::sync::{Arc, RwLock};
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-trait Coord3DExt {
-    #[allow(dead_code)]
-    fn distance_to(&self, other: &Coord3D) -> f32;
-    fn distance_2d(&self, other: &Coord3D) -> f32;
-}
-
-impl Coord3DExt for Coord3D {
-    fn distance_to(&self, other: &Coord3D) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        let dz = self.z - other.z;
-        (dx * dx + dy * dy + dz * dz).sqrt()
-    }
-
-    fn distance_2d(&self, other: &Coord3D) -> f32 {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        (dx * dx + dy * dy).sqrt()
-    }
 }
 
 /// Object ID type

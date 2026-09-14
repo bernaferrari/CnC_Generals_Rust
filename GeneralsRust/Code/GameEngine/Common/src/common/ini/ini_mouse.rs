@@ -30,17 +30,7 @@ pub const MAX_2D_CURSOR_DIRECTIONS: usize = 8;
 // ============================================================================
 
 /// Integer coordinate 2D for hotspot positions
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl ICoord2D {
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-}
+pub use crate::common::system::geometry::ICoord2D;
 
 /// RGBA color as integer (matches C++ RGBAColorInt)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

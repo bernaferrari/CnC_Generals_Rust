@@ -665,7 +665,7 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
         crate::system::map_loader::MapWaypoint {
             id: OTHER_PATH_WAYPOINT_ID,
             name: "OtherPathEnd".to_string(),
-            location: crate::system::map_loader::Coord3D::origin(),
+            location: crate::system::map_loader::Coord3D::ZERO,
             path_label1: "DifferentCampaignPath".to_string(),
             path_label2: String::new(),
             path_label3: String::new(),

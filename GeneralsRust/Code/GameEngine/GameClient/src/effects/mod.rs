@@ -372,15 +372,16 @@ impl EffectsLOD {
 /// Common effects utility functions
 pub mod utils {
     use super::*;
-    use rand::prelude::*;
-    use rand::rng;
+
+    fn client_real(lo: f32, hi: f32) -> f32 {
+        crate::GameClientRandomValueReal!(lo, hi)
+    }
 
     /// Generate random position within a sphere
     pub fn random_sphere_position(center: Vec3, radius: f32) -> Vec3 {
-        let mut rng = rng();
-        let theta = rng.random::<f32>() * 2.0 * std::f32::consts::PI;
-        let phi = rng.random::<f32>() * std::f32::consts::PI;
-        let r = rng.random::<f32>().powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
+        let theta = client_real(0.0, 2.0 * std::f32::consts::PI);
+        let phi = client_real(0.0, std::f32::consts::PI);
+        let r = client_real(0.0, 1.0).powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
 
         let x = r * phi.sin() * theta.cos();
         let y = r * phi.sin() * theta.sin();
@@ -396,11 +397,9 @@ pub mod utils {
         min_speed: f32,
         max_speed: f32,
     ) -> Vec3 {
-        let mut rng = rng();
-
         // Generate random direction within cone
-        let theta = rng.random::<f32>() * 2.0 * std::f32::consts::PI;
-        let phi = rng.random::<f32>() * angle_radians;
+        let theta = client_real(0.0, 2.0 * std::f32::consts::PI);
+        let phi = client_real(0.0, angle_radians);
 
         // Create rotation matrix to align with desired direction
         let up = if direction.y.abs() < 0.9 {
@@ -419,7 +418,7 @@ pub mod utils {
         let world_dir = direction * local_dir.z + right * local_dir.x + actual_up * local_dir.y;
 
         // Apply random speed
-        let speed = rng.random_range(min_speed..=max_speed);
+        let speed = client_real(min_speed, max_speed);
         world_dir.normalize() * speed
     }
 

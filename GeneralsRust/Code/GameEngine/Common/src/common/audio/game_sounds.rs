@@ -118,7 +118,7 @@ impl SoundManagerImpl {
             num_playing_2d_samples: 0,
             num_playing_3d_samples: 0,
             playing_sounds: Vec::new(),
-            listener_position: Coord3D::new(),
+            listener_position: Coord3D::ZERO,
             view_radius: 1000.0,
             camera_audible_distance: 1000.0,
         }

@@ -13,41 +13,7 @@ pub type Bool = bool;
 
 const USUAL_TOLERANCE: Real = 1.0;
 
-// 3D coordinate structure
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct Coord3D {
-    pub x: Real,
-    pub y: Real,
-    pub z: Real,
-}
-
-impl Coord3D {
-    pub fn new(x: Real, y: Real, z: Real) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero(&mut self) {
-        self.x = 0.0;
-        self.y = 0.0;
-        self.z = 0.0;
-    }
-
-    pub fn add(&mut self, other: &Coord3D) {
-        self.x += other.x;
-        self.y += other.y;
-        self.z += other.z;
-    }
-
-    pub fn scale(&mut self, factor: Real) {
-        self.x *= factor;
-        self.y *= factor;
-        self.z *= factor;
-    }
-
-    pub fn length(&self) -> Real {
-        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 // 4D vector structure to replace D3DXVECTOR4
 #[derive(Debug, Clone, Copy, Default)]

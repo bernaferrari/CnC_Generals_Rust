@@ -583,7 +583,7 @@ impl AudioManager {
             misc_audio: MiscAudio::default(),
             music_manager: Some(create_music_manager()),
             sound_manager: Some(create_sound_manager()),
-            listener_position: Coord3D::new(),
+            listener_position: Coord3D::ZERO,
             listener_orientation: Coord3D {
                 x: 0.0,
                 y: 1.0,
@@ -2783,7 +2783,7 @@ impl RodioPlaybackHook {
         let _ = get_rodio_stream_handle();
         Self {
             sinks: Mutex::new(HashMap::new()),
-            listener_position: Mutex::new(Coord3D::new()),
+            listener_position: Mutex::new(Coord3D::ZERO),
             listener_orientation: Mutex::new(Coord3D {
                 x: 0.0,
                 y: 1.0,
@@ -2870,7 +2870,7 @@ impl RodioPlaybackHook {
             .lock()
             .ok()
             .map(|l| *l)
-            .unwrap_or_else(|| Coord3D::new());
+            .unwrap_or_else(|| Coord3D::ZERO);
         let dx = position.x - listener.x;
         let dy = position.y - listener.y;
         let dz = position.z - listener.z;
@@ -2899,7 +2899,7 @@ impl RodioPlaybackHook {
             .lock()
             .ok()
             .map(|l| *l)
-            .unwrap_or_else(Coord3D::new);
+            .unwrap_or(Coord3D::ZERO);
         let orientation = self
             .listener_orientation
             .lock()

@@ -74,37 +74,7 @@ pub trait UpgradeSystem: Send + Sync {
     fn get_supply_boost(&self, player_index: PlayerIndex) -> u32;
 }
 
-/// 3D coordinate
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: Real,
-    pub y: Real,
-    pub z: Real,
-}
-
-impl Coord3D {
-    pub fn new(x: Real, y: Real, z: Real) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn zero() -> Self {
-        Self::new(0.0, 0.0, 0.0)
-    }
-
-    pub fn distance_to(&self, other: &Coord3D) -> Real {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        let dz = self.z - other.z;
-        (dx * dx + dy * dy + dz * dz).sqrt()
-    }
-
-    pub fn distance_squared_to(&self, other: &Coord3D) -> Real {
-        let dx = self.x - other.x;
-        let dy = self.y - other.y;
-        let dz = self.z - other.z;
-        dx * dx + dy * dy + dz * dz
-    }
-}
+pub use crate::common::Coord3D;
 
 /// C++ `TheGameText->fetch("GUI:AddCash")` formatted with the deposit value.
 pub fn format_gui_add_cash(value: u32) -> String {

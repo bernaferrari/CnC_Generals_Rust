@@ -90,54 +90,50 @@ impl BezierSegment {
         )
     }
 
-    /// Calculate approximate arc length using adaptive sampling
-    /// Matches C++ BezierSegment::getApproximateLength()
+    fn to_common_segment(&self) -> game_engine::common::bezier::BezierSegment {
+        use game_engine::common::system::geometry::Coord3D as CommonCoord;
+        game_engine::common::bezier::BezierSegment::from_coord_array(&[
+            CommonCoord::new(
+                self.control_points[0].x,
+                self.control_points[0].y,
+                self.control_points[0].z,
+            ),
+            CommonCoord::new(
+                self.control_points[1].x,
+                self.control_points[1].y,
+                self.control_points[1].z,
+            ),
+            CommonCoord::new(
+                self.control_points[2].x,
+                self.control_points[2].y,
+                self.control_points[2].z,
+            ),
+            CommonCoord::new(
+                self.control_points[3].x,
+                self.control_points[3].y,
+                self.control_points[3].z,
+            ),
+        ])
+    }
+
+    /// C++ `BezierSegment::getApproximateLength` — recursive split, default
+    /// tolerance 1.0 (`USUAL_TOLERANCE`). Not a fixed 20-sample polyline.
     fn calculate_approximate_length(&self) -> Real {
-        const NUM_SAMPLES: usize = 20;
-        let mut length = 0.0;
-        let mut prev_point = self.evaluate(0.0);
-
-        for i in 1..=NUM_SAMPLES {
-            let t = (i as Real) / (NUM_SAMPLES as Real);
-            let curr_point = self.evaluate(t);
-
-            let dx = curr_point.x - prev_point.x;
-            let dy = curr_point.y - prev_point.y;
-            let dz = curr_point.z - prev_point.z;
-
-            length += (dx * dx + dy * dy + dz * dz).sqrt();
-            prev_point = curr_point;
-        }
-
-        length
+        self.to_common_segment().get_approximate_length_default()
     }
 
-    /// Get approximate arc length
-    /// Matches C++ BezierSegment::getApproximateLength()
+    /// C++ `BezierSegment::getApproximateLength()`.
     pub fn get_approximate_length(&self) -> Real {
-        self.arc_length
+        self.calculate_approximate_length()
     }
 
-    /// Generate evenly spaced points along curve
-    /// Matches C++ BezierSegment::getSegmentPoints()
+    /// C++ `BezierSegment::getSegmentPoints` via `BezFwdIterator`.
     pub fn get_segment_points(&self, num_points: usize) -> Vec<Coord3D> {
-        let mut points = Vec::with_capacity(num_points);
-
-        if num_points == 0 {
-            return points;
-        }
-
-        if num_points == 1 {
-            points.push(self.evaluate(0.0));
-            return points;
-        }
-
-        for i in 0..num_points {
-            let t = (i as Real) / ((num_points - 1) as Real);
-            points.push(self.evaluate(t));
-        }
-
-        points
+        self.to_common_segment()
+            .get_segment_points(num_points as i32)
+            .into_iter()
+            .map(|p| Coord3D::new(p.x, p.y, p.z))
+            .collect()
     }
 
     /// Calculate control points for projectile arc with specified heights
@@ -329,6 +325,29 @@ fn lerp_coord(a: &Coord3D, b: &Coord3D, t: Real) -> Coord3D {
         a.y + (b.y - a.y) * t,
         a.z + (b.z - a.z) * t,
     )
+}
+
+#[cfg(test)]
+mod cpp_length_parity {
+    use super::*;
+
+    #[test]
+    fn approximate_length_matches_common_recursive_split() {
+        let points = [
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(0.0, 0.0, 80.0),
+            Coord3D::new(100.0, 0.0, 80.0),
+            Coord3D::new(100.0, 0.0, 0.0),
+        ];
+        let rust = BezierSegment::new(points);
+        let common = rust.to_common_segment();
+        let got = rust.get_approximate_length();
+        let expected = common.get_approximate_length_default();
+        assert!(
+            (got - expected).abs() < 1.0e-4,
+            "logic bezier length {got} != C++ recursive Common length {expected}"
+        );
+    }
 }
 
 #[cfg(test)]

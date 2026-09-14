@@ -113,7 +113,7 @@ impl Default for WorkerDockPoint {
     fn default() -> Self {
         Self {
             valid: false,
-            location: Coord3D::zero(),
+            location: Coord3D::ZERO,
         }
     }
 }

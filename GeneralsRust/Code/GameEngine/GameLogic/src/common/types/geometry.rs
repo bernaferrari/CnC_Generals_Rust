@@ -67,6 +67,16 @@ impl Region2D {
     pub fn new(lo: Coord2D, hi: Coord2D) -> Self {
         Self { lo, hi }
     }
+
+    /// C++ `Region2D::width`.
+    pub fn width(&self) -> f32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// C++ `Region2D::height`.
+    pub fn height(&self) -> f32 {
+        self.hi.y - self.lo.y
+    }
 }
 
 /// Integer 2D region (matching C++ IRegion2D)  
@@ -89,6 +99,16 @@ impl IRegion2D {
     pub fn new(lo: ICoord2D, hi: ICoord2D) -> Self {
         Self { lo, hi }
     }
+
+    /// C++ `IRegion2D::width`.
+    pub fn width(&self) -> i32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// C++ `IRegion2D::height`.
+    pub fn height(&self) -> i32 {
+        self.hi.y - self.lo.y
+    }
 }
 
 /// 3D region (matching C++ Region3D)
@@ -110,6 +130,40 @@ impl Default for Region3D {
 impl Region3D {
     pub fn new(lo: Coord3D, hi: Coord3D) -> Self {
         Self { lo, hi }
+    }
+
+    /// C++ `Region3D::width`.
+    pub fn width(&self) -> f32 {
+        self.hi.x - self.lo.x
+    }
+
+    /// C++ `Region3D::height`.
+    pub fn height(&self) -> f32 {
+        self.hi.y - self.lo.y
+    }
+
+    /// C++ `Region3D::depth`.
+    pub fn depth(&self) -> f32 {
+        self.hi.z - self.lo.z
+    }
+
+    /// C++ `Region3D::zero`.
+    pub fn zero(&mut self) {
+        self.lo = Coord3D::ZERO;
+        self.hi = Coord3D::ZERO;
+    }
+
+    /// C++ `Region3D::isInRegionNoZ` — strict `lo < q < hi`.
+    pub fn is_in_region_no_z(&self, query: &Coord3D) -> bool {
+        self.lo.x < query.x
+            && query.x < self.hi.x
+            && self.lo.y < query.y
+            && query.y < self.hi.y
+    }
+
+    /// C++ `Region3D::isInRegionWithZ` — strict `lo < q < hi`.
+    pub fn is_in_region_with_z(&self, query: &Coord3D) -> bool {
+        self.is_in_region_no_z(query) && self.lo.z < query.z && query.z < self.hi.z
     }
 }
 

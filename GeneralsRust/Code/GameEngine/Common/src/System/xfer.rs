@@ -728,50 +728,9 @@ pub trait Snapshot: Send {
 // Supporting data structures (matching C++ types)
 // ------------------------------------------------------------------------------------------------
 
-pub use crate::common::system::geometry::Coord3D;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ICoord3D {
-    pub x: i32,
-    pub y: i32,
-    pub z: i32,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Region3D {
-    pub lo: Coord3D,
-    pub hi: Coord3D,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct IRegion3D {
-    pub lo: ICoord3D,
-    pub hi: ICoord3D,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Coord2D {
-    pub x: f32,
-    pub y: f32,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Region2D {
-    pub lo: Coord2D,
-    pub hi: Coord2D,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct IRegion2D {
-    pub lo: ICoord2D,
-    pub hi: ICoord2D,
-}
+pub use crate::common::system::geometry::{
+    Coord2D, Coord3D, ICoord2D, ICoord3D, IRegion2D, IRegion3D, RGBColor, Region2D, Region3D,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RealRange {
@@ -779,11 +738,12 @@ pub struct RealRange {
     pub hi: f32,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RGBColor {
-    pub red: f32,
-    pub green: f32,
-    pub blue: f32,
+impl RealRange {
+    /// C++ `RealRange::combine`.
+    pub fn combine(&mut self, other: &RealRange) {
+        self.lo = self.lo.min(other.lo);
+        self.hi = self.hi.max(other.hi);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]

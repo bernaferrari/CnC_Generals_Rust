@@ -16,29 +16,7 @@ use crate::common::ini::ini::INI;
 pub use crate::common::system::geometry::Coord3D;
 
 /// 2D coordinate representation
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord2D {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Coord2D {
-    pub const ZERO: Self = Self { x: 0.0, y: 0.0 };
-
-    pub fn new(x: f32, y: f32) -> Self {
-        Self { x, y }
-    }
-
-    pub fn zero() -> Self {
-        Self::ZERO
-    }
-}
-
-impl Default for Coord2D {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
+pub use crate::common::system::geometry::Coord2D;
 
 /// RGB Color representation
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -67,6 +45,18 @@ impl RGBColor {
             g: 1.0,
             b: 1.0,
         }
+    }
+
+    /// C++ `RGBColor::getAsInt` (`r`/`g`/`b` are the INI field names).
+    pub fn get_as_int(&self) -> i32 {
+        ((self.r * 255.0) as i32) << 16 | ((self.g * 255.0) as i32) << 8 | ((self.b * 255.0) as i32)
+    }
+
+    /// C++ `RGBColor::setFromInt`.
+    pub fn set_from_int(&mut self, c: i32) {
+        self.r = ((c >> 16) & 0xff) as f32 / 255.0;
+        self.g = ((c >> 8) & 0xff) as f32 / 255.0;
+        self.b = (c & 0xff) as f32 / 255.0;
     }
 }
 

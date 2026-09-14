@@ -39,6 +39,17 @@ impl Default for RandomState {
     }
 }
 
+/// C++ `RandomValue.cpp` `#define ADC(SUM,A,B,C) SUM=(A)+(B)+(C); C=((SUM<(A))||(SUM<(B)))`
+///
+/// Unsigned wrap plus the C++ carry predicate — not mathematical carry-out.
+/// When `A = B = 0xFFFFFFFF` and incoming carry is 1, C++ SUM wraps to
+/// `0xFFFFFFFF` and **clears** carry (`SUM < A` and `SUM < B` are both false).
+fn adc(a: u32, b: u32, c: u32) -> (u32, u32) {
+    let sum = a.wrapping_add(b).wrapping_add(c);
+    let carry = if sum < a || sum < b { 1 } else { 0 };
+    (sum, carry)
+}
+
 impl RandomState {
     /// Generate the next random value and update state
     #[allow(unused_assignments)]
@@ -46,12 +57,11 @@ impl RandomState {
         // Add with carry implementation
         let mut c = 0u32;
 
-        // ADC macro implementation
         macro_rules! adc {
             ($sum:ident, $a:expr, $b:expr, $c:ident) => {
-                let temp = ($a as u64) + ($b as u64) + ($c as u64);
-                $sum = temp as u32;
-                $c = if temp > u32::MAX as u64 { 1 } else { 0 };
+                let (s, carry) = adc($a, $b, $c);
+                $sum = s;
+                $c = carry;
             };
         }
 
@@ -523,6 +533,26 @@ impl GameClientRandomVariable {
         self.distribution_type = distribution_type;
     }
 
+    /// C++ `setRange(min, max)` — type defaults to `UNIFORM`.
+    pub fn set_range_uniform(&mut self, low: f32, high: f32) {
+        self.set_range(low, high, DistributionType::Uniform);
+    }
+
+    /// C++ `getMinimumValue`.
+    pub fn get_minimum_value(&self) -> f32 {
+        self.low
+    }
+
+    /// C++ `getMaximumValue`.
+    pub fn get_maximum_value(&self) -> f32 {
+        self.high
+    }
+
+    /// C++ `getDistributionType`.
+    pub fn get_distribution_type(&self) -> DistributionType {
+        self.distribution_type
+    }
+
     /// Get a value from the random distribution
     pub fn get_value(&self) -> f32 {
         match self.distribution_type {
@@ -579,6 +609,26 @@ impl GameLogicRandomVariable {
         self.distribution_type = distribution_type;
     }
 
+    /// C++ `setRange(min, max)` — type defaults to `UNIFORM`.
+    pub fn set_range_uniform(&mut self, low: f32, high: f32) {
+        self.set_range(low, high, DistributionType::Uniform);
+    }
+
+    /// C++ `getMinimumValue`.
+    pub fn get_minimum_value(&self) -> f32 {
+        self.low
+    }
+
+    /// C++ `getMaximumValue`.
+    pub fn get_maximum_value(&self) -> f32 {
+        self.high
+    }
+
+    /// C++ `getDistributionType`.
+    pub fn get_distribution_type(&self) -> DistributionType {
+        self.distribution_type
+    }
+
     /// Get a value from the random distribution
     pub fn get_value(&self) -> f32 {
         match self.distribution_type {
@@ -611,6 +661,28 @@ mod tests {
     use std::thread;
 
     static RNG_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn adc_matches_cpp_predicate_not_math_carry() {
+        // A = B = 0xFFFFFFFF, incoming carry 1:
+        // C++ wraps SUM to 0xFFFFFFFF and clears carry (`SUM < A` is false).
+        let (sum, carry) = adc(u32::MAX, u32::MAX, 1);
+        assert_eq!(sum, u32::MAX);
+        assert_eq!(carry, 0);
+
+        let (sum, carry) = adc(u32::MAX, 1, 0);
+        assert_eq!(sum, 0);
+        assert_eq!(carry, 1);
+    }
+
+    #[test]
+    fn random_variable_getters_match_set_range() {
+        let mut var = GameLogicRandomVariable::new();
+        var.set_range_uniform(3.0, 9.0);
+        assert_eq!(var.get_minimum_value(), 3.0);
+        assert_eq!(var.get_maximum_value(), 9.0);
+        assert_eq!(var.get_distribution_type(), DistributionType::Uniform);
+    }
 
     #[test]
     fn test_random_initialization() {

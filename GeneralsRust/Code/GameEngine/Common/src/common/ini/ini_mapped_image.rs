@@ -64,29 +64,7 @@ impl Default for ImageStatus {
 }
 
 /// 2D integer coordinate
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ICoord2D {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl ICoord2D {
-    pub const ZERO: Self = Self { x: 0, y: 0 };
-
-    pub fn new(x: i32, y: i32) -> Self {
-        Self { x, y }
-    }
-
-    pub fn zero() -> Self {
-        Self::ZERO
-    }
-}
-
-impl Default for ICoord2D {
-    fn default() -> Self {
-        Self::zero()
-    }
-}
+pub use crate::common::system::geometry::ICoord2D;
 
 /// 2D region (UV coordinates)
 #[derive(Debug, Clone, Copy, PartialEq)]

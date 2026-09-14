@@ -207,7 +207,7 @@ impl CollisionSystem {
             return Ok(false);
         }
 
-        let mut cinfo = CollideLocAndNormal::new(Coord3D::zero(), Coord3D::zero());
+        let mut cinfo = CollideLocAndNormal::new(Coord3D::ZERO, Coord3D::ZERO);
         let info_a = CollideInfo::new(pos_a, geom_a, angle_a);
         let info_b = CollideInfo::new(pos_b, geom_b, angle_b);
         if !collision_test(&info_a, &info_b, Some(&mut cinfo)) {
