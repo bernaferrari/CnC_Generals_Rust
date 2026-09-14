@@ -11,7 +11,7 @@
 use fastrand;
 use glam::Vec3;
 use log::{debug, error, info, warn};
-use rodio::{Decoder, Sink, Source, SpatialSink};
+use rodio_compat::{Decoder, Sink, Source, SpatialSink};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -436,7 +436,7 @@ impl EnhancedAudioManager {
                 match Decoder::new(cursor) {
                     Ok(source) => {
                         // Convert to f32 to prevent audio corruption/noise
-                        let f32_source = source.convert_samples::<f32>();
+                        let f32_source = source;
 
                         // Apply looping and pitch modification carefully
                         let final_source: Box<dyn Source<Item = f32> + Send> = if event.is_looping {
@@ -556,7 +556,7 @@ impl EnhancedAudioManager {
                 match Decoder::new(cursor) {
                     Ok(source) => {
                         // Convert to f32 to prevent audio corruption/noise
-                        let f32_source = source.convert_samples::<f32>();
+                        let f32_source = source;
 
                         // Apply looping and pitch modification carefully
                         let final_source: Box<dyn Source<Item = f32> + Send> = if event.is_looping {

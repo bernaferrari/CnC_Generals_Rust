@@ -1,10 +1,11 @@
 [package]
 name = "ww3d-scene-renderer"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
 ww3d-scene = { path = "../ww3d-scene" }
 ww3d-core = { path = "../ww3d-core" }
-glam = "0.28"
+glam = {workspace = true}

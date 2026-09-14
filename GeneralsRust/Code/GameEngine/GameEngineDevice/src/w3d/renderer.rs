@@ -198,8 +198,8 @@ impl Default for RenderState {
             texture_bind_groups: Vec::new(),
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: FRAME_DEPTH_STENCIL_FORMAT,
-                depth_write_enabled: true,
-                depth_compare: CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: DepthBiasState::default(),
             }),
@@ -868,7 +868,8 @@ impl W3DRenderer {
             depth_stencil_attachment: depth_attachment,
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
     }
 
     /// Submit a render batch to the GPU
@@ -951,7 +952,7 @@ impl W3DRenderer {
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some("W3D Batch Submission Layout"),
                     bind_group_layouts: &bind_group_layouts,
-                    push_constant_ranges: &[],
+                    immediate_size: 0,
                 });
             let pipeline = self
                 .device
@@ -994,7 +995,7 @@ impl W3DRenderer {
                         Some(DepthStencilState {
                             format: FRAME_DEPTH_STENCIL_FORMAT,
                             depth_write_enabled,
-                            depth_compare: CompareFunction::LessEqual,
+                            depth_compare: Some(CompareFunction::LessEqual),
                             stencil: StencilState::default(),
                             bias: DepthBiasState::default(),
                         })
@@ -1002,7 +1003,7 @@ impl W3DRenderer {
                         None
                     },
                     multisample: MultisampleState::default(),
-                    multiview: None,
+                    multiview_mask: None,
                     cache: None,
                 });
             self.pipeline_cache.insert(cache_key.clone(), pipeline);
@@ -1118,7 +1119,8 @@ impl W3DRenderer {
             depth_stencil_attachment: depth_attachment,
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(pipeline);
         render_pass.set_bind_group(0, &frame_bind_group, &[]);

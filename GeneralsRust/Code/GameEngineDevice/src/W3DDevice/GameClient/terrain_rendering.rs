@@ -649,7 +649,7 @@ impl HeightMapMesh {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 100.0,
             compare: None,
@@ -718,7 +718,7 @@ impl HeightMapMesh {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Terrain Pipeline Layout"),
             bind_group_layouts: &[bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -749,8 +749,8 @@ impl HeightMapMesh {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -759,7 +759,7 @@ impl HeightMapMesh {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
         });
 
         Ok(pipeline)

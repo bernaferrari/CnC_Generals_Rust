@@ -1,9 +1,10 @@
 [package]
 name = "ww3d-physics"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "WW3D physics facade built on the original collision/physics integration layer"
 
 [dependencies]
 ww3d-collision = { path = "../ww3d-collision" }
-glam = "0.28"
+glam = {workspace = true}

@@ -61,15 +61,15 @@ impl Render2DGpuContext {
         let textured_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render2D Pipeline Layout (Textured)"),
-                bind_group_layouts: &[&textured_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&textured_layout)],
+                immediate_size: 0,
             });
 
         let solid_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render2D Pipeline Layout (Solid)"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         // Create a 1x1 white fallback texture for uninitialised assets.
@@ -115,7 +115,7 @@ impl Render2DGpuContext {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             lod_min_clamp: 0.0,
             lod_max_clamp: f32::MAX,
             compare: None,
@@ -227,7 +227,7 @@ impl Render2DGpuContext {
                 vertex: wgpu::VertexState {
                     module: &self.shader_module,
                     entry_point: Some("vs_main"),
-                    buffers: &[vertex_layout],
+                    buffers: &[Some(vertex_layout)],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -251,7 +251,7 @@ impl Render2DGpuContext {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
     }
@@ -398,9 +398,9 @@ fn build_sampler(device: &wgpu::Device, key: SamplerKey) -> wgpu::Sampler {
             wgpu::FilterMode::Linear
         },
         mipmap_filter: if key.mipmap == 0 {
-            wgpu::FilterMode::Nearest
+            wgpu::MipmapFilterMode::Nearest
         } else {
-            wgpu::FilterMode::Linear
+            wgpu::MipmapFilterMode::Linear
         },
         lod_min_clamp: 0.0,
         lod_max_clamp: if key.lod_max_milli == u16::MAX {

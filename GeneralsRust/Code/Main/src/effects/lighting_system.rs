@@ -269,7 +269,7 @@ impl DynamicLighting {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
@@ -398,8 +398,8 @@ impl DynamicLighting {
         // Create render pipelines
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Lighting Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let lighting_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -427,14 +427,14 @@ impl DynamicLighting {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
             cache: None,
-            multiview: None,
+            multiview_mask: None,
         });
 
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -454,8 +454,8 @@ impl DynamicLighting {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState {
                     constant: 2,
@@ -465,7 +465,7 @@ impl DynamicLighting {
             }),
             multisample: wgpu::MultisampleState::default(),
             cache: None,
-            multiview: None,
+            multiview_mask: None,
         });
 
         Self {
@@ -691,7 +691,8 @@ impl DynamicLighting {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
-                });
+                    multiview_mask: None,
+});
 
                 // Render scene from light's perspective.
                 // The callback owns pipeline/bind state so it can submit real mesh geometry.
@@ -724,7 +725,8 @@ impl DynamicLighting {
             depth_stencil_attachment: None,
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         lighting_pass.set_pipeline(&self.lighting_pipeline);
         lighting_pass.set_bind_group(0, &self.bind_group, &[]);

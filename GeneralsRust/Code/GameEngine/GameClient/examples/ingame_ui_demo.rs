@@ -48,10 +48,7 @@ pub fn run() {
         .unwrap();
 
     // Initialize wgpu
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-    });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
     let surface = instance.create_surface(&window).unwrap();
 
@@ -59,6 +56,7 @@ pub fn run() {
         power_preference: wgpu::PowerPreference::HighPerformance,
         compatible_surface: Some(&surface),
         force_fallback_adapter: false,
+            apply_limit_buckets: false,
     }))
     .unwrap();
 
@@ -88,6 +86,7 @@ pub fn run() {
     let mut config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
         width: WINDOW_WIDTH,
         height: WINDOW_HEIGHT,
         present_mode: wgpu::PresentMode::Fifo,
@@ -234,7 +233,7 @@ pub fn run() {
                         log::error!("Rendering error: {}", e);
                     }
 
-                    frame.present();
+                    queue.present(frame);
 
                     // Update input state for next frame
                     mouse_state.end_frame();

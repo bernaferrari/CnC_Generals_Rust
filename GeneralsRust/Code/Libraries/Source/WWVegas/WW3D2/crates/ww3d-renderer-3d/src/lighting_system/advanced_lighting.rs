@@ -420,7 +420,7 @@ impl ShadowMap {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
@@ -452,7 +452,8 @@ impl ShadowMap {
             }),
             occlusion_query_set: None,
             timestamp_writes: None,
-        });
+            multiview_mask: None,
+});
 
         // Render scene from light's perspective
         // (Implementation would render shadow-casting objects here)
@@ -571,7 +572,7 @@ impl SSAOPipeline {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -608,7 +609,8 @@ impl SSAOPipeline {
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);

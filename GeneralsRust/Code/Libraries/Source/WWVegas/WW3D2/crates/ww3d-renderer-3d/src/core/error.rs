@@ -102,8 +102,8 @@ impl From<wgpu::Error> for Error {
     }
 }
 
-impl From<wgpu::SurfaceError> for Error {
-    fn from(err: wgpu::SurfaceError) -> Self {
+impl From<ww3d_gpu::GpuError> for Error {
+    fn from(err: ww3d_gpu::GpuError) -> Self {
         Error::Generic(err.to_string())
     }
 }

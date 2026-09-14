@@ -1,7 +1,8 @@
 [package]
 name = "game_engine_device_archive"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "Leftover Device tree: default = workspace GameClient wgpu re-export (archive stays on disk)"
 license = "GPL-3.0"
 authors = ["Claude Code"]

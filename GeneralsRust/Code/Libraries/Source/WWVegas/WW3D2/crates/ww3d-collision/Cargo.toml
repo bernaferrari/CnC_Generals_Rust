@@ -1,13 +1,14 @@
 [package]
 name = "ww3d-collision"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-glam = { version = "0.28", features = ["bytemuck"] }
-bitflags = "2.10.0"
+glam = {workspace = true, features = ["bytemuck"]}
+bitflags = {workspace = true}
 ww3d-core = { path = "../ww3d-core" }
-fastrand = "2.3"
+fastrand = {workspace = true}
 
 [dev-dependencies]
-approx = "0.5"
+approx = {workspace = true}

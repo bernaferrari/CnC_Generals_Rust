@@ -122,7 +122,6 @@ use game_engine::common::user_preferences::UserPreferences;
 use game_engine::{
     Xfer as RuntimeXfer, XferMode as RuntimeXferMode, XferStatus as RuntimeXferStatus,
 };
-use nalgebra::Point3;
 
 // GameLogic integration for object iteration
 // Note: gamelogic is the crate name (from Cargo.toml)

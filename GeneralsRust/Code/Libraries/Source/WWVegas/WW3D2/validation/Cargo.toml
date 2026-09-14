@@ -1,24 +1,25 @@
 [package]
-name = "ww3d-validation"
+name = "ww3d2-validation"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 description = "WW3D2 Rust/C++ Compatibility Validation Framework"
 
 [lib]
-name = "ww3d_validation"
+name = "ww3d2_validation"
 path = "lib.rs"
 
 [dependencies]
 ww3d-core = { path = "../crates/ww3d-core" }
 ww3d-renderer-3d = { path = "../crates/ww3d-renderer-3d", features = ["serde_support"], default-features = false }
 ww3d-assets = { path = "../crates/ww3d-assets" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0"
-regex = "1.10"
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+thiserror = {workspace = true}
+regex = {workspace = true}
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = {workspace = true}
 
 [features]
 default = ["serde_support"]

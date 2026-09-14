@@ -517,7 +517,7 @@ impl RenderDevice {
             let mut backend_options = wgpu::BackendOptions::default();
             backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
 
-            let instance = Arc::new(Instance::new(&wgpu::InstanceDescriptor {
+            let instance = Arc::new(Instance::new(wgpu::InstanceDescriptor {
                 backends: Backends::all(),
                 flags: wgpu::InstanceFlags::default(),
                 memory_budget_thresholds: Default::default(),
@@ -530,6 +530,7 @@ impl RenderDevice {
                     power_preference: PowerPreference::HighPerformance,
                     compatible_surface: None,
                     force_fallback_adapter: false,
+            apply_limit_buckets: false,
                 })
                 .await
                 .map_err(|_| {
@@ -715,8 +716,8 @@ impl RenderDevice {
         label: &str,
         vertex_shader: &ShaderDesc,
         fragment_shader: Option<&ShaderDesc>,
-        vertex_buffers: &[VertexBufferLayout<'_>],
-        bind_group_layouts: &[&BindGroupLayout],
+        vertex_buffers: &[Some(VertexBufferLayout<'_>)],
+        bind_group_layouts: &[Some(&BindGroupLayout)],
         render_targets: &[Option<ColorTargetState>],
         depth_stencil: Option<DepthStencilState>,
         primitive: PrimitiveState,
@@ -742,7 +743,7 @@ impl RenderDevice {
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some(&format!("{}_layout", label)),
                     bind_group_layouts,
-                    push_constant_ranges: &[],
+                    immediate_size: 0,
                 });
 
             let pipeline = self
@@ -766,7 +767,7 @@ impl RenderDevice {
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
                     }),
                     cache: None,
-                    multiview: None,
+                    multiview_mask: None,
                 });
 
             let pipeline = Arc::new(pipeline);
@@ -791,7 +792,7 @@ impl RenderDevice {
         &self,
         label: &str,
         compute_shader: &ShaderDesc,
-        bind_group_layouts: &[&BindGroupLayout],
+        bind_group_layouts: &[Some(&BindGroupLayout)],
     ) -> Result<Arc<ComputePipeline>> {
         #[cfg(feature = "video")]
         {
@@ -807,7 +808,7 @@ impl RenderDevice {
                 .create_pipeline_layout(&PipelineLayoutDescriptor {
                     label: Some(&format!("{}_layout", label)),
                     bind_group_layouts,
-                    push_constant_ranges: &[],
+                    immediate_size: 0,
                 });
 
             let pipeline = self

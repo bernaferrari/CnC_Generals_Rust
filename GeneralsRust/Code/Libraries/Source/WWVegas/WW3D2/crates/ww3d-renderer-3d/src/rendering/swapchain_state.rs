@@ -330,6 +330,7 @@ pub fn make_surface_config(
     SurfaceConfiguration {
         usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
         format,
+        color_space: wgpu::SurfaceColorSpace::Auto,
         width: size.0.max(1),
         height: size.1.max(1),
         present_mode,

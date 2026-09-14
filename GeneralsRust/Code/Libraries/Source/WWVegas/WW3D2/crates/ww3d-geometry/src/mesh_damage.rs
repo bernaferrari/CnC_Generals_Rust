@@ -243,8 +243,8 @@ impl MeshDamage {
         displacement_amount: f32,
         affected_vertex_ratio: f32,
     ) -> Self {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
+        use rand::RngExt;
+        let mut rng = rand::rng();
 
         let mut damage = Self::with_capacity(
             damage_index,
@@ -254,12 +254,12 @@ impl MeshDamage {
 
         // Select random vertices to damage
         for (i, vertex) in mesh.vertices.iter().enumerate() {
-            if rng.r#gen::<f32>() < affected_vertex_ratio {
+            if rng.random::<f32>() < affected_vertex_ratio {
                 // Random displacement
                 let displacement = Vector3::new(
-                    rng.gen_range(-displacement_amount..displacement_amount),
-                    rng.gen_range(-displacement_amount..displacement_amount),
-                    rng.gen_range(-displacement_amount..displacement_amount),
+                    rng.random_range(-displacement_amount..displacement_amount),
+                    rng.random_range(-displacement_amount..displacement_amount),
+                    rng.random_range(-displacement_amount..displacement_amount),
                 );
 
                 damage.add_vertex_morph(i, vertex.position, vertex.position + displacement);

@@ -1,11 +1,12 @@
 [package]
 name = "experimental-editor-gpui"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-gpui = "0.2.2"
+gpui = {workspace = true}
 image = { workspace = true, features = ["png", "jpeg", "tga", "bmp", "dds"] }
 log.workspace = true
 experimental-engine-core = { path = "../engine_core" }

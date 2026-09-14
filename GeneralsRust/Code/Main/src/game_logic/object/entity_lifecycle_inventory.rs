@@ -23,7 +23,7 @@ pub(crate) struct FireWeaponWhenDamagedBundle {
 pub(crate) fn encode_payload<T: Serialize>(
     value: &T,
 ) -> Result<Vec<u8>, EntityLifecycleCodecError> {
-    bincode::serialize(value).map_err(|_| EntityLifecycleCodecError::UnexpectedEof {
+    bincode_legacy::serialize(value).map_err(|_| EntityLifecycleCodecError::UnexpectedEof {
         context: "payload_encode",
     })
 }
@@ -31,7 +31,7 @@ pub(crate) fn encode_payload<T: Serialize>(
 pub(crate) fn decode_payload<T: for<'de> Deserialize<'de>>(
     bytes: &[u8],
 ) -> Result<T, EntityLifecycleCodecError> {
-    bincode::deserialize(bytes).map_err(|_| EntityLifecycleCodecError::UnexpectedEof {
+    bincode_legacy::deserialize(bytes).map_err(|_| EntityLifecycleCodecError::UnexpectedEof {
         context: "payload_decode",
     })
 }

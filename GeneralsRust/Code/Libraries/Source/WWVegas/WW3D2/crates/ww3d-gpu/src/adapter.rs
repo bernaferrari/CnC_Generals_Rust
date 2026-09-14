@@ -390,7 +390,7 @@ impl AdapterCapabilities {
         let info = adapter.get_info();
 
         Self {
-            supports_compute: features.contains(wgpu::Features::PUSH_CONSTANTS),
+            supports_compute: features.contains(wgpu::Features::IMMEDIATES),
             supports_graphics: true, // All WGPU adapters support graphics
             supports_transfer: true, // All WGPU adapters support transfer
             max_texture_size: limits.max_texture_dimension_2d,
@@ -424,13 +424,11 @@ pub struct AdapterManager {
 impl AdapterManager {
     /// Create a new adapter manager and enumerate adapters
     pub async fn new() -> Result<Self, GpuError> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         let adapters = instance
             .enumerate_adapters(wgpu::Backends::all())
+            .await
             .into_iter()
             .map(GpuAdapter::new)
             .collect();

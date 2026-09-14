@@ -3,12 +3,12 @@
 //! Advanced performance optimization and LOD system for particles,
 //! matching C++ behavior while adding modern GPU optimizations.
 
-use nalgebra::{Point3, Vector3};
 use std::collections::{BTreeMap, VecDeque};
 use std::time::Instant;
 
 use super::particle_manager::*;
 use super::particle_system::*;
+use glam::{Vec3};
 
 /// Particle LOD settings based on distance and performance
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -114,7 +114,7 @@ pub struct ParticleOptimizer {
     performance_trend: f32,
 
     /// Camera position for distance calculations
-    camera_position: Point3<f32>,
+    camera_position: Vec3,
 
     /// Frame timing
     last_update_time: Instant,
@@ -134,7 +134,7 @@ impl ParticleOptimizer {
             current_quality_scale: 1.0,
             performance_trend: 0.0,
 
-            camera_position: Point3::origin(),
+            camera_position: Vec3::ZERO,
 
             last_update_time: Instant::now(),
             performance_check_timer: 0.0,
@@ -142,7 +142,7 @@ impl ParticleOptimizer {
     }
 
     /// Update camera position for distance-based optimization
-    pub fn update_camera_position(&mut self, position: Point3<f32>) {
+    pub fn update_camera_position(&mut self, position: Vec3) {
         self.camera_position = position;
     }
 
@@ -175,8 +175,8 @@ impl ParticleOptimizer {
     }
 
     /// Calculate LOD level for a particle system based on distance
-    pub fn calculate_lod_level(&self, system_position: Point3<f32>) -> ParticleLODLevel {
-        let distance = (system_position - self.camera_position).norm();
+    pub fn calculate_lod_level(&self, system_position: Vec3) -> ParticleLODLevel {
+        let distance = (system_position - self.camera_position).length();
 
         if distance <= self.lod_settings.near_distance {
             ParticleLODLevel::High
@@ -230,7 +230,7 @@ impl ParticleOptimizer {
         }
 
         // Check distance culling
-        let distance = (system.position() - self.camera_position).norm();
+        let distance = (system.position() - self.camera_position).length();
         if distance > self.performance_budget.cull_distance {
             return true;
         }
@@ -482,22 +482,22 @@ mod tests {
     #[test]
     fn test_lod_calculation() {
         let mut optimizer = ParticleOptimizer::new();
-        optimizer.update_camera_position(Point3::origin());
+        optimizer.update_camera_position(Vec3::ZERO);
 
         // Test distance-based LOD
-        let near_pos = Point3::new(50.0, 0.0, 0.0);
+        let near_pos = Vec3::new(50.0, 0.0, 0.0);
         assert_eq!(
             optimizer.calculate_lod_level(near_pos),
             ParticleLODLevel::High
         );
 
-        let far_pos = Point3::new(500.0, 0.0, 0.0);
+        let far_pos = Vec3::new(500.0, 0.0, 0.0);
         assert_eq!(
             optimizer.calculate_lod_level(far_pos),
             ParticleLODLevel::Low
         );
 
-        let very_far_pos = Point3::new(2000.0, 0.0, 0.0);
+        let very_far_pos = Vec3::new(2000.0, 0.0, 0.0);
         assert_eq!(
             optimizer.calculate_lod_level(very_far_pos),
             ParticleLODLevel::Culled

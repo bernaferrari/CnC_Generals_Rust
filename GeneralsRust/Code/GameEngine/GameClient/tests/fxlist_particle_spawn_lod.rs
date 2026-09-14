@@ -6,8 +6,8 @@ use game_client_rust::effects::fxlist_integration::{FXContext, FXNugget, Particl
 use game_client_rust::effects::particle_manager::{
     GameClientRandomVariable, ParticlePriorityType, ParticleSystemManager,
 };
+use glam::{Mat3, Vec3};
 use game_client_rust::effects::particle_presets;
-use nalgebra::{Matrix3, Point3};
 
 #[test]
 fn fxlist_particle_nugget_trait_apply_spawns_and_honors_delay_and_orient() {
@@ -18,7 +18,7 @@ fn fxlist_particle_nugget_trait_apply_spawns_and_honors_delay_and_orient() {
     let mut nugget = ParticleSystemFXNugget::new("Fire".to_string());
     nugget.delay = GameClientRandomVariable::new(1000.0, 1000.0);
     nugget.orient_to_object = true;
-    let mtx = Matrix3::new(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
+    let mtx = Mat3::from_cols_array(&[0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
 
     let mut ctx = FXContext {
         particle_manager: &mut manager,
@@ -30,7 +30,7 @@ fn fxlist_particle_nugget_trait_apply_spawns_and_honors_delay_and_orient() {
     };
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(10.0, 20.0, 30.0),
+        Vec3::new(10.0, 20.0, 30.0),
         Some(&mtx),
         0.0,
         None,
@@ -80,7 +80,7 @@ fn fxlist_light_pulse_nugget_creates_display_pulse() {
     };
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(1.0, 2.0, 3.0),
+        Vec3::new(1.0, 2.0, 3.0),
         None,
         0.0,
         None,
@@ -218,7 +218,7 @@ fn particle_gpu_mesh_bake_matches_live_particle_positions() {
     let id = manager.create_particle_system(&fire, false).unwrap();
     {
         let system = manager.find_particle_system_mut(id).unwrap();
-        system.set_position(Point3::new(12.0, 4.0, -3.0));
+        system.set_position(Vec3::new(12.0, 4.0, -3.0));
         system.trigger();
     }
     manager.update(0, 1);
@@ -334,7 +334,7 @@ fn fxlist_terrain_scorch_nugget_calls_add_scorch_with_type_and_radius() {
     };
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(40.0, 50.0, 6.0),
+        Vec3::new(40.0, 50.0, 6.0),
         None,
         0.0,
         None,
@@ -374,7 +374,7 @@ fn fxlist_terrain_scorch_nugget_does_not_invent_decal_quad() {
     };
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(8.0, 9.0, 1.0),
+        Vec3::new(8.0, 9.0, 1.0),
         None,
         0.0,
         None,
@@ -408,8 +408,8 @@ fn fxlist_tracer_nugget_sets_parms_transform_and_ceil_expiration() {
     nugget.decay_at = 0.5;
     nugget.probability = 1.0;
 
-    let primary = Point3::new(0.0, 0.0, 0.0);
-    let secondary = Point3::new(100.0, 0.0, 0.0);
+    let primary = Vec3::new(0.0, 0.0, 0.0);
+    let secondary = Vec3::new(100.0, 0.0, 0.0);
     let mut manager = ParticleSystemManager::new();
     let mut ctx = FXContext {
         particle_manager: &mut manager,
@@ -492,7 +492,7 @@ fn fxlist_view_shake_nugget_uses_tactical_view_cpp_falloff() {
     };
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(75.0, 0.0, 0.0),
+        Vec3::new(75.0, 0.0, 0.0),
         None,
         0.0,
         None,
@@ -511,7 +511,7 @@ fn fxlist_view_shake_nugget_uses_tactical_view_cpp_falloff() {
     with_tactical_view(|view| view.reset_camera_shake());
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(data.max_shake_range + 10.0, 0.0, 0.0),
+        Vec3::new(data.max_shake_range + 10.0, 0.0, 0.0),
         None,
         0.0,
         None,
@@ -532,8 +532,8 @@ fn fxlist_ray_effect_nugget_creates_midpoint_template_entry() {
 
     reset_ray_effects();
     let mut nugget = RayEffectFXNugget::new("GenericLaser".to_string());
-    nugget.primary_offset = nalgebra::Vector3::new(1.0, 2.0, 3.0);
-    nugget.secondary_offset = nalgebra::Vector3::new(-1.0, 0.0, 1.0);
+    nugget.primary_offset = Vec3::new(1.0, 2.0, 3.0);
+    nugget.secondary_offset = Vec3::new(-1.0, 0.0, 1.0);
 
     let mut manager = ParticleSystemManager::new();
     let mut ctx = FXContext {
@@ -546,10 +546,10 @@ fn fxlist_ray_effect_nugget_creates_midpoint_template_entry() {
     };
     FXNugget::do_fx_pos(
         &nugget,
-        Point3::new(10.0, 20.0, 30.0),
+        Vec3::new(10.0, 20.0, 30.0),
         None,
         0.0,
-        Some(Point3::new(50.0, 60.0, 70.0)),
+        Some(Vec3::new(50.0, 60.0, 70.0)),
         0.0,
         &mut ctx,
     );

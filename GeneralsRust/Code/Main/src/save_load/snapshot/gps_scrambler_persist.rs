@@ -30,7 +30,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.registry.activations().is_empty() && payload.registry.activation_count() == 0 {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(GPSG_MAGIC);
@@ -58,7 +58,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "GPSG payload truncated".to_string(),
         ));
     }
-    let payload: GpsScramblerPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: GpsScramblerPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("GPSG payload decode: {err}")))?;
     game_logic.gps_scramblers = payload.registry;
     Ok(())

@@ -201,6 +201,7 @@ impl RenderTarget {
             depth_stencil_attachment: depth_attachment,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         })
     }
 

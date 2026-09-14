@@ -1606,8 +1606,8 @@ impl SegLineGpuPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("SegLine Pipeline Layout"),
-            bind_group_layouts: &[&uniform_bgl, &texture_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_bgl), Some(&texture_bgl)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
@@ -1616,7 +1616,7 @@ impl SegLineGpuPipeline {
             vertex: VertexState {
                 module: &shader_module,
                 entry_point: Some("vs_main"),
-                buffers: &[SegLineVertex::vertex_layout()],
+                buffers: &[Some(SegLineVertex::vertex_layout())],
                 compilation_options: Default::default(),
             },
             fragment: Some(FragmentState {
@@ -1640,7 +1640,7 @@ impl SegLineGpuPipeline {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -1682,7 +1682,7 @@ impl SegLineGpuPipeline {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 

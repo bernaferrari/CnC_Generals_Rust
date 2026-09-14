@@ -4,18 +4,19 @@
 //! audio library, enabling playback of MP3, WAV, OGG, FLAC, and other formats
 //! commonly used in Command & Conquer games.
 
-use std::io::{Read, Seek, Cursor};
-use std::time::Duration;
+use std::io::Cursor;
+use std::num::NonZero;
 use std::sync::Arc;
+use std::time::Duration;
 
-use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
-use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::errors::Error as SymphoniaError;
-use symphonia::core::formats::{FormatOptions, FormatReader, Track};
-use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::{MetadataOptions, MetadataRevision};
-use symphonia::core::probe::Hint;
-use rodio::{Source, Sample};
+use rodio::{ChannelCount, Sample, SampleRate, Source};
+use symphonia::core::audio::conv::FromSample;
+use symphonia::core::audio::{Audio, AudioBuffer, GenericAudioBufferRef};
+use symphonia::core::codecs::audio::{AudioDecoder, well_known};
+use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::{FormatReader, SeekMode, SeekTo, Track, TrackType};
+use symphonia::core::io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions};
+use symphonia::core::units::Time;
 
 use crate::common::audio::{Real, Bool, Int, UnsignedInt};
 
@@ -166,71 +167,56 @@ impl Default for AudioMetadata {
 }
 
 /// Audio decoder using Symphonia
-pub struct SymphoniaDecoder<R>
-where
-    R: Read + Seek + Send + Sync,
-{
-    reader: MediaSourceStream<R>,
+pub struct SymphoniaDecoder {
     format_reader: Box<dyn FormatReader>,
-    decoder: Box<dyn Decoder>,
+    decoder: Box<dyn AudioDecoder>,
     track_id: u32,
-    current_frame: Option<AudioBufferRef>,
-    frame_offset: usize,
+    current_samples: Option<Vec<f32>>,
+    sample_offset: usize,
     sample_rate: u32,
     channels: u16,
     metadata: AudioMetadata,
 }
 
-impl<R> SymphoniaDecoder<R>
-where
-    R: Read + Seek + Send + Sync + 'static,
-{
+impl SymphoniaDecoder {
     /// Create a new decoder for the given reader
-    pub fn new(mut reader: R) -> Result<Self, String> {
-        // Create media source stream
-        let media_source = MediaSourceStream::new(
-            Box::new(reader),
-            MediaSourceStreamOptions::default(),
-        );
+    pub fn new<R>(reader: R) -> Result<Self, String>
+    where
+        R: MediaSource + 'static,
+    {
+        let media_source =
+            MediaSourceStream::new(Box::new(reader), MediaSourceStreamOptions::default());
 
-        // Probe the format
-        let mut hint = Hint::new();
-        let format_opts = FormatOptions::default();
-        let metadata_opts = MetadataOptions::default();
-        
-        let probed = symphonia::default::get_probe()
-            .format(&hint, media_source, &format_opts, &metadata_opts)
+        let hint = Hint::new();
+        let mut format_reader = symphonia::default::get_probe()
+            .probe(&hint, media_source, Default::default(), Default::default())
             .map_err(|e| format!("Failed to probe audio format: {}", e))?;
 
-        let mut format_reader = probed.format;
-
-        // Get the default track
         let track = format_reader
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .default_track(TrackType::Audio)
+            .ok_or("No suitable audio track found")?;
+        let track_id = track.id;
+        let params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .cloned()
             .ok_or("No suitable audio track found")?;
 
-        let track_id = track.id;
-
-        // Create decoder
-        let decode_opts = DecoderOptions::default();
         let decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &decode_opts)
+            .make_audio_decoder(&params, &Default::default())
             .map_err(|e| format!("Failed to create decoder: {}", e))?;
 
-        // Extract metadata
-        let metadata = Self::extract_metadata(&track, probed.metadata.as_ref());
-        let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
-        let channels = track.codec_params.channels.map(|ch| ch.count() as u16).unwrap_or(2);
+        let metadata = Self::extract_metadata(track);
+        let sample_rate = params.sample_rate.unwrap_or(44100);
+        let channels = params.channels.map(|ch| ch.count() as u16).unwrap_or(2);
 
         Ok(Self {
-            reader: media_source,
             format_reader,
             decoder,
             track_id,
-            current_frame: None,
-            frame_offset: 0,
+            current_samples: None,
+            sample_offset: 0,
             sample_rate,
             channels,
             metadata,
@@ -263,195 +249,134 @@ where
             return Err("Format does not support seeking".to_string());
         }
 
-        let timestamp = (position.as_secs_f64() * self.sample_rate as f64) as u64;
-        
         self.format_reader
-            .seek(symphonia::core::formats::SeekMode::Accurate, symphonia::core::units::TimeBase::new(1, self.sample_rate), timestamp)
+            .seek(
+                SeekMode::Accurate,
+                SeekTo::Time {
+                    time: Time::from_nanos_u64(position.as_nanos() as u64),
+                    track_id: Some(self.track_id),
+                },
+            )
             .map_err(|e| format!("Seek failed: {}", e))?;
 
-        // Reset decoder state
         self.decoder.reset();
-        self.current_frame = None;
-        self.frame_offset = 0;
+        self.current_samples = None;
+        self.sample_offset = 0;
 
         Ok(())
     }
 
-    /// Extract metadata from track and format metadata
-    fn extract_metadata(track: &Track, metadata: Option<&MetadataRevision>) -> AudioMetadata {
+    fn extract_metadata(track: &Track) -> AudioMetadata {
         let mut meta = AudioMetadata::default();
-
-        // Basic info from codec parameters
-        if let Some(sample_rate) = track.codec_params.sample_rate {
-            meta.sample_rate = sample_rate;
-        }
-
-        if let Some(channels) = track.codec_params.channels {
-            meta.channels = channels.count() as u16;
-        }
-
-        if let Some(bits_per_sample) = track.codec_params.bits_per_sample {
-            meta.bits_per_sample = Some(bits_per_sample);
-        }
-
-        // Duration
-        if let (Some(frames), Some(sample_rate)) = (track.codec_params.n_frames, track.codec_params.sample_rate) {
-            meta.total_frames = Some(frames);
-            meta.duration = Some(Duration::from_secs_f64(frames as f64 / sample_rate as f64));
-        }
-
-        // Format detection
-        meta.format = match track.codec_params.codec.as_str() {
-            "pcm" => AudioFormat::Wav,
-            "mp3" => AudioFormat::Mp3,
-            "vorbis" => AudioFormat::Ogg,
-            "flac" => AudioFormat::Flac,
-            "aac" => AudioFormat::Aac,
-            _ => AudioFormat::Unknown,
+        let Some(params) = track.codec_params.as_ref().and_then(|p| p.audio()) else {
+            return meta;
         };
 
-        meta.is_lossless = matches!(meta.format, AudioFormat::Wav | AudioFormat::Flac | AudioFormat::Aiff);
-
-        // Extract metadata tags if available
-        if let Some(metadata_revision) = metadata {
-            for tag in metadata_revision.tags() {
-                match tag.key.as_str() {
-                    "TITLE" => meta.title = Some(tag.value.to_string()),
-                    "ARTIST" => meta.artist = Some(tag.value.to_string()),
-                    "ALBUM" => meta.album = Some(tag.value.to_string()),
-                    "TRACK" => {
-                        if let Ok(track_num) = tag.value.parse::<u32>() {
-                            meta.track_number = Some(track_num);
-                        }
-                    }
-                    _ => {}
-                }
+        if let Some(sample_rate) = params.sample_rate {
+            meta.sample_rate = sample_rate;
+        }
+        if let Some(channels) = params.channels.as_ref() {
+            meta.channels = channels.count() as u16;
+        }
+        if let Some(bits_per_sample) = params.bits_per_sample {
+            meta.bits_per_sample = Some(bits_per_sample as u16);
+        }
+        if let Some(frames) = track.num_frames {
+            meta.total_frames = Some(frames);
+            if meta.sample_rate > 0 {
+                meta.duration = Some(Duration::from_secs_f64(frames as f64 / meta.sample_rate as f64));
             }
         }
 
+        meta.format = match params.codec {
+            well_known::CODEC_ID_MP3 => AudioFormat::Mp3,
+            well_known::CODEC_ID_VORBIS => AudioFormat::Ogg,
+            well_known::CODEC_ID_FLAC => AudioFormat::Flac,
+            well_known::CODEC_ID_AAC => AudioFormat::Aac,
+            _ => AudioFormat::Wav,
+        };
+        meta.is_lossless =
+            matches!(meta.format, AudioFormat::Wav | AudioFormat::Flac | AudioFormat::Aiff);
         meta
+    }
+
+    fn interleaved_f32(buffer: &GenericAudioBufferRef<'_>) -> Vec<f32> {
+        match buffer {
+            GenericAudioBufferRef::U8(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::U16(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::U24(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::U32(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S8(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S16(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S24(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::S32(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::F32(buf) => Self::interleave_buffer(buf),
+            GenericAudioBufferRef::F64(buf) => Self::interleave_buffer(buf),
+        }
+    }
+
+    fn interleave_buffer<S>(buf: &AudioBuffer<S>) -> Vec<f32>
+    where
+        S: symphonia::core::audio::sample::Sample,
+        f32: FromSample<S>,
+    {
+        let planes = buf.num_planes();
+        let frames = buf.frames();
+        let mut out = Vec::with_capacity(frames * planes);
+        for i in 0..frames {
+            for p in 0..planes {
+                if let Some(plane) = buf.plane(p) {
+                    out.push(f32::from_sample(plane[i]));
+                }
+            }
+        }
+        out
     }
 }
 
-impl<R> Iterator for SymphoniaDecoder<R>
-where
-    R: Read + Seek + Send + Sync,
-{
+impl Iterator for SymphoniaDecoder {
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            // If we have a current frame, try to get the next sample
-            if let Some(ref frame) = self.current_frame {
-                match frame {
-                    AudioBufferRef::F32(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(sample);
-                        }
-                    }
-                    AudioBufferRef::U8(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample));
-                        }
-                    }
-                    AudioBufferRef::U16(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample));
-                        }
-                    }
-                    AudioBufferRef::U24(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample.inner()));
-                        }
-                    }
-                    AudioBufferRef::U32(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample));
-                        }
-                    }
-                    AudioBufferRef::S8(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample));
-                        }
-                    }
-                    AudioBufferRef::S16(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample));
-                        }
-                    }
-                    AudioBufferRef::S24(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample.inner()));
-                        }
-                    }
-                    AudioBufferRef::S32(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(Sample::to_f32(&sample));
-                        }
-                    }
-                    AudioBufferRef::F64(buffer) => {
-                        if self.frame_offset < buffer.frames() * self.channels as usize {
-                            let sample = buffer.chan(0)[self.frame_offset / self.channels as usize];
-                            self.frame_offset += 1;
-                            return Some(sample as f32);
-                        }
-                    }
+            if let Some(samples) = self.current_samples.as_ref() {
+                if self.sample_offset < samples.len() {
+                    let sample = samples[self.sample_offset];
+                    self.sample_offset += 1;
+                    return Some(sample);
                 }
+                self.current_samples = None;
+                self.sample_offset = 0;
             }
 
-            // Current frame exhausted, try to get next frame
             match self.format_reader.next_packet() {
-                Ok(packet) => {
-                    // Make sure this packet belongs to our track
-                    if packet.track_id() == self.track_id {
-                        match self.decoder.decode(&packet) {
-                            Ok(decoded) => {
-                                self.current_frame = Some(decoded);
-                                self.frame_offset = 0;
-                                continue; // Try again with the new frame
-                            }
-                            Err(_) => continue, // Skip bad frames
+                Ok(Some(packet)) if packet.track_id == self.track_id => {
+                    match self.decoder.decode(&packet) {
+                        Ok(decoded) => {
+                            self.current_samples = Some(Self::interleaved_f32(&decoded));
+                            self.sample_offset = 0;
                         }
+                        Err(_) => continue,
                     }
                 }
-                Err(_) => return None, // End of stream or error
+                Ok(Some(_)) => continue,
+                Ok(None) | Err(_) => return None,
             }
         }
     }
 }
 
-impl<R> Source for SymphoniaDecoder<R>
-where
-    R: Read + Seek + Send + Sync,
-{
-    fn current_frame_len(&self) -> Option<usize> {
-        None // Unknown frame length for compressed formats
+impl Source for SymphoniaDecoder {
+    fn current_span_len(&self) -> Option<usize> {
+        None
     }
 
-    fn channels(&self) -> u16 {
-        self.channels
+    fn channels(&self) -> ChannelCount {
+        NonZero::new(self.channels.max(1)).expect("channels")
     }
 
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
+    fn sample_rate(&self) -> SampleRate {
+        NonZero::new(self.sample_rate.max(1)).expect("sample_rate")
     }
 
     fn total_duration(&self) -> Option<Duration> {
@@ -612,22 +537,19 @@ impl AudioConverter {
 }
 
 /// Audio streaming decoder for large files
-pub struct StreamingDecoder<R>
-where
-    R: Read + Seek + Send + Sync,
-{
-    decoder: SymphoniaDecoder<R>,
+pub struct StreamingDecoder {
+    decoder: SymphoniaDecoder,
     buffer: Vec<f32>,
     buffer_size: usize,
     position: usize,
 }
 
-impl<R> StreamingDecoder<R>
-where
-    R: Read + Seek + Send + Sync + 'static,
-{
+impl StreamingDecoder {
     /// Create new streaming decoder with specified buffer size
-    pub fn new(reader: R, buffer_size: usize) -> Result<Self, String> {
+    pub fn new<R>(reader: R, buffer_size: usize) -> Result<Self, String>
+    where
+        R: MediaSource + 'static,
+    {
         let decoder = SymphoniaDecoder::new(reader)?;
         
         Ok(Self {
@@ -671,7 +593,7 @@ where
 }
 
 /// Create a Symphonia decoder from raw audio data
-pub fn create_decoder_from_data(data: Vec<u8>) -> Result<SymphoniaDecoder<Cursor<Vec<u8>>>, String> {
+pub fn create_decoder_from_data(data: Vec<u8>) -> Result<SymphoniaDecoder, String> {
     let cursor = Cursor::new(data);
     SymphoniaDecoder::new(cursor)
 }
@@ -680,7 +602,7 @@ pub fn create_decoder_from_data(data: Vec<u8>) -> Result<SymphoniaDecoder<Cursor
 pub fn create_streaming_decoder_from_data(
     data: Vec<u8>,
     buffer_size: usize,
-) -> Result<StreamingDecoder<Cursor<Vec<u8>>>, String> {
+) -> Result<StreamingDecoder, String> {
     let cursor = Cursor::new(data);
     StreamingDecoder::new(cursor, buffer_size)
 }

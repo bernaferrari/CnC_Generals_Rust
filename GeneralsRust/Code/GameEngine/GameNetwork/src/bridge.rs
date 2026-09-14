@@ -360,13 +360,13 @@ impl NetworkBridge {
             NetCommandType::LoadComplete => CommandPayload::KeepAlive,
             NetCommandType::GameCommand => {
                 // Attempt bincode deserialization for game commands.
-                match bincode::deserialize::<GameCommandData>(payload_bytes) {
+                match bincode_legacy::deserialize::<GameCommandData>(payload_bytes) {
                     Ok(game_data) => CommandPayload::GameCommand(game_data),
                     Err(_) => CommandPayload::Generic(payload_bytes.to_vec()),
                 }
             }
             NetCommandType::FrameInfo => {
-                match bincode::deserialize::<crate::commands::FrameInfoData>(payload_bytes) {
+                match bincode_legacy::deserialize::<crate::commands::FrameInfoData>(payload_bytes) {
                     Ok(info) => CommandPayload::FrameInfo(info),
                     Err(_) => CommandPayload::Generic(payload_bytes.to_vec()),
                 }
@@ -396,18 +396,18 @@ impl NetworkBridge {
                 data.extend_from_slice(bytes);
             }
             CommandPayload::GameCommand(game_data) => {
-                if let Ok(serialized) = bincode::serialize(game_data) {
+                if let Ok(serialized) = bincode_legacy::serialize(game_data) {
                     data.extend_from_slice(&serialized);
                 }
             }
             CommandPayload::FrameInfo(info) => {
-                if let Ok(serialized) = bincode::serialize(info) {
+                if let Ok(serialized) = bincode_legacy::serialize(info) {
                     data.extend_from_slice(&serialized);
                 }
             }
             _ => {
                 // Fallback: serialize the full command via bincode.
-                if let Ok(serialized) = bincode::serialize(cmd) {
+                if let Ok(serialized) = bincode_legacy::serialize(cmd) {
                     data = serialized;
                 }
             }
@@ -523,7 +523,7 @@ impl NetworkBridge {
         let data = match &cmd.payload {
             CommandPayload::Generic(bytes) => bytes.clone(),
             CommandPayload::GameCommand(game_data) => {
-                bincode::serialize(game_data).unwrap_or_default()
+                bincode_legacy::serialize(game_data).unwrap_or_default()
             }
             _ => return None, // Non-game commands don't go through the sync layer.
         };
@@ -540,7 +540,7 @@ impl NetworkBridge {
         sync_cmd: &SyncNetCommand,
         cmd_type: NetCommandType,
     ) -> GameNetCommand {
-        let payload = if let Ok(game_data) = bincode::deserialize::<GameCommandData>(&sync_cmd.data)
+        let payload = if let Ok(game_data) = bincode_legacy::deserialize::<GameCommandData>(&sync_cmd.data)
         {
             CommandPayload::GameCommand(game_data)
         } else {

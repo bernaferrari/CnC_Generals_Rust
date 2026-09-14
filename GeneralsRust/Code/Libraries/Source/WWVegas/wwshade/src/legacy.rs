@@ -261,12 +261,12 @@ impl ShdDefClass for LegacyW3DShaderDef {
     }
 
     fn save(&self) -> ShdResult<Vec<u8>> {
-        bincode::serialize(self).map_err(|e| ShdError::Serialization(e.to_string()))
+        bincode_legacy::serialize(self).map_err(|e| ShdError::Serialization(e.to_string()))
     }
 
     fn load(&mut self, data: &[u8]) -> ShdResult<()> {
         let loaded: LegacyW3DShaderDef =
-            bincode::deserialize(data).map_err(|e| ShdError::Serialization(e.to_string()))?;
+            bincode_legacy::deserialize(data).map_err(|e| ShdError::Serialization(e.to_string()))?;
         *self = loaded;
         Ok(())
     }

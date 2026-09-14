@@ -10,7 +10,6 @@
 //! - Multi-threaded processing
 //! - Cache-aware optimization
 
-use nalgebra::Vector3;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::cmp::{Ordering as CmpOrdering, Reverse};
@@ -22,6 +21,7 @@ use std::sync::{
     Arc, Mutex, RwLock,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
+use glam::Vec3;
 use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
 use tokio::sync::{Notify, RwLock as AsyncRwLock, Semaphore};
@@ -195,7 +195,7 @@ impl Ord for StreamingRequest {
 pub struct UsagePattern {
     pub asset_handle: AssetHandle,
     pub access_times: VecDeque<Instant>,
-    pub access_locations: VecDeque<Vector3<f32>>,
+    pub access_locations: VecDeque<Vec3>,
     pub average_interval: Duration,
     pub access_trend: AccessTrend,
     pub prediction_confidence: f32,
@@ -232,21 +232,21 @@ pub struct StreamingStats {
 /// Player position and camera information for LOD calculations
 #[derive(Debug, Clone)]
 pub struct ViewerContext {
-    pub position: Vector3<f32>,
-    pub forward: Vector3<f32>,
+    pub position: Vec3,
+    pub forward: Vec3,
     pub view_distance: f32,
     pub fov_degrees: f32,
-    pub movement_velocity: Vector3<f32>,
+    pub movement_velocity: Vec3,
 }
 
 impl Default for ViewerContext {
     fn default() -> Self {
         Self {
-            position: Vector3::zeros(),
-            forward: Vector3::new(0.0, 0.0, -1.0),
+            position: Vec3::ZERO,
+            forward: Vec3::new(0.0, 0.0, -1.0),
             view_distance: 1000.0,
             fov_degrees: 90.0,
-            movement_velocity: Vector3::zeros(),
+            movement_velocity: Vec3::ZERO,
         }
     }
 }
@@ -298,7 +298,7 @@ pub struct StreamingManager {
 #[derive(Debug)]
 struct PredictionModel {
     asset_correlations: HashMap<AssetHandle, Vec<(AssetHandle, f32)>>, // Asset -> Related assets + correlation
-    location_patterns: HashMap<Vector3<i32>, Vec<AssetHandle>>, // Grid cell -> Assets likely to be needed
+    location_patterns: HashMap<glam::IVec3, Vec<AssetHandle>>, // Grid cell -> Assets likely to be needed
     time_patterns: HashMap<u32, Vec<AssetHandle>>,              // Time bucket -> Assets
     confidence_threshold: f32,
 }
@@ -772,7 +772,7 @@ impl StreamingManager {
     }
 
     /// Record asset access for pattern analysis
-    pub fn record_asset_access(&self, handle: AssetHandle, position: Vector3<f32>) {
+    pub fn record_asset_access(&self, handle: AssetHandle, position: Vec3) {
         let now = Instant::now();
         let mut patterns = self
             .usage_patterns
@@ -1051,8 +1051,8 @@ impl StreamingManager {
 
     /// Calculate location-based correlation
     fn calculate_location_correlation(
-        locations1: &VecDeque<Vector3<f32>>,
-        locations2: &VecDeque<Vector3<f32>>,
+        locations1: &VecDeque<Vec3>,
+        locations2: &VecDeque<Vec3>,
     ) -> f32 {
         // Simplified: check for nearby locations
         let proximity_threshold = 100.0; // meters
@@ -1061,7 +1061,7 @@ impl StreamingManager {
 
         for loc1 in locations1 {
             for loc2 in locations2 {
-                if (*loc1 - *loc2).norm() < proximity_threshold {
+                if (*loc1 - *loc2).length() < proximity_threshold {
                     nearby_pairs += 1;
                 }
             }

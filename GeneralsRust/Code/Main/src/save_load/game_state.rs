@@ -422,7 +422,7 @@ impl GameStateManager {
         let snapshot_builder = SnapshotBuilder::new();
         let world_snapshot = snapshot_builder.create_world_snapshot(&game_logic)?;
 
-        let serialized = bincode::serialize(&world_snapshot)
+        let serialized = bincode_legacy::serialize(&world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         Ok(crc32fast::hash(&serialized))

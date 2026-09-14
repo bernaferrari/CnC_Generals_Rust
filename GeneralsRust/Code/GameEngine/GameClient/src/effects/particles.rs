@@ -3,12 +3,13 @@
 //! High-performance particle system with GPU acceleration for Command & Conquer
 //! Generals Zero Hour visual effects including explosions, fire, smoke, and debris.
 
-use nalgebra::{Point3, Vector3};
 use rand::prelude::*;
+use rand::{rng, RngExt};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use super::{EffectsConfig, EffectsError, EffectsLOD, utils};
+use glam::{Vec3};
 
 /// Unique identifier for particle systems
 pub type ParticleSystemId = u32;
@@ -40,9 +41,9 @@ pub enum ParticleType {
 #[derive(Debug, Clone)]
 pub struct Particle {
     /// Current position
-    pub position: Point3<f32>,
+    pub position: Vec3,
     /// Current velocity
-    pub velocity: Vector3<f32>,
+    pub velocity: Vec3,
     /// Current size/scale
     pub size: f32,
     /// Current color (RGBA)
@@ -66,8 +67,8 @@ pub struct Particle {
 impl Particle {
     /// Create a new particle
     pub fn new(
-        position: Point3<f32>,
-        velocity: Vector3<f32>,
+        position: Vec3,
+        velocity: Vec3,
         size: f32,
         color: [f32; 4],
         lifetime: f32,
@@ -101,7 +102,7 @@ impl Particle {
         }
 
         // Apply forces
-        let mut acceleration = Vector3::new(0.0, 0.0, 0.0);
+        let mut acceleration = Vec3::new(0.0, 0.0, 0.0);
         for force in forces {
             acceleration += force.apply(self);
         }
@@ -136,27 +137,27 @@ impl Particle {
 #[derive(Debug, Clone)]
 pub enum ParticleForce {
     /// Constant gravity force
-    Gravity { strength: Vector3<f32> },
+    Gravity { strength: Vec3 },
     /// Wind force with turbulence
     Wind {
-        direction: Vector3<f32>,
+        direction: Vec3,
         strength: f32,
         turbulence: f32,
     },
     /// Attraction to a point
     PointAttractor {
-        position: Point3<f32>,
+        position: Vec3,
         strength: f32,
     },
     /// Repulsion from a point
     PointRepulsor {
-        position: Point3<f32>,
+        position: Vec3,
         strength: f32,
     },
     /// Vortex/swirl force
     Vortex {
-        center: Point3<f32>,
-        axis: Vector3<f32>,
+        center: Vec3,
+        axis: Vec3,
         strength: f32,
     },
     /// Drag/air resistance
@@ -165,7 +166,7 @@ pub enum ParticleForce {
 
 impl ParticleForce {
     /// Apply this force to a particle
-    pub fn apply(&self, particle: &Particle) -> Vector3<f32> {
+    pub fn apply(&self, particle: &Particle) -> Vec3 {
         match self {
             ParticleForce::Gravity { strength } => *strength,
 
@@ -181,18 +182,18 @@ impl ParticleForce {
                 let turb_y = (particle.position.y * 0.1 + particle.age * 1.1).sin() * *turbulence;
                 let turb_z = (particle.position.z * 0.1 + particle.age * 0.9).sin() * *turbulence;
 
-                wind_force + Vector3::new(turb_x, turb_y, turb_z)
+                wind_force + Vec3::new(turb_x, turb_y, turb_z)
             }
 
             ParticleForce::PointAttractor { position, strength } => {
                 let to_attractor = *position - particle.position;
-                let distance_sq = to_attractor.norm_squared().max(0.1); // Avoid division by zero
+                let distance_sq = to_attractor.length_squared().max(0.1); // Avoid division by zero
                 to_attractor.normalize() * (*strength / distance_sq)
             }
 
             ParticleForce::PointRepulsor { position, strength } => {
                 let from_repulsor = particle.position - *position;
-                let distance_sq = from_repulsor.norm_squared().max(0.1);
+                let distance_sq = from_repulsor.length_squared().max(0.1);
                 from_repulsor.normalize() * (*strength / distance_sq)
             }
 
@@ -202,9 +203,9 @@ impl ParticleForce {
                 strength,
             } => {
                 let to_center = particle.position - *center;
-                let radius_vector = to_center - to_center.dot(axis) * *axis;
-                let tangent = axis.cross(&radius_vector).normalize();
-                tangent * *strength / (radius_vector.norm() + 0.1)
+                let radius_vector = to_center - to_center.dot(*axis) * *axis;
+                let tangent = axis.cross(radius_vector).normalize();
+                tangent * *strength / (radius_vector.length() + 0.1)
             }
 
             ParticleForce::Drag { coefficient } => {
@@ -218,11 +219,11 @@ impl ParticleForce {
 #[derive(Debug, Clone)]
 pub struct ParticleEmitter {
     /// Position of the emitter
-    pub position: Point3<f32>,
+    pub position: Vec3,
     /// Emission rate (particles per second)
     pub emission_rate: f32,
     /// Emission direction (will add spread)
-    pub direction: Vector3<f32>,
+    pub direction: Vec3,
     /// Emission cone angle in radians
     pub spread_angle: f32,
     /// Initial speed range
@@ -247,11 +248,11 @@ pub struct ParticleEmitter {
 
 impl ParticleEmitter {
     /// Create a new particle emitter
-    pub fn new(position: Point3<f32>) -> Self {
+    pub fn new(position: Vec3) -> Self {
         Self {
             position,
             emission_rate: 100.0,
-            direction: Vector3::new(0.0, 1.0, 0.0),
+            direction: Vec3::new(0.0, 1.0, 0.0),
             spread_angle: 0.5,
             speed_range: (1.0, 5.0),
             size_range: (0.1, 0.3),
@@ -288,7 +289,7 @@ impl ParticleEmitter {
         self.emission_accumulator -= particles_to_emit as f32;
 
         let mut new_particles = Vec::with_capacity(particles_to_emit as usize);
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         for _ in 0..particles_to_emit {
             // Generate random properties
@@ -299,15 +300,15 @@ impl ParticleEmitter {
                 self.speed_range.1,
             );
 
-            let size = rng.gen_range(self.size_range.0..=self.size_range.1);
-            let lifetime = rng.gen_range(self.lifetime_range.0..=self.lifetime_range.1);
+            let size = rng.random_range(self.size_range.0..=self.size_range.1);
+            let lifetime = rng.random_range(self.lifetime_range.0..=self.lifetime_range.1);
 
             // Generate color with variation
             let mut color = self.color;
             if self.color_variation > 0.0 {
                 for i in 0..3 {
                     // Don't vary alpha
-                    let variation = (rng.r#gen::<f32>() - 0.5) * 2.0 * self.color_variation;
+                    let variation = (rng.random::<f32>() - 0.5) * 2.0 * self.color_variation;
                     color[i] = (color[i] + variation).clamp(0.0, 1.0);
                 }
             }
@@ -315,7 +316,7 @@ impl ParticleEmitter {
             let mut particle = Particle::new(self.position, velocity, size, color, lifetime);
 
             // Add some random rotation
-            particle.angular_velocity = rng.gen_range(-2.0..=2.0);
+            particle.angular_velocity = rng.random_range(-2.0..=2.0);
 
             new_particles.push(particle);
         }
@@ -343,7 +344,7 @@ pub struct ParticleSystem {
     /// Whether system is active
     pub active: bool,
     /// Position of the entire system
-    pub position: Point3<f32>,
+    pub position: Vec3,
     /// System scale multiplier
     pub scale: f32,
     /// LOD level for this system
@@ -354,7 +355,7 @@ pub struct ParticleSystem {
 
 impl ParticleSystem {
     /// Create a new particle system
-    pub fn new(id: ParticleSystemId, particle_type: ParticleType, position: Point3<f32>) -> Self {
+    pub fn new(id: ParticleSystemId, particle_type: ParticleType, position: Vec3) -> Self {
         Self {
             id,
             particle_type,
@@ -530,7 +531,7 @@ pub struct ParticleSystemDesc {
     /// Type of particle system
     pub particle_type: ParticleType,
     /// Position
-    pub position: Point3<f32>,
+    pub position: Vec3,
     /// Scale multiplier
     pub scale: f32,
     /// Duration (None = infinite)
@@ -546,13 +547,13 @@ impl ParticleSystemDesc {
     pub fn explosion() -> Self {
         Self {
             particle_type: ParticleType::Explosion,
-            position: Point3::new(0.0, 0.0, 0.0),
+            position: Vec3::new(0.0, 0.0, 0.0),
             scale: 1.0,
             duration: Some(5.0),
             emitter: None,
             forces: vec![
                 ParticleForce::Gravity {
-                    strength: Vector3::new(0.0, 0.0, -9.8),
+                    strength: Vec3::new(0.0, 0.0, -9.8),
                 },
                 ParticleForce::Drag { coefficient: 0.1 },
             ],
@@ -563,13 +564,13 @@ impl ParticleSystemDesc {
     pub fn fire() -> Self {
         Self {
             particle_type: ParticleType::Fire,
-            position: Point3::new(0.0, 0.0, 0.0),
+            position: Vec3::new(0.0, 0.0, 0.0),
             scale: 1.0,
             duration: None, // Infinite
             emitter: None,
             forces: vec![
                 ParticleForce::Wind {
-                    direction: Vector3::new(0.0, 0.0, 1.0),
+                    direction: Vec3::new(0.0, 0.0, 1.0),
                     strength: 2.0,
                     turbulence: 1.0,
                 },
@@ -582,13 +583,13 @@ impl ParticleSystemDesc {
     pub fn smoke() -> Self {
         Self {
             particle_type: ParticleType::Smoke,
-            position: Point3::new(0.0, 0.0, 0.0),
+            position: Vec3::new(0.0, 0.0, 0.0),
             scale: 1.0,
             duration: Some(10.0),
             emitter: None,
             forces: vec![
                 ParticleForce::Wind {
-                    direction: Vector3::new(0.0, 0.0, 1.0),
+                    direction: Vec3::new(0.0, 0.0, 1.0),
                     strength: 1.0,
                     turbulence: 0.5,
                 },
@@ -599,7 +600,7 @@ impl ParticleSystemDesc {
 
     /// Set position
     pub fn at_position(mut self, x: f32, y: f32, z: f32) -> Self {
-        self.position = Point3::new(x, y, z);
+        self.position = Vec3::new(x, y, z);
         self
     }
 
@@ -651,7 +652,7 @@ impl ParticleSystemDesc {
                     emitter.color = [1.0, 0.3, 0.1, 0.8]; // Red-orange
                     emitter.color_variation = 0.2;
                     emitter.spread_angle = 0.5;
-                    emitter.direction = Vector3::new(0.0, 0.0, 1.0); // Upward
+                    emitter.direction = Vec3::new(0.0, 0.0, 1.0); // Upward
                 }
 
                 ParticleType::Smoke => {
@@ -662,7 +663,7 @@ impl ParticleSystemDesc {
                     emitter.color = [0.3, 0.3, 0.3, 0.6]; // Gray
                     emitter.color_variation = 0.1;
                     emitter.spread_angle = 0.3;
-                    emitter.direction = Vector3::new(0.0, 0.0, 1.0); // Upward
+                    emitter.direction = Vec3::new(0.0, 0.0, 1.0); // Upward
                 }
 
                 _ => {} // Use defaults for other types
@@ -681,8 +682,8 @@ mod tests {
 
     #[test]
     fn test_particle_creation() {
-        let position = Point3::new(1.0, 2.0, 3.0);
-        let velocity = Vector3::new(0.5, 1.0, 0.0);
+        let position = Vec3::new(1.0, 2.0, 3.0);
+        let velocity = Vec3::new(0.5, 1.0, 0.0);
         let particle = Particle::new(position, velocity, 1.0, [1.0, 1.0, 1.0, 1.0], 5.0);
 
         assert_eq!(particle.position, position);
@@ -695,8 +696,8 @@ mod tests {
     #[test]
     fn test_particle_aging() {
         let mut particle = Particle::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
             1.0,
             [1.0, 1.0, 1.0, 1.0],
             2.0,
@@ -716,27 +717,27 @@ mod tests {
     #[test]
     fn test_particle_forces() {
         let particle = Particle::new(
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
             1.0,
             [1.0, 1.0, 1.0, 1.0],
             5.0,
         );
 
         let gravity = ParticleForce::Gravity {
-            strength: Vector3::new(0.0, 0.0, -9.8),
+            strength: Vec3::new(0.0, 0.0, -9.8),
         };
         let force = gravity.apply(&particle);
-        assert_eq!(force, Vector3::new(0.0, 0.0, -9.8));
+        assert_eq!(force, Vec3::new(0.0, 0.0, -9.8));
 
         let drag = ParticleForce::Drag { coefficient: 0.1 };
         let drag_force = drag.apply(&particle);
-        assert_eq!(drag_force, Vector3::new(-0.1, 0.0, 0.0)); // Opposite to velocity
+        assert_eq!(drag_force, Vec3::new(-0.1, 0.0, 0.0)); // Opposite to velocity
     }
 
     #[test]
     fn test_particle_emitter() {
-        let mut emitter = ParticleEmitter::new(Point3::new(0.0, 0.0, 0.0));
+        let mut emitter = ParticleEmitter::new(Vec3::new(0.0, 0.0, 0.0));
         emitter.emission_rate = 100.0; // 100 particles per second
 
         let particles = emitter.update(0.1); // 0.1 second
@@ -747,9 +748,9 @@ mod tests {
     #[test]
     fn test_particle_system() {
         let mut system =
-            ParticleSystem::new(1, ParticleType::Explosion, Point3::new(0.0, 0.0, 0.0));
+            ParticleSystem::new(1, ParticleType::Explosion, Vec3::new(0.0, 0.0, 0.0));
 
-        let emitter = ParticleEmitter::new(Point3::new(0.0, 0.0, 0.0));
+        let emitter = ParticleEmitter::new(Vec3::new(0.0, 0.0, 0.0));
         system.add_emitter(emitter);
 
         let config = EffectsConfig::default();
@@ -776,7 +777,7 @@ mod tests {
 
         assert_eq!(system.id, 42);
         assert_eq!(system.particle_type, ParticleType::Explosion);
-        assert_eq!(system.position, Point3::new(10.0, 20.0, 30.0));
+        assert_eq!(system.position, Vec3::new(10.0, 20.0, 30.0));
         assert_eq!(system.scale, 2.0);
         assert_eq!(system.lifetime, Some(3.0));
         assert!(!system.emitters.is_empty());
@@ -785,7 +786,7 @@ mod tests {
     #[test]
     fn test_particle_renderer() {
         let renderer = ParticleRenderer::new();
-        let system = ParticleSystem::new(1, ParticleType::Fire, Point3::new(0.0, 0.0, 0.0));
+        let system = ParticleSystem::new(1, ParticleType::Fire, Vec3::new(0.0, 0.0, 0.0));
 
         // Renderer should accept basic systems without error.
         assert!(renderer.render(&system).is_ok());

@@ -4,6 +4,8 @@
 
 //! Display adaptor that renders through the shared `PlatformContext`.
 
+use glam::{Mat4, Vec3};
+
 use crate::display::DisplayInterface;
 use crate::display::display_fx;
 use crate::display::shadow_pass;
@@ -38,7 +40,6 @@ use game_engine::common::ini::ini_game_data::{
 };
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine};
 use log::{error, warn};
-use nalgebra::{Matrix4, Point3, Vector3};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -308,8 +309,8 @@ impl Display {
         self.border_shroud_level
     }
 
-    pub fn begin_frame(&self) -> Result<(SurfaceTexture, wgpu::TextureView), wgpu::SurfaceError> {
-        let frame = self.graphics.surface().get_current_texture()?;
+    pub fn begin_frame(&self) -> Result<(SurfaceTexture, wgpu::TextureView), ww3d_gpu::GpuError> {
+        let frame = ww3d_gpu::acquire_surface_texture(self.graphics.surface())?;
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -334,11 +335,12 @@ impl Display {
         })
     }
 
-    fn nalgebra_to_game_matrix(nm: &nalgebra::Matrix4<f32>) -> crate::drawable::Matrix4 {
+    fn glam_to_game_matrix(nm: &Mat4) -> crate::drawable::Matrix4 {
+        let cols = nm.to_cols_array_2d();
         let mut gm = crate::drawable::Matrix4::identity();
         for r in 0..4 {
             for c in 0..4 {
-                gm.elements[r][c] = nm[(r, c)];
+                gm.elements[r][c] = cols[c][r];
             }
         }
         gm
@@ -845,22 +847,22 @@ impl Display {
         with_tactical_view_ref(|view| {
             let camera_pos = view.get_3d_camera_position();
             let target = view.position();
-            let camera = Point3::new(camera_pos.x, camera_pos.y, camera_pos.z);
-            let target = Point3::new(target.x, target.y, target.z);
-            let up = Vector3::new(0.0, 0.0, 1.0);
+            let camera = Vec3::new(camera_pos.x, camera_pos.y, camera_pos.z);
+            let target = Vec3::new(target.x, target.y, target.z);
+            let up = Vec3::new(0.0, 0.0, 1.0);
 
-            let view_matrix = Matrix4::look_at_rh(&camera, &target, &up);
+            let view_matrix = Mat4::look_at_rh(camera, target, up);
             let aspect = (view.width() as f32 / view.height().max(1) as f32).max(0.01);
-            let projection_matrix = Matrix4::new_perspective(
-                aspect,
+            let projection_matrix = Mat4::perspective_rh(
                 vertical_fov_from_horizontal(view.field_of_view(), aspect),
+                aspect,
                 1.0,
                 20000.0,
             );
 
             ParticleUniforms {
-                view_matrix: view_matrix.into(),
-                projection_matrix: projection_matrix.into(),
+                view_matrix: view_matrix.to_cols_array_2d(),
+                projection_matrix: projection_matrix.to_cols_array_2d(),
                 camera_position: [camera.x, camera.y, camera.z],
                 time: self.start_time.elapsed().as_secs_f32(),
                 screen_size: [
@@ -978,28 +980,29 @@ impl DisplayInterface for Display {
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
-            });
+                multiview_mask: None,
+});
         }
 
         with_tactical_view_ref(|tactical_view| {
             let camera_pos = tactical_view.get_3d_camera_position();
             let target = tactical_view.position();
-            let eye = nalgebra::Point3::new(camera_pos.x, camera_pos.y, camera_pos.z);
-            let target = nalgebra::Point3::new(target.x, target.y, target.z);
-            let up = nalgebra::Vector3::new(0.0, 0.0, 1.0);
+            let eye = Vec3::new(camera_pos.x, camera_pos.y, camera_pos.z);
+            let target = Vec3::new(target.x, target.y, target.z);
+            let up = Vec3::new(0.0, 0.0, 1.0);
 
-            let view_matrix = nalgebra::Matrix4::look_at_rh(&eye, &target, &up);
+            let view_matrix = Mat4::look_at_rh(eye, target, up);
             let aspect =
                 (tactical_view.width() as f32 / tactical_view.height().max(1) as f32).max(0.01);
-            let projection_matrix = nalgebra::Matrix4::new_perspective(
-                aspect,
+            let projection_matrix = Mat4::perspective_rh(
                 vertical_fov_from_horizontal(tactical_view.field_of_view(), aspect),
+                aspect,
                 1.0,
                 20000.0,
             );
 
-            let view_glam = glam::Mat4::from_cols_array_2d(&view_matrix.into());
-            let proj_glam = glam::Mat4::from_cols_array_2d(&projection_matrix.into());
+            let view_glam = view_matrix;
+            let proj_glam = projection_matrix;
 
             // Terrain rendering pass: guard must outlive RenderPass due to wgpu borrow on record_chunk_draws.
             if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
@@ -1032,7 +1035,8 @@ impl DisplayInterface for Display {
                             ),
                             occlusion_query_set: None,
                             timestamp_writes: None,
-                        });
+                            multiview_mask: None,
+});
                         terrain.record_chunk_draws(&mut pass);
                     }
                 }
@@ -1064,12 +1068,13 @@ impl DisplayInterface for Display {
                     }),
                     occlusion_query_set: None,
                     timestamp_writes: None,
-                });
+                    multiview_mask: None,
+});
 
                 crate::drawable::drawable_manager::with_drawable_manager(|manager| {
                     manager.set_camera(
-                        Self::nalgebra_to_game_matrix(&view_matrix),
-                        Self::nalgebra_to_game_matrix(&projection_matrix),
+                        Self::glam_to_game_matrix(&view_matrix),
+                        Self::glam_to_game_matrix(&projection_matrix),
                         crate::drawable::Vector3::new(camera_pos.x, camera_pos.y, camera_pos.z),
                     );
                     manager.cull_and_sort();
@@ -1280,7 +1285,8 @@ impl DisplayInterface for Display {
                         depth_stencil_attachment: None,
                         occlusion_query_set: None,
                         timestamp_writes: None,
-                    });
+                        multiview_mask: None,
+});
                     renderer.render(&mut render_pass)
                 };
                 renderer.end_frame();
@@ -1318,7 +1324,7 @@ impl DisplayInterface for Display {
             let _ = display_fx::write_backbuffer_screenshot(&path);
         }
 
-        frame.present();
+        self.graphics.queue().present(frame);
         Ok(())
     }
 

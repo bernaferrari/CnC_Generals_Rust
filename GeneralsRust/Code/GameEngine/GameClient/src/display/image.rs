@@ -6,7 +6,6 @@
 use bitflags::bitflags;
 use image::{DynamicImage, GenericImageView, ImageBuffer, ImageError, ImageFormat, RgbaImage};
 use log::debug;
-use nalgebra::{Point2, Vector2};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -23,6 +22,7 @@ use game_engine::common::ini::ini_mapped_image::{
     ImageCollection as CommonImageCollection,
     get_mapped_image_collection as get_common_mapped_image_collection,
 };
+use glam::Vec2;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use game_engine::common::system::big_file_system::BigArchiveBackend;
 use game_engine::common::system::file::FileAccess;
@@ -101,22 +101,22 @@ bitflags! {
 /// 2D Region for UV coordinates and positioning
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Region2D {
-    pub min: Point2<f32>,
-    pub max: Point2<f32>,
+    pub min: Vec2,
+    pub max: Vec2,
 }
 
 impl Region2D {
     pub fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
-            min: Point2::new(x, y),
-            max: Point2::new(x + width, y + height),
+            min: Vec2::new(x, y),
+            max: Vec2::new(x + width, y + height),
         }
     }
 
     pub fn from_coords(left: f32, top: f32, right: f32, bottom: f32) -> Self {
         Self {
-            min: Point2::new(left, top),
-            max: Point2::new(right, bottom),
+            min: Vec2::new(left, top),
+            max: Vec2::new(right, bottom),
         }
     }
 
@@ -387,7 +387,7 @@ impl Image {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
 

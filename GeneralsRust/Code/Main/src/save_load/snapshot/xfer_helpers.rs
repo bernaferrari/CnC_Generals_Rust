@@ -92,7 +92,7 @@ where
     let mut bytes = if xfer.get_mode() == XferMode::Load {
         Vec::new()
     } else {
-        bincode::serialize(value).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+        bincode_legacy::serialize(value).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
     };
     let mut len = bytes.len() as u32;
     xfer.xfer_u32(&mut len)?;
@@ -106,7 +106,7 @@ where
         *value = if bytes.is_empty() {
             T::default()
         } else {
-            bincode::deserialize(&bytes).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+            bincode_legacy::deserialize(&bytes).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
         };
     }
     Ok(())

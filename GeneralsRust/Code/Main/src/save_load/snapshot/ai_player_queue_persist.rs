@@ -451,7 +451,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.players.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(AITQ_MAGIC);
@@ -485,7 +485,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     }
     let encoded = &rest[..payload_len];
     let payload = if version == AITQ_VERSION_V1 {
-        let old: AIPlayerQueuePersistPayloadV1 = bincode::deserialize(encoded)
+        let old: AIPlayerQueuePersistPayloadV1 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v1 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
             players: old
@@ -495,7 +495,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else if version == AITQ_VERSION_V2 {
-        let old: AIPlayerQueuePersistPayloadV2 = bincode::deserialize(encoded)
+        let old: AIPlayerQueuePersistPayloadV2 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v2 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
             players: old
@@ -505,7 +505,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else if version == AITQ_VERSION_V3 {
-        let old: AIPlayerQueuePersistPayloadV3 = bincode::deserialize(encoded)
+        let old: AIPlayerQueuePersistPayloadV3 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v3 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
             players: old
@@ -515,7 +515,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else if version == AITQ_VERSION_V4 {
-        let old: AIPlayerQueuePersistPayloadV4 = bincode::deserialize(encoded)
+        let old: AIPlayerQueuePersistPayloadV4 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ v4 payload decode: {err}")))?;
         AIPlayerQueuePersistPayload {
             players: old
@@ -525,7 +525,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else {
-        bincode::deserialize(encoded)
+        bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("AITQ payload decode: {err}")))?
     };
     game_logic.apply_ai_player_queue_persist(payload.players);
@@ -787,7 +787,7 @@ mod tests {
                 skillset_selector: 0,
             }],
         };
-        let encoded = bincode::serialize(&v1).expect("encode v1");
+        let encoded = bincode_legacy::serialize(&v1).expect("encode v1");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(AITQ_MAGIC);
         append_u32(&mut bytes, AITQ_VERSION_V1);
@@ -932,7 +932,7 @@ mod tests {
                 cur_right_flank_right_defense_angle: 0.0,
             }],
         };
-        let encoded = bincode::serialize(&v2).expect("encode v2");
+        let encoded = bincode_legacy::serialize(&v2).expect("encode v2");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(AITQ_MAGIC);
         append_u32(&mut bytes, AITQ_VERSION_V2);
@@ -1006,7 +1006,7 @@ mod tests {
                 building_rebuild_counts: vec![2, 1],
             }],
         };
-        let encoded = bincode::serialize(&v3).expect("encode v3");
+        let encoded = bincode_legacy::serialize(&v3).expect("encode v3");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(AITQ_MAGIC);
         append_u32(&mut bytes, AITQ_VERSION_V3);
@@ -1133,7 +1133,7 @@ mod tests {
                 building_destroyed_at_times: vec![Some(9.0), None],
             }],
         };
-        let encoded = bincode::serialize(&v4).expect("encode v4");
+        let encoded = bincode_legacy::serialize(&v4).expect("encode v4");
         let mut bytes = Vec::new();
         bytes.extend_from_slice(AITQ_MAGIC);
         append_u32(&mut bytes, AITQ_VERSION_V4);

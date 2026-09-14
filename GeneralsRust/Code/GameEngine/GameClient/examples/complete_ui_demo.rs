@@ -58,11 +58,12 @@ impl UIDemo {
         let mut backend_options = wgpu::BackendOptions::default();
         backend_options.dx12.shader_compiler = Default::default();
 
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::default(),
             memory_budget_thresholds: Default::default(),
             backend_options,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         // Create surface
@@ -77,6 +78,7 @@ impl UIDemo {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await
             .ok_or("Failed to create adapter")?;
@@ -108,6 +110,7 @@ impl UIDemo {
         let surface_config = SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],
@@ -326,7 +329,7 @@ impl UIDemo {
         }
 
         // Present the frame
-        present_surface_texture(output);
+        present_surface_texture(&self.queue, output);
 
         Ok(())
     }

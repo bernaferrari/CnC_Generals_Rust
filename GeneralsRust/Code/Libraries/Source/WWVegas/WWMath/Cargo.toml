@@ -1,15 +1,16 @@
 [package]
 name = "math_utilities"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
-rand = "0.8"
-fastrand = "2.3"
-lazy_static = "1.5"
-thiserror = "1.0"
-anyhow = "1.0"
-glam = "0.28"
+rand = {workspace = true}
+fastrand = {workspace = true}
+lazy_static = {workspace = true}
+thiserror = {workspace = true}
+anyhow = {workspace = true}
+glam = {workspace = true}
 
 [features]
 collision-stats = []

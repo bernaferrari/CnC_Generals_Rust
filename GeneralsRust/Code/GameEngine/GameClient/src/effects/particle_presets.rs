@@ -10,8 +10,8 @@
 //! All presets match C++ ParticleSystem templates from INI files.
 
 use super::particle_manager::*;
-use nalgebra::Vector3;
 use std::sync::Arc;
+use glam::{Vec3};
 
 /// Preset explosion effects
 pub mod explosions {
@@ -370,7 +370,7 @@ pub mod environment {
 
         info.gravity = -0.5; // Rises
         info.vel_damping = GameClientRandomVariable::new(0.97, 0.99);
-        info.drift_velocity = Vector3::new(0.0, 0.0, 3.0); // Upward drift
+        info.drift_velocity = Vec3::new(0.0, 0.0, 3.0); // Upward drift
 
         // Dark gray to light gray smoke
         info.color_keys[0] = RGBColorKeyframe {
@@ -457,7 +457,7 @@ pub mod environment {
         info.burst_count = GameClientRandomVariable::new(15.0, 25.0);
 
         info.emission_volume = EmissionVolume::Box {
-            half_size: Vector3::new(5.0, 5.0, 1.0),
+            half_size: Vec3::new(5.0, 5.0, 1.0),
         };
         info.emission_velocity = EmissionVelocity::Hemispherical {
             speed: GameClientRandomVariable::new(5.0, 15.0),
@@ -514,7 +514,7 @@ pub mod destruction {
         info.burst_count = GameClientRandomVariable::new(60.0, 100.0);
 
         info.emission_volume = EmissionVolume::Box {
-            half_size: Vector3::new(15.0, 15.0, 5.0),
+            half_size: Vec3::new(15.0, 15.0, 5.0),
         };
         info.emission_velocity = EmissionVelocity::Outward {
             speed: GameClientRandomVariable::new(10.0, 25.0),
@@ -567,7 +567,7 @@ pub mod destruction {
         info.burst_count = GameClientRandomVariable::new(30.0, 50.0);
 
         info.emission_volume = EmissionVolume::Box {
-            half_size: Vector3::new(10.0, 10.0, 10.0),
+            half_size: Vec3::new(10.0, 10.0, 10.0),
         };
         info.emission_velocity = EmissionVelocity::Spherical {
             speed: GameClientRandomVariable::new(20.0, 40.0),

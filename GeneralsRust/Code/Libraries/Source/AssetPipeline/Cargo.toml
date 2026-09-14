@@ -1,7 +1,8 @@
 [package]
 name = "asset_pipeline"
 version = "1.0.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["GeneralsRust Team"]
 description = "Modern asset pipeline replacing Max4SDK with advanced import/export and processing capabilities"
 license = "GPL-3.0"
@@ -20,67 +21,67 @@ maya_integration = []
 
 [dependencies]
 # Core dependencies
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "2.0"
-anyhow = "1.0"
-uuid = { version = "1.10", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+thiserror = {workspace = true}
+anyhow = {workspace = true}
+uuid = {workspace = true, features = ["v4", "serde"]}
+chrono = {workspace = true, features = ["serde"]}
 
 # File I/O and formats
-image = { version = "0.25", features = ["png", "jpeg", "tga", "dds"] }
-tiff = "0.9"
-png = "0.17"
-jpeg-decoder = "0.3"
+image = {workspace = true, features = ["png", "jpeg", "tga", "dds"]}
+tiff = {workspace = true}
+png = {workspace = true}
+jpeg-decoder = {workspace = true}
 
 # 3D formats
-gltf = { version = "1.4", optional = true }
-obj = { version = "0.10", optional = true }
+gltf = {workspace = true, optional = true}
+obj = {workspace = true, optional = true}
 
 # Mesh processing
-meshopt = "0.3"
-glam = "0.28"
-ultraviolet = "0.9"
+meshopt = {workspace = true}
+glam = {workspace = true}
+ultraviolet = {workspace = true}
 
 # GPU processing
-wgpu = { version = "27.0.1", optional = true }
+wgpu = {workspace = true, optional = true}
 
 # Parallel processing
-rayon = { version = "1.10", optional = true }
-tokio = { version = "1.40", features = ["full"], optional = true }
-futures = "0.3"
-async-trait = "0.1"
+rayon = {workspace = true, optional = true}
+tokio = {workspace = true, features = ["full"], optional = true}
+futures = {workspace = true}
+async-trait = {workspace = true}
 
 # Compression
-zstd = "0.13"
-lz4_flex = "0.11"
+zstd = {workspace = true}
+lz4_flex = {workspace = true}
 eac_compression = { path = "../Compression/EAC" }
 
 # Text processing and scripting
-regex = "1.10"
-toml = "0.8"
-yaml-rust = "0.4"
+regex = {workspace = true}
+toml = {workspace = true}
+yaml-rust = {workspace = true}
 
 # Progress tracking
-indicatif = "0.17"
+indicatif = {workspace = true}
 
 # Utilities
-log = "0.4"
-env_logger = "0.11"
-memmap2 = "0.9"
-walkdir = "2.5"
-globset = "0.4"
-num_cpus = "1.16"
+log = {workspace = true}
+env_logger = {workspace = true}
+memmap2 = {workspace = true}
+walkdir = {workspace = true}
+globset = {workspace = true}
+num_cpus = {workspace = true}
 
 # Platform specific (optional)
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["winuser", "combaseapi"], optional = true }
+winapi = { workspace = true, features = ["winuser", "combaseapi"], optional = true }
 
 # Math and geometry
-ncollide3d = "0.33"
-parry3d = "0.13"
+ncollide3d = { workspace = true }
+parry3d = { workspace = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-tempfile = "3.8"
-approx = "0.5"
+criterion = {workspace = true, features = ["html_reports"]}
+tempfile = {workspace = true}
+approx = {workspace = true}

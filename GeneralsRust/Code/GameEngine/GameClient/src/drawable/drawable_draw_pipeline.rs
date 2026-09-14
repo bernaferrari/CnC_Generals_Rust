@@ -307,7 +307,7 @@ impl DrawableDrawPipeline {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             ..Default::default()
         });
         let default_texture = Self::create_solid_texture(&device, &queue, [255, 255, 255, 255]);
@@ -317,8 +317,8 @@ impl DrawableDrawPipeline {
         // --- Pipeline layout ---
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Drawable Pipeline Layout"),
-            bind_group_layouts: &[&camera_bgl, &object_bgl, &texture_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl), Some(&object_bgl), Some(&texture_bgl)],
+            immediate_size: 0,
         });
 
         // --- Shaders ---
@@ -371,8 +371,8 @@ impl DrawableDrawPipeline {
 
         let depth_stencil = wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: true,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         };
@@ -384,7 +384,7 @@ impl DrawableDrawPipeline {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout.clone()],
+                buffers: &[Some(vertex_layout.clone())],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -408,7 +408,7 @@ impl DrawableDrawPipeline {
             },
             depth_stencil: Some(depth_stencil.clone()),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -424,7 +424,7 @@ impl DrawableDrawPipeline {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[vertex_layout],
+                buffers: &[Some(vertex_layout)],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -447,11 +447,11 @@ impl DrawableDrawPipeline {
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                depth_write_enabled: false, // transparent objects don't write depth
+                depth_write_enabled: Some(false), // transparent objects don't write depth
                 ..depth_stencil
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 

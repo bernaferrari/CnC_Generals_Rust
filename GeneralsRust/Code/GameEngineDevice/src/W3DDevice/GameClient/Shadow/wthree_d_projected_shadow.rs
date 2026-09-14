@@ -1155,7 +1155,7 @@ impl W3DProjectedShadowManager {
                 address_mode_w: AddressMode::ClampToEdge,
                 mag_filter: FilterMode::Linear,
                 min_filter: FilterMode::Linear,
-                mipmap_filter: FilterMode::Nearest,
+                mipmap_filter: MipmapFilterMode::Nearest,
                 ..Default::default()
             });
             let tex_bg = device.create_bind_group(&BindGroupDescriptor {
@@ -1364,7 +1364,7 @@ impl RenderContextHandle {
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Shadow Decal Pipeline Layout"),
             bind_group_layouts: &layouts,
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let vertex_layout = ShadowDecalVertex::buffer_layout();
@@ -1400,13 +1400,13 @@ impl RenderContextHandle {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: TextureFormat::Depth24PlusStencil8,
-                    depth_write_enabled: false,
-                    depth_compare: CompareFunction::LessEqual,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(CompareFunction::LessEqual),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };

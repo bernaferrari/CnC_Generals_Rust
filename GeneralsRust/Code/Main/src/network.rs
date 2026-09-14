@@ -23,7 +23,7 @@
 //! GameNetwork module, exposing a simplified API that matches what the
 //! network_demo and other Main binaries expect.
 
-use bincode;
+use bincode_legacy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr};

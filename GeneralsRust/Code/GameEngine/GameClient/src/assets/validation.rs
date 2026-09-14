@@ -927,7 +927,12 @@ impl AssetValidator {
     fn calculate_checksum_sha256(&self, data: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(data);
-        format!("{:x}", hasher.finalize())
+        hasher
+            .finalize()
+            .as_slice()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     /// Calculate CRC32 checksum

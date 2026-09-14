@@ -368,7 +368,7 @@ impl AudioEventInfo {
         if self.pitch_shift_min == self.pitch_shift_max {
             self.pitch_shift_min
         } else {
-            rand::thread_rng().gen_range(self.pitch_shift_min..=self.pitch_shift_max)
+            rand::random_range(self.pitch_shift_min..=self.pitch_shift_max)
         }
     }
 
@@ -377,7 +377,7 @@ impl AudioEventInfo {
         if self.delay_min == self.delay_max {
             self.delay_min
         } else {
-            rand::thread_rng().gen_range(self.delay_min..=self.delay_max)
+            rand::random_range(self.delay_min..=self.delay_max)
         }
     }
 

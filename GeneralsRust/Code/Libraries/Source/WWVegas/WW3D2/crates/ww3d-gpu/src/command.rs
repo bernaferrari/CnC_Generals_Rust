@@ -246,7 +246,8 @@ impl<'a> RenderPass<'a> {
 
     /// Set push constants
     pub fn set_push_constants(&mut self, stages: wgpu::ShaderStages, offset: u32, data: &[u8]) {
-        self.render_pass.set_push_constants(stages, offset, data);
+        let _ = stages;
+        self.render_pass.set_immediates(offset, data);
     }
 
     /// Set viewport
@@ -367,7 +368,7 @@ impl<'a> ComputePass<'a> {
 
     /// Set push constants
     pub fn set_push_constants(&mut self, offset: u32, data: &[u8]) {
-        self.compute_pass.set_push_constants(offset, data);
+        self.compute_pass.set_immediates(offset, data);
     }
 
     /// Dispatch compute workgroups

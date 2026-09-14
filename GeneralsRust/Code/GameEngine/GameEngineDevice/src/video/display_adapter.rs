@@ -118,7 +118,7 @@ pub struct AdapterCapabilities {
     /// Maximum vertex buffer array stride
     pub max_vertex_buffer_array_stride: u32,
     /// Maximum inter-stage shader components
-    pub max_inter_stage_shader_components: u32,
+    pub max_inter_stage_shader_variables: u32,
     /// Maximum compute workgroup storage size
     pub max_compute_workgroup_storage_size: u32,
     /// Maximum compute invocations per workgroup
@@ -320,7 +320,7 @@ impl DisplayAdapter {
             let mut backend_options = wgpu::BackendOptions::default();
             backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
 
-            let instance = Instance::new(&wgpu::InstanceDescriptor {
+            let instance = Instance::new(wgpu::InstanceDescriptor {
                 backends: Backends::all(),
                 flags: wgpu::InstanceFlags::default(),
                 memory_budget_thresholds: Default::default(),
@@ -386,7 +386,7 @@ impl DisplayAdapter {
                     max_vertex_buffers: limits.max_vertex_buffers,
                     max_vertex_attributes: limits.max_vertex_attributes,
                     max_vertex_buffer_array_stride: limits.max_vertex_buffer_array_stride,
-                    max_inter_stage_shader_components: limits.max_inter_stage_shader_components,
+                    max_inter_stage_shader_variables: limits.max_inter_stage_shader_variables,
                     max_compute_workgroup_storage_size: limits.max_compute_workgroup_storage_size,
                     max_compute_invocations_per_workgroup: limits
                         .max_compute_invocations_per_workgroup,
@@ -652,7 +652,7 @@ impl DisplayAdapter {
                 .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES),
             multi_draw_indirect: features.contains(wgpu::Features::MULTI_DRAW_INDIRECT_COUNT),
             multi_draw_indirect_count: features.contains(wgpu::Features::MULTI_DRAW_INDIRECT_COUNT),
-            push_constants: features.contains(wgpu::Features::PUSH_CONSTANTS),
+            push_constants: features.contains(wgpu::Features::IMMEDIATES),
             address_mode_clamp_to_border: features
                 .contains(wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER),
             polygon_mode_line: features.contains(wgpu::Features::POLYGON_MODE_LINE),
@@ -1082,7 +1082,7 @@ impl Default for AdapterCapabilities {
             max_vertex_buffers: 8,
             max_vertex_attributes: 16,
             max_vertex_buffer_array_stride: 2048,
-            max_inter_stage_shader_components: 60,
+            max_inter_stage_shader_variables: 60,
             max_compute_workgroup_storage_size: 16384,
             max_compute_invocations_per_workgroup: 256,
             max_compute_workgroup_size_x: 256,

@@ -11,11 +11,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 
 use crate::common::audio::game_audio::register_animation_sound_library;
 use crate::common::audio::{

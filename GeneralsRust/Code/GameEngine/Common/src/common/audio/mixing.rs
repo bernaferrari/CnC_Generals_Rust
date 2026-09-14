@@ -15,9 +15,6 @@ use std::sync::Arc;
 
 #[cfg(feature = "audio")]
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
-#[cfg(feature = "audio")]
-use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
-
 use crate::common::audio::{AudioAffect, AudioHandle, Bool, Real, UnsignedInt};
 
 /// Maximum number of audio buses

@@ -20,18 +20,23 @@ use std::sync::Arc;
 use super::SampleFormat;
 #[cfg(feature = "audio")]
 use kira::{
-    Volume,
-    manager::{AudioManager, AudioManagerSettings, backend::cpal::CpalBackend},
-    sound::PlaybackRate,
+    AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween,
     sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
-    tween::Tween,
 };
+
+fn kira_amplitude(amp: f64) -> Decibels {
+    if amp <= 0.0001 {
+        Decibels::SILENCE
+    } else {
+        Decibels(20.0 * (amp as f32).log10())
+    }
+}
 
 /// Modern Kira-based audio driver
 pub struct KiraAudioDriver {
     /// Audio manager instance
     #[cfg(feature = "audio")]
-    manager: Arc<RwLock<AudioManager<CpalBackend>>>,
+    manager: Arc<RwLock<AudioManager<DefaultBackend>>>,
 
     /// Device capabilities
     capabilities: SimpleDeviceCapabilities,
@@ -105,13 +110,9 @@ impl KiraAudioDriver {
     /// Load a sound file for later playback
     #[cfg(feature = "audio")]
     pub async fn load_sound(&self, name: &str, path: &str) -> Result<()> {
-        let sound_data =
-            StaticSoundData::from_file(path, StaticSoundSettings::default()).map_err(|e| {
-                AudioDeviceError::InitializationFailed(format!(
-                    "Failed to load sound {}: {}",
-                    name, e
-                ))
-            })?;
+        let sound_data = StaticSoundData::from_file(path).map_err(|e| {
+            AudioDeviceError::InitializationFailed(format!("Failed to load sound {}: {}", name, e))
+        })?;
 
         self.sounds.insert(name.to_string(), sound_data);
         Ok(())
@@ -123,8 +124,8 @@ impl KiraAudioDriver {
         if let Some(sound_data) = self.sounds.get(name) {
             let mut manager = self.manager.write();
             let settings = StaticSoundSettings::default()
-                .volume(Volume::Amplitude(volume.max(0.0) as f64))
-                .playback_rate(PlaybackRate::Factor(pitch.max(0.01) as f64));
+                .volume(kira_amplitude(volume.max(0.0) as f64))
+                .playback_rate(pitch.max(0.01) as f64);
 
             let handle = manager
                 .play(sound_data.clone().with_settings(settings))
@@ -161,7 +162,7 @@ impl KiraAudioDriver {
                 distance, 25.0, 1000.0,
             );
             let settings = StaticSoundSettings::default()
-                .volume(Volume::Amplitude((volume.max(0.0) * gain) as f64));
+                .volume(kira_amplitude((volume.max(0.0) * gain) as f64));
 
             let handle = manager
                 .play(sound_data.clone().with_settings(settings))
@@ -193,9 +194,7 @@ impl KiraAudioDriver {
             return Ok(());
         };
         for handle in handles.iter_mut() {
-            handle.pause(Tween::default()).map_err(|e| {
-                AudioDeviceError::PlaybackFailed(format!("Failed to pause sound {}: {}", name, e))
-            })?;
+            handle.pause(Tween::default());
         }
         Ok(())
     }
@@ -209,9 +208,7 @@ impl KiraAudioDriver {
             return Ok(());
         };
         for handle in handles.iter_mut() {
-            handle.resume(Tween::default()).map_err(|e| {
-                AudioDeviceError::PlaybackFailed(format!("Failed to resume sound {}: {}", name, e))
-            })?;
+            handle.resume(Tween::default());
         }
         Ok(())
     }
@@ -223,12 +220,7 @@ impl KiraAudioDriver {
     pub async fn stop_sound(&self, name: &str) -> Result<()> {
         if let Some((_, mut handles)) = self.playing.remove(name) {
             for handle in handles.iter_mut() {
-                handle.stop(Tween::default()).map_err(|e| {
-                    AudioDeviceError::PlaybackFailed(format!(
-                        "Failed to stop sound {}: {}",
-                        name, e
-                    ))
-                })?;
+                handle.stop(Tween::default());
             }
         }
         self.sounds.remove(name);
@@ -244,14 +236,9 @@ impl KiraAudioDriver {
         let Some(mut handles) = self.playing.get_mut(name) else {
             return Ok(());
         };
-        let volume = Volume::Amplitude(volume.max(0.0) as f64);
+        let volume = kira_amplitude(volume.max(0.0) as f64);
         for handle in handles.iter_mut() {
-            handle.set_volume(volume, Tween::default()).map_err(|e| {
-                AudioDeviceError::PlaybackFailed(format!(
-                    "Failed to set volume for sound {}: {}",
-                    name, e
-                ))
-            })?;
+            handle.set_volume(volume, Tween::default());
         }
         Ok(())
     }

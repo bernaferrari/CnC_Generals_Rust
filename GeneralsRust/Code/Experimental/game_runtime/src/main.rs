@@ -56,7 +56,7 @@ impl RuntimeState {
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.renderer
             .render_snapshot(&self.device, &self.queue, &target, &snapshot)?;
-        frame.present();
+        self.queue.present(frame);
         Ok(())
     }
 }
@@ -69,16 +69,14 @@ async fn run() -> Result<()> {
     #[allow(deprecated)]
     let window = Arc::new(event_loop.create_window(window_attributes)?);
 
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-    });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
     let surface = instance.create_surface(window.clone())?;
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         })
         .await?;
     // STANDALONE DEVICE: experimental runtime binary, not on the game path.
@@ -102,6 +100,7 @@ async fn run() -> Result<()> {
         .copied()
         .unwrap_or(caps.formats[0]);
     let config = wgpu::SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format,
         width: size.width.max(1),

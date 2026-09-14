@@ -80,7 +80,7 @@ impl WgpuShaderInterface {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             lod_min_clamp: 0.0,
             lod_max_clamp: 32.0,
             compare: None,
@@ -198,8 +198,8 @@ impl WgpuShaderInterface {
             .device
             .create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&bind_group_layout)],
+                immediate_size: 0,
             });
 
         // Create render pipeline
@@ -234,13 +234,13 @@ impl WgpuShaderInterface {
                 },
                 depth_stencil: Some(DepthStencilState {
                     format: TextureFormat::Depth32Float,
-                    depth_write_enabled: true,
-                    depth_compare: CompareFunction::Less,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(CompareFunction::Less),
                     stencil: StencilState::default(),
                     bias: DepthBiasState::default(),
                 }),
                 multisample: MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             },
         ));

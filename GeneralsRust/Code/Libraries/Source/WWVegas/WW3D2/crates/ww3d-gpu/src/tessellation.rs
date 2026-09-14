@@ -418,8 +418,8 @@ fn tessellate_triangle(
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("tessellation_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         // Create compute pipeline
@@ -552,8 +552,12 @@ impl TessellationDispatcher {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: true,
         });
-        cp_buffer.slice(..).get_mapped_range_mut()[..cp_data_bytes.len()]
-            .copy_from_slice(cp_data_bytes);
+        {
+            let mut mapped = cp_buffer.slice(..).get_mapped_range_mut().expect("buffer map");
+            mapped
+                .slice(..cp_data_bytes.len())
+                .copy_from_slice(cp_data_bytes);
+        }
         cp_buffer.unmap();
 
         // Create input vertex buffer with mapped-at-creation
@@ -567,8 +571,15 @@ impl TessellationDispatcher {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: true,
         });
-        input_buffer.slice(..).get_mapped_range_mut()[..vertex_bytes.len()]
-            .copy_from_slice(vertex_bytes);
+        {
+            let mut mapped = input_buffer
+                .slice(..)
+                .get_mapped_range_mut()
+                .expect("buffer map");
+            mapped
+                .slice(..vertex_bytes.len())
+                .copy_from_slice(vertex_bytes);
+        }
         input_buffer.unmap();
 
         // Create bind group
@@ -662,7 +673,7 @@ impl TessellationDispatcher {
         vertex_slice.map_async(wgpu::MapMode::Read, |_| {});
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
-        let vertex_data = vertex_slice.get_mapped_range();
+        let vertex_data = vertex_slice.get_mapped_range().expect("buffer map");
         let vertices: Vec<TessellationVertex> = bytemuck::cast_slice(&vertex_data).to_vec();
         drop(vertex_data);
         vertex_staging.unmap();
@@ -672,7 +683,7 @@ impl TessellationDispatcher {
         index_slice.map_async(wgpu::MapMode::Read, |_| {});
         let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
-        let index_data = index_slice.get_mapped_range();
+        let index_data = index_slice.get_mapped_range().expect("buffer map");
         let indices: Vec<u32> = bytemuck::cast_slice(&index_data).to_vec();
         drop(index_data);
         index_staging.unmap();

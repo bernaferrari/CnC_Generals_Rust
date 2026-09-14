@@ -35,16 +35,14 @@ impl GpuBenchmarks {
         #[cfg(feature = "gpu")]
         {
             // Initialize WebGPU
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
             let adapter = instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
                     force_fallback_adapter: false,
                     compatible_surface: None,
+            apply_limit_buckets: false,
                 })
                 .await
                 .ok_or_else(|| BenchmarkError::InitializationFailed("No GPU adapter found".to_string()))?;
@@ -192,7 +190,7 @@ impl GpuBenchmarks {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -216,7 +214,8 @@ impl GpuBenchmarks {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
-                });
+                    multiview_mask: None,
+});
 
                 render_pass.set_pipeline(&pipeline);
                 render_pass.draw(0..3 * TRIANGLE_COUNT, 0..1);
@@ -249,7 +248,8 @@ impl GpuBenchmarks {
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
                     occlusion_query_set: None,
-                });
+                    multiview_mask: None,
+});
 
                 render_pass.set_pipeline(&pipeline);
                 render_pass.draw(0..3 * TRIANGLE_COUNT, 0..1);
@@ -446,8 +446,8 @@ impl GpuBenchmarks {
 
         let pipeline_layout = self.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Compute Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let compute_pipeline = self.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -631,7 +631,8 @@ impl GpuBenchmarks {
                     }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
-                });
+                    multiview_mask: None,
+});
             }
 
             self.queue.submit(Some(encoder.finish()));

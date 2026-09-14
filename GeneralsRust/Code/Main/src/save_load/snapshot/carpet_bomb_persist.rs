@@ -34,7 +34,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(CBPD_MAGIC);
@@ -62,7 +62,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "CBPD payload truncated".to_string(),
         ));
     }
-    let payload: CarpetBombPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: CarpetBombPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("CBPD payload decode: {err}")))?;
     game_logic.carpet_bomb_flight_reg = payload.registry;
     Ok(())

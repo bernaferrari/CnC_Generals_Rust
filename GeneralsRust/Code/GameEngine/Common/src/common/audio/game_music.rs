@@ -286,9 +286,9 @@ impl MusicManagerImpl {
     /// Shuffle the track list
     pub fn shuffle_tracks(&mut self) {
         use rand::seq::SliceRandom;
-        use rand::thread_rng;
+        use rand::rng;
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
         self.tracks.shuffle(&mut rng);
 
         // Reset to first track

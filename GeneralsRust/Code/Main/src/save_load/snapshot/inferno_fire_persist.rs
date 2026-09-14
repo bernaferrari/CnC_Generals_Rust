@@ -28,7 +28,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.registry.active_count() == 0 && payload.registry.zones_spawned == 0 {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(INFR_MAGIC);
@@ -55,7 +55,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "INFR payload truncated".to_string(),
         ));
     }
-    let payload: InfernoFirePersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: InfernoFirePersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("INFR payload decode: {err}")))?;
     game_logic.inferno_fire_zones = payload.registry;
     Ok(())

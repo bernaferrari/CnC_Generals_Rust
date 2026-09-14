@@ -287,7 +287,8 @@ impl ForwardPass {
                 depth_stencil_attachment: depth_stencil,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-            });
+                multiview_mask: None,
+});
             render_pass.set_pipeline(pipeline.as_ref());
             render_pass.set_bind_group(0, Some(camera_bg.as_ref()), &[]);
             render_pass.set_vertex_buffer(0, buffer.slice(..));

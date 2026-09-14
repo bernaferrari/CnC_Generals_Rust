@@ -102,6 +102,7 @@ impl EngineConfig {
             flags: wgpu::InstanceFlags::default(),
             memory_budget_thresholds: Default::default(),
             backend_options,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         }
     }
 }
@@ -117,8 +118,6 @@ pub enum EngineError {
     NoAdapter,
     #[error("Failed to create WGPU surface: {0}")]
     SurfaceCreation(String),
-    #[error(transparent)]
-    Surface(#[from] wgpu::SurfaceError),
     #[error(transparent)]
     Gpu(#[from] GpuError),
     #[error("Screenshot failed: {0}")]
@@ -261,6 +260,7 @@ impl WindowSurfaceState {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: config.surface_usage,
             format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: config.width.max(1),
             height: config.height.max(1),
             present_mode,
@@ -828,7 +828,7 @@ impl Engine {
         W: Into<wgpu::SurfaceTarget<'static>> + Send + Sync + 'static,
     {
         ensure_class_registry_initialized();
-        let instance = Arc::new(wgpu::Instance::new(&config.instance_descriptor()));
+        let instance = Arc::new(wgpu::Instance::new(config.instance_descriptor()));
         let surface_target = window.into();
         let surface = instance
             .create_surface(surface_target)
@@ -887,7 +887,7 @@ impl Engine {
     /// enhancement that provides additional flexibility.
     pub async fn new_headless(config: EngineConfig) -> EngineResult<Self> {
         ensure_class_registry_initialized();
-        let instance = Arc::new(wgpu::Instance::new(&config.instance_descriptor()));
+        let instance = Arc::new(wgpu::Instance::new(config.instance_descriptor()));
         let adapter = request_adapter(&instance, None, config.power_preference).await?;
         let adapter_info = adapter.get_info();
 
@@ -1054,7 +1054,7 @@ impl Engine {
 
         match &mut self.surface {
             SurfaceMode::Windowed(surface_state) => {
-                let frame = surface_state.surface.get_current_texture()?;
+                let frame = ww3d_gpu::acquire_surface_texture(&surface_state.surface)?;
                 let view = Arc::new(
                     frame
                         .texture
@@ -1583,7 +1583,7 @@ impl Engine {
 
     fn finish_screenshot_readback(&self, pending: ScreenshotReadback) -> EngineResult<()> {
         let buffer_slice = pending.buffer.slice(..);
-        let data = buffer_slice.get_mapped_range();
+        let data = buffer_slice.get_mapped_range().expect("buffer map");
         let mapped_bytes = data.to_vec();
 
         drop(data);
@@ -1695,7 +1695,7 @@ impl Engine {
             .map_err(|_| EngineError::Screenshot("Screenshot readback channel closed".into()))?
             .map_err(|err| EngineError::Screenshot(format!("GPU buffer map failed: {err}")))?;
 
-        let data = buffer_slice.get_mapped_range();
+        let data = buffer_slice.get_mapped_range().expect("buffer map");
         let mut image_data = vec![0u8; width as usize * height as usize * 4];
 
         for (row_index, dest_chunk) in image_data.chunks_exact_mut(width as usize * 4).enumerate() {
@@ -1741,7 +1741,7 @@ fn write_screenshot_png(
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.set_compression(png::Compression::Fast);
-    encoder.set_filter(png::FilterType::NoFilter);
+    encoder.set_filter(png::Filter::NoFilter);
 
     let mut writer = encoder
         .write_header()
@@ -1898,6 +1898,7 @@ async fn request_adapter(
             power_preference: preference,
             compatible_surface: surface,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         })
         .await
         .map_err(|_| EngineError::NoAdapter)
@@ -2259,15 +2260,15 @@ pub fn adapter_info() -> EngineResult<wgpu::AdapterInfo> {
 
 /// Enumerate adapters matching the provided backend mask.
 pub fn enumerate_adapters(backends: wgpu::Backends) -> Vec<wgpu::AdapterInfo> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
         flags: wgpu::InstanceFlags::default(),
         memory_budget_thresholds: Default::default(),
         backend_options: Default::default(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
 
-    instance
-        .enumerate_adapters(backends)
+    pollster::block_on(instance.enumerate_adapters(backends))
         .into_iter()
         .map(|adapter| adapter.get_info())
         .collect()

@@ -304,7 +304,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
         bind_group_layouts: &[],
-        push_constant_ranges: &[],
+        immediate_size: 0,
     });
 
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -341,7 +341,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
 
@@ -459,6 +459,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                                                         g: 0.2,
                                                         b: 0.3,
                                                         a: 1.0,
+            multiview_mask: None,
                                                     }),
                                                     store: wgpu::StoreOp::Store,
                                                 },

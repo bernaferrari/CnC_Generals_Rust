@@ -708,7 +708,7 @@ impl W3DDevice {
         let mut backend_options = wgpu::BackendOptions::default();
         backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::default();
 
-        let instance = Instance::new(&wgpu::InstanceDescriptor {
+        let instance = Instance::new(wgpu::InstanceDescriptor {
             backends: config.backend,
             memory_budget_thresholds: Default::default(),
             backend_options,
@@ -772,6 +772,7 @@ impl W3DDevice {
                 power_preference: config.power_preference,
                 compatible_surface: surface.as_ref(),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await
             .map_err(|_| W3DError::InitializationFailed("No suitable adapter found".to_string()))?;
@@ -815,6 +816,7 @@ impl W3DDevice {
             let surface_config = SurfaceConfiguration {
                 usage: TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
                 width: width.max(1),
                 height: height.max(1),
                 present_mode,
@@ -830,6 +832,7 @@ impl W3DDevice {
             let surface_config = SurfaceConfiguration {
                 usage: TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
                 width: config.resolution.width.max(1),
                 height: config.resolution.height.max(1),
                 present_mode: if config.vsync {
@@ -1076,7 +1079,7 @@ impl W3DDevice {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(&format!("{} Pipeline Layout", shader.name)),
             bind_group_layouts: &bind_group_layouts.iter().collect::<Vec<_>>(),
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         Ok(W3DShaderGpu {
@@ -1231,7 +1234,9 @@ impl W3DDevice {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             renderer.end_frame_with_view(Some(&surface_view)).await?;
-            surface_texture.present();
+            if let Some(queue) = self.queue.read().await.as_ref() {
+                queue.present(surface_texture);
+            }
         } else {
             renderer.end_frame().await?;
         }

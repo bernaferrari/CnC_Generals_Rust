@@ -41,7 +41,7 @@ use gamelogic::helpers::{
 };
 use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
-use kira::manager::{AudioManager, AudioManagerSettings};
+use kira::{AudioManager, AudioManagerSettings, DefaultBackend};
 
 use crate::core::game_client::{
     InGameUI, VideoPlayerInterface, run_live_game_client_load_post_process,
@@ -2588,7 +2588,7 @@ impl InGameUiHooks for InGameUiHandle {
 
 /// Audio subsystem backed by Kira.
 pub struct AudioSubsystem {
-    manager: Mutex<AudioManager<kira::manager::backend::DefaultBackend>>,
+    manager: Mutex<AudioManager<kira::DefaultBackend>>,
     debug_state: Mutex<AudioDebugState>,
 }
 
@@ -2603,7 +2603,7 @@ impl AudioSubsystem {
 
     pub fn manager(
         &self,
-    ) -> std::sync::MutexGuard<'_, AudioManager<kira::manager::backend::DefaultBackend>> {
+    ) -> std::sync::MutexGuard<'_, AudioManager<kira::DefaultBackend>> {
         self.manager.lock().unwrap_or_else(|e| e.into_inner())
     }
 

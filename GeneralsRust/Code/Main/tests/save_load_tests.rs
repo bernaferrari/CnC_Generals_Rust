@@ -309,8 +309,8 @@ fn test_save_file_header() {
     assert!(header.is_compressed());
 
     // Test serialization
-    let serialized = bincode::serialize(&header).unwrap();
-    let deserialized: SaveFileHeader = bincode::deserialize(&serialized).unwrap();
+    let serialized = bincode_legacy::serialize(&header).unwrap();
+    let deserialized: SaveFileHeader = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(header.magic, deserialized.magic);
     assert_eq!(header.version, deserialized.version);
@@ -326,10 +326,10 @@ fn test_world_snapshot_serialization() {
     snapshot.random_seed = 67890;
 
     // Serialize
-    let serialized = bincode::serialize(&snapshot).unwrap();
+    let serialized = bincode_legacy::serialize(&snapshot).unwrap();
 
     // Deserialize
-    let deserialized: WorldSnapshot = bincode::deserialize(&serialized).unwrap();
+    let deserialized: WorldSnapshot = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.frame_number, 12345);
     assert_eq!(deserialized.random_seed, 67890);
@@ -362,10 +362,10 @@ fn test_object_snapshot_serialization() {
     };
 
     // Serialize
-    let serialized = bincode::serialize(&snapshot).unwrap();
+    let serialized = bincode_legacy::serialize(&snapshot).unwrap();
 
     // Deserialize
-    let deserialized: ObjectSnapshot = bincode::deserialize(&serialized).unwrap();
+    let deserialized: ObjectSnapshot = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.id, ObjectId(123));
     assert_eq!(deserialized.template_name, "TestUnit");
@@ -411,10 +411,10 @@ fn test_player_snapshot_serialization() {
     };
 
     // Serialize
-    let serialized = bincode::serialize(&snapshot).unwrap();
+    let serialized = bincode_legacy::serialize(&snapshot).unwrap();
 
     // Deserialize
-    let deserialized: PlayerSnapshot = bincode::deserialize(&serialized).unwrap();
+    let deserialized: PlayerSnapshot = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.id, 0);
     assert_eq!(deserialized.name, "Player 1");
@@ -448,10 +448,10 @@ fn test_campaign_progress_serialization() {
     };
 
     // Serialize
-    let serialized = bincode::serialize(&progress).unwrap();
+    let serialized = bincode_legacy::serialize(&progress).unwrap();
 
     // Deserialize
-    let deserialized: CampaignProgress = bincode::deserialize(&serialized).unwrap();
+    let deserialized: CampaignProgress = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.player_name, "TestPlayer");
     assert_eq!(deserialized.current_campaign, Some(CampaignId::USACampaign));
@@ -479,10 +479,10 @@ fn test_replay_header_serialization() {
     });
 
     // Serialize
-    let serialized = bincode::serialize(&header).unwrap();
+    let serialized = bincode_legacy::serialize(&header).unwrap();
 
     // Deserialize
-    let deserialized: ReplayHeader = bincode::deserialize(&serialized).unwrap();
+    let deserialized: ReplayHeader = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.magic, *b"GZRP");
     assert_eq!(deserialized.map_name, "Tournament Desert");
@@ -501,10 +501,10 @@ fn test_replay_event_serialization() {
     };
 
     // Serialize
-    let serialized = bincode::serialize(&event).unwrap();
+    let serialized = bincode_legacy::serialize(&event).unwrap();
 
     // Deserialize
-    let deserialized: ReplayEvent = bincode::deserialize(&serialized).unwrap();
+    let deserialized: ReplayEvent = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.frame, 12345);
     assert_eq!(deserialized.player_id, 0);
@@ -541,10 +541,10 @@ fn test_mission_info_serialization() {
     };
 
     // Serialize
-    let serialized = bincode::serialize(&mission).unwrap();
+    let serialized = bincode_legacy::serialize(&mission).unwrap();
 
     // Deserialize
-    let deserialized: MissionInfo = bincode::deserialize(&serialized).unwrap();
+    let deserialized: MissionInfo = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.id, "usa_01");
     assert_eq!(deserialized.campaign_id, CampaignId::USACampaign);
@@ -587,10 +587,10 @@ fn test_save_game_info() {
     };
 
     // Serialize
-    let serialized = bincode::serialize(&info).unwrap();
+    let serialized = bincode_legacy::serialize(&info).unwrap();
 
     // Deserialize
-    let deserialized: SaveGameInfo = bincode::deserialize(&serialized).unwrap();
+    let deserialized: SaveGameInfo = bincode_legacy::deserialize(&serialized).unwrap();
 
     assert_eq!(deserialized.filename, "quicksave");
     assert_eq!(deserialized.display_name, "Quick Save");

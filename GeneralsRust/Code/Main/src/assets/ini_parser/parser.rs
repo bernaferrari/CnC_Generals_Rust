@@ -1,4 +1,5 @@
 use super::*;
+fn row_is_empty(row: &LocomotorSetDefinition) -> bool { row.locomotor_names.is_empty() }
 /// One C++ `ModelConditionInfo` weapon-bone field. Kept private because the
 /// public frozen record exposes the four exact base-name slots directly.
 #[derive(Clone, Copy)]
@@ -36,6 +37,17 @@ impl IniParser {
 
     /// Parse INI content from bytes
     pub fn parse_ini_content(&mut self, content: &str, filename: &str) -> Result<usize> {
+        self.parse_ini_content_with_overrides(content, filename, false)
+    }
+
+    /// Parse an INI stream using C++ `INI_LOAD_CREATE_OVERRIDES` semantics
+    /// for duplicate authored Locomotor rows.
+    pub fn parse_ini_content_with_overrides(
+        &mut self,
+        content: &str,
+        filename: &str,
+        create_overrides: bool,
+    ) -> Result<usize> {
         debug!("Parsing INI file: {}", filename);
 
         let lines: Vec<&str> = content.lines().collect();
@@ -662,7 +674,21 @@ impl IniParser {
                                     set_name, filename
                                 ));
                             }
-                            let locomotor_names = fields.map(str::to_string).collect::<Vec<_>>();
+                            let locomotor_names = fields
+                                .filter(|name| !name.eq_ignore_ascii_case("none") && !name.is_empty())
+                                .map(str::to_string)
+                                .collect::<Vec<_>>();
+                            if let Some(previous) = obj.locomotor_sets.iter().position(|row| {
+                                row.set_name.eq_ignore_ascii_case(set_name)
+                            }) {
+                                if !row_is_empty(&obj.locomotor_sets[previous]) && !create_overrides {
+                                    return Err(anyhow::anyhow!(
+                                        "duplicate Locomotor set '{}' in {}",
+                                        set_name, filename
+                                    ));
+                                }
+                                obj.locomotor_sets.remove(previous);
+                            }
                             obj.locomotor_sets.push(LocomotorSetDefinition {
                                 set_name: set_name.to_string(),
                                 locomotor_names,

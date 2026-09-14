@@ -11,6 +11,7 @@ use super::{
     GenericParticleRenderer, GenericParticleSystem, GenericParticleSystemId, ParticleSystemDesc,
     WeatherSystem, WeatherType, calculate_effects_lod, particles::ParticleType,
 };
+use glam::Vec3;
 use crate::system::SubsystemInterface;
 
 /// Central effects manager coordinating all visual effects
@@ -39,7 +40,7 @@ pub struct EffectsManager {
     last_update: Option<Instant>,
 
     /// View position for LOD calculations
-    view_position: nalgebra::Point3<f32>,
+    view_position: Vec3,
 }
 
 impl EffectsManager {
@@ -55,7 +56,7 @@ impl EffectsManager {
             stats: EffectsStats::default(),
             enabled: true,
             last_update: None,
-            view_position: nalgebra::Point3::new(0.0, 0.0, 0.0),
+            view_position: Vec3::new(0.0, 0.0, 0.0),
         }
     }
 
@@ -105,7 +106,7 @@ impl EffectsManager {
     }
 
     /// Set view position for LOD calculations
-    pub fn set_view_position(&mut self, position: nalgebra::Point3<f32>) {
+    pub fn set_view_position(&mut self, position: Vec3) {
         self.view_position = position;
     }
 
@@ -135,7 +136,7 @@ impl EffectsManager {
         let mut system = desc.build(id);
 
         // Calculate LOD based on distance from view
-        let distance = (system.position - self.view_position).norm();
+        let distance = (system.position - self.view_position).length();
         let lod = calculate_effects_lod(distance, &self.config);
         system.set_lod(lod);
 
@@ -184,7 +185,7 @@ impl EffectsManager {
     /// Create a radius decal
     pub fn create_radius_decal(
         &mut self,
-        center: nalgebra::Point3<f32>,
+        center: Vec3,
         radius: f32,
         decal_type: super::decals::DecalType,
     ) {
@@ -210,7 +211,7 @@ impl EffectsManager {
 
         for (&id, system) in &mut self.particle_systems {
             // Update LOD based on distance from view
-            let distance = (system.position - self.view_position).norm();
+            let distance = (system.position - self.view_position).length();
             let lod = calculate_effects_lod(distance, &self.config);
             system.set_lod(lod);
 
@@ -339,7 +340,7 @@ impl EffectsManager {
     /// Create common effect types with convenience methods
     pub fn create_explosion(
         &mut self,
-        position: nalgebra::Point3<f32>,
+        position: Vec3,
         scale: f32,
     ) -> Option<GenericParticleSystemId> {
         let desc = ParticleSystemDesc::explosion()
@@ -350,7 +351,7 @@ impl EffectsManager {
 
     pub fn create_fire(
         &mut self,
-        position: nalgebra::Point3<f32>,
+        position: Vec3,
     ) -> Option<GenericParticleSystemId> {
         let desc = ParticleSystemDesc::fire().at_position(position.x, position.y, position.z);
         self.spawn_particle_system(desc)
@@ -358,7 +359,7 @@ impl EffectsManager {
 
     pub fn create_smoke(
         &mut self,
-        position: nalgebra::Point3<f32>,
+        position: Vec3,
         duration: f32,
     ) -> Option<GenericParticleSystemId> {
         let desc = ParticleSystemDesc::smoke()
@@ -369,7 +370,7 @@ impl EffectsManager {
 
     pub fn create_scorch_mark(
         &mut self,
-        position: nalgebra::Point3<f32>,
+        position: Vec3,
         size: f32,
     ) -> Option<DecalId> {
         let settings = DecalSettings::scorch_mark(position, size);
@@ -450,7 +451,7 @@ mod tests {
     fn test_particle_system_spawning() {
         let mut manager = EffectsManager::new();
 
-        let position = nalgebra::Point3::new(10.0, 20.0, 30.0);
+        let position = Vec3::new(10.0, 20.0, 30.0);
         let id = manager.create_explosion(position, 2.0);
 
         assert!(id.is_some());
@@ -465,7 +466,7 @@ mod tests {
     fn test_decal_creation() {
         let mut manager = EffectsManager::new();
 
-        let position = nalgebra::Point3::new(5.0, 10.0, 0.0);
+        let position = Vec3::new(5.0, 10.0, 0.0);
         let id = manager.create_scorch_mark(position, 1.5);
 
         assert!(id.is_some());
@@ -486,8 +487,8 @@ mod tests {
         let mut manager = EffectsManager::new();
 
         // Create some effects
-        let _ = manager.create_explosion(nalgebra::Point3::new(0.0, 0.0, 0.0), 1.0);
-        let _ = manager.create_scorch_mark(nalgebra::Point3::new(1.0, 1.0, 0.0), 1.0);
+        let _ = manager.create_explosion(Vec3::new(0.0, 0.0, 0.0), 1.0);
+        let _ = manager.create_scorch_mark(Vec3::new(1.0, 1.0, 0.0), 1.0);
 
         assert!(manager.active_particle_system_count() > 0);
         assert!(manager.active_decal_count() > 0);
@@ -512,7 +513,7 @@ mod tests {
 
         // Create 3 systems
         for i in 0..3 {
-            let pos = nalgebra::Point3::new(i as f32, 0.0, 0.0);
+            let pos = Vec3::new(i as f32, 0.0, 0.0);
             manager.create_explosion(pos, 1.0);
         }
 
@@ -530,7 +531,7 @@ mod tests {
         assert_eq!(stats.active_particles, 0);
 
         // Create effects and update to populate stats
-        manager.create_explosion(nalgebra::Point3::new(0.0, 0.0, 0.0), 1.0);
+        manager.create_explosion(Vec3::new(0.0, 0.0, 0.0), 1.0);
         manager.update(1.0 / 60.0); // One frame at 60 FPS
 
         let stats = manager.stats();

@@ -513,8 +513,8 @@ fn create_shadow_pass_gpu(
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("shadow_pass_layout"),
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
     });
     let volume_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("shadow_volume_stencil"),
@@ -522,11 +522,11 @@ fn create_shadow_pass_gpu(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_volume"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: 12,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &VOLUME_VERTEX_ATTRS,
-            }],
+            })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -546,8 +546,8 @@ fn create_shadow_pass_gpu(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState {
                 front: wgpu::StencilFaceState {
                     compare: wgpu::CompareFunction::Always,
@@ -567,7 +567,7 @@ fn create_shadow_pass_gpu(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let dest_color_blend = wgpu::BlendState {
@@ -603,8 +603,8 @@ fn create_shadow_pass_gpu(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: wgpu::StencilState {
                 front: wgpu::StencilFaceState {
                     compare: wgpu::CompareFunction::NotEqual,
@@ -624,7 +624,7 @@ fn create_shadow_pass_gpu(
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -633,11 +633,11 @@ fn create_shadow_pass_gpu(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_overlay"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: 28,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &OVERLAY_VERTEX_ATTRS,
-            }],
+            })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -657,13 +657,13 @@ fn create_shadow_pass_gpu(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Greater,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Greater),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     let equivalent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -672,11 +672,11 @@ fn create_shadow_pass_gpu(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_volume"),
-            buffers: &[wgpu::VertexBufferLayout {
+            buffers: &[Some(wgpu::VertexBufferLayout {
                 array_stride: 12,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &VOLUME_VERTEX_ATTRS,
-            }],
+            })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -696,13 +696,13 @@ fn create_shadow_pass_gpu(
         },
         depth_stencil: Some(wgpu::DepthStencilState {
             format: depth_format,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::LessEqual,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         }),
         multisample: wgpu::MultisampleState::default(),
-        multiview: None,
+        multiview_mask: None,
         cache: None,
     });
     ShadowPassGpu {
@@ -941,6 +941,7 @@ pub fn record_shadow_and_occlusion_passes(
                         }),
                         occlusion_query_set: None,
                         timestamp_writes: None,
+                        multiview_mask: None,
                     });
                     apply_viewport(&mut pass);
                     pass.set_pipeline(if stencil {
@@ -978,6 +979,7 @@ pub fn record_shadow_and_occlusion_passes(
                         }),
                         occlusion_query_set: None,
                         timestamp_writes: None,
+                        multiview_mask: None,
                     });
                     apply_viewport(&mut pass);
                     pass.set_pipeline(&gpu.fill_pipeline);
@@ -1023,6 +1025,7 @@ pub fn record_shadow_and_occlusion_passes(
             }),
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         });
         apply_viewport(&mut pass);
         pass.set_pipeline(&gpu.overlay_pipeline);

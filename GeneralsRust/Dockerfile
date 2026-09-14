@@ -1,5 +1,5 @@
 # Multi-stage build for GeneralsRust
-FROM rust:1.75 as builder
+FROM rust:1.98.1 as builder
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -25,11 +25,13 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /usr/src/generals-rust
 
 # Copy workspace files
-COPY Cargo.toml Cargo.lock ./
+COPY rust-toolchain.toml Cargo.toml Cargo.lock ./
 
-# Copy all crate directories
+# Copy all crate directories (must match [workspace.members])
 COPY Code ./Code
 COPY tools ./tools
+COPY tests ./tests
+COPY validation ./validation
 
 # Build release binary
 RUN cargo build --release --workspace

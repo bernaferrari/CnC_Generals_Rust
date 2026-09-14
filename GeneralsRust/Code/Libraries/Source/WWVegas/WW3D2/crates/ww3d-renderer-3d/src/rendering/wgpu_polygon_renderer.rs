@@ -303,8 +303,8 @@ impl WgpuPolygonRenderer {
         let depth_stencil = if self.config.depth_testing {
             Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             })
@@ -380,7 +380,7 @@ impl WgpuPolygonRenderer {
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Polygon Pipeline Layout"),
                 bind_group_layouts: &bind_group_layouts,
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         // Create the render pipeline
@@ -430,7 +430,7 @@ impl WgpuPolygonRenderer {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             });
 

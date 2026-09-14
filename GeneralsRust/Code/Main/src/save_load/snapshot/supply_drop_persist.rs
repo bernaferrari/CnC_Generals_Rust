@@ -38,7 +38,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(OCLT_MAGIC);
@@ -66,7 +66,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "OCLT payload truncated".to_string(),
         ));
     }
-    let payload: SupplyDropPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: SupplyDropPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("OCLT payload decode: {err}")))?;
     game_logic.supply_drop_zones = payload.registry;
     Ok(())

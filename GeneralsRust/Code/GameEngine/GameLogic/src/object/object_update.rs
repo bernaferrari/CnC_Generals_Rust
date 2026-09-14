@@ -480,7 +480,7 @@ impl Object {
         // Trigger force application event
         let force_data = (force_x, force_y, force_z);
         let serialized =
-            bincode::serialize(&force_data).map_err(|e| format!("Serialization error: {}", e))?;
+            bincode_legacy::serialize(&force_data).map_err(|e| format!("Serialization error: {}", e))?;
         self.trigger_event("apply_force", &serialized).await
     }
 

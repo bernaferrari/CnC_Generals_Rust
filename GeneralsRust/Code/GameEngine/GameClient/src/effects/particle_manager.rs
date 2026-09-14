@@ -3,8 +3,7 @@
 //! Complete implementation of the Command & Conquer Generals Zero Hour particle system,
 //! matching the C++ implementation exactly for visual effects compatibility.
 
-use glam::Mat4 as GlamMat4;
-use nalgebra::{Matrix3, Point3, Vector3};
+use glam::{Mat3, Mat4 as GlamMat4, Vec3};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
@@ -303,11 +302,11 @@ pub enum EmissionVolume {
     #[default]
     Point,
     Line {
-        start: Point3<f32>,
-        end: Point3<f32>,
+        start: Vec3,
+        end: Vec3,
     },
     Box {
-        half_size: Vector3<f32>,
+        half_size: Vec3,
     },
     Sphere {
         radius: f32,
@@ -336,7 +335,7 @@ pub struct ParticleSystemInfo {
     // Physics
     pub vel_damping: GameClientRandomVariable,
     pub gravity: f32,
-    pub drift_velocity: Vector3<f32>,
+    pub drift_velocity: Vec3,
 
     // Lifetime
     pub lifetime: GameClientRandomVariable,
@@ -365,7 +364,7 @@ pub struct ParticleSystemInfo {
 
     // Slave system
     pub slave_system_name: String,
-    pub slave_pos_offset: Vector3<f32>,
+    pub slave_pos_offset: Vec3,
     pub attached_system_name: String,
 
     // Emission properties
@@ -411,7 +410,7 @@ impl Default for ParticleSystemInfo {
 
             vel_damping: GameClientRandomVariable::new(1.0, 1.0),
             gravity: 0.0,
-            drift_velocity: Vector3::zeros(),
+            drift_velocity: Vec3::ZERO,
 
             lifetime: GameClientRandomVariable::new(30.0, 30.0),
             system_lifetime: 0,
@@ -433,7 +432,7 @@ impl Default for ParticleSystemInfo {
             initial_delay: GameClientRandomVariable::default(),
 
             slave_system_name: String::new(),
-            slave_pos_offset: Vector3::zeros(),
+            slave_pos_offset: Vec3::ZERO,
             attached_system_name: String::new(),
 
             emission_velocity_type: EmissionVelocityType::Spherical,
@@ -712,7 +711,7 @@ impl ParticleSystemManager {
     pub fn create_preset_system_at(
         &mut self,
         template_name: &str,
-        pos: Point3<f32>,
+        pos: Vec3,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
         self.ensure_preset_template(template_name)
             .ok_or_else(|| ParticleSystemError::TemplateNotFound(template_name.to_string()))?;
@@ -723,7 +722,7 @@ impl ParticleSystemManager {
         Ok(id)
     }
 
-    /// Host/combat residual entry point without requiring nalgebra at the call site.
+    /// Host/combat residual entry point without requiring extra math crates at the call site.
     pub fn create_preset_system_xyz(
         &mut self,
         template_name: &str,
@@ -731,7 +730,7 @@ impl ParticleSystemManager {
         y: f32,
         z: f32,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
-        self.create_preset_system_at(template_name, Point3::new(x, y, z))
+        self.create_preset_system_at(template_name, Vec3::new(x, y, z))
     }
 
     /// Number of active particle systems currently registered.
@@ -775,7 +774,7 @@ impl ParticleSystemManager {
     pub fn create_particle_system_at(
         &mut self,
         template_name: &str,
-        pos: Point3<f32>,
+        pos: Vec3,
     ) -> Result<ParticleSystemId, ParticleSystemError> {
         let template = self
             .find_template(template_name)
@@ -999,7 +998,7 @@ impl ParticleSystemManager {
         }
 
         // Reposition systems controlled by a live particle (C++ ParticleSys.cpp:1948-1959).
-        let control_pairs: Vec<(ParticleSystemId, nalgebra::Point3<f32>)> = self
+        let control_pairs: Vec<(ParticleSystemId, Vec3)> = self
             .active_system_ids_in_order()
             .into_iter()
             .flat_map(|sys_id| {
@@ -1475,20 +1474,20 @@ fn template_id_map() -> &'static RwLock<HashMap<u32, String>> {
 struct ParticleSystemManagerBridge;
 
 impl ParticleSystemManagerBridge {
-    fn to_point3(pos: &gamelogic::common::Coord3D) -> Point3<f32> {
-        Point3::new(pos.x, pos.y, pos.z)
+    fn to_point3(pos: &gamelogic::common::Coord3D) -> Vec3 {
+        Vec3::new(pos.x, pos.y, pos.z)
     }
 
-    fn to_coord3(pos: Point3<f32>) -> gamelogic::common::Coord3D {
+    fn to_coord3(pos: Vec3) -> gamelogic::common::Coord3D {
         gamelogic::common::Coord3D::new(pos.x, pos.y, pos.z)
     }
 
-    fn mat4_to_matrix3(matrix: &GlamMat4) -> Matrix3<f32> {
+    fn mat4_to_matrix3(matrix: &GlamMat4) -> Mat3 {
         let cols = matrix.to_cols_array();
         let data = [
             cols[0], cols[1], cols[2], cols[4], cols[5], cols[6], cols[8], cols[9], cols[10],
         ];
-        Matrix3::from_column_slice(&data)
+        Mat3::from_cols_array(&data)
     }
 
     fn map_emission_volume_type_back(
@@ -1768,7 +1767,7 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
             if let Some(manager) = manager_guard.as_mut() {
                 if let Some(system) = manager.find_particle_system_mut(system_id) {
-                    system.set_velocity_multiplier(Vector3::new(
+                    system.set_velocity_multiplier(Vec3::new(
                         multiplier.x,
                         multiplier.y,
                         multiplier.z,
@@ -2332,13 +2331,13 @@ mod tests {
         assert_eq!(manager.active_system_count(), 0);
 
         let death_id = manager
-            .create_preset_system_at("MediumExplosion", Point3::new(10.0, 0.0, 20.0))
+            .create_preset_system_at("MediumExplosion", Vec3::new(10.0, 0.0, 20.0))
             .expect("death explosion preset");
         let smoke_id = manager
-            .create_preset_system_at("SmokePlume", Point3::new(10.0, 0.0, 20.0))
+            .create_preset_system_at("SmokePlume", Vec3::new(10.0, 0.0, 20.0))
             .expect("death smoke preset");
         let muzzle_id = manager
-            .create_preset_system_at("MuzzleFlash", Point3::new(0.0, 0.0, 0.0))
+            .create_preset_system_at("MuzzleFlash", Vec3::new(0.0, 0.0, 0.0))
             .expect("muzzle flash preset");
 
         assert_eq!(manager.active_system_count(), 3);
@@ -2347,13 +2346,13 @@ mod tests {
         assert!(manager.find_particle_system(muzzle_id).is_some());
 
         let death = manager.find_particle_system(death_id).unwrap();
-        assert_eq!(death.position(), Point3::new(10.0, 0.0, 20.0));
+        assert_eq!(death.position(), Vec3::new(10.0, 0.0, 20.0));
         assert!(!death.is_stopped(), "preset system should be started");
 
         // Unknown preset still fails closed (no silent empty placeholder success).
         assert!(
             manager
-                .create_preset_system_at("TotallyUnknownCombatFx", Point3::origin())
+                .create_preset_system_at("TotallyUnknownCombatFx", Vec3::ZERO)
                 .is_err()
         );
     }
@@ -2435,7 +2434,7 @@ mod tests {
             let template = mgr.new_template(template_name.clone());
             let id = mgr.create_particle_system(&template, false).unwrap();
             if let Some(system) = mgr.find_particle_system_mut(id) {
-                system.set_position(nalgebra::Point3::new(40.0, 8.0, 12.0));
+                system.set_position(Vec3::new(40.0, 8.0, 12.0));
             }
             id
         };
@@ -2479,7 +2478,7 @@ mod tests {
                 0,
             );
             near.lifetime_left = 10;
-            near.position = nalgebra::Point3::new(0.0, 0.0, 0.0);
+            near.position = Vec3::new(0.0, 0.0, 0.0);
             near.size = 1.0;
             system.push_particle(near);
             let mut far = crate::effects::particle_system::Particle::new(
@@ -2488,7 +2487,7 @@ mod tests {
                 0,
             );
             far.lifetime_left = 10;
-            far.position = nalgebra::Point3::new(1000.0, 0.0, 0.0);
+            far.position = Vec3::new(1000.0, 0.0, 0.0);
             far.size = 1.0;
             system.push_particle(far);
         }
@@ -2517,7 +2516,7 @@ mod tests {
                 0,
             );
             near.lifetime_left = 10;
-            near.position = nalgebra::Point3::new(0.0, 0.0, 0.0);
+            near.position = Vec3::new(0.0, 0.0, 0.0);
             near.size = 1.0;
             system.push_particle(near);
             let mut far = crate::effects::particle_system::Particle::new(
@@ -2526,7 +2525,7 @@ mod tests {
                 0,
             );
             far.lifetime_left = 10;
-            far.position = nalgebra::Point3::new(1000.0, 0.0, 0.0);
+            far.position = Vec3::new(1000.0, 0.0, 0.0);
             far.size = 1.0;
             system.push_particle(far);
         }

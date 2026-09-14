@@ -274,7 +274,7 @@ fn readback_texture_pixels(
     device.poll(wgpu::Maintain::Wait);
 
     if let Ok(Ok(())) = rx.recv() {
-        let data = slice.get_mapped_range();
+        let data = slice.get_mapped_range().expect("buffer map");
         let padded = data.to_vec();
         drop(data);
         staging.unmap();

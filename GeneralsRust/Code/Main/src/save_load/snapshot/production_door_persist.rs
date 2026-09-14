@@ -67,7 +67,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.objects.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(PDRP_MAGIC);
@@ -96,7 +96,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     // v1 tails predate the per-door hold array; door 0 mirrors the scalar
     // alias so a held v1 door stays held after load.
     let payload: ProductionDoorPersistPayload = if version == 1 {
-        let old: ProductionDoorPersistPayloadV1 = bincode::deserialize(&rest[..payload_len])
+        let old: ProductionDoorPersistPayloadV1 = bincode_legacy::deserialize(&rest[..payload_len])
             .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?;
         ProductionDoorPersistPayload {
             objects: old
@@ -114,7 +114,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
                 .collect(),
         }
     } else {
-        bincode::deserialize(&rest[..payload_len])
+        bincode_legacy::deserialize(&rest[..payload_len])
             .map_err(|err| SaveLoadError::Corrupted(format!("PDRP payload decode: {err}")))?
     };
     apply_payload(game_logic, payload);

@@ -5,10 +5,10 @@
 //! and performance characteristics.
 
 #[cfg(test)]
+use glam::{Vec3};
 mod particle_system_tests {
     use crate::effects::particle_manager::*;
     use crate::effects::particle_system::*;
-    use nalgebra::{Point3, Vector3};
     use std::sync::Arc;
 
     #[test]
@@ -43,8 +43,8 @@ mod particle_system_tests {
     #[test]
     fn test_particle_physics() {
         let info = ParticleInfo {
-            velocity: Vector3::new(10.0, 0.0, 0.0),
-            position: Point3::origin(),
+            velocity: Vec3::new(10.0, 0.0, 0.0),
+            position: Vec3::ZERO,
             vel_damping: 0.95,
             gravity: 0.0,
             ..Default::default()
@@ -56,7 +56,7 @@ mod particle_system_tests {
         particle.update();
 
         // Velocity should be damped
-        assert!(particle.velocity.norm() < initial_velocity.norm());
+        assert!(particle.velocity.length() < initial_velocity.length());
 
         // Position should have changed
         assert!(particle.position.x > 0.0);
@@ -65,8 +65,8 @@ mod particle_system_tests {
     #[test]
     fn test_particle_gravity() {
         let info = ParticleInfo {
-            velocity: Vector3::zeros(),
-            position: Point3::new(0.0, 0.0, 100.0),
+            velocity: Vec3::ZERO,
+            position: Vec3::new(0.0, 0.0, 100.0),
             vel_damping: 1.0,
             ..Default::default()
         };
@@ -82,7 +82,7 @@ mod particle_system_tests {
         let initial_z = particle.position.z;
 
         // Apply gravity
-        particle.apply_force(Vector3::new(0.0, 0.0, -1.0));
+        particle.apply_force(Vec3::new(0.0, 0.0, -1.0));
         particle.update();
 
         // Should fall
@@ -150,7 +150,6 @@ mod particle_system_tests {
 #[cfg(test)]
 mod particle_manager_tests {
     use crate::effects::particle_manager::*;
-    use nalgebra::Point3;
     use std::sync::Arc;
 
     #[test]
@@ -221,7 +220,6 @@ mod particle_manager_tests {
 #[cfg(test)]
 mod weather_system_tests {
     use crate::effects::weather_complete::*;
-    use nalgebra::Point3;
 
     #[test]
     fn test_rain_system() {
@@ -232,7 +230,7 @@ mod weather_system_tests {
 
         let mut rain = RainSystem::new(settings);
 
-        rain.update(0.1, Point3::origin());
+        rain.update(0.1, Vec3::ZERO);
         assert!(rain.particle_count() > 0);
 
         rain.set_enabled(false);
@@ -248,7 +246,7 @@ mod weather_system_tests {
 
         let mut snow = SnowSystem::new(settings);
 
-        snow.update(0.1, Point3::origin());
+        snow.update(0.1, Vec3::ZERO);
         assert!(snow.particle_count() > 0);
     }
 
@@ -261,7 +259,7 @@ mod weather_system_tests {
 
         let mut dust = DustStormSystem::new(settings);
 
-        dust.update(0.1, Point3::origin());
+        dust.update(0.1, Vec3::ZERO);
         assert!(dust.particle_count() > 0);
 
         let visibility = dust.get_visibility_modifier();
@@ -278,7 +276,7 @@ mod weather_system_tests {
 
         // Simulate 4 seconds of transitions at 0.1s per frame
         for _ in 0..40 {
-            weather.update(0.1, Point3::origin());
+            weather.update(0.1, Vec3::ZERO);
         }
 
         assert!(!weather.is_transitioning());
@@ -287,8 +285,8 @@ mod weather_system_tests {
 
     #[test]
     fn test_weather_particle_lifecycle() {
-        let spawn_pos = Point3::new(0.0, 0.0, 100.0);
-        let wind = Vector3::new(10.0, 0.0, 0.0);
+        let spawn_pos = Vec3::new(0.0, 0.0, 100.0);
+        let wind = Vec3::new(10.0, 0.0, 0.0);
 
         let mut rain_drop = WeatherParticle::new_rain_drop(spawn_pos, wind);
         assert!(rain_drop.update(0.1, wind, 0.1));
@@ -376,7 +374,6 @@ mod particle_presets_tests {
 mod fxlist_integration_tests {
     use crate::effects::fxlist_integration::*;
     use crate::effects::particle_manager::*;
-    use nalgebra::Point3;
 
     #[test]
     fn test_particle_system_fx_nugget() {
@@ -396,7 +393,7 @@ mod fxlist_integration_tests {
         bridge.register_nugget("TestFX".to_string(), nugget);
 
         let mut manager = ParticleSystemManager::new();
-        let position = Point3::new(10.0, 20.0, 5.0);
+        let position = Vec3::new(10.0, 20.0, 5.0);
 
         let systems = bridge.execute_fx("TestFX", position, None, &mut manager);
         assert!(!systems.is_empty());
@@ -407,7 +404,7 @@ mod fxlist_integration_tests {
     #[test]
     fn test_explosion_helper() {
         let mut manager = ParticleSystemManager::new();
-        let position = Point3::new(100.0, 200.0, 0.0);
+        let position = Vec3::new(100.0, 200.0, 0.0);
 
         let system_id = helpers::create_explosion_at(position, "SmallExplosion", &mut manager);
         assert!(system_id.is_some());
@@ -425,8 +422,8 @@ mod fxlist_integration_tests {
     #[test]
     fn test_weapon_fire_helper() {
         let mut manager = ParticleSystemManager::new();
-        let muzzle_pos = Point3::new(10.0, 20.0, 5.0);
-        let muzzle_dir = Vector3::new(1.0, 0.0, 0.0);
+        let muzzle_pos = Vec3::new(10.0, 20.0, 5.0);
+        let muzzle_dir = Vec3::new(1.0, 0.0, 0.0);
 
         let systems = helpers::create_weapon_fire_fx(muzzle_pos, muzzle_dir, &mut manager);
 
@@ -437,7 +434,7 @@ mod fxlist_integration_tests {
     #[test]
     fn test_building_destruction_helper() {
         let mut manager = ParticleSystemManager::new();
-        let building_center = Point3::new(50.0, 50.0, 0.0);
+        let building_center = Vec3::new(50.0, 50.0, 0.0);
 
         let systems = helpers::create_building_destruction_fx(building_center, 20.0, &mut manager);
 
@@ -449,7 +446,6 @@ mod fxlist_integration_tests {
 #[cfg(test)]
 mod performance_tests {
     use crate::effects::particle_manager::*;
-    use nalgebra::Point3;
     use std::sync::Arc;
     use std::time::Instant;
 

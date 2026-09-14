@@ -283,8 +283,8 @@ impl OcclusionOverlayRenderer {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("occluded_player_pipeline_layout"),
-            bind_group_layouts: &[&uniform_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&uniform_bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("occluded_player_color_pipeline"),
@@ -292,11 +292,11 @@ impl OcclusionOverlayRenderer {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: 28,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
-                }],
+                })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -333,13 +333,13 @@ impl OcclusionOverlayRenderer {
             // written scene depth — the ZH behind-building silhouette.
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::Greater,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Greater),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         Some(Self {
@@ -482,7 +482,8 @@ pub fn enqueue_occluded_player_color_pass(
             depth_stencil_attachment: depth_stencil,
             occlusion_query_set: None,
             timestamp_writes: None,
-        });
+            multiview_mask: None,
+});
         renderer.draw(&mut render_pass, &view_proj, camera_position, &overlays);
         drop(render_pass);
         Ok(())

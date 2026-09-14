@@ -351,7 +351,7 @@ impl TerrainSamplerMode {
             address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             lod_min_clamp: self.texture_lod_bias as f32,
             lod_max_clamp: 32.0,
             ..Default::default()

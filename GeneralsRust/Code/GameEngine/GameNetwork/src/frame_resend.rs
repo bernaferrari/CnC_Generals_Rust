@@ -405,7 +405,7 @@ impl FrameResendManager {
                 NetCommandType::FrameResendRequest,
                 0, // Server/host player ID
                 frame_num,
-                CommandPayload::Generic(bincode::serialize(&resend_cmd).unwrap_or_default()),
+                CommandPayload::Generic(bincode_legacy::serialize(&resend_cmd).unwrap_or_default()),
             );
             commands.push(cmd);
         }

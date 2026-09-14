@@ -49,7 +49,7 @@ use integration::IntegrationConfig;
 #[cfg(feature = "integration-diagnostics")]
 use integration::diagnostics::SystemDiagnostics;
 use log::{debug, error, info, warn};
-use rodio::{OutputStream, OutputStreamHandle, Sink, Source};
+use rodio_compat::{OutputStream, OutputStreamHandle, Sink, Source};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::{PI, TAU};
 use std::fs;

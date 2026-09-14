@@ -31,7 +31,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.orders.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(CLHA_MAGIC);
@@ -59,7 +59,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "CLHA payload truncated".to_string(),
         ));
     }
-    let payload: CleanupHazardPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: CleanupHazardPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("CLHA payload decode: {err}")))?;
     game_logic.cleanup_areas.restore_orders(payload.orders);
     Ok(())

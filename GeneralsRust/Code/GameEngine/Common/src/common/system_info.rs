@@ -336,10 +336,10 @@ impl SystemInfo {
                 }
             }
 
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
             let mut selected_info: Option<wgpu::AdapterInfo> = None;
 
-            for adapter in instance.enumerate_adapters(wgpu::Backends::all()) {
+            for adapter in pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all())) {
                 let info = adapter.get_info();
                 let should_select = selected_info
                     .as_ref()

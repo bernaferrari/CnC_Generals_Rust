@@ -485,7 +485,7 @@ impl ReplayManager {
 
         // Serialize command data
         let data =
-            bincode::serialize(command).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            bincode_legacy::serialize(command).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.record_event_with_player(event_type, command.player_id, &data)?;
 
@@ -514,7 +514,7 @@ impl ReplayManager {
             target,
         };
 
-        let data = bincode::serialize(&power_data)
+        let data = bincode_legacy::serialize(&power_data)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.record_event_with_player(ReplayEventType::SpecialPower, player_id, &data)?;
@@ -544,7 +544,7 @@ impl ReplayManager {
             .disconnect_info
             .push(disconnect.clone());
 
-        let data = bincode::serialize(&disconnect)
+        let data = bincode_legacy::serialize(&disconnect)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.record_event_with_player(ReplayEventType::PlayerDisconnect, player_id, &data)?;
@@ -575,7 +575,7 @@ impl ReplayManager {
             actual,
             frame,
         };
-        let data = bincode::serialize(&mismatch_data)
+        let data = bincode_legacy::serialize(&mismatch_data)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.recording_header.desync_occurred = true;
@@ -772,7 +772,7 @@ impl ReplayManager {
             | ReplayEventType::StopCommand
             | ReplayEventType::GuardCommand
             | ReplayEventType::PatrolCommand => {
-                let command: GameCommand = bincode::deserialize(&event.data)
+                let command: GameCommand = bincode_legacy::deserialize(&event.data)
                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
                 let _result = command_system.execute_command(&command, game_logic);
@@ -791,7 +791,7 @@ impl ReplayManager {
                     position: Option<[f32; 3]>,
                     kind: u8,
                 }
-                if let Ok(payload) = bincode::deserialize::<RadarReplayPayload>(&event.data) {
+                if let Ok(payload) = bincode_legacy::deserialize::<RadarReplayPayload>(&event.data) {
                     let pos = payload.position.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
                     let kind = match payload.kind {
                         1 => crate::game_logic::radar_notifications::RadarKind::Attack,
@@ -818,7 +818,7 @@ impl ReplayManager {
             }
 
             ReplayEventType::PlayerDisconnect => {
-                let disconnect: DisconnectInfo = bincode::deserialize(&event.data)
+                let disconnect: DisconnectInfo = bincode_legacy::deserialize(&event.data)
                     .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
                 log::info!(
@@ -871,7 +871,7 @@ impl ReplayManager {
 
     fn write_replay_file(&self, writer: &mut BufWriter<File>) -> SaveLoadResult<()> {
         // Write header
-        let header_data = bincode::serialize(&self.recording_header)
+        let header_data = bincode_legacy::serialize(&self.recording_header)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         writer.write_all(&(header_data.len() as u32).to_le_bytes())?;
@@ -881,7 +881,7 @@ impl ReplayManager {
         writer.write_all(&(self.recorded_events.len() as u32).to_le_bytes())?;
 
         for event in &self.recorded_events {
-            let event_data = bincode::serialize(event)
+            let event_data = bincode_legacy::serialize(event)
                 .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
             writer.write_all(&(event_data.len() as u32).to_le_bytes())?;
@@ -900,7 +900,7 @@ impl ReplayManager {
         let mut header_data = vec![0u8; header_size];
         reader.read_exact(&mut header_data)?;
 
-        let header: ReplayHeader = bincode::deserialize(&header_data)
+        let header: ReplayHeader = bincode_legacy::deserialize(&header_data)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         Ok(header)
@@ -920,7 +920,7 @@ impl ReplayManager {
             let mut event_data = vec![0u8; event_size];
             reader.read_exact(&mut event_data)?;
 
-            let event: ReplayEvent = bincode::deserialize(&event_data)
+            let event: ReplayEvent = bincode_legacy::deserialize(&event_data)
                 .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
             events.push(event);

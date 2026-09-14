@@ -1,0 +1,10 @@
+[package]
+name = "rodio_compat"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "rodio 0.17 OutputStream/Sink/SpatialSink surface on rodio 0.22"
+publish = false
+
+[dependencies]
+rodio = { workspace = true }

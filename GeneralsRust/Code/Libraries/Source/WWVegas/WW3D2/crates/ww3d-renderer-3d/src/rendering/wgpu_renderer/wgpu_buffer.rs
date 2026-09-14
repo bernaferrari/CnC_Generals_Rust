@@ -50,7 +50,7 @@ impl WgpuVertexBuffer {
 
         // Copy data to buffer
         {
-            let mut view = buffer.slice(..).get_mapped_range_mut();
+            let mut view = buffer.slice(..).get_mapped_range_mut().expect("buffer map");
             view.copy_from_slice(data);
         }
         buffer.unmap();
@@ -222,7 +222,7 @@ impl WgpuIndexBuffer {
 
         // Copy data to buffer
         {
-            let mut view = buffer.slice(..).get_mapped_range_mut();
+            let mut view = buffer.slice(..).get_mapped_range_mut().expect("buffer map");
             view.copy_from_slice(data);
         }
         buffer.unmap();

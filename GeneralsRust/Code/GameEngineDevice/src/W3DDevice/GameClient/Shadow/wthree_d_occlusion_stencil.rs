@@ -254,8 +254,8 @@ impl OcclusionStencilPipeline {
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Shadow Volume Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         // Determine stencil function based on mask
@@ -319,9 +319,9 @@ impl OcclusionStencilPipeline {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: false,
+                depth_write_enabled: Some(false),
                 // C++: D3DRS_ZFUNC = D3DCMP_LESSEQUAL
-                depth_compare: CompareFunction::LessEqual,
+                depth_compare: Some(CompareFunction::LessEqual),
                 stencil: StencilState {
                     front: front_face_stencil,
                     back: StencilFaceState::default(),
@@ -335,7 +335,7 @@ impl OcclusionStencilPipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
         });
 
         // --- Back-face pass: CCW culling, STENCILPASS = DECRSAT ---
@@ -378,8 +378,8 @@ impl OcclusionStencilPipeline {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::LessEqual),
                 stencil: StencilState {
                     front: back_face_stencil,
                     back: StencilFaceState::default(),
@@ -393,7 +393,7 @@ impl OcclusionStencilPipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
         });
 
         // --- Projected terrain shadow pipeline ---
@@ -438,9 +438,9 @@ impl OcclusionStencilPipeline {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: false,
+                depth_write_enabled: Some(false),
                 // C++: D3DRS_ZFUNC defaults for this pass
-                depth_compare: CompareFunction::LessEqual,
+                depth_compare: Some(CompareFunction::LessEqual),
                 stencil: StencilState {
                     front: projected_terrain_stencil,
                     back: StencilFaceState::default(),
@@ -456,7 +456,7 @@ impl OcclusionStencilPipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
         });
 
         // We drop the bind_group_layout since the pipeline layout holds it
@@ -490,7 +490,7 @@ impl ShadowMaskPipeline {
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Shadow Mask Pipeline Layout"),
             bind_group_layouts: &[],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         // C++: D3DRS_STENCILFUNC = D3DCMP_LESSEQUAL, STENCILREF = 0x1
@@ -547,9 +547,9 @@ impl ShadowMaskPipeline {
             },
             depth_stencil: Some(DepthStencilState {
                 format: TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: false,
+                depth_write_enabled: Some(false),
                 // C++: D3DRS_ZFUNC = D3DCMP_ALWAYS
-                depth_compare: CompareFunction::Always,
+                depth_compare: Some(CompareFunction::Always),
                 stencil: StencilState {
                     front: stencil_face,
                     back: stencil_face,
@@ -565,7 +565,7 @@ impl ShadowMaskPipeline {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
         });
 
         // Create fullscreen quad vertex buffer
@@ -764,7 +764,8 @@ pub fn encode_shadow_volume_pass(
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(&stencil_pipeline.front_face_pipeline);
 
@@ -808,7 +809,8 @@ pub fn encode_shadow_volume_pass(
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
-        });
+            multiview_mask: None,
+});
 
         render_pass.set_pipeline(&stencil_pipeline.back_face_pipeline);
 
@@ -882,7 +884,8 @@ pub fn encode_shadow_mask_pass(
         }),
         timestamp_writes: None,
         occlusion_query_set: None,
-    });
+        multiview_mask: None,
+});
 
     render_pass.set_pipeline(&mask_pipeline.mask_pipeline);
     render_pass.set_vertex_buffer(0, mask_pipeline.quad_vertex_buffer.slice(..));
@@ -940,7 +943,8 @@ pub fn encode_projected_shadow_terrain_pass(
         }),
         timestamp_writes: None,
         occlusion_query_set: None,
-    });
+        multiview_mask: None,
+});
 
     render_pass.set_pipeline(&stencil_pipeline.projected_terrain_pipeline);
 

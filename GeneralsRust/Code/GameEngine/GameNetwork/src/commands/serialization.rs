@@ -158,7 +158,7 @@ impl CommandSerializer {
     /// Serialize to the configured format
     fn serialize_to_format(&self, command: &NetCommand) -> NetworkResult<Vec<u8>> {
         match self.config.format {
-            SerializationFormat::Binary => bincode::serialize(command).map_err(|e| {
+            SerializationFormat::Binary => bincode_legacy::serialize(command).map_err(|e| {
                 NetworkError::serialization(format!("bincode serialization failed: {}", e))
             }),
             SerializationFormat::Json => serde_json::to_vec(command).map_err(|e| {
@@ -173,7 +173,7 @@ impl CommandSerializer {
     /// Deserialize from the configured format
     fn deserialize_from_format(&self, data: &[u8]) -> NetworkResult<NetCommand> {
         match self.config.format {
-            SerializationFormat::Binary => bincode::deserialize(data).map_err(|e| {
+            SerializationFormat::Binary => bincode_legacy::deserialize(data).map_err(|e| {
                 NetworkError::serialization(format!("bincode deserialization failed: {}", e))
             }),
             SerializationFormat::Json => serde_json::from_slice(data).map_err(|e| {
@@ -396,7 +396,7 @@ impl BatchSerializer {
 
         // Serialize the entire batch
         match self.serializer.config.format {
-            SerializationFormat::Binary => bincode::serialize(&batch).map_err(|e| {
+            SerializationFormat::Binary => bincode_legacy::serialize(&batch).map_err(|e| {
                 NetworkError::serialization(format!("batch serialization failed: {}", e))
             }),
             SerializationFormat::Json => serde_json::to_vec(&batch).map_err(|e| {
@@ -416,7 +416,7 @@ impl BatchSerializer {
 
         // Deserialize the batch
         let batch: CommandBatch = match self.serializer.config.format {
-            SerializationFormat::Binary => bincode::deserialize(data).map_err(|e| {
+            SerializationFormat::Binary => bincode_legacy::deserialize(data).map_err(|e| {
                 NetworkError::serialization(format!("batch deserialization failed: {}", e))
             })?,
             SerializationFormat::Json => serde_json::from_slice(data).map_err(|e| {

@@ -162,7 +162,7 @@ impl ChatPacket {
         sender_id: u32,
         message: &UnifiedChatMessage,
     ) -> NetworkResult<Self> {
-        let message_data = bincode::serialize(message)
+        let message_data = bincode_legacy::serialize(message)
             .map_err(|e| NetworkError::serialization(e.to_string()))?;
 
         let header = ChatPacketHeader {
@@ -181,7 +181,7 @@ impl ChatPacket {
 
     /// Extract message from packet
     pub fn extract_message(&self) -> NetworkResult<UnifiedChatMessage> {
-        bincode::deserialize(&self.data)
+        bincode_legacy::deserialize(&self.data)
             .map_err(|e| NetworkError::serialization(e.to_string()))
     }
 }

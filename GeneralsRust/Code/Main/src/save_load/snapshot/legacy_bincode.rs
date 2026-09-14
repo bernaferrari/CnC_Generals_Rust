@@ -10,7 +10,7 @@
 use super::*;
 use crate::game_logic::*;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use bincode::Options;
+use bincode_legacy::Options;
 use gamelogic::system::shroud_manager::ShroudSnapshot;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ use std::time::SystemTime;
 
 /// `WorldSnapshot::version` was the first positional bincode field before and
 /// after this migration.  Read it with the same fixed-integer bincode options
-/// used by `bincode::serialize`, rather than manually interpreting bytes.
+/// used by `bincode_legacy::serialize`, rather than manually interpreting bytes.
 ///
 /// Every known schema is decoded only through its exact historical record:
 /// v1 has float-only production, v2 predates the HDB channel, v3 has HDB but
@@ -1136,20 +1136,20 @@ struct PreV5ObjectSnapshot {
     last_weapon_discharge_frame: u32,
 }
 
-fn bincode_prefix<T: DeserializeOwned>(payload: &[u8]) -> bincode::Result<T> {
+fn bincode_prefix<T: DeserializeOwned>(payload: &[u8]) -> bincode_legacy::Result<T> {
     // These options are exactly the ones behind bincode 1.3's public
     // `deserialize` helper: fixed-width, little-endian primitives and a
     // trailing-byte-tolerant prefix read.
-    bincode::DefaultOptions::new()
+    bincode_legacy::DefaultOptions::new()
         .with_fixint_encoding()
         .allow_trailing_bytes()
         .deserialize(payload)
 }
 
-fn bincode_exact<T: DeserializeOwned>(payload: &[u8]) -> bincode::Result<T> {
+fn bincode_exact<T: DeserializeOwned>(payload: &[u8]) -> bincode_legacy::Result<T> {
     // Do not let a positional record with an incompatible inner field layout
     // succeed by silently ignoring the remainder of the payload.
-    bincode::DefaultOptions::new()
+    bincode_legacy::DefaultOptions::new()
         .with_fixint_encoding()
         .reject_trailing_bytes()
         .deserialize(payload)
@@ -2462,8 +2462,8 @@ impl From<PreV4ObjectSnapshot> for ObjectSnapshot {
 #[cfg(test)]
 pub(crate) fn serialize_legacy_production_v1_fixture(
     snapshot: WorldSnapshot,
-) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&LegacyWorldSnapshot::from(snapshot))
+) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&LegacyWorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -2777,8 +2777,8 @@ impl From<ObjectSnapshot> for PreV8ObjectSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v8_v7_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV8WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v8_v7_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV8WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -2845,8 +2845,8 @@ impl From<ObjectSnapshot> for PreV7ObjectSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v7_v6_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV7WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v7_v6_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV7WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -2901,25 +2901,25 @@ impl From<ObjectSnapshot> for PreV4ObjectSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v4_v3_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV4WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v4_v3_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV4WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v5_v4_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV5WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v5_v4_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV5WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v6_v5_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV6WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v6_v5_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV6WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
 pub(crate) fn serialize_pre_hacker_disable_v2_fixture(
     snapshot: WorldSnapshot,
-) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreHackerDisableWorldSnapshot::from(snapshot))
+) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreHackerDisableWorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -2954,8 +2954,8 @@ impl From<WorldSnapshot> for PreV10WorldSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v10_v9_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV10WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v10_v9_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV10WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -2991,8 +2991,8 @@ impl From<WorldSnapshot> for PreV11WorldSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v11_v10_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV11WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v11_v10_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV11WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -3030,8 +3030,8 @@ impl From<WorldSnapshot> for PreV13WorldSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v13_v12_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV13WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v13_v12_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV13WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -3073,8 +3073,8 @@ impl From<WorldSnapshot> for PreV14WorldSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v14_v13_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV14WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v14_v13_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV14WorldSnapshot::from(snapshot))
 }
 
 #[cfg(test)]
@@ -3118,6 +3118,6 @@ impl From<WorldSnapshot> for PreV15WorldSnapshot {
 }
 
 #[cfg(test)]
-pub(crate) fn serialize_pre_v15_v14_fixture(snapshot: WorldSnapshot) -> bincode::Result<Vec<u8>> {
-    bincode::serialize(&PreV15WorldSnapshot::from(snapshot))
+pub(crate) fn serialize_pre_v15_v14_fixture(snapshot: WorldSnapshot) -> bincode_legacy::Result<Vec<u8>> {
+    bincode_legacy::serialize(&PreV15WorldSnapshot::from(snapshot))
 }

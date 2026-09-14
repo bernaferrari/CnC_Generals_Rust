@@ -75,8 +75,21 @@ pub use wgpu;
 
 /// Present a surface texture to the active swapchain.
 #[inline]
-pub fn present_surface_texture(frame: wgpu::SurfaceTexture) {
-    frame.present();
+pub fn present_surface_texture(queue: &wgpu::Queue, frame: wgpu::SurfaceTexture) {
+    queue.present(frame);
+}
+
+/// wgpu 30 returns [`wgpu::CurrentSurfaceTexture`] instead of `Result<_, SurfaceError>`.
+pub fn acquire_surface_texture(surface: &wgpu::Surface<'_>) -> Result<wgpu::SurfaceTexture, GpuError> {
+    match surface.get_current_texture() {
+        wgpu::CurrentSurfaceTexture::Success(texture)
+        | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Ok(texture),
+        wgpu::CurrentSurfaceTexture::Timeout => Err(GpuError::SurfaceTimeout),
+        wgpu::CurrentSurfaceTexture::Occluded => Err(GpuError::SurfaceOccluded),
+        wgpu::CurrentSurfaceTexture::Outdated => Err(GpuError::SurfaceOutdated),
+        wgpu::CurrentSurfaceTexture::Lost => Err(GpuError::SurfaceLost),
+        wgpu::CurrentSurfaceTexture::Validation => Err(GpuError::SurfaceValidation),
+    }
 }
 
 // Re-export common types
@@ -135,8 +148,8 @@ pub struct GpuLimits {
     pub max_buffer_size: u64,
     pub max_vertex_attributes: u32,
     pub max_vertex_buffer_array_stride: u32,
-    pub max_push_constant_size: u32,
-    pub max_inter_stage_shader_components: u32,
+    pub max_immediate_size: u32,
+    pub max_inter_stage_shader_variables: u32,
     pub max_compute_workgroup_storage_size: u32,
     pub max_compute_invocations_per_workgroup: u32,
     pub max_compute_workgroup_size_x: u32,
@@ -167,8 +180,8 @@ impl From<wgpu::Limits> for GpuLimits {
             max_buffer_size: limits.max_buffer_size,
             max_vertex_attributes: limits.max_vertex_attributes,
             max_vertex_buffer_array_stride: limits.max_vertex_buffer_array_stride,
-            max_push_constant_size: limits.max_push_constant_size,
-            max_inter_stage_shader_components: limits.max_inter_stage_shader_components,
+            max_immediate_size: limits.max_immediate_size,
+            max_inter_stage_shader_variables: limits.max_inter_stage_shader_variables,
             max_compute_workgroup_storage_size: limits.max_compute_workgroup_storage_size,
             max_compute_invocations_per_workgroup: limits.max_compute_invocations_per_workgroup,
             max_compute_workgroup_size_x: limits.max_compute_workgroup_size_x,
@@ -228,16 +241,14 @@ impl GpuContext {
 
     /// Same contract as [`GpuContext::new`]: first init wins, second hard-fails.
     pub async fn init() -> Result<Self, GpuError> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await
             .map_err(|_| GpuError::NoAdapter)?;
@@ -331,8 +342,8 @@ impl GpuContext {
     }
 
     /// Get current frame texture for rendering
-    pub fn get_current_frame(&self) -> Result<wgpu::SurfaceTexture, wgpu::SurfaceError> {
-        self.surface.as_ref().unwrap().get_current_texture()
+    pub fn get_current_frame(&self) -> Result<wgpu::SurfaceTexture, GpuError> {
+        acquire_surface_texture(self.surface.as_ref().unwrap())
     }
 
     /// Submit command buffer to queue
@@ -353,7 +364,7 @@ impl GpuContext {
 
     /// Present the current frame
     pub fn present(&self, frame: wgpu::SurfaceTexture) {
-        present_surface_texture(frame);
+        present_surface_texture(&self.queue, frame);
     }
 
     /// Resize surface
@@ -412,6 +423,7 @@ impl GpuContext {
             depth_stencil_attachment,
             occlusion_query_set: None,
             timestamp_writes: None,
+            multiview_mask: None,
         }
     }
 
@@ -512,8 +524,16 @@ pub enum GpuError {
     DeviceLost,
     #[error("Out of GPU memory")]
     OutOfMemory,
-    #[error("Surface error: {0}")]
-    SurfaceError(#[from] wgpu::SurfaceError),
+    #[error("surface timeout")]
+    SurfaceTimeout,
+    #[error("surface occluded")]
+    SurfaceOccluded,
+    #[error("surface outdated")]
+    SurfaceOutdated,
+    #[error("surface lost")]
+    SurfaceLost,
+    #[error("surface validation error")]
+    SurfaceValidation,
     #[error("GPU not initialized")]
     NotInitialized,
     #[error(

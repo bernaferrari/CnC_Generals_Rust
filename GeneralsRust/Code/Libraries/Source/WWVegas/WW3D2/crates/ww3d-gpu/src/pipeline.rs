@@ -58,7 +58,7 @@ impl RenderPipeline {
                 targets: color_targets,
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         };
 
@@ -81,7 +81,7 @@ impl RenderPipeline {
         let layout_desc = wgpu::PipelineLayoutDescriptor {
             label,
             bind_group_layouts: &[],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         };
 
         Self::new(
@@ -239,7 +239,7 @@ impl PipelineManager {
         let layout_desc = wgpu::PipelineLayoutDescriptor {
             label,
             bind_group_layouts: &[],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         };
 
         self.create_render_pipeline(
@@ -339,8 +339,8 @@ impl PipelineConfig {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -350,7 +350,7 @@ impl PipelineConfig {
                 alpha_to_coverage_enabled: false,
             },
             fragment: None,
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         }
     }

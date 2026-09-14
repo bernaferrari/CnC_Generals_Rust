@@ -166,8 +166,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("W3DStatusCircle fade layout"),
-            bind_group_layouts: &[&bind_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_layout)],
+            immediate_size: 0,
         });
         let make = |label: &str, blend: wgpu::BlendState| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -195,7 +195,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
                 },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
-                multiview: None,
+                multiview_mask: None,
                 cache: None,
             })
         };
@@ -311,7 +311,8 @@ pub fn record_camera_fade_overlay(
             depth_stencil_attachment: None,
             occlusion_query_set: None,
             timestamp_writes: None,
-        });
+            multiview_mask: None,
+});
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, &gpu.bind, &[]);
         pass.draw(0..3, 0..1);

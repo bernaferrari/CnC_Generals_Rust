@@ -303,7 +303,7 @@ fn the_audio_singleton_registers_rodio_not_wwaudio() {
     let src = include_str!("game_audio.rs");
     let prod = src.split("#[cfg(test)]").next().expect("production");
     assert!(
-        prod.contains("use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source}")
+        prod.contains("use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source}")
             && prod.contains("fn register_rodio_playback_hook"),
         "Common TheAudio backend must be rodio, not Miles leftover crate"
     );

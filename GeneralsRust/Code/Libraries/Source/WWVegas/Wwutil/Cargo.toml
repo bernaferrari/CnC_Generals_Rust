@@ -1,8 +1,9 @@
 [package]
 name = "wwutil"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 math_utilities = { path = "../WWMath" }
-wwlib_rust = { path = "../WWLib" }
+wwlib_rust = { path = "../WWLib", package = "wwlib-rust" }

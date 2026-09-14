@@ -208,7 +208,7 @@ impl WthreeDRoadBuffer {
             label: Some("Road Sampler"),
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
             address_mode_u: wgpu::AddressMode::Repeat,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -249,8 +249,8 @@ impl WthreeDRoadBuffer {
         });
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Road Buffer Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Road Buffer Pipeline"),
@@ -280,13 +280,13 @@ impl WthreeDRoadBuffer {
             },
             depth_stencil: Some(DepthStencilState {
                 format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 

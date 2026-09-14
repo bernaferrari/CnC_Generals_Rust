@@ -1017,7 +1017,7 @@ impl W3DTextureManager {
             address_mode_w: AddressMode::Repeat,
             mag_filter: FilterMode::Linear,
             min_filter: FilterMode::Linear,
-            mipmap_filter: FilterMode::Linear,
+            mipmap_filter: MipmapFilterMode::Linear,
             compare: None,
             lod_min_clamp: 0.0,
             lod_max_clamp: 32.0,

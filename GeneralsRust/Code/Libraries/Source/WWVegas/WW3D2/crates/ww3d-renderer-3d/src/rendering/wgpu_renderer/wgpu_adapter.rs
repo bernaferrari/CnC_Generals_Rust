@@ -45,6 +45,7 @@ impl WgpuAdapterManager {
             power_preference: PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }));
 
         if let Ok(adapter) = adapter {
@@ -56,6 +57,7 @@ impl WgpuAdapterManager {
             power_preference: PowerPreference::LowPower,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }));
 
         if let Ok(adapter) = adapter {

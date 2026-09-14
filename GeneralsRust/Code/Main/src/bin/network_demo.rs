@@ -12,7 +12,7 @@ use generals_main::network::{
     UnitCommand, UnitCommandType, init_network,
 };
 
-use clap::{App, Arg};
+use clap::{Arg, Command};
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -25,30 +25,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .filter_level(log::LevelFilter::Info)
         .init();
 
-    let matches = App::new("C&C Generals Network Demo")
+    let matches = Command::new("C&C Generals Network Demo")
         .version("1.0.0")
         .author("Electronic Arts Inc.")
         .about("Demonstrates the multiplayer networking system for C&C Generals Zero Hour")
         .arg(
-            Arg::with_name("mode")
-                .short("m")
+            Arg::new("mode")
+                .short('m')
                 .long("mode")
                 .value_name("MODE")
                 .help("Demo mode: host, client, or interactive")
-                .possible_values(&["host", "client", "interactive"])
+                .value_parser(["host", "client", "interactive"])
                 .default_value("interactive"),
         )
         .arg(
-            Arg::with_name("port")
-                .short("p")
+            Arg::new("port")
+                .short('p')
                 .long("port")
                 .value_name("PORT")
                 .help("Network port to use")
                 .default_value("8088"),
         )
         .arg(
-            Arg::with_name("name")
-                .short("n")
+            Arg::new("name")
+                .short('n')
                 .long("name")
                 .value_name("NAME")
                 .help("Player name")
@@ -56,9 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .get_matches();
 
-    let mode = matches.value_of("mode").unwrap();
-    let port: u16 = matches.value_of("port").unwrap().parse()?;
-    let player_name = matches.value_of("name").unwrap();
+    let mode = matches.get_one::<String>("mode").unwrap().as_str();
+    let port: u16 = matches.get_one::<String>("port").unwrap().parse()?;
+    let player_name = matches.get_one::<String>("name").unwrap();
 
     println!("=== Command & Conquer Generals Zero Hour Network Demo ===");
     println!("Mode: {}, Port: {}, Player: {}", mode, port, player_name);

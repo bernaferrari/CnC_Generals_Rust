@@ -673,7 +673,7 @@ impl SecurityManager {
         data.extend_from_slice(command.id.as_bytes());
 
         // Add payload hash
-        let payload_data = bincode::serialize(&command.payload)
+        let payload_data = bincode_legacy::serialize(&command.payload)
             .map_err(|e| NetworkError::security(format!("failed to serialize payload: {}", e)))?;
         data.extend_from_slice(&payload_data);
 

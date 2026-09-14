@@ -1,36 +1,37 @@
 [package]
 name = "wwlib-rust"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [features]
 default = []
 internal = []
 
 [dependencies]
-rand = { version = "0.8", features = ["std_rng"] }
-tokio = { version = "1.40", features = ["full"] }
-thiserror = "2.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-log = "0.4"
+rand = {workspace = true, features = ["std_rng"]}
+tokio = {workspace = true, features = ["full"]}
+thiserror = {workspace = true}
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+chrono = {workspace = true, features = ["serde"]}
+log = {workspace = true}
 base_types = { path = "base_types" }
 memory_system = { path = "memory_system" }
 string_system = { path = "string_system" }
 ini_parser = { path = "ini_parser" }
-base64 = "0.22"
-regex = "1.10"
-rsa = "0.9"
-num-bigint = "0.4"
-num-integer = "0.1"
-num-traits = "0.2"
+base64 = {workspace = true}
+regex = {workspace = true}
+rsa = {workspace = true}
+num-bigint = {workspace = true}
+num-integer = {workspace = true}
+num-traits = {workspace = true}
 
 [dev-dependencies]
-tempfile = "3.0"
+tempfile = {workspace = true}
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.52", features = [
+windows = { workspace = true, features = [
   "Win32_Foundation",
   "Win32_Storage_FileSystem",
   "Win32_System_Registry",

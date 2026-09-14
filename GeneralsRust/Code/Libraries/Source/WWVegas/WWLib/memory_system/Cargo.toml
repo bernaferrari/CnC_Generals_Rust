@@ -1,12 +1,13 @@
 [package]
 name = "memory_system"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 base_types = { path = "../base_types" }
-log = "0.4"
-parking_lot = "0.12"
+log = {workspace = true}
+parking_lot = {workspace = true}
 
 [features]
 default = []

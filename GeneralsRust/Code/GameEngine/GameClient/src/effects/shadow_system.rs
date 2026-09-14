@@ -3,9 +3,9 @@
 //! Provides dynamic shadow mapping with support for multiple shadow casters,
 //! cascaded shadow maps, and soft shadows.
 
-use nalgebra::{Matrix4, Point3, Vector3};
 use std::collections::HashMap;
 use std::sync::Arc;
+use glam::{Mat4, Vec3};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Extent3d, Queue, Sampler,
     SamplerBindingType, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
@@ -79,10 +79,10 @@ impl ShadowQuality {
 #[derive(Debug, Clone)]
 pub struct ShadowCaster {
     /// Light position
-    pub position: Point3<f32>,
+    pub position: Vec3,
 
     /// Light direction (for directional lights)
-    pub direction: Vector3<f32>,
+    pub direction: Vec3,
 
     /// Is directional light (vs point light)
     pub is_directional: bool,
@@ -91,10 +91,10 @@ pub struct ShadowCaster {
     pub shadow_map_index: usize,
 
     /// Projection matrix for shadow mapping
-    pub projection: Matrix4<f32>,
+    pub projection: Mat4,
 
     /// View matrix for shadow mapping
-    pub view: Matrix4<f32>,
+    pub view: Mat4,
 
     /// Shadow bias to prevent acne
     pub bias: f32,
@@ -109,7 +109,7 @@ pub struct ShadowCaster {
 impl ShadowCaster {
     /// Create a directional shadow caster
     pub fn directional(
-        direction: Vector3<f32>,
+        direction: Vec3,
         shadow_map_index: usize,
         frustum_size: f32,
         near: f32,
@@ -118,7 +118,7 @@ impl ShadowCaster {
         let dir_normalized = direction.normalize();
 
         // Create orthographic projection for directional light
-        let projection = Matrix4::new_orthographic(
+        let projection = Mat4::orthographic_rh(
             -frustum_size,
             frustum_size,
             -frustum_size,
@@ -128,15 +128,15 @@ impl ShadowCaster {
         );
 
         // Create view matrix looking along light direction
-        let position = Point3::origin() - dir_normalized * (far / 2.0);
-        let target = Point3::origin();
+        let position = Vec3::ZERO - dir_normalized * (far / 2.0);
+        let target = Vec3::ZERO;
         let up = if dir_normalized.y.abs() < 0.9 {
-            Vector3::new(0.0, 1.0, 0.0)
+            Vec3::new(0.0, 1.0, 0.0)
         } else {
-            Vector3::new(1.0, 0.0, 0.0)
+            Vec3::new(1.0, 0.0, 0.0)
         };
 
-        let view = Matrix4::look_at_rh(&position, &target, &up);
+        let view = Mat4::look_at_rh(position, target, up);
 
         Self {
             position,
@@ -152,20 +152,20 @@ impl ShadowCaster {
     }
 
     /// Create a point light shadow caster
-    pub fn point(position: Point3<f32>, shadow_map_index: usize, range: f32) -> Self {
+    pub fn point(position: Vec3, shadow_map_index: usize, range: f32) -> Self {
         // Use perspective projection for point light
-        let projection = Matrix4::new_perspective(1.0, std::f32::consts::FRAC_PI_2, 0.1, range);
+        let projection = Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.1, range);
 
         // Default view matrix (will be updated per face for cubemap)
-        let view = Matrix4::look_at_rh(
-            &position,
-            &(position + Vector3::new(0.0, 0.0, -1.0)),
-            &Vector3::new(0.0, 1.0, 0.0),
+        let view = Mat4::look_at_rh(
+            position,
+            position + Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 1.0, 0.0),
         );
 
         Self {
             position,
-            direction: Vector3::new(0.0, -1.0, 0.0),
+            direction: Vec3::new(0.0, -1.0, 0.0),
             is_directional: false,
             shadow_map_index,
             projection,
@@ -177,13 +177,13 @@ impl ShadowCaster {
     }
 
     /// Get shadow matrix (projection * view)
-    pub fn shadow_matrix(&self) -> Matrix4<f32> {
+    pub fn shadow_matrix(&self) -> Mat4 {
         self.projection * self.view
     }
 
     /// Update view matrix for a specific direction
-    pub fn update_view(&mut self, target: Point3<f32>, up: Vector3<f32>) {
-        self.view = Matrix4::look_at_rh(&self.position, &target, &up);
+    pub fn update_view(&mut self, target: Vec3, up: Vec3) {
+        self.view = Mat4::look_at_rh(self.position, target, up);
     }
 }
 
@@ -197,7 +197,7 @@ pub struct ShadowCascade {
     pub far: f32,
 
     /// Shadow matrix for this cascade
-    pub shadow_matrix: Matrix4<f32>,
+    pub shadow_matrix: Mat4,
 
     /// Split distance in view space
     pub split_distance: f32,
@@ -254,7 +254,7 @@ impl ShadowMapArray {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
@@ -484,8 +484,8 @@ impl ShadowSystem {
     pub fn update_cascades(
         &mut self,
         caster_index: usize,
-        camera_view: &Matrix4<f32>,
-        camera_projection: &Matrix4<f32>,
+        camera_view: &Mat4,
+        camera_projection: &Mat4,
         near: f32,
         far: f32,
     ) -> Result<(), EffectsError> {
@@ -536,7 +536,7 @@ impl ShadowSystem {
             // Calculate frustum corners in world space for this cascade
             let frustum_size = (cascade_far - cascade_near) * 0.5;
 
-            let shadow_projection = Matrix4::new_orthographic(
+            let shadow_projection = Mat4::orthographic_rh(
                 -frustum_size,
                 frustum_size,
                 -frustum_size,
@@ -582,7 +582,7 @@ impl ShadowSystem {
                 // Add cascade matrices
                 for cascade in &self.cascades[i] {
                     shadow_data.push(ShadowMatrixData {
-                        matrix: cascade.shadow_matrix.into(),
+                        matrix: cascade.shadow_matrix.to_cols_array_2d(),
                         bias: caster.bias,
                         intensity: caster.intensity * self.global_intensity,
                         split_distance: cascade.split_distance,
@@ -592,7 +592,7 @@ impl ShadowSystem {
             } else {
                 // Add single shadow matrix
                 shadow_data.push(ShadowMatrixData {
-                    matrix: caster.shadow_matrix().into(),
+                    matrix: caster.shadow_matrix().to_cols_array_2d(),
                     bias: caster.bias,
                     intensity: caster.intensity * self.global_intensity,
                     split_distance: caster.max_distance,
@@ -689,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_shadow_caster_directional() {
-        let caster = ShadowCaster::directional(Vector3::new(0.0, -1.0, 0.0), 0, 50.0, 0.1, 100.0);
+        let caster = ShadowCaster::directional(Vec3::new(0.0, -1.0, 0.0), 0, 50.0, 0.1, 100.0);
 
         assert!(caster.is_directional);
         assert_eq!(caster.shadow_map_index, 0);
@@ -698,7 +698,7 @@ mod tests {
 
     #[test]
     fn test_shadow_caster_point() {
-        let caster = ShadowCaster::point(Point3::new(0.0, 10.0, 0.0), 1, 50.0);
+        let caster = ShadowCaster::point(Vec3::new(0.0, 10.0, 0.0), 1, 50.0);
 
         assert!(!caster.is_directional);
         assert_eq!(caster.shadow_map_index, 1);

@@ -201,7 +201,10 @@ impl ProjectedShroudGpuUploader {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter,
             min_filter,
-            mipmap_filter,
+            mipmap_filter: match mipmap_filter {
+                wgpu::FilterMode::Nearest => wgpu::MipmapFilterMode::Nearest,
+                wgpu::FilterMode::Linear => wgpu::MipmapFilterMode::Linear,
+            },
             ..Default::default()
         }));
         ProjectedShroudGpuTexture {

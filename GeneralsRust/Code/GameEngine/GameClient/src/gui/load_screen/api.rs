@@ -173,6 +173,9 @@ pub fn advance_load_screen_prelude(
             },
         };
     }
+    let frame_count_before = with_window_video_manager(|manager| {
+        manager.movie_progress(&movie).map(|progress| progress.frame_count)
+    });
     let action = if focused {
         LoadMovieAction::Present
     } else if kind == LoadScreenKind::SinglePlayer {
@@ -195,6 +198,11 @@ pub fn advance_load_screen_prelude(
             completed,
             presented,
         } => {
+            if presented {
+                if let Some(frame_count) = frame_count_before {
+                    update_movie_prelude_progress(kind, frame_index, frame_count);
+                }
+            }
             if kind == LoadScreenKind::Challenge && presented {
                 let previous = with_challenge_load_screen_state(|state| state.current_frame);
                 with_window_manager(|wm| {
@@ -240,6 +248,23 @@ pub fn advance_load_screen_prelude(
             presentation_needed,
         }
     }
+}
+
+fn update_movie_prelude_progress(kind: LoadScreenKind, frame_index: i32, frame_count: i32) {
+    let progress_update_count = (frame_count / FRAME_FUDGE_ADD as i32).max(1);
+    if frame_index.rem_euclid(progress_update_count) != 0 {
+        return;
+    }
+    let shifted_percent = ((frame_index / progress_update_count) - FRAME_FUDGE_ADD as i32 + 2)
+        .min(0);
+    let percent = ((shifted_percent + FRAME_FUDGE_ADD as i32) as f32 / 1.3).floor();
+    with_window_manager(|wm| {
+        let progress_window = descriptor_for_kind(kind).primary_progress;
+        set_progress_window(wm, progress_window, percent);
+        if kind == LoadScreenKind::SinglePlayer {
+            set_window_text(wm, "SinglePlayerLoadScreen.wnd:Percent", &format!("{percent:.0}%"));
+        }
+    });
 }
 
 pub fn pump_load_screen_prelude_presentation(kind: LoadScreenKind) {

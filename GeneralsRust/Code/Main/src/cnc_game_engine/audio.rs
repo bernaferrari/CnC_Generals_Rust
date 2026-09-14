@@ -69,7 +69,7 @@ impl CnCGameEngine {
             })
             .collect();
 
-        let source = rodio::buffer::SamplesBuffer::new(1, sample_rate, samples).repeat_infinite();
+        let source = rodio_compat::samples_buffer(1, sample_rate, samples).repeat_infinite();
         sink.append(source);
 
         self.background_music = Some(sink);
@@ -176,7 +176,7 @@ impl CnCGameEngine {
             })
             .collect();
 
-        let source = rodio::buffer::SamplesBuffer::new(1, sample_rate, samples);
+        let source = rodio_compat::samples_buffer(1, sample_rate, samples);
         sink.append(source);
         self.sound_effects.push(sink);
     }

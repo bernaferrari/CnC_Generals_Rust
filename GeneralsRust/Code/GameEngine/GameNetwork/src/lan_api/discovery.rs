@@ -241,7 +241,7 @@ impl GameDiscovery {
         NetworkError::transport(format!("LAN discovery socket error: {}", err))
     }
 
-    fn bincode_error(err: bincode::Error) -> NetworkError {
+    fn bincode_error(err: bincode_legacy::Error) -> NetworkError {
         NetworkError::transport(format!("LAN discovery serialisation error: {}", err))
     }
 
@@ -377,7 +377,7 @@ impl GameDiscovery {
             .decode(&data[DISCOVERY_MAGIC.len() + 1..], addr)
             .await
             .map_err(|err| NetworkError::transport(err.to_string()))?;
-        let payload: WirePayload = bincode::deserialize(&plaintext).map_err(Self::bincode_error)?;
+        let payload: WirePayload = bincode_legacy::deserialize(&plaintext).map_err(Self::bincode_error)?;
 
         match payload {
             WirePayload::Query { .. } => {
@@ -676,7 +676,7 @@ impl GameDiscovery {
         payload: WirePayload,
     ) -> Result<usize, IoError> {
         let encoded =
-            bincode::serialize(&payload).map_err(|err| IoError::new(ErrorKind::Other, err))?;
+            bincode_legacy::serialize(&payload).map_err(|err| IoError::new(ErrorKind::Other, err))?;
         let cipher = self.crypto.encode(&encoded, target).await;
         let mut buffer = Vec::with_capacity(DISCOVERY_MAGIC.len() + 1 + cipher.len());
         buffer.extend_from_slice(DISCOVERY_MAGIC);

@@ -1,7 +1,8 @@
 [package]
 name = "game_network"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["AI Assistant"]
 description = "Modern networking system for Command & Conquer Generals Zero Hour"
 license = "GPL-3.0"
@@ -11,70 +12,71 @@ name = "game_network"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+bincode_legacy = { workspace = true }
 # Async runtime and networking
-tokio = { version = "1.48", features = ["full", "test-util"] }
-async-trait = "0.1"
+tokio = {workspace = true, features = ["full", "test-util"]}
+async-trait = {workspace = true}
 
 # WebSocket support
-tungstenite = "0.20"
-tokio-tungstenite = { version = "0.21", features = ["rustls-tls-native-roots"] }
-futures-util = "0.3"
-url = "2.5"
-igd = { version = "0.12", default-features = false, features = ["aio"] }
+tungstenite = {workspace = true}
+tokio-tungstenite = {workspace = true, features = ["rustls-tls-native-roots"]}
+futures-util = {workspace = true}
+url = {workspace = true}
+igd = {workspace = true, features = ["aio"], default-features = false}
 
 # QUIC protocol for low-latency networking
-quinn = { version = "0.11", features = ["rustls"] }
-rustls = { version = "0.23", features = ["std"] }
-rcgen = "0.12"
+quinn = {workspace = true, features = ["rustls"]}
+rustls = {workspace = true, features = ["std"]}
+rcgen = {workspace = true}
 
 # HTTP/gRPC for matchmaking services
-hyper = { version = "0.14", features = ["full"] }
-reqwest = { version = "0.11", features = ["rustls-tls", "stream"] }
+hyper = {workspace = true, features = ["full"]}
+reqwest = { workspace = true, features = ["stream"] }
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-bincode = "1.3"
-rmp-serde = "1.3" # MessagePack for efficient binary serialization
+serde = {workspace = true, features = ["derive"]}
+serde_json = {workspace = true}
+bincode = {workspace = true}
+rmp-serde = {workspace = true} # MessagePack for efficient binary serialization
 
 # Compression
-flate2 = { version = "1.1", optional = true }
-zstd = { version = "0.13", optional = true }
-lz4_flex = { version = "0.11", optional = true }
+flate2 = {workspace = true, optional = true}
+zstd = {workspace = true, optional = true}
+lz4_flex = {workspace = true, optional = true}
 
 # Cryptography and security
-ring = { version = "0.16", optional = true }
-x25519-dalek = { version = "2.0", optional = true }
-ed25519-dalek = { version = "2.2", optional = true }
-rand = "0.8"
-uuid = { version = "1.18", features = ["v4", "serde"] }
-hex = "0.4"
+ring = {workspace = true, optional = true}
+x25519-dalek = {workspace = true, optional = true}
+ed25519-dalek = {workspace = true, optional = true}
+rand = {workspace = true}
+uuid = {workspace = true, features = ["v4", "serde"]}
+hex = {workspace = true}
 
 # Additional utilities
-crc32fast = "1.5"
-byteorder = "1.5"
-once_cell = "1.21"
-if-addrs = "0.11"
+crc32fast = {workspace = true}
+byteorder = {workspace = true}
+once_cell = {workspace = true}
+if-addrs = {workspace = true}
 
 # Connection pooling and rate limiting
 
 # Error handling
-thiserror = "1.0"
+thiserror = {workspace = true}
 
 # Logging and metrics
-tracing = { version = "0.1", optional = true }
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
-metrics = { version = "0.21", optional = true }
-metrics-exporter-prometheus = { version = "0.13", optional = true }
-opentelemetry = { version = "0.21", features = ["trace"], optional = true }
-opentelemetry_sdk = { version = "0.21", features = ["rt-tokio"], optional = true }
-opentelemetry_otlp = { version = "0.14", optional = true, package = "opentelemetry-otlp" }
-tracing-opentelemetry = { version = "0.22", optional = true }
-console-subscriber = { version = "0.2", optional = true }
+tracing = {workspace = true, optional = true}
+tracing-subscriber = {workspace = true, features = ["env-filter"], optional = true}
+metrics = {workspace = true, optional = true}
+metrics-exporter-prometheus = {workspace = true, optional = true}
+opentelemetry = {workspace = true, features = ["trace"], optional = true}
+opentelemetry_sdk = {workspace = true, features = ["rt-tokio"], optional = true}
+opentelemetry_otlp = { workspace = true, optional = true }
+tracing-opentelemetry = {workspace = true, optional = true}
+console-subscriber = {workspace = true, optional = true}
 
 # Time and utilities
-chrono = { version = "0.4", features = ["serde"] }
-parking_lot = "0.12"
+chrono = {workspace = true, features = ["serde"]}
+parking_lot = {workspace = true}
 
 # File operations
 
@@ -83,7 +85,7 @@ parking_lot = "0.12"
 game_engine = { path = "../Common" }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = {workspace = true}
 
 [[bench]]
 name = "network_benchmarks"
@@ -110,4 +112,4 @@ internal = []
 nightly_bench = []
 
 [target.'cfg(unix)'.dependencies]
-socket2 = { version = "0.5", features = ["all"] }
+socket2 = { workspace = true }

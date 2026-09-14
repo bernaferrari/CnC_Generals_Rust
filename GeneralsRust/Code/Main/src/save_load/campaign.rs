@@ -517,7 +517,7 @@ impl CampaignManager {
 
         // Save to file
         let save_path = self.campaign_directory.join("mission_state.dat");
-        let data = bincode::serialize(&save_state)
+        let data = bincode_legacy::serialize(&save_state)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         let compressed = compression::compress(&data)?;
@@ -538,7 +538,7 @@ impl CampaignManager {
         let data = compression::decompress(&compressed)?;
 
         let save_state: MissionSaveState =
-            bincode::deserialize(&data).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+            bincode_legacy::deserialize(&data).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.mission_save_state = Some(save_state.clone());
         Ok(Some(save_state))
@@ -691,7 +691,7 @@ impl CampaignManager {
 
     /// Export campaign progress for sharing/backup
     pub fn export_progress(&self) -> SaveLoadResult<Vec<u8>> {
-        let data = bincode::serialize(&self.player_progress)
+        let data = bincode_legacy::serialize(&self.player_progress)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         compression::compress(&data)
@@ -701,7 +701,7 @@ impl CampaignManager {
     pub fn import_progress(&mut self, data: &[u8]) -> SaveLoadResult<()> {
         let decompressed = compression::decompress(data)?;
 
-        let progress: CampaignProgress = bincode::deserialize(&decompressed)
+        let progress: CampaignProgress = bincode_legacy::deserialize(&decompressed)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.player_progress = progress;
@@ -739,7 +739,7 @@ impl CampaignManager {
             let compressed = std::fs::read(&progress_path)?;
             let data = compression::decompress(&compressed)?;
 
-            self.player_progress = bincode::deserialize(&data)
+            self.player_progress = bincode_legacy::deserialize(&data)
                 .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
         }
 
@@ -752,7 +752,7 @@ impl CampaignManager {
     fn save_player_progress(&self) -> SaveLoadResult<()> {
         let progress_path = self.campaign_directory.join("progress.dat");
 
-        let data = bincode::serialize(&self.player_progress)
+        let data = bincode_legacy::serialize(&self.player_progress)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         let compressed = compression::compress(&data)?;

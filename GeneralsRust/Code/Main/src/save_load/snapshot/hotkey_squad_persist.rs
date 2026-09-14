@@ -66,7 +66,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
     {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(HSQD_MAGIC);
@@ -93,7 +93,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> S
             "HSQD payload truncated".to_string(),
         ));
     }
-    let payload: HotkeySquadPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: HotkeySquadPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("HSQD payload decode: {err}")))?;
     apply_payload(payload);
     Ok(())

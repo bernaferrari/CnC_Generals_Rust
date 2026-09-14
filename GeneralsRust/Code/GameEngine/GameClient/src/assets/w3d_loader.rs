@@ -12,7 +12,6 @@
 //! - Sound and light attachments
 
 use bytemuck::{Pod, Zeroable, cast_slice, from_bytes};
-use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector3, Vector4};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read, Seek, SeekFrom};
@@ -22,6 +21,7 @@ use thiserror::Error;
 
 use super::{AssetError, AssetHandle};
 use crate::display::texture_system::TextureHandle;
+use glam::{Vec3, Vec4, Mat4, Quat};
 
 /// W3D loading errors
 #[derive(Error, Debug)]
@@ -192,8 +192,8 @@ pub struct W3DMesh {
     pub name: String,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
-    pub normals: Vec<Vector3<f32>>,
-    pub uv_coordinates: Vec<Vector3<f32>>, // Support for multiple UV channels
+    pub normals: Vec<Vec3>,
+    pub uv_coordinates: Vec<Vec3>, // Support for multiple UV channels
     pub vertex_influences: Vec<VertexInfluence>,
     pub materials: Vec<u32>, // Material indices per triangle
     pub bounding_box: BoundingBox,
@@ -204,10 +204,10 @@ pub struct W3DMesh {
 /// Vertex data
 #[derive(Debug, Clone)]
 pub struct Vertex {
-    pub position: Vector3<f32>,
-    pub normal: Vector3<f32>,
-    pub uv: Vector3<f32>,
-    pub color: Option<Vector4<f32>>,
+    pub position: Vec3,
+    pub normal: Vec3,
+    pub uv: Vec3,
+    pub color: Option<Vec4>,
     pub bone_indices: [u8; 4],
     pub bone_weights: [f32; 4],
 }
@@ -246,8 +246,8 @@ pub struct W3DHierarchy {
     pub name: String,
     pub bones: Vec<Bone>,
     pub bone_name_lookup: HashMap<String, usize>,
-    pub bind_pose: Vec<Matrix4<f32>>,
-    pub inverse_bind_pose: Vec<Matrix4<f32>>,
+    pub bind_pose: Vec<Mat4>,
+    pub inverse_bind_pose: Vec<Mat4>,
 }
 
 /// Bone definition
@@ -256,10 +256,10 @@ pub struct Bone {
     pub name: String,
     pub parent_index: Option<usize>,
     pub children: Vec<usize>,
-    pub translation: Vector3<f32>,
-    pub rotation: Quaternion<f32>,
-    pub scale: Vector3<f32>,
-    pub transform: Matrix4<f32>,
+    pub translation: Vec3,
+    pub rotation: Quat,
+    pub scale: Vec3,
+    pub transform: Mat4,
 }
 
 /// W3D animation data
@@ -286,19 +286,19 @@ pub struct AnimationChannel {
 #[derive(Debug, Clone)]
 pub struct PositionKey {
     pub time: f32,
-    pub position: Vector3<f32>,
+    pub position: Vec3,
 }
 
 #[derive(Debug, Clone)]
 pub struct RotationKey {
     pub time: f32,
-    pub rotation: Quaternion<f32>,
+    pub rotation: Quat,
 }
 
 #[derive(Debug, Clone)]
 pub struct ScaleKey {
     pub time: f32,
-    pub scale: Vector3<f32>,
+    pub scale: Vec3,
 }
 
 /// Animation compression types
@@ -313,10 +313,10 @@ pub enum AnimationCompression {
 #[derive(Debug)]
 pub struct W3DMaterial {
     pub name: String,
-    pub ambient: Vector4<f32>,
-    pub diffuse: Vector4<f32>,
-    pub specular: Vector4<f32>,
-    pub emissive: Vector4<f32>,
+    pub ambient: Vec4,
+    pub diffuse: Vec4,
+    pub specular: Vec4,
+    pub emissive: Vec4,
     pub shininess: f32,
     pub opacity: f32,
     pub translucency: f32,
@@ -332,7 +332,7 @@ pub struct TextureStage {
     pub texture_name: String,
     pub uv_channel: u32,
     pub blend_op: TextureBlendOp,
-    pub texture_transform: Matrix4<f32>,
+    pub texture_transform: Mat4,
 }
 
 /// Texture blending operations
@@ -383,9 +383,9 @@ pub struct W3DTextureReference {
 /// Bounding box
 #[derive(Debug, Clone)]
 pub struct BoundingBox {
-    pub min: Vector3<f32>,
-    pub max: Vector3<f32>,
-    pub center: Vector3<f32>,
+    pub min: Vec3,
+    pub max: Vec3,
+    pub center: Vec3,
     pub radius: f32,
 }
 
@@ -399,14 +399,14 @@ impl BoundingBox {
         let mut max = vertices[0].position;
 
         for vertex in vertices {
-            min = min.inf(&vertex.position);
-            max = max.sup(&vertex.position);
+            min = min.min(vertex.position);
+            max = max.max(vertex.position);
         }
 
         let center = (min + max) * 0.5;
         let radius = vertices
             .iter()
-            .map(|v| (v.position - center).norm())
+            .map(|v| (v.position - center).length())
             .fold(0.0, f32::max);
 
         Self {
@@ -421,9 +421,9 @@ impl BoundingBox {
 impl Default for BoundingBox {
     fn default() -> Self {
         Self {
-            min: Vector3::zeros(),
-            max: Vector3::zeros(),
-            center: Vector3::zeros(),
+            min: Vec3::ZERO,
+            max: Vec3::ZERO,
+            center: Vec3::ZERO,
             radius: 0.0,
         }
     }
@@ -612,8 +612,8 @@ impl W3DLoader {
             let mut overall_max = model.meshes[0].bounding_box.max;
 
             for mesh in &model.meshes[1..] {
-                overall_min = overall_min.inf(&mesh.bounding_box.min);
-                overall_max = overall_max.sup(&mesh.bounding_box.max);
+                overall_min = overall_min.min(mesh.bounding_box.min);
+                overall_max = overall_max.max(mesh.bounding_box.max);
             }
 
             let center = (overall_min + overall_max) * 0.5;
@@ -621,7 +621,7 @@ impl W3DLoader {
                 .meshes
                 .iter()
                 .flat_map(|m| &m.vertices)
-                .map(|v| (v.position - center).norm())
+                .map(|v| (v.position - center).length())
                 .fold(0.0, f32::max);
 
             model.bounding_box = BoundingBox {
@@ -682,9 +682,9 @@ impl W3DLoader {
             vertex_influences: Vec::new(),
             materials: Vec::new(),
             bounding_box: BoundingBox {
-                min: Vector3::new(min_corner[0], min_corner[1], min_corner[2]),
-                max: Vector3::new(max_corner[0], max_corner[1], max_corner[2]),
-                center: Vector3::new(sph_center[0], sph_center[1], sph_center[2]),
+                min: Vec3::new(min_corner[0], min_corner[1], min_corner[2]),
+                max: Vec3::new(max_corner[0], max_corner[1], max_corner[2]),
+                center: Vec3::new(sph_center[0], sph_center[1], sph_center[2]),
                 radius: sph_radius.max(0.0),
             },
             attributes: decode_mesh_attributes(attributes_bits, sort_level),
@@ -708,9 +708,9 @@ impl W3DLoader {
             mesh.normals.reserve(vertex_count);
             mesh.uv_coordinates.reserve(vertex_count);
             for v in vertices_raw {
-                let position = Vector3::new(v.position[0], v.position[1], v.position[2]);
-                let normal = Vector3::new(v.normal[0], v.normal[1], v.normal[2]);
-                let uv = Vector3::new(v.uv[0], v.uv[1], 0.0);
+                let position = Vec3::new(v.position[0], v.position[1], v.position[2]);
+                let normal = Vec3::new(v.normal[0], v.normal[1], v.normal[2]);
+                let uv = Vec3::new(v.uv[0], v.uv[1], 0.0);
                 mesh.vertices.push(Vertex {
                     position,
                     normal,
@@ -863,17 +863,17 @@ impl W3DLoader {
             let bone_name = parse_fixed_ascii(&pivot.name);
             bone_name_lookup.insert(bone_name.clone(), i);
 
-            let translation = Vector3::new(
+            let translation = Vec3::new(
                 pivot.translation[0],
                 pivot.translation[1],
                 pivot.translation[2],
             );
 
-            let rotation = Quaternion::new(
-                pivot.rotation[3], // w
-                pivot.rotation[0], // x
-                pivot.rotation[1], // y
-                pivot.rotation[2], // z
+            let rotation = Quat::from_xyzw(
+                pivot.rotation[0],
+                pivot.rotation[1],
+                pivot.rotation[2],
+                pivot.rotation[3],
             );
 
             let parent_index = if pivot.parent_idx >= 0 && (pivot.parent_idx as usize) < i {
@@ -882,12 +882,12 @@ impl W3DLoader {
                 None
             };
 
-            let unit_quat = UnitQuaternion::new_normalize(rotation);
-            let rot_matrix = unit_quat.to_rotation_matrix().to_homogeneous();
-            let transform = Matrix4::new_translation(&translation) * rot_matrix;
+            let unit_quat = rotation.normalize();
+            let rot_matrix = Mat4::from_quat(unit_quat);
+            let transform = Mat4::from_translation(translation) * rot_matrix;
 
             bind_pose.push(transform);
-            inverse_bind_pose.push(transform.try_inverse().unwrap_or(Matrix4::identity()));
+            inverse_bind_pose.push(transform.inverse());
 
             bones.push(Bone {
                 name: bone_name,
@@ -895,7 +895,7 @@ impl W3DLoader {
                 children: Vec::new(),
                 translation,
                 rotation,
-                scale: Vector3::new(1.0, 1.0, 1.0),
+                scale: Vec3::new(1.0, 1.0, 1.0),
                 transform,
             });
         }
@@ -986,10 +986,10 @@ impl W3DLoader {
     ) -> Result<W3DMaterial, W3DError> {
         Ok(W3DMaterial {
             name: "default_material".to_string(),
-            ambient: Vector4::new(0.2, 0.2, 0.2, 1.0),
-            diffuse: Vector4::new(0.8, 0.8, 0.8, 1.0),
-            specular: Vector4::new(0.0, 0.0, 0.0, 1.0),
-            emissive: Vector4::new(0.0, 0.0, 0.0, 1.0),
+            ambient: Vec4::new(0.2, 0.2, 0.2, 1.0),
+            diffuse: Vec4::new(0.8, 0.8, 0.8, 1.0),
+            specular: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            emissive: Vec4::new(0.0, 0.0, 0.0, 1.0),
             shininess: 1.0,
             opacity: 1.0,
             translucency: 0.0,
@@ -1102,17 +1102,17 @@ mod tests {
     fn test_bounding_box_calculation() {
         let vertices = vec![
             Vertex {
-                position: Vector3::new(-1.0, -1.0, -1.0),
-                normal: Vector3::new(0.0, 1.0, 0.0),
-                uv: Vector3::new(0.0, 0.0, 0.0),
+                position: Vec3::new(-1.0, -1.0, -1.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                uv: Vec3::new(0.0, 0.0, 0.0),
                 color: None,
                 bone_indices: [0, 0, 0, 0],
                 bone_weights: [1.0, 0.0, 0.0, 0.0],
             },
             Vertex {
-                position: Vector3::new(1.0, 1.0, 1.0),
-                normal: Vector3::new(0.0, 1.0, 0.0),
-                uv: Vector3::new(1.0, 1.0, 0.0),
+                position: Vec3::new(1.0, 1.0, 1.0),
+                normal: Vec3::new(0.0, 1.0, 0.0),
+                uv: Vec3::new(1.0, 1.0, 0.0),
                 color: None,
                 bone_indices: [0, 0, 0, 0],
                 bone_weights: [1.0, 0.0, 0.0, 0.0],
@@ -1120,8 +1120,8 @@ mod tests {
         ];
 
         let bbox = BoundingBox::from_vertices(&vertices);
-        assert_eq!(bbox.min, Vector3::new(-1.0, -1.0, -1.0));
-        assert_eq!(bbox.max, Vector3::new(1.0, 1.0, 1.0));
-        assert_eq!(bbox.center, Vector3::new(0.0, 0.0, 0.0));
+        assert_eq!(bbox.min, Vec3::new(-1.0, -1.0, -1.0));
+        assert_eq!(bbox.max, Vec3::new(1.0, 1.0, 1.0));
+        assert_eq!(bbox.center, Vec3::new(0.0, 0.0, 0.0));
     }
 }

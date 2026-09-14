@@ -128,7 +128,7 @@ impl GpuDevice {
 
     /// Present a surface texture to the display.
     pub fn present_surface_texture(&self, frame: wgpu::SurfaceTexture) {
-        crate::present_surface_texture(frame);
+        crate::present_surface_texture(&self.queue, frame);
     }
 
     /// Create a buffer
@@ -259,8 +259,8 @@ pub struct GpuCapabilities {
     pub max_buffer_size: u64,
     pub max_vertex_attributes: u32,
     pub max_vertex_buffer_array_stride: u32,
-    pub max_push_constant_size: u32,
-    pub max_inter_stage_shader_components: u32,
+    pub max_immediate_size: u32,
+    pub max_inter_stage_shader_variables: u32,
     pub max_compute_workgroup_storage_size: u32,
     pub max_compute_invocations_per_workgroup: u32,
     pub max_compute_workgroup_size_x: u32,
@@ -291,14 +291,14 @@ impl GpuCapabilities {
             max_storage_buffers_per_shader_stage: limits.max_storage_buffers_per_shader_stage,
             max_storage_textures_per_shader_stage: limits.max_storage_textures_per_shader_stage,
             max_uniform_buffers_per_shader_stage: limits.max_uniform_buffers_per_shader_stage,
-            max_uniform_buffer_binding_size: limits.max_uniform_buffer_binding_size,
-            max_storage_buffer_binding_size: limits.max_storage_buffer_binding_size,
+            max_uniform_buffer_binding_size: limits.max_uniform_buffer_binding_size as u32,
+            max_storage_buffer_binding_size: limits.max_storage_buffer_binding_size as u32,
             max_vertex_buffers: limits.max_vertex_buffers,
             max_buffer_size: limits.max_buffer_size,
             max_vertex_attributes: limits.max_vertex_attributes,
             max_vertex_buffer_array_stride: limits.max_vertex_buffer_array_stride,
-            max_push_constant_size: limits.max_push_constant_size,
-            max_inter_stage_shader_components: limits.max_inter_stage_shader_components,
+            max_immediate_size: limits.max_immediate_size,
+            max_inter_stage_shader_variables: limits.max_inter_stage_shader_variables,
             max_compute_workgroup_storage_size: limits.max_compute_workgroup_storage_size,
             max_compute_invocations_per_workgroup: limits.max_compute_invocations_per_workgroup,
             max_compute_workgroup_size_x: limits.max_compute_workgroup_size_x,
@@ -554,8 +554,8 @@ mod tests {
             max_buffer_size: 268435456,
             max_vertex_attributes: 16,
             max_vertex_buffer_array_stride: 2048,
-            max_push_constant_size: 128,
-            max_inter_stage_shader_components: 60,
+            max_immediate_size: 128,
+            max_inter_stage_shader_variables: 60,
             max_compute_workgroup_storage_size: 16384,
             max_compute_invocations_per_workgroup: 256,
             max_compute_workgroup_size_x: 256,
@@ -599,8 +599,8 @@ mod tests {
             max_buffer_size: 268435456,
             max_vertex_attributes: 16,
             max_vertex_buffer_array_stride: 2048,
-            max_push_constant_size: 128,
-            max_inter_stage_shader_components: 60,
+            max_immediate_size: 128,
+            max_inter_stage_shader_variables: 60,
             max_compute_workgroup_storage_size: 16384,
             max_compute_invocations_per_workgroup: 256,
             max_compute_workgroup_size_x: 256,

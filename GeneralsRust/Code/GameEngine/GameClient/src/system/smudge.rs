@@ -2,7 +2,6 @@
 
 use crate::effects::decals::DecalRenderItem;
 use glam::{Vec2, Vec3};
-use nalgebra::Point3;
 use std::sync::{Arc, Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy)]
@@ -179,7 +178,7 @@ impl SmudgeManager {
             .into_iter()
             .filter(|smudge| smudge.size > 0.0 && smudge.opacity > 0.0)
             .map(|smudge| DecalRenderItem {
-                position: Point3::new(smudge.pos.x, smudge.pos.y, smudge.pos.z),
+                position: Vec3::new(smudge.pos.x, smudge.pos.y, smudge.pos.z),
                 size: smudge.size,
                 size_x: smudge.size,
                 size_y: smudge.size,
@@ -417,7 +416,7 @@ mod tests {
         }
         let items = manager.collect_decal_render_items();
         assert_eq!(items.len(), 1);
-        assert_eq!(items[0].position, Point3::new(4.0, 5.0, 6.0));
+        assert_eq!(items[0].position, Vec3::new(4.0, 5.0, 6.0));
         assert_eq!(items[0].size, 8.0);
         assert!((items[0].color[3] - 0.5).abs() < f32::EPSILON);
     }

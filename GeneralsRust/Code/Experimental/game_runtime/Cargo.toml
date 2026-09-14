@@ -1,11 +1,12 @@
 [package]
 name = "experimental-game-runtime"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
 pollster.workspace = true
 wgpu.workspace = true
-winit = "0.30"
+winit = {workspace = true}
 experimental-engine-core = { path = "../engine_core", features = ["wgpu-backend"] }

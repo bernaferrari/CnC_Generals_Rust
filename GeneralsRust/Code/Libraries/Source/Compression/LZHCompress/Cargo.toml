@@ -1,7 +1,8 @@
 [package]
 name = "lzh_compression"
 version = "2.0.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
 authors = ["GeneralsRust Team"]
 description = "Modern Rust implementation of LZH compression algorithm with SIMD and GPU acceleration"
 license = "GPL-3.0"
@@ -18,37 +19,37 @@ internal = []
 
 [dependencies]
 # Core dependencies
-thiserror = "2.0"
-anyhow = "1.0"
-byteorder = "1.5"
-crc32fast = "1.4"
-memmap2 = "0.9"
+thiserror = {workspace = true}
+anyhow = {workspace = true}
+byteorder = {workspace = true}
+crc32fast = {workspace = true}
+memmap2 = {workspace = true}
 
 # SIMD optimizations
-wide = { version = "0.7", optional = true }
+wide = {workspace = true, optional = true}
 
 # Parallel processing
-rayon = { version = "1.10", optional = true }
+rayon = {workspace = true, optional = true}
 
 # Advanced compression
-lz4_flex = { version = "0.11", optional = true }
+lz4_flex = {workspace = true, optional = true}
 
 # GPU acceleration
-wgpu = { version = "27.0.1", optional = true }
-bytemuck = { version = "1.17", features = ["derive"], optional = true }
+wgpu = {workspace = true, optional = true}
+bytemuck = {workspace = true, features = ["derive"], optional = true}
 
 # Benchmarking
-criterion = { version = "0.5", optional = true }
+criterion = {workspace = true, optional = true}
 
 # Utilities
-log = "0.4"
-env_logger = "0.11"
+log = {workspace = true}
+env_logger = {workspace = true}
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-proptest = "1.4"
-tempfile = "3.8"
-rand = "0.8"
+criterion = {workspace = true, features = ["html_reports"]}
+proptest = {workspace = true}
+tempfile = {workspace = true}
+rand = {workspace = true}
 
 [[bench]]
 name = "lzh_benchmarks"

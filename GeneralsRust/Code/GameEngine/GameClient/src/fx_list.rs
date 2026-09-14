@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
-use glam::Vec3;
+use glam::{Mat3, Vec3};
 
 use game_engine::common::ini::{INI, INIError, INILoadType, INIResult, register_block_parser};
 use game_engine::common::name_key_generator::{NameKeyGenerator, NameKeyType};
@@ -1132,7 +1132,7 @@ fn parse_particle_system_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResul
             "COUNT" => nugget.count = INI::parse_int(value)?,
             "OFFSET" => {
                 let offset = parse_labeled_vec3(&values, false)?;
-                nugget.offset = nalgebra::Vector3::new(offset.x, offset.y, offset.z);
+                nugget.offset = Vec3::new(offset.x, offset.y, offset.z);
             }
             "RADIUS" => {
                 nugget.radius = parse_random_variable(&values)?;
@@ -1355,8 +1355,8 @@ impl FXNugget for RayEffectFXNugget {
                 name if name.contains("laser") => RayEffectConfig::laser(),
                 _ => RayEffectConfig::default(),
             };
-            config.start = nalgebra::Point3::new(source.x, source.y, source.z);
-            config.end = nalgebra::Point3::new(target.x, target.y, target.z);
+            config.start = Vec3::new(source.x, source.y, source.z);
+            config.end = Vec3::new(target.x, target.y, target.z);
             manager.spawn(config);
         });
     }
@@ -1591,13 +1591,10 @@ impl FXNugget for ParticleSystemWrapper {
         let Some(manager) = manager_guard.as_mut() else {
             return;
         };
-        let primary_point = nalgebra::Point3::new(primary.x, primary.y, primary.z);
+        let primary_point = Vec3::new(primary.x, primary.y, primary.z);
         let mtx = primary_mtx.map(|mtx| {
             let cols = mtx.to_cols_array_2d();
-            nalgebra::Matrix3::new(
-                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2], cols[2][0],
-                cols[2][1], cols[2][2],
-            )
+            Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]])
         });
         let systems = self
             .nugget
@@ -1616,7 +1613,7 @@ impl FXNugget for ParticleSystemWrapper {
             return;
         };
         let position = primary.get_position();
-        let primary_point = nalgebra::Point3::new(position.x, position.y, position.z);
+        let primary_point = Vec3::new(position.x, position.y, position.z);
 
         // C++ FXList.cpp:519-529 — ricochet uses attacker→victim only when
         // secondary is present; otherwise keep the primary object transform.
@@ -1626,24 +1623,18 @@ impl FXNugget for ParticleSystemWrapper {
                 let aiming_angle =
                     (position.y - secondary_pos.y).atan2(position.x - secondary_pos.x);
                 let (s, c) = aiming_angle.sin_cos();
-                Some(nalgebra::Matrix3::from_columns(&[
-                    nalgebra::Vector3::new(c, s, 0.0),
-                    nalgebra::Vector3::new(-s, c, 0.0),
-                    nalgebra::Vector3::new(0.0, 0.0, 1.0),
-                ]))
+                Some(Mat3::from_cols(
+                    Vec3::new(c, s, 0.0),
+                    Vec3::new(-s, c, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                ))
             } else {
                 let cols = primary.get_transform_matrix().to_cols_array_2d();
-                Some(nalgebra::Matrix3::new(
-                    cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
-                    cols[2][0], cols[2][1], cols[2][2],
-                ))
+                Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
             }
         } else {
             let cols = primary.get_transform_matrix().to_cols_array_2d();
-            Some(nalgebra::Matrix3::new(
-                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2], cols[2][0],
-                cols[2][1], cols[2][2],
-            ))
+            Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
         };
 
         let object_id = Some(primary.get_id());
@@ -1665,31 +1656,25 @@ impl FXNugget for ParticleSystemWrapper {
             return;
         };
         let position = primary.position;
-        let primary_point = nalgebra::Point3::new(position.x, position.y, position.z);
+        let primary_point = Vec3::new(position.x, position.y, position.z);
         let mtx = if self.nugget.ricochet {
             if let Some(secondary) = secondary {
                 let secondary_pos = secondary.position;
                 let aiming_angle =
                     (position.y - secondary_pos.y).atan2(position.x - secondary_pos.x);
                 let (s, c) = aiming_angle.sin_cos();
-                Some(nalgebra::Matrix3::from_columns(&[
-                    nalgebra::Vector3::new(c, s, 0.0),
-                    nalgebra::Vector3::new(-s, c, 0.0),
-                    nalgebra::Vector3::new(0.0, 0.0, 1.0),
-                ]))
+                Some(Mat3::from_cols(
+                    Vec3::new(c, s, 0.0),
+                    Vec3::new(-s, c, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                ))
             } else {
                 let cols = primary.transform.to_cols_array_2d();
-                Some(nalgebra::Matrix3::new(
-                    cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2],
-                    cols[2][0], cols[2][1], cols[2][2],
-                ))
+                Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
             }
         } else {
             let cols = primary.transform.to_cols_array_2d();
-            Some(nalgebra::Matrix3::new(
-                cols[0][0], cols[0][1], cols[0][2], cols[1][0], cols[1][1], cols[1][2], cols[2][0],
-                cols[2][1], cols[2][2],
-            ))
+            Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
         };
         let systems = self
             .nugget

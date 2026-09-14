@@ -22,10 +22,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Try WGPU initialization with timeout-like approach
     println!("🎨 Starting WGPU initialization...");
 
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-    });
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
     println!("✅ WGPU instance created");
 
     let surface = instance.create_surface(window.clone())?;
@@ -36,6 +33,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: Some(&surface),
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         })
         .await?;
     println!("✅ Adapter found: {}", adapter.get_info().name);
@@ -65,6 +63,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
         width: size.width,
         height: size.height,
         present_mode: wgpu::PresentMode::Fifo,
@@ -115,6 +114,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                                     g: 0.2,
                                     b: 0.3,
                                     a: 1.0,
+            multiview_mask: None,
                                 }),
                                 store: wgpu::StoreOp::Store,
                             },
@@ -126,7 +126,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 queue.submit(std::iter::once(encoder.finish()));
-                present_surface_texture(output);
+                present_surface_texture(&queue, output);
                 println!("✅ Frame rendered!");
             }
             _ => {}

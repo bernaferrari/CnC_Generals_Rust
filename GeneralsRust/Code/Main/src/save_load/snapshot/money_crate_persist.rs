@@ -30,7 +30,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.registry.crate_count() == 0 && payload.registry.pickups == 0 {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(MCRT_MAGIC);
@@ -58,7 +58,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "MCRT payload truncated".to_string(),
         ));
     }
-    let payload: MoneyCratePersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: MoneyCratePersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("MCRT payload decode: {err}")))?;
     game_logic.host_money_crates = payload.registry;
     Ok(())

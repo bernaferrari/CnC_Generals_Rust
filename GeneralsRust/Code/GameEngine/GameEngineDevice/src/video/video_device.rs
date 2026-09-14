@@ -247,7 +247,7 @@ impl VideoDevice {
             let mut backend_options = wgpu::BackendOptions::default();
             backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::Fxc;
 
-            let instance = Arc::new(Instance::new(&wgpu::InstanceDescriptor {
+            let instance = Arc::new(Instance::new(wgpu::InstanceDescriptor {
                 backends: Backends::all(),
                 flags: if config.debug_mode {
                     wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION
@@ -264,6 +264,7 @@ impl VideoDevice {
                     power_preference: config.power_preference,
                     compatible_surface: None,
                     force_fallback_adapter: false,
+            apply_limit_buckets: false,
                 })
                 .await
                 .map_err(|_| {

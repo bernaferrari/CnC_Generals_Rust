@@ -16,7 +16,7 @@ use ww3d_engine::FrameTiming;
 use ww3d_gpu::present_surface_texture;
 
 // Audio imports
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
+use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 use std::fs::File;
 use std::io::BufReader;
 
@@ -136,10 +136,7 @@ impl GameEngine {
         let size = window.inner_size();
 
         // Initialize wgpu
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::PRIMARY, ..wgpu::InstanceDescriptor::new_without_display_handle() });
 
         let surface = instance.create_surface(window.clone())?;
 
@@ -148,6 +145,7 @@ impl GameEngine {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
+            apply_limit_buckets: false,
             })
             .await?;
 
@@ -174,6 +172,7 @@ impl GameEngine {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
+            color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width,
             height: size.height,
             present_mode: surface_caps.present_modes[0],
@@ -195,7 +194,7 @@ impl GameEngine {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -232,7 +231,7 @@ impl GameEngine {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -393,6 +392,7 @@ impl GameEngine {
                             g: 0.2,
                             b: 0.3,
                             a: 1.0,
+            multiview_mask: None,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -419,7 +419,7 @@ impl GameEngine {
             encoder.finish(),
             ww3d_engine::OutOfFrameReason::StandaloneW3dRenderer,
         );
-        present_surface_texture(output);
+        present_surface_texture(&self.queue, output);
 
         Ok(())
     }
@@ -440,7 +440,7 @@ impl GameEngine {
             })
             .collect();
 
-        let source = rodio::buffer::SamplesBuffer::new(1, sample_rate, samples);
+        let source = rodio_compat::samples_buffer(1, sample_rate, samples);
         sink.append(source);
         self.sound_effects.push(sink);
     }
@@ -470,7 +470,7 @@ impl GameEngine {
                 .collect();
 
             let source =
-                rodio::buffer::SamplesBuffer::new(1, sample_rate, samples).repeat_infinite();
+                rodio_compat::samples_buffer(1, sample_rate, samples).repeat_infinite();
             sink.append(source);
 
             self.background_music = Some(sink);

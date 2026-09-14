@@ -42,6 +42,7 @@
 //! effects_manager.render();
 //! ```
 
+use glam::{Vec3};
 pub mod debug_draw;
 pub mod decals;
 pub mod fxlist_integration;
@@ -61,7 +62,6 @@ pub mod shadow_system;
 pub mod tracer_fx;
 pub mod weather_complete;
 
-use nalgebra::{Point3, Vector3};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
@@ -373,52 +373,53 @@ impl EffectsLOD {
 pub mod utils {
     use super::*;
     use rand::prelude::*;
+    use rand::rng;
 
     /// Generate random position within a sphere
-    pub fn random_sphere_position(center: Point3<f32>, radius: f32) -> Point3<f32> {
-        let mut rng = thread_rng();
-        let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-        let phi = rng.r#gen::<f32>() * std::f32::consts::PI;
-        let r = rng.r#gen::<f32>().powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
+    pub fn random_sphere_position(center: Vec3, radius: f32) -> Vec3 {
+        let mut rng = rng();
+        let theta = rng.random::<f32>() * 2.0 * std::f32::consts::PI;
+        let phi = rng.random::<f32>() * std::f32::consts::PI;
+        let r = rng.random::<f32>().powf(1.0 / 3.0) * radius; // Uniform distribution in sphere
 
         let x = r * phi.sin() * theta.cos();
         let y = r * phi.sin() * theta.sin();
         let z = r * phi.cos();
 
-        Point3::new(center.x + x, center.y + y, center.z + z)
+        Vec3::new(center.x + x, center.y + y, center.z + z)
     }
 
     /// Generate random velocity within a cone
     pub fn random_cone_velocity(
-        direction: Vector3<f32>,
+        direction: Vec3,
         angle_radians: f32,
         min_speed: f32,
         max_speed: f32,
-    ) -> Vector3<f32> {
-        let mut rng = thread_rng();
+    ) -> Vec3 {
+        let mut rng = rng();
 
         // Generate random direction within cone
-        let theta = rng.r#gen::<f32>() * 2.0 * std::f32::consts::PI;
-        let phi = rng.r#gen::<f32>() * angle_radians;
+        let theta = rng.random::<f32>() * 2.0 * std::f32::consts::PI;
+        let phi = rng.random::<f32>() * angle_radians;
 
         // Create rotation matrix to align with desired direction
         let up = if direction.y.abs() < 0.9 {
-            Vector3::new(0.0, 1.0, 0.0)
+            Vec3::new(0.0, 1.0, 0.0)
         } else {
-            Vector3::new(1.0, 0.0, 0.0)
+            Vec3::new(1.0, 0.0, 0.0)
         };
 
-        let right = direction.cross(&up).normalize();
-        let actual_up = right.cross(&direction);
+        let right = direction.cross(up).normalize();
+        let actual_up = right.cross(direction);
 
         // Generate random direction in cone
-        let local_dir = Vector3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos());
+        let local_dir = Vec3::new(phi.sin() * theta.cos(), phi.sin() * theta.sin(), phi.cos());
 
         // Transform to world space
         let world_dir = direction * local_dir.z + right * local_dir.x + actual_up * local_dir.y;
 
         // Apply random speed
-        let speed = rng.gen_range(min_speed..=max_speed);
+        let speed = rng.random_range(min_speed..=max_speed);
         world_dir.normalize() * speed
     }
 
@@ -435,17 +436,17 @@ pub mod utils {
 
     /// Calculate wind effect on position
     pub fn apply_wind_force(
-        position: Point3<f32>,
-        wind_direction: Vector3<f32>,
+        position: Vec3,
+        wind_direction: Vec3,
         wind_strength: f32,
         delta_time: f32,
-    ) -> Vector3<f32> {
+    ) -> Vec3 {
         // Add some turbulence based on position
         let turbulence_x = (position.x * 0.1).sin() * 0.3;
         let turbulence_y = (position.y * 0.1 + 1.0).sin() * 0.2;
         let turbulence_z = (position.z * 0.1 + 2.0).sin() * 0.3;
 
-        let turbulence = Vector3::new(turbulence_x, turbulence_y, turbulence_z);
+        let turbulence = Vec3::new(turbulence_x, turbulence_y, turbulence_z);
         let total_wind = wind_direction * wind_strength + turbulence;
 
         total_wind * delta_time
@@ -513,12 +514,12 @@ mod tests {
     fn test_utils_random_sphere() {
         use crate::effects::utils::*;
 
-        let center = Point3::new(0.0, 0.0, 0.0);
+        let center = Vec3::new(0.0, 0.0, 0.0);
         let radius = 10.0;
 
         for _ in 0..100 {
             let pos = random_sphere_position(center, radius);
-            let distance = (pos - center).norm();
+            let distance = (pos - center).length();
             assert!(distance <= radius);
         }
     }

@@ -89,12 +89,18 @@ pub(super) fn sampler_descriptor_for_settings(
         TextureFilterMode::Point | TextureFilterMode::Nearest => (
             FilterMode::Nearest,
             FilterMode::Nearest,
-            FilterMode::Nearest,
+            wgpu::MipmapFilterMode::Nearest,
         ),
-        TextureFilterMode::Linear => (FilterMode::Linear, FilterMode::Linear, FilterMode::Linear),
-        TextureFilterMode::Anisotropic => {
-            (FilterMode::Linear, FilterMode::Linear, FilterMode::Linear)
-        }
+        TextureFilterMode::Linear => (
+            FilterMode::Linear,
+            FilterMode::Linear,
+            wgpu::MipmapFilterMode::Linear,
+        ),
+        TextureFilterMode::Anisotropic => (
+            FilterMode::Linear,
+            FilterMode::Linear,
+            wgpu::MipmapFilterMode::Linear,
+        ),
     };
 
     SamplerDescriptor {

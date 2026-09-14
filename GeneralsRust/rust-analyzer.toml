@@ -1,0 +1,14 @@
+# rust-analyzer defaults to `cargo check --workspace --all-targets`, which in
+# this repo compiles 60+ crates, 50+ bins, examples, and tests — the main
+# reason target/ used to climb toward 70 GB alongside rustc incremental.
+# Check only the crate you have open, lib+bins, default features.
+[cargo]
+allTargets = false
+features = "default"
+
+[check]
+command = "check"
+allTargets = false
+
+[diagnostics]
+disabled = ["inactive-code"]

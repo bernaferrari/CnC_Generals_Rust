@@ -33,7 +33,7 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
     if payload.registry.is_empty() {
         return;
     }
-    let Ok(encoded) = bincode::serialize(&payload) else {
+    let Ok(encoded) = bincode_legacy::serialize(&payload) else {
         return;
     };
     bytes.extend_from_slice(PJST_MAGIC);
@@ -61,7 +61,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "PJST payload truncated".to_string(),
         ));
     }
-    let payload: ProjectileStreamPersistPayload = bincode::deserialize(&rest[..payload_len])
+    let payload: ProjectileStreamPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
         .map_err(|err| SaveLoadError::Corrupted(format!("PJST payload decode: {err}")))?;
     game_logic.projectile_streams = payload.registry;
     Ok(())

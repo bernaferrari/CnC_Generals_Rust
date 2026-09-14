@@ -87,8 +87,8 @@ impl LaserDrawGpu {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("laser_additive_layout"),
-            bind_group_layouts: &[&camera_bgl],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&camera_bgl)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("laser_additive_segliner_pipeline"),
@@ -97,7 +97,7 @@ impl LaserDrawGpu {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
+                buffers: &[Some(wgpu::VertexBufferLayout {
                     array_stride: 36,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
@@ -117,7 +117,7 @@ impl LaserDrawGpu {
                             format: wgpu::VertexFormat::Float32x4,
                         },
                     ],
-                }],
+                })],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -149,13 +149,13 @@ impl LaserDrawGpu {
                 // laser pass attaches the ww3d frame depth (`depth_view_arc()`,
                 // `Depth32Float`). wgpu fatals on pipeline/attachment mismatch.
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
         Self {
