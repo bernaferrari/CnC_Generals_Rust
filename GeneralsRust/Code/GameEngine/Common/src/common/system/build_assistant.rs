@@ -28,12 +28,7 @@ const FRAMES_TO_ALLOW_SCAFFOLD: f32 = 30.0 * 1.5; // Assuming 30 FPS (LOGICFRAME
 const TOTAL_FRAMES_TO_SELL_OBJECT: f32 = 30.0 * 3.0;
 
 /// 3D coordinate structure
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
+pub use crate::common::system::geometry::Coord3D;
 
 /// Backend hook for integrating build assistant actions with game logic.
 pub trait BuildAssistantBackend: std::fmt::Debug + Send + Sync {
@@ -180,35 +175,6 @@ fn get_build_assistant_backend() -> Option<Arc<dyn BuildAssistantBackend>> {
         .lock()
         .expect("Build assistant backend lock poisoned")
         .clone()
-}
-
-impl Default for Coord3D {
-    fn default() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-
-    pub fn length(&self) -> f32 {
-        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
-    }
-
-    pub fn normalize(&mut self) {
-        let len = self.length();
-        if len > 0.0 {
-            self.x /= len;
-            self.y /= len;
-            self.z /= len;
-        }
-    }
 }
 
 /// Object ID type
@@ -671,7 +637,7 @@ impl BuildAssistant {
             tiles_needed = max_tiles;
         }
 
-        placement_vector.normalize();
+        placement_vector.normalize_in_place();
 
         let mut positions = Vec::with_capacity(tiles_needed as usize);
         positions.push(*start);
@@ -936,7 +902,7 @@ mod tests {
         let mut coord = Coord3D::new(3.0, 4.0, 0.0);
         assert_eq!(coord.length(), 5.0);
 
-        coord.normalize();
+        coord.normalize_in_place();
         assert!((coord.length() - 1.0).abs() < 0.001);
     }
 

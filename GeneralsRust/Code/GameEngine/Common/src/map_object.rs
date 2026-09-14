@@ -28,28 +28,7 @@ const MO_LIGHT: u32 = 0x02;
 const MO_WAYPOINT: u32 = 0x04;
 const MO_SCORCH: u32 = 0x08;
 
-#[derive(Debug, Clone)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Default for Coord3D {
-    fn default() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 #[derive(Debug, Clone)]
 pub struct MapObject {

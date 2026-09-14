@@ -3,7 +3,6 @@
 use game_engine::common::ini::ini::{INI, INIError, INIResult, register_block_parser};
 use game_engine::common::ini::ini_weather;
 use once_cell::sync::OnceCell;
-use rand::RngExt;
 use std::sync::{Arc, Mutex, RwLock};
 
 const SNOW_NOISE_X: usize = 64;
@@ -251,11 +250,11 @@ impl SnowManager {
         if self.starting_heights.len() != SNOW_NOISE_X * SNOW_NOISE_Y {
             self.starting_heights = vec![0.0; SNOW_NOISE_X * SNOW_NOISE_Y];
         }
-        let mut rng = rand::rng();
         let box_dimensions = guard.snow_box_dimensions.max(0.0);
         let box_i = box_dimensions.max(1.0) as i32;
         for height in &mut self.starting_heights {
-            *height = rng.random_range(0..box_i) as f32;
+            // C++: rand() % boxDimensions → [0, box_i); client stream inclusive [0, box_i-1]
+            *height = crate::GameClientRandomValue!(0, box_i - 1) as f32;
         }
 
         self.velocity = guard.snow_velocity;

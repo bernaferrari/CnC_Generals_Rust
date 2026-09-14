@@ -728,12 +728,7 @@ pub trait Snapshot: Send {
 // Supporting data structures (matching C++ types)
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
+pub use crate::common::system::geometry::Coord3D;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ICoord3D {

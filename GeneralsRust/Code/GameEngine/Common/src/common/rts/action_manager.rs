@@ -108,12 +108,7 @@ pub enum AbleToAttackType {
 // ================================================================================================
 
 /// 3D coordinate
-#[derive(Debug, Clone, Copy)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
+pub use crate::common::system::geometry::Coord3D;
 
 // ================================================================================================
 // GAME STATE PROVIDER TRAIT

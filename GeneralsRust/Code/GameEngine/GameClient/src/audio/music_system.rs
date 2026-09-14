@@ -11,8 +11,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use rand::seq::IndexedRandom;
-
 use super::audio_engine::{AudioEngine, AudioHandle, AudioPosition};
 
 // ---------------------------------------------------------------------------
@@ -402,8 +400,8 @@ impl MusicSystem {
         }
 
         let track_idx = if self.shuffle {
-            let mut rng = rand::rng();
-            *playlist.choose(&mut rng).unwrap_or(&playlist[0])
+            let idx = crate::GameClientRandomValue!(0, (playlist.len() - 1) as i32) as usize;
+            playlist.get(idx).copied().unwrap_or(playlist[0])
         } else {
             playlist[self.current_track_index % playlist.len()]
         };

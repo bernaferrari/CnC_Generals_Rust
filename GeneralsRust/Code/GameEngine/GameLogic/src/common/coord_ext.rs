@@ -18,6 +18,14 @@ pub trait Coord3DExt {
 
     /// Get squared length (faster, no sqrt)
     fn length_squared(&self) -> Real;
+
+    /// C++ `Coord3D::lengthSqr`.
+    fn length_sqr(&self) -> Real {
+        self.length_squared()
+    }
+
+    /// C++ `Coord3D::normalize` — in-place; zero stays zero.
+    fn normalize_in_place(&mut self);
 }
 
 impl Coord3DExt for Coord3D {
@@ -33,7 +41,14 @@ impl Coord3DExt for Coord3D {
 
     #[inline]
     fn normalized(&self) -> Coord3D {
-        self.normalize()
+        // C++ `Coord3D::normalize` leaves a zero vector as zero. glam's
+        // `Vec3::normalize` yields NaNs.
+        let len = glam::Vec3::length(*self);
+        if len == 0.0 {
+            Coord3D::ZERO
+        } else {
+            *self / len
+        }
     }
 
     #[inline]
@@ -44,6 +59,10 @@ impl Coord3DExt for Coord3D {
     #[inline]
     fn length_squared(&self) -> Real {
         glam::Vec3::length_squared(*self)
+    }
+
+    fn normalize_in_place(&mut self) {
+        *self = self.normalized();
     }
 }
 

@@ -39,8 +39,22 @@ pub struct Point3D {
 }
 
 impl Point3D {
+    pub const ZERO: Point3D = Point3D {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
     pub fn new(x: f32, y: f32, z: f32) -> Self {
         Point3D { x, y, z }
+    }
+
+    pub fn zero() -> Self {
+        Self::ZERO
+    }
+
+    pub fn origin() -> Self {
+        Self::ZERO
     }
 
     pub fn distance(&self, other: &Point3D) -> f32 {
@@ -70,11 +84,104 @@ impl Point3D {
             Point3D::new(self.x / length, self.y / length, self.z / length)
         }
     }
+
+    /// C++ `Coord3D::length`.
+    pub fn length(&self) -> f32 {
+        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
+    }
+
+    /// C++ `Coord3D::lengthSqr`.
+    pub fn length_sqr(&self) -> f32 {
+        self.x * self.x + self.y * self.y + self.z * self.z
+    }
+
+    /// C++ `Coord3D::normalize` — in-place; a zero vector stays zero.
+    pub fn normalize_in_place(&mut self) {
+        let len = self.length();
+        if len != 0.0 {
+            self.x /= len;
+            self.y /= len;
+            self.z /= len;
+        }
+    }
+
+    /// C++ `Coord3D::crossProduct`.
+    pub fn cross_product(a: &Point3D, b: &Point3D) -> Point3D {
+        Point3D::new(
+            a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x,
+        )
+    }
+
+    /// C++ `Coord3D::zero`.
+    pub fn zero_in_place(&mut self) {
+        self.x = 0.0;
+        self.y = 0.0;
+        self.z = 0.0;
+    }
+
+    /// C++ `Coord3D::add`.
+    pub fn add_coord(&mut self, a: &Point3D) {
+        self.x += a.x;
+        self.y += a.y;
+        self.z += a.z;
+    }
+
+    /// C++ `Coord3D::sub`.
+    pub fn sub_coord(&mut self, a: &Point3D) {
+        self.x -= a.x;
+        self.y -= a.y;
+        self.z -= a.z;
+    }
+
+    /// C++ `Coord3D::set(const Coord3D *)`.
+    pub fn set_from(&mut self, a: &Point3D) {
+        self.x = a.x;
+        self.y = a.y;
+        self.z = a.z;
+    }
+
+    /// C++ `Coord3D::set(Real, Real, Real)`.
+    pub fn set_xyz(&mut self, x: f32, y: f32, z: f32) {
+        self.x = x;
+        self.y = y;
+        self.z = z;
+    }
+
+    /// C++ `Coord3D::scale`.
+    pub fn scale(&mut self, scale: f32) {
+        self.x *= scale;
+        self.y *= scale;
+        self.z *= scale;
+    }
+
+    /// C++ `Coord3D::equals`.
+    pub fn equals(&self, r: &Point3D) -> bool {
+        self.x == r.x && self.y == r.y && self.z == r.z
+    }
+}
+
+/// C++ leftover / GameLogic `Coord3D` is Z-up: `(x, y_ground, z_height)`.
+/// Host/render is Y-up: `(x, height, z_ground)`.
+pub fn host_yup_to_cpp_zup(x: f32, y_height: f32, z_ground: f32) -> Coord3D {
+    Coord3D::new(x, z_ground, y_height)
+}
+
+/// Inverse of [`host_yup_to_cpp_zup`].
+pub fn cpp_zup_to_host_yup(coord: Coord3D) -> (f32, f32, f32) {
+    (coord.x, coord.z, coord.y)
 }
 
 impl Default for Point3D {
     fn default() -> Self {
-        Point3D::new(0.0, 0.0, 0.0)
+        Point3D::ZERO
+    }
+}
+
+impl From<(f32, f32, f32)> for Point3D {
+    fn from(tuple: (f32, f32, f32)) -> Self {
+        Point3D::new(tuple.0, tuple.1, tuple.2)
     }
 }
 
@@ -830,5 +937,61 @@ impl Snapshotable for GeometryInfo {
     /// C++ implementation is empty.
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod coord3d_cpp_parity {
+    use super::{cpp_zup_to_host_yup, host_yup_to_cpp_zup, Coord3D};
+
+    #[test]
+    fn length_and_length_sqr_match_base_type() {
+        let c = Coord3D::new(3.0, 4.0, 12.0);
+        assert_eq!(c.length_sqr(), 9.0 + 16.0 + 144.0);
+        assert_eq!(c.length(), 13.0);
+    }
+
+    #[test]
+    fn normalize_in_place_leaves_zero_vector() {
+        let mut z = Coord3D::new(0.0, 0.0, 0.0);
+        z.normalize_in_place();
+        assert!(z.equals(&Coord3D::new(0.0, 0.0, 0.0)));
+    }
+
+    #[test]
+    fn normalize_in_place_matches_cpp_divide() {
+        let mut c = Coord3D::new(0.0, 0.0, 2.0);
+        c.normalize_in_place();
+        assert_eq!(c, Coord3D::new(0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn cross_product_matches_cpp() {
+        let a = Coord3D::new(1.0, 0.0, 0.0);
+        let b = Coord3D::new(0.0, 1.0, 0.0);
+        let r = Coord3D::cross_product(&a, &b);
+        assert_eq!(r, Coord3D::new(0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn add_sub_scale_set_match_cpp() {
+        let mut c = Coord3D::new(1.0, 2.0, 3.0);
+        c.add_coord(&Coord3D::new(1.0, 1.0, 1.0));
+        assert_eq!(c, Coord3D::new(2.0, 3.0, 4.0));
+        c.sub_coord(&Coord3D::new(1.0, 1.0, 1.0));
+        assert_eq!(c, Coord3D::new(1.0, 2.0, 3.0));
+        c.scale(2.0);
+        assert_eq!(c, Coord3D::new(2.0, 4.0, 6.0));
+        c.set_xyz(7.0, 8.0, 9.0);
+        assert_eq!(c, Coord3D::new(7.0, 8.0, 9.0));
+        c.zero_in_place();
+        assert!(c.is_null());
+    }
+
+    #[test]
+    fn host_yup_and_cpp_zup_round_trip() {
+        let zup = host_yup_to_cpp_zup(10.0, 5.0, 20.0);
+        assert_eq!(zup, Coord3D::new(10.0, 20.0, 5.0));
+        assert_eq!(cpp_zup_to_host_yup(zup), (10.0, 5.0, 20.0));
     }
 }

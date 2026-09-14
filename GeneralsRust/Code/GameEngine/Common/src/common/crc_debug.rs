@@ -510,12 +510,7 @@ pub struct Vector3 {
 }
 
 /// 3D Coordinate structure
-#[derive(Debug, Clone, Copy)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
+pub use crate::common::system::geometry::Coord3D;
 
 /// 3D Matrix structure
 #[derive(Debug, Clone, Copy)]

@@ -20,29 +20,7 @@ pub type ObjectID = u32;
 pub type DrawableID = u32;
 
 /// 3D coordinate
-#[derive(Debug, Clone, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Default for Coord3D {
-    fn default() -> Self {
-        Self {
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        }
-    }
-}
-
-impl Coord3D {
-    #[must_use]
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 /// 2D integer coordinate
 #[derive(Debug, Clone, PartialEq)]

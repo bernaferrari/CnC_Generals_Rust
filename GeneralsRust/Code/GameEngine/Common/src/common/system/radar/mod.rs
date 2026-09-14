@@ -579,18 +579,7 @@ fn fade_event_color(
 }
 
 /// 3D coordinates (matches C++ Coord3D)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Coord3D {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Coord3D {
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
-        Self { x, y, z }
-    }
-}
+pub use crate::common::system::geometry::Coord3D;
 
 /// 3D region (matches C++ Region3D)
 #[derive(Debug, Clone, Copy)]
