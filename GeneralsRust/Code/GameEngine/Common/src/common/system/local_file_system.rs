@@ -160,17 +160,38 @@ impl LocalFileSystem {
 
     /// Find a file in the search paths
     fn find_file_path(&self, filename: &str) -> Option<PathBuf> {
-        // First try the filename as-is (absolute path or relative to current directory)
+        let requests_ini = Path::new(filename)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"));
+        let accept = |path: PathBuf| -> Option<PathBuf> {
+            if requests_ini
+                && !crate::common::system::install_layout::ini_loose_override_is_authoritative(
+                    &path,
+                )
+            {
+                None
+            } else {
+                Some(path)
+            }
+        };
+
+        // First try the filename as-is (absolute path or relative to current directory).
+        // A truncated extract must not win; later search paths and the archive
+        // backend still get a chance.
         let direct_path = Path::new(filename);
         if let Some(path) = Self::resolve_existing_path_case_insensitive(direct_path) {
-            return Some(path);
+            if let Some(path) = accept(path) {
+                return Some(path);
+            }
         }
 
-        // Then search in all configured search paths
         for search_path in &self.search_paths {
             let full_path = search_path.join(filename);
             if let Some(path) = Self::resolve_existing_path_case_insensitive(&full_path) {
-                return Some(path);
+                if let Some(path) = accept(path) {
+                    return Some(path);
+                }
             }
         }
 

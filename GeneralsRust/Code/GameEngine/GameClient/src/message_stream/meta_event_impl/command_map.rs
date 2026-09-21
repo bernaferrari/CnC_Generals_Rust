@@ -19,6 +19,25 @@ fn ensure_meta_map_loaded() {
 fn load_meta_map_files() {
     let mut ini = INI::new();
     let paths = discover_command_map_files();
+    if paths.is_empty() {
+        for (index, virtual_path) in [
+            "Data/INI/CommandMap.ini",
+            "Data/INI/CommandMapDebug.ini",
+            "Data/INI/CommandMapDemo.ini",
+            "Data/English/CommandMap.ini",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let load_type = if index == 0 {
+                INILoadType::Overwrite
+            } else {
+                INILoadType::MultiFile
+            };
+            let _ = ini.load(virtual_path, load_type);
+        }
+        return;
+    }
     for (index, path) in paths.into_iter().enumerate() {
         let load_type = if index == 0 {
             INILoadType::Overwrite
@@ -109,7 +128,9 @@ fn discover_command_map_files() -> Vec<PathBuf> {
 }
 
 fn push_command_map_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    if path.is_file() {
+    if path.is_file()
+        && game_engine::common::system::install_layout::ini_loose_override_is_authoritative(&path)
+    {
         let key = std::fs::canonicalize(&path).unwrap_or(path.clone());
         if seen.insert(key) {
             files.push(path);
