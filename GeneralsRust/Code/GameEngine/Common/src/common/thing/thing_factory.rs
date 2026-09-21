@@ -1379,9 +1379,6 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
 
 fn load_runtime_object_templates(factory: &mut ThingFactory) -> Result<usize, String> {
     let sources = discover_object_ini_sources();
-    if sources.is_empty() {
-        return Ok(0);
-    }
 
     let mut declarations = Vec::new();
     for path in sources {
@@ -1401,6 +1398,9 @@ fn load_runtime_object_templates(factory: &mut ThingFactory) -> Result<usize, St
             );
         }
         declarations.append(&mut parsed);
+    }
+    for contents in read_vfs_object_ini_bodies() {
+        declarations.append(&mut parse_object_declarations(&contents));
     }
 
     let mut seen = HashSet::new();
@@ -1503,12 +1503,62 @@ fn discover_object_ini_sources() -> Vec<PathBuf> {
 }
 
 fn push_object_ini_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    if path.is_file() {
+    if path.is_file()
+        && crate::common::system::install_layout::ini_loose_override_is_authoritative(&path)
+    {
         let key = fs::canonicalize(&path).unwrap_or(path.clone());
         if seen.insert(key) {
             files.push(path);
         }
     }
+}
+
+fn read_vfs_object_ini_bodies() -> Vec<String> {
+    use crate::common::ascii_string::AsciiString as FsAscii;
+    use crate::common::system::file::{File, FileAccess};
+    use crate::common::system::file_system::{FilenameList, get_file_system};
+
+    let fs = get_file_system();
+    let Ok(mut guard) = fs.lock() else {
+        return Vec::new();
+    };
+    let mut names = FilenameList::new();
+    guard.get_file_list_in_directory(
+        &FsAscii::from("Data/INI/Object"),
+        &FsAscii::from("*.ini"),
+        &mut names,
+        false,
+    );
+    for fixed in ["Data/INI/Object.ini", "Data/INI/Default/Object.ini"] {
+        names.insert(FsAscii::from(fixed));
+    }
+    let mut bodies = Vec::new();
+    for name in names.iter() {
+        let virtual_name = name.as_str();
+        let normalized = virtual_name.replace('\\', "/").to_ascii_lowercase();
+        let is_object = normalized == "data/ini/object.ini"
+            || normalized == "data/ini/default/object.ini"
+            || (normalized.starts_with("data/ini/object/") && normalized.ends_with(".ini"));
+        if !is_object {
+            continue;
+        }
+        let Some(mut file) = guard.open_file(
+            virtual_name,
+            FileAccess::READ.combine(FileAccess::BINARY),
+        ) else {
+            continue;
+        };
+        let Ok(bytes) = file.read_entire_and_close() else {
+            continue;
+        };
+        if !crate::common::system::install_layout::ini_bytes_are_authoritative(&bytes) {
+            continue;
+        }
+        if let Ok(text) = String::from_utf8(bytes) {
+            bodies.push(text);
+        }
+    }
+    bodies
 }
 
 fn push_object_ini_dir(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, dir: &Path) {

@@ -333,6 +333,49 @@ pub fn find_file_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
     None
 }
 
+/// A loose `.ini` may override the archived member only when it is a complete
+/// Generals text file. Truncated extracts and BIG directory tables saved with
+/// an `.ini` suffix start mid-block, contain a NUL, or begin with a lowercase
+/// fragment. Those must not shadow `INIZH.big`. A real column-0 patch still wins.
+pub fn ini_loose_override_is_authoritative(path: &Path) -> bool {
+    let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
+        return true;
+    };
+    if !ext.eq_ignore_ascii_case("ini") {
+        return true;
+    }
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    ini_bytes_are_authoritative(&bytes)
+}
+
+pub fn ini_bytes_are_authoritative(bytes: &[u8]) -> bool {
+    if bytes.is_empty() || bytes.contains(&0) {
+        return false;
+    }
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return false;
+    };
+    let Some(line) = text.lines().find(|line| !line.trim().is_empty()) else {
+        return false;
+    };
+    if line.starts_with(|c: char| c.is_whitespace()) {
+        return false;
+    }
+    if line.starts_with(';') {
+        return true;
+    }
+    let token = line.split_whitespace().next().unwrap_or("");
+    let mut chars = token.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_uppercase() || c == '_' => {
+            token.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        }
+        _ => false,
+    }
+}
+
 /// Resolve a C++ `Data\\INI\\...` virtual path against cwd, install, and extracted trees.
 ///
 /// C++ `AudioManager::init` (GameAudio.cpp:187-202) loads `Data\\INI\\Music.ini` etc.
@@ -350,7 +393,10 @@ pub fn resolve_data_ini_file(virtual_path: &str) -> Option<PathBuf> {
         if !seen.insert(path_key(&candidate)) {
             return None;
         }
-        candidate.is_file().then_some(candidate)
+        if !candidate.is_file() || !ini_loose_override_is_authoritative(&candidate) {
+            return None;
+        }
+        Some(candidate)
     };
 
     if let Some(found) = consider(rel.to_path_buf()) {
@@ -430,18 +476,37 @@ mod tests {
     }
 
     #[test]
-    fn resolve_data_ini_file_finds_sound_effects_from_extracted_tree() {
-        // C++ AudioManager::init loads Data\\INI\\SoundEffects.ini (GameAudio.cpp:192-193).
-        let found = resolve_data_ini_file("Data/INI/SoundEffects.ini")
-            .expect("SoundEffects.ini must resolve from cwd/extracted INIZH");
-        assert!(found.is_file());
-        assert!(
-            found
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .eq_ignore_ascii_case("SoundEffects.ini")
-        );
+    fn resolve_data_ini_file_rejects_truncated_loose_extracts() {
+        let dir = std::env::temp_dir().join(format!(
+            "generals-ini-override-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let fragment = dir.join("Fragment.ini");
+        let table = dir.join("Table.ini");
+        let patch = dir.join("Patch.ini");
+        fs::write(&fragment, b" effective only against infantry.\r\nEnd\r\n").unwrap();
+        fs::write(&table, b"\x00Data\\INI\\CommandMap.ini\x00").unwrap();
+        fs::write(&patch, b"; patch\r\nGameData\r\n  MapName = NoName.map\r\nEnd\r\n").unwrap();
+        assert!(!ini_loose_override_is_authoritative(&fragment));
+        assert!(!ini_loose_override_is_authoritative(&table));
+        assert!(ini_loose_override_is_authoritative(&patch));
+        assert!(ini_bytes_are_authoritative(
+            b";//////////////////////////////////////////////////////////////////////////////\r\n;FILE: GameData.ini\r\n"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+
+        if let Some(found) = resolve_data_ini_file("Data/INI/SoundEffects.ini") {
+            assert!(
+                ini_loose_override_is_authoritative(&found),
+                "resolved {} is not a complete INI",
+                found.display()
+            );
+        }
     }
     #[test]
     fn install_layout_source_does_not_hardcode_a_repo_folder_name() {

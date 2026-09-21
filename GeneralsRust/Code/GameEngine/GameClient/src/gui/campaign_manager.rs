@@ -218,6 +218,14 @@ impl CampaignManager {
 
         let sources = discover_campaign_ini_files();
         if sources.is_empty() {
+            let mut ini = INI::new();
+            if ini
+                .load("Data/INI/Campaign.ini", INILoadType::Overwrite)
+                .is_ok()
+            {
+                let _ = ini.load("Data/INI/Default/Campaign.ini", INILoadType::MultiFile);
+                self.sync_from_store();
+            }
             return;
         }
 
@@ -744,7 +752,9 @@ fn discover_campaign_ini_files() -> Vec<PathBuf> {
 }
 
 fn push_ini_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
-    if path.is_file() {
+    if path.is_file()
+        && game_engine::common::system::install_layout::ini_loose_override_is_authoritative(&path)
+    {
         let key = fs::canonicalize(&path).unwrap_or(path.clone());
         if seen.insert(key) {
             files.push(path);

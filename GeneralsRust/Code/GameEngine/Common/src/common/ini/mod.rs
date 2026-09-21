@@ -213,7 +213,9 @@ fn push_player_template_ini_file(
     seen: &mut HashSet<PathBuf>,
     path: PathBuf,
 ) {
-    if path.is_file() {
+    if path.is_file()
+        && crate::common::system::install_layout::ini_loose_override_is_authoritative(&path)
+    {
         let key = fs::canonicalize(&path).unwrap_or(path.clone());
         if seen.insert(key) {
             files.push(path);

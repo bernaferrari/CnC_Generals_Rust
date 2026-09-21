@@ -678,6 +678,52 @@ mod tests {
     }
 
     #[test]
+    fn truncated_loose_ini_falls_through_to_archive_member() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let loose_dir = temp_dir.path().join("loose");
+        let archive_dir = temp_dir.path().join("archives");
+        fs::create_dir_all(loose_dir.join("Data/INI")).unwrap();
+        fs::create_dir_all(&archive_dir).unwrap();
+        // Unique virtual name: LocalFileSystem::init also mounts this machine's
+        // real install, which already contains Data/INI/GameData.ini.
+        let virtual_name = "Data/INI/ZzFallbackProbe.ini";
+        fs::write(
+            loose_dir.join(virtual_name),
+            b" effective only against infantry.\r\nEnd\r\n",
+        )
+        .unwrap();
+
+        let member = b"GameData\r\n  MapName = NoName.map\r\nEnd\r\n";
+        let name = b"Data/INI/ZzFallbackProbe.ini\0";
+        let header_len = 16 + 8 + name.len();
+        let mut big = fs::File::create(archive_dir.join("INIZH.big")).unwrap();
+        big.write_all(b"BIGF").unwrap();
+        big.write_all(&100u32.to_le_bytes()).unwrap();
+        big.write_all(&1u32.to_be_bytes()).unwrap();
+        big.write_all(&(header_len as u32).to_be_bytes()).unwrap();
+        big.write_all(&(header_len as u32).to_be_bytes()).unwrap();
+        big.write_all(&(member.len() as u32).to_be_bytes()).unwrap();
+        big.write_all(name).unwrap();
+        big.write_all(member).unwrap();
+        drop(big);
+
+        let mut local = crate::common::system::local_file_system::LocalFileSystem::new();
+        local.add_search_path(&loose_dir);
+        let mut big_backend = BigArchiveBackend::new();
+        big_backend.add_search_path(&archive_dir);
+        let mut fs = FileSystem::new();
+        fs.register_backend(Box::new(local));
+        fs.register_backend(Box::new(big_backend));
+        fs.init().unwrap();
+
+        let mut file = fs
+            .open_file(virtual_name, FileAccess::READ.combine(FileAccess::BINARY))
+            .expect("archive probe ini");
+        let data = file.read_entire_and_close().unwrap();
+        assert_eq!(data, member);
+    }
+
+    #[test]
     fn file_system_does_file_exist_sees_discovered_inizh_after_local_init() {
         let mut fs = FileSystem::new();
         fs.ensure_backend(crate::common::system::local_file_system::LocalFileSystem::new);
