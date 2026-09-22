@@ -265,6 +265,7 @@ impl GameLogic {
                         | AIState::ReturningResources
                         | AIState::Attacking
                         | AIState::AttackMoving
+                        | AIState::Capturing
                 ) {
                     unit.set_ai_state(AIState::Moving);
                 }
@@ -503,6 +504,7 @@ impl GameLogic {
                 | AIState::ReturningResources
                 | AIState::Attacking
                 | AIState::AttackMoving
+                | AIState::Capturing
         ) {
             unit.set_ai_state(AIState::Moving);
         }
