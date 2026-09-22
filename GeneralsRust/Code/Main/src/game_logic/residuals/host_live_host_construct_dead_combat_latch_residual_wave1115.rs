@@ -166,7 +166,7 @@ mod tests {
         building.overlay_data.construction_percent = 0.42;
         // Stamp construction residual the same way host sync does, then draw.
         building.set_presentation_host_residual(
-            Vec::new(),
+            std::sync::Arc::new(Vec::new()),
             None,
             false,
             false,

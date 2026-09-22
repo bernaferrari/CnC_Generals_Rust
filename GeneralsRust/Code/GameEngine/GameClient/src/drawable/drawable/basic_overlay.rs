@@ -961,7 +961,7 @@ mod hud_stealth_veterancy_tests {
         game_engine::common::ini::init_global_data();
         let mut drawable = BasicDrawable::new(DrawableId(42));
         drawable.set_presentation_host_residual(
-            Vec::new(),
+            std::sync::Arc::new(Vec::new()),
             None,
             true,
             false,

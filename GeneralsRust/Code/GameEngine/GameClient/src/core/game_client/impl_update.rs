@@ -793,7 +793,7 @@ impl GameClient {
             0.0
         };
         drawable.set_presentation_host_residual(
-            (*e.kind_names).clone(),
+            std::sync::Arc::clone(&e.kind_names),
             Some((r, g, b)),
             e.effectively_stealthed,
             e.scene_hidden_by_stealth,
