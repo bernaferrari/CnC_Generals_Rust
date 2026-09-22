@@ -138,6 +138,12 @@ impl PathfindingGrid {
         Some(pos.y as usize * self.width as usize + pos.x as usize)
     }
 
+    pub(crate) fn dynamic_pos_unit(&self, pos: GridPos) -> u32 {
+        self.bit_index(pos)
+            .and_then(|idx| self.occ_pos_unit.get(idx).copied())
+            .unwrap_or(0)
+    }
+
     #[inline]
     pub(super) fn bit_test(bits: &[u64], idx: usize) -> bool {
         let w = idx >> 6;
