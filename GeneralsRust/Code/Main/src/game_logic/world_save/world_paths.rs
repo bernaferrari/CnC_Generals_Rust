@@ -766,14 +766,16 @@ impl GameLogic {
     }
 
     /// Units that received a move while they could not path retry here.
-    /// The stored point is not a locomotor goal, so stun ending does not
-    /// walk the click. A queued path clears it; a refusal keeps it.
+    /// The stored point is not a locomotor goal. Deployed units are included
+    /// even though `can_move` is false: only `assign_unit_path` starts the
+    /// pack and clears that bit. A queued path clears the order before A*
+    /// runs, so a later wall refusal does not retry every frame.
     pub(crate) fn reissue_pending_moves(&mut self) {
         let ready: Vec<(ObjectId, Vec3)> = self
             .objects
             .iter()
             .filter_map(|(id, unit)| {
-                if unit.can_move() {
+                if Self::pending_move_ready(unit) {
                     unit.pending_move.map(|dest| (*id, dest))
                 } else {
                     None
@@ -788,6 +790,25 @@ impl GameLogic {
             }
         }
     }
+    fn pending_move_ready(unit: &crate::game_logic::Object) -> bool {
+        if unit.pending_move.is_none() || !unit.is_alive() || !unit.is_mobile() || unit.is_disabled()
+        {
+            return false;
+        }
+        if unit.shock_stun_frames > 15 {
+            return false;
+        }
+        if !unit.is_parked_at_airfield()
+            && matches!(
+                unit.ai_state,
+                crate::game_logic::AIState::Docked | crate::game_logic::AIState::Garrisoned
+            )
+        {
+            return false;
+        }
+        true
+    }
+
 
 
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
