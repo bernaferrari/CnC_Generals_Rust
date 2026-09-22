@@ -858,6 +858,27 @@ mod tests {
     }
 
     #[test]
+    fn retail_audio_settings_keep_quoted_speaker_names() {
+        let src = include_str!(
+            "../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/AudioSettings.ini"
+        );
+        let mut ini = crate::common::ini::ini::INI::new();
+        ini.with_inline_source(src, |ini| ini.parse_current_file())
+            .expect("retail AudioSettings.ini");
+        let settings = get_audio_settings_read().expect("audio settings");
+        assert_eq!(
+            settings.default_speaker_type_2d,
+            SpeakerType::TwoSpeakers.to_u32()
+        );
+        assert_eq!(
+            settings.default_speaker_type_3d,
+            SpeakerType::FivePointOne.to_u32()
+        );
+        assert!((settings.default_sound_volume - 0.80).abs() < 0.001);
+        assert!((settings.relative_2d_volume - (-0.10)).abs() < 0.001);
+    }
+
+    #[test]
     fn test_speaker_type_numeric() {
         assert_eq!(SpeakerType::from_u32(0).unwrap(), SpeakerType::TwoSpeakers);
         assert_eq!(SpeakerType::from_u32(1).unwrap(), SpeakerType::Headphones);

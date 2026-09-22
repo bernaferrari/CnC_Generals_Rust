@@ -1108,4 +1108,19 @@ mod tests {
         assert_eq!(pending.0[0], "TSMorningN.tga");
         assert_eq!(pending.1[0], "TSMorningN.tga");
     }
+
+    #[test]
+    fn retail_water_ini_parses_final_end_without_newline() {
+        initialize_water_settings();
+        let src = include_str!(
+            "../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/Water.ini"
+        );
+        let mut ini = crate::common::ini::ini::INI::new();
+        ini.with_inline_source(src, |ini| ini.parse_current_file())
+            .expect("retail Water.ini");
+        let lock = get_water_transparency().expect("transparency store");
+        let guard = lock.read().expect("read");
+        assert!((guard.transparent_water_depth - 3.0).abs() < 0.001);
+        assert_eq!(guard.standing_water_texture.as_str(), "TWWater01.tga");
+    }
 }
