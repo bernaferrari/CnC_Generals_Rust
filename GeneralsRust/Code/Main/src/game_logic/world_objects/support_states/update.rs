@@ -1593,8 +1593,12 @@ impl GameLogic {
                                 }
                             }
                         } else if let Some(obj) = self.objects.get_mut(&object_id) {
-                            obj.set_destination(target_position);
-                            obj.set_ai_state(AIState::Capturing);
+                            if obj.is_alive() && !obj.can_move() {
+                                obj.pending_move = Some(target_position);
+                                obj.movement.target_position = None;
+                                obj.movement.path.clear();
+                                obj.set_ai_state(AIState::Capturing);
+                            }
                             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_set_state(
                                     object_id, 19,
