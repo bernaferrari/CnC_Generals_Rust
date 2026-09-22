@@ -731,7 +731,7 @@ fn create_mouseover_hint_sets_cursor_tooltip_for_named_object_under_cursor() {
         disguised: false,
         disguise_as_template: None,
         disguise_as_team: None,
-        kind_names: Vec::new(),
+        kind_names: std::sync::Arc::new(Vec::new()),
         special_power_ready: false,
         airborne_target: false,
         shroud_status: ObjectShroudStatus::Clear,

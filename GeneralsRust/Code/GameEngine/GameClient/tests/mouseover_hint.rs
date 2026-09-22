@@ -34,7 +34,7 @@ fn catalog_unit(id: u32, template: &str) -> PresentationUnitCatalogEntry {
         disguised: false,
         disguise_as_template: None,
         disguise_as_team: None,
-        kind_names: Vec::new(),
+        kind_names: std::sync::Arc::new(Vec::new()),
         special_power_ready: false,
         airborne_target: false,
         shroud_status: ObjectShroudStatus::Clear,
