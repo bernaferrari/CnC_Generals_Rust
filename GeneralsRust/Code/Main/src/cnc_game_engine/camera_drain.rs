@@ -1823,26 +1823,38 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     fn presentation_draw_module_names_from_template(template: &str) -> Vec<String> {
-        let Some(manager) = crate::assets::get_asset_manager() else {
-            return Vec::new();
-        };
-        let Ok(manager) = manager.lock() else {
-            return Vec::new();
-        };
-        let Some(definition) = manager.get_object_definition(template) else {
-            return Vec::new();
-        };
-        definition
-            .draw_modules
-            .iter()
-            .filter_map(|module| {
-                module
-                    .declaration
-                    .split_whitespace()
-                    .next()
-                    .map(str::to_string)
-            })
-            .collect()
+        use std::collections::HashMap;
+        use std::sync::{LazyLock, Mutex};
+        static CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
+            LazyLock::new(|| Mutex::new(HashMap::new()));
+        if let Ok(guard) = CACHE.lock() {
+            if let Some(hit) = guard.get(template) {
+                return hit.clone();
+            }
+        }
+        let built = (|| {
+            let manager = crate::assets::get_asset_manager()?;
+            let manager = manager.lock().ok()?;
+            let definition = manager.get_object_definition(template)?;
+            Some(
+                definition
+                    .draw_modules
+                    .iter()
+                    .filter_map(|module| {
+                        module
+                            .declaration
+                            .split_whitespace()
+                            .next()
+                            .map(str::to_string)
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        })()
+        .unwrap_or_default();
+        if let Ok(mut guard) = CACHE.lock() {
+            guard.insert(template.to_string(), built.clone());
+        }
+        built
     }
 
     /// Freeze-to-GameClient direct Drawable association boundary shared by the
