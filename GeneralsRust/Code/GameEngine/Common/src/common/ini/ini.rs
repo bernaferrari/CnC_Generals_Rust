@@ -1485,13 +1485,16 @@ impl INI {
             .map(|entry| entry.parse)
     }
 
-    /// Advance to the next token in the current line.
+    /// Advance to the next value token on the current line.
+    ///
+    /// C++ `INI::getNextToken` (`m_seps` includes `=`). The block name is
+    /// already the first token; later calls return the following values, so
+    /// `BenchProfile = P4 2189 6.1 15.1 9.4` does not reuse `P4` for every field.
     pub fn get_next_value_token(&mut self) -> Option<String> {
-        self.buffer
-            .split_whitespace()
-            .skip(1)
-            .find(|token| *token != "=")
-            .map(|token| token.to_string())
+        if self.buffer_token_offset == 0 {
+            let _ = self.get_next_token_with_seps(self.seps);
+        }
+        self.get_next_token_with_seps(self.seps)
     }
 
     /// Parse basic data types
