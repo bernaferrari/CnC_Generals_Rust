@@ -265,13 +265,15 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
         if UI_FLUSH_ZERO_CMD_LOGGED.fetch_add(1, Ordering::Relaxed) < 5 {
             info!(
                 "flush_ui_to_frame: zero draw commands (root_windows={}) — gadget draws queued nothing",
-                root_count,
+                root_count
             );
         }
         renderer.end_frame();
         frame_cleanup.disarm();
         return Ok(());
     }
+
+
 
     let render_result = {
         let color_view = frame.color_view_arc();
@@ -291,7 +293,7 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-});
+        });
         renderer.render(&mut ui_pass)
     };
     renderer.end_frame();
@@ -301,7 +303,6 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
         warn!("UI render pass failed: {err}");
         return Err(ww3d_renderer_3d::Error::GenericError(err.to_string()));
     }
-
     trace!(
         "UI render pass flushed {} commands ({}x{})",
         had_draw_commands,

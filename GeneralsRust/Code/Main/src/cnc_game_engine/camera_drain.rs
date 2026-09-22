@@ -2323,7 +2323,6 @@ impl CnCGameEngine {
         couple_shadow: bool,
     ) {
         for _ in 0..ff_steps {
-            // Wave 584: host logic tick residual via helper.
             let fixed_steps = self
                 .host_update_logic_frame(dt, headless_step_budget)
                 .steps_run;

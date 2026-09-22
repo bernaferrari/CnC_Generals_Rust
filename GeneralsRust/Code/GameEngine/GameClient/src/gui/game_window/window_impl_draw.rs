@@ -189,9 +189,16 @@ impl GameWindow {
         let max_y = y + height;
 
         with_window_manager_ref(|manager| {
+            let mut batches: Vec<(Image, Vec<(i32, i32, i32, i32)>)> = Vec::new();
             let mut draw_piece = |piece: &Option<Image>, x1: i32, y1: i32, x2: i32, y2: i32| {
-                if let Some(image) = piece {
-                    manager.win_draw_image(image, x1, y1, x2, y2, WIN_COLOR_UNDEFINED);
+                let Some(image) = piece else {
+                    return;
+                };
+                if let Some((_, rects)) = batches.iter_mut().find(|(existing, _)| existing.name == image.name)
+                {
+                    rects.push((x1, y1, x2, y2));
+                } else {
+                    batches.push((image.clone(), vec![(x1, y1, x2, y2)]));
                 }
             };
 
@@ -344,6 +351,9 @@ impl GameWindow {
                 max_x - 5 + line_size,
                 max_y - 5 + line_size,
             );
+            for (image, rects) in batches {
+                manager.win_draw_image_batch(&image, &rects);
+            }
         });
     }
 }

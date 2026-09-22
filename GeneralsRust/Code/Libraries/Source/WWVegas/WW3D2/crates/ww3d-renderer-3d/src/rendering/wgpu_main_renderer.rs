@@ -458,16 +458,15 @@ impl WgpuMainRenderer {
                     )
                 };
                 self.sync_shadow_submissions(shadow_submissions);
-
-                self.run_post_frame_callbacks(&mut frame)?;
                 Ok(stats)
             })();
-
-            // Always attempt to end the engine frame even when rendering/callback work fails.
-            // This keeps WW3D frame state coherent and avoids persistent
-            // "engine frame already active" failures on subsequent frames.
+            let callback_result = self.run_post_frame_callbacks(&mut frame);
             let end_result = ww3d_engine::end_render(frame)
                 .map_err(|err| RendererError::RenderError(err.to_string()));
+            let frame_work_result = match (frame_work_result, callback_result) {
+                (Ok(stats), Ok(())) => Ok(stats),
+                (Err(err), _) | (_, Err(err)) => Err(err),
+            };
 
             match (frame_work_result, end_result) {
                 (Ok(stats), Ok(())) => stats,
