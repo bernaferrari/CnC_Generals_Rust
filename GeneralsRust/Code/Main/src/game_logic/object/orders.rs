@@ -538,7 +538,9 @@ impl Object {
     }
 
     pub fn stop(&mut self) {
-        // Stop all current actions
+        // A held move must not resume after Stop. pending_move is not a
+        // locomotor goal, so stop_moving does not clear it.
+        self.pending_move = None;
         self.stop_moving();
         self.stop_attack();
     }

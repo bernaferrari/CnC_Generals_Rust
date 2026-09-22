@@ -502,6 +502,28 @@ fn attack_order_closes_on_open_ground() {
 }
 
 #[test]
+fn stop_drops_a_move_held_through_stun() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("Ranger".into(), tmpl);
+    let id = logic
+        .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("ranger");
+    if let Some(unit) = logic.host_object_mut(id) {
+        unit.shock_stun_frames = 20;
+    }
+    assert!(logic.unit_command_move_to_moving(id, Vec3::new(80.0, 0.0, 10.0)));
+    assert!(logic.host_object(id).unwrap().pending_move.is_some());
+    assert!(logic.unit_command_stop(id));
+    let unit = logic.host_object(id).expect("stopped");
+    assert!(unit.pending_move.is_none());
+    assert!(unit.movement.path.is_empty());
+    assert!(unit.movement.target_position.is_none());
+}
+
+#[test]
 fn attack_in_range_damages_the_target() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
