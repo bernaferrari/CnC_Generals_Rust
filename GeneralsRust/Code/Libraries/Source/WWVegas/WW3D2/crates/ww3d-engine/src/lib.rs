@@ -1881,6 +1881,18 @@ async fn acquire_or_create_gpu_device(
             Arc::new(shared.queue),
         )));
     }
+    // WebGPU's default is 16 sampled textures. The shell-map terrain layout
+    // binds 17 fragment textures (`WW3D Pipeline Layout`). Ask for what this
+    // adapter actually supports instead of the web floor.
+    let adapter_limits = adapter.limits();
+    let mut limits = limits;
+    limits.max_sampled_textures_per_shader_stage = adapter_limits
+        .max_sampled_textures_per_shader_stage
+        .max(limits.max_sampled_textures_per_shader_stage);
+    limits.max_samplers_per_shader_stage = adapter_limits
+        .max_samplers_per_shader_stage
+        .max(limits.max_samplers_per_shader_stage);
+    let limits = limits.using_resolution(adapter_limits);
     Ok(Arc::new(
         GpuDevice::create_device(adapter, features, limits)
             .await
