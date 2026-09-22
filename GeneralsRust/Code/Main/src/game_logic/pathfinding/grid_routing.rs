@@ -231,7 +231,11 @@ impl PathfindingGrid {
 
             let player = obj.owner_player_id.unwrap_or(obj.team as u32);
             let moving = !obj.is_kind_of(KindOf::Structure)
-                && (!obj.movement.path.is_empty() || obj.movement.velocity.length_squared() > 0.25);
+                && (obj.status.moving
+                    || obj.waiting_for_path
+                    || obj.movement.target_position.is_some()
+                    || !obj.movement.path.is_empty()
+                    || obj.movement.velocity.length_squared() > 0.25);
             let infantry = obj.is_kind_of(KindOf::Infantry);
             let (radius, center_in_cell) =
                 Self::radius_and_center(obj.selection_radius, self.grid_size);

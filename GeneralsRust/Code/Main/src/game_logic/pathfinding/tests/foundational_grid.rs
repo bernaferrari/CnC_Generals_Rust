@@ -430,6 +430,41 @@ fn assign_unit_path_queues_until_next_update() {
 }
 
 #[test]
+fn open_ground_move_changes_position() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("Ranger".into(), tmpl);
+    let origin = Vec3::new(10.0, 0.0, 10.0);
+    let id = logic
+        .create_object("Ranger", Team::USA, origin)
+        .expect("ranger");
+    logic.force_map_loaded_for_path_test(true);
+    assert!(logic.unit_command_move_to(id, Vec3::new(80.0, 0.0, 10.0)));
+    logic.update();
+    let snap = {
+        let unit = logic.host_object(id).expect("after one update");
+        format!(
+            "wait={} path={:?} target={:?} ai={:?} vel={:?}",
+            unit.waiting_for_path,
+            unit.movement.path,
+            unit.movement.target_position,
+            unit.ai_state,
+            unit.movement.velocity
+        )
+    };
+    for _ in 0..30 {
+        logic.update();
+    }
+    let end = logic.host_object(id).expect("ranger").get_position();
+    assert!(
+        end.distance(origin) > 1.0,
+        "queued move must walk; after one update {snap}; end={end:?}"
+    );
+}
+
+#[test]
 fn assign_shared_group_paths_uses_one_spine() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
     let mut logic = GameLogic::new();
