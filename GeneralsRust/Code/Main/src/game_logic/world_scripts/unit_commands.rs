@@ -767,7 +767,11 @@ impl GameLogic {
         };
         if !self.assign_unit_path_ignoring(id, dock, &[], ignore) {
             if let Some(unit) = self.objects.get_mut(&id) {
-                unit.set_destination(dock);
+                if unit.is_alive() && !unit.can_move() {
+                    unit.pending_move = Some(dock);
+                    unit.movement.target_position = None;
+                    unit.movement.path.clear();
+                }
             } else {
                 return false;
             }
