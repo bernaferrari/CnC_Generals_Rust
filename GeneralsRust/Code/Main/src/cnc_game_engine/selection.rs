@@ -370,9 +370,9 @@ impl CnCGameEngine {
         command_context: bool,
     ) -> Option<ObjectId> {
         const BASE_SELECTION_RADIUS: f32 = 20.0;
+        let has_selected_units = !self.ui_selected_ids(self.current_player_id).is_empty();
         let frame = self.last_presentation_frame.as_ref()?;
         let player_team = Some(frame.local_team());
-        let has_selected_units = !self.selected_objects.is_empty();
         let prioritize_enemy_targets = command_context && has_selected_units;
         let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
             winit::keyboard::NamedKey::Control,
@@ -419,11 +419,7 @@ impl CnCGameEngine {
         if self.host_cursor_blocked_by_opaque_window() {
             return None;
         }
-        // C++ picks the live client scene at message time
-        // (`W3DView::pickDrawable`, W3DView.cpp:2183-2230). This host picks
-        // frozen snapshots, so click with the freshest freeze available —
-        // the render pipeline's when it is newer than the engine's last —
-        // and keep the frozen frame as the fallback.
+        let has_selected_units = !self.ui_selected_ids(self.current_player_id).is_empty();
         let frozen = self.last_presentation_frame.as_ref()?;
         let frame = match self.render_pipeline.presentation_frame() {
             Some(pipeline) if pipeline.frame.0 > frozen.frame.0 => pipeline,
@@ -443,8 +439,8 @@ impl CnCGameEngine {
             view_h,
         )?;
         let player_team = Some(frame.local_team());
-        let has_selected_units = !self.selected_objects.is_empty();
         let prioritize_enemy_targets = command_context && has_selected_units;
+
         let force_attack_mode = self.keys_pressed.contains(&winit::keyboard::Key::Named(
             winit::keyboard::NamedKey::Control,
         ));
