@@ -473,6 +473,10 @@ fn queued_infantry_spawns_during_simulation() {
         unit.get_position(),
         unit.movement.path
     );
+    assert_eq!(
+        unit.owner_player_id, Some(0),
+        "spawned infantry must belong to the factory owner"
+    );
 }
 
 
