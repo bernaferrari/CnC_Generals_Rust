@@ -58,6 +58,7 @@ impl GameLogic {
             Option<ObjectId>,
             Option<Vec3>,
             AIState,
+            bool,
         )> = self
             .objects
             .values()
@@ -70,6 +71,7 @@ impl GameLogic {
                     obj.dozer_task_build_target.or(obj.target),
                     obj.dozer_dock_action,
                     obj.ai_state.clone(),
+                    obj.movement.path.is_empty() && !obj.waiting_for_path,
                 )
             })
             .collect();
@@ -98,34 +100,15 @@ impl GameLogic {
                     let exclusive_builder = obj.builder_id;
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(did, pos, owner_player_id, target, stored_dock, ai_state)| {
+                        .filter(|(did, pos, owner_player_id, target, stored_dock, ai_state, arrived)| {
                             *owner_player_id == build_owner_player_id
                                 && *target == Some(id)
                                 && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
-                                // C++ DOZER_DO_BUILD_AT_DOCK
-                                // (DozerAIUpdate.cpp:495-507) is entered only
-                                // after the approach leg finished. The port's
-                                // docked-building state is Constructing;
-                                // Idle/Docked are the other at-rest states.
-                                && matches!(
+                                && (matches!(
                                     ai_state,
                                     AIState::Idle | AIState::Docked | AIState::Constructing
-                                )
+                                ) || (*ai_state == AIState::Moving && *arrived))
                                 && {
-                                    // C++ DozerActionPickActionPosState
-                                    // (DozerAIUpdate.cpp:318-335): arrival
-                                    // SUCCESS is `dist(dozer, goalPos) <=
-                                    // max(MIN_ACTION_TOLERANCE, boundingSphere
-                                    // + SLOP)` — the distance IS the arrival
-                                    // test, so a dozer whose approach leg is
-                                    // already inside the window builds while
-                                    // one stopped outside never does. Resume
-                                    // issues that approach walk even when the
-                                    // dozer already sits inside the window,
-                                    // and OBJECT_STATUS_IS_MOVING clears only
-                                    // on the movement tick, so gating on the
-                                    // moving flag here would stall an arrived
-                                    // dozer (docked build never starts).
                                     let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
                                         *stored_dock,
                                         *pos,

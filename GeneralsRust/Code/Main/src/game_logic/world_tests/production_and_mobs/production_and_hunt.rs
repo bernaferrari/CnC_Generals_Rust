@@ -277,6 +277,55 @@ fn dozer_construction_rate_applies_handicap_buildtime() {
 }
 
 #[test]
+fn arrived_moving_dozer_builds_at_the_dock() {
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+    let mut pad = ThingTemplate::new("ArrivedPad");
+    pad.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    pad.build_time = 10.0;
+    logic.templates.insert("ArrivedPad".into(), pad);
+    let mut dozer_tpl = ThingTemplate::new("ArrivedDozer");
+    dozer_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic.templates.insert("ArrivedDozer".into(), dozer_tpl);
+    let pad_id = logic
+        .create_object_for_player("ArrivedPad", 0, Vec3::ZERO)
+        .expect("pad");
+    let dozer = logic
+        .create_object_for_player("ArrivedDozer", 0, Vec3::new(40.0, 0.0, 0.0))
+        .expect("dozer");
+    logic.dozer_new_task_build(dozer, pad_id);
+    let dock = logic
+        .host_object(dozer)
+        .and_then(|d| d.dozer_dock_action)
+        .expect("dock");
+    {
+        let obj = logic.host_object_mut(pad_id).expect("pad");
+        obj.set_status_under_construction(true);
+        obj.builder_id = Some(dozer);
+    }
+    {
+        let obj = logic.host_object_mut(dozer).expect("dozer");
+        obj.set_position(dock);
+        obj.set_target(Some(pad_id));
+        obj.set_ai_state(AIState::Moving);
+        obj.movement.path.clear();
+        obj.waiting_for_path = false;
+    }
+    logic.update_construction(&[pad_id], 1.0);
+    let progress = logic.host_object(pad_id).unwrap().construction_percent;
+    assert!(
+        progress > 0.0,
+        "an arrived dozer still tagged Moving must build, got {progress}"
+    );
+}
+
+#[test]
 fn construction_complete_end_dock_uses_stored_action() {
     // hq-pogoh: complete END is ACTION + 5 cells, not the dozer's current pose.
     use crate::game_logic::host_repair::dozer_complete_end_dock;
