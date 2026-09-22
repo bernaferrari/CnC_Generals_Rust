@@ -685,8 +685,9 @@ impl GameLogic {
 
     /// Scatter/formation move.
     ///
-    /// A unit that cannot path yet (stun, deployed) keeps the destination and
-    /// walks it when it can move. A path the finder refuses does not.
+    /// A unit that cannot path yet keeps `pending_move` and retries
+    /// `assign_unit_path` once it can move. That point is not a locomotor
+    /// goal. A path the finder refuses does not walk the click.
     pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
@@ -702,7 +703,9 @@ impl GameLogic {
         if cannot_path_yet {
             if let Some(unit) = self.objects.get_mut(&id) {
                 end_hunt_on_player_parent_order(unit);
-                unit.set_destination(destination);
+                unit.pending_move = Some(destination);
+                unit.movement.target_position = None;
+                unit.movement.path.clear();
                 unit.set_ai_state(AIState::Moving);
             }
             self.hunt_next_enemy_scan.remove(&id);
@@ -878,7 +881,9 @@ impl GameLogic {
         unit.set_guard_target(None);
         unit.end_guard_retaliate();
         if !unit.can_move() {
-            unit.set_destination(destination);
+            unit.pending_move = Some(destination);
+            unit.movement.target_position = None;
+            unit.movement.path.clear();
         }
         unit.set_ai_state(AIState::Moving);
     }

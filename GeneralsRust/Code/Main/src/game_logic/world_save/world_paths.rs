@@ -765,6 +765,31 @@ impl GameLogic {
         Some(path)
     }
 
+    /// Units that received a move while they could not path retry here.
+    /// The stored point is not a locomotor goal, so stun ending does not
+    /// walk the click. A queued path clears it; a refusal keeps it.
+    pub(crate) fn reissue_pending_moves(&mut self) {
+        let ready: Vec<(ObjectId, Vec3)> = self
+            .objects
+            .iter()
+            .filter_map(|(id, unit)| {
+                if unit.can_move() {
+                    unit.pending_move.map(|dest| (*id, dest))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (id, dest) in ready {
+            if self.assign_unit_path(id, dest, &[]) {
+                if let Some(unit) = self.objects.get_mut(&id) {
+                    unit.pending_move = None;
+                }
+            }
+        }
+    }
+
+
     /// C++ Pathfinder::processPathfindQueue residual (AI.cpp:332-339).
     pub(crate) fn process_pathfind_queue(&mut self) {
         self.pathfinding_system.begin_pathfind_queue_frame();

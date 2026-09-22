@@ -1337,15 +1337,12 @@ fn blocked_route_does_not_walk_the_click() {
         unit.shock_stun_frames = 20;
     }
     assert!(logic.unit_command_move_to_moving(stun, to));
-    assert!(
-        logic
-            .host_object(stun)
-            .expect("stun")
-            .movement
-            .target_position
-            .is_some(),
-        "a stunned scatter keeps the destination until it can path"
-    );
+    {
+        let unit = logic.host_object(stun).expect("stun");
+        assert_eq!(unit.pending_move, Some(to));
+        assert!(unit.movement.target_position.is_none());
+        assert!(unit.movement.path.is_empty());
+    }
     assert!(logic.unit_command_move_to(id, to));
     assert!(logic.unit_command_move_to_moving(scatter, to));
     assert!(logic.unit_command_tighten_to(tight, to));
@@ -1360,6 +1357,23 @@ fn blocked_route_does_not_walk_the_click() {
             "sealed wall must not install a path, got {:?}",
             unit.movement.path
         );
+        assert!(unit.movement.target_position.is_none());
+        assert!(unit.movement.velocity.length() < 1.0);
+    }
+    if let Some(unit) = logic.host_object_mut(stun) {
+        unit.shock_stun_frames = 0;
+    }
+    logic.reissue_pending_moves();
+    {
+        let unit = logic.host_object(stun).expect("stun");
+        assert!(unit.pending_move.is_none());
+        assert!(unit.waiting_for_path);
+        assert!(unit.movement.target_position.is_none());
+    }
+    logic.process_pathfind_queue();
+    {
+        let unit = logic.host_object(stun).expect("stun");
+        assert!(unit.movement.path.is_empty());
         assert!(unit.movement.target_position.is_none());
         assert!(unit.movement.velocity.length() < 1.0);
     }
