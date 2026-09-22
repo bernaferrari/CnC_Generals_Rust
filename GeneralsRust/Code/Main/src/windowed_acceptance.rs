@@ -69,10 +69,9 @@
 //! 8. `save_load_continue` — physical PopupSaveLoad evidence
 //!    (`physical_save_load_continue`), never host `save_cmd_ok` / `load_cmd_ok`
 //!
-//! The live status publisher does not yet emit steps 6–8's physical evidence
-//! fields. Until it does, these steps intentionally remain false even when a
-//! runtime-host control command succeeded. That is a real remaining
-//! instrumentation gap, not permission to turn host diagnostics into a PASS.
+//! The live status publisher emits `physical_build_and_produce`,
+//! `physical_gather_resources`, and `physical_save_load_continue`. Host
+//! command flags remain diagnostics and must not turn those steps true.
 //!
 //! Plus `windows_game_assets` (Lone Eagle `.map` or MapsZH). Distinct exits:
 //! - `0` PASS all 8 + assets
