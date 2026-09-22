@@ -362,7 +362,7 @@ impl Object {
         // C++ Weapon.cpp:998-1075 / leftover handle_projectileless_flight_damage:
         // empty ProjectileObject is hitscan or delayed store damage, never a
         // flying CombatSystem dummy that can collide mid-flight.
-        if leftover_projectile_object_is_empty(&projectile_object_name) {
+        if leftover_projectile_object_is_empty(&projectile_object_name) && name.is_some() {
             self.queue_leftover_projectileless_flight_damage(name, target_id);
         } else {
             super::combat::queue_projectile(super::combat::PendingProjectile {
