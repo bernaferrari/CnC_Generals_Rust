@@ -240,6 +240,11 @@ impl Weapon {
     /// - Handles single-target damage
     /// - Calls object.attempt_damage() for each target
     /// - Returns total damage applied
+    fn projectile_name_launches_object(name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty() && !name.eq_ignore_ascii_case("NONE")
+    }
+
     pub(crate) fn deal_damage_internal(
         &self,
         source_obj_id: ObjectId,
@@ -252,7 +257,9 @@ impl Weapon {
             return Ok(0);
         }
 
-        if !self.template.projectile_name.is_empty() && !is_projectile_detonation {
+        if Self::projectile_name_launches_object(&self.template.projectile_name)
+            && !is_projectile_detonation
+        {
             return Err(WeaponError::SystemError(
                 "Projectile weapons should not call deal_damage_internal directly".to_string(),
             ));

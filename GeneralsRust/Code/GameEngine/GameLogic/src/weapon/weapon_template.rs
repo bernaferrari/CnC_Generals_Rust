@@ -2470,7 +2470,12 @@ impl WeaponTemplate {
 
                 // --- Projectile ---
                 "ProjectileObject" => {
-                    self.projectile_name = trimmed.to_string();
+                    // C++ INI token NONE is an empty projectile, not an object named NONE.
+                    self.projectile_name = if trimmed.eq_ignore_ascii_case("NONE") {
+                        String::new()
+                    } else {
+                        trimmed.to_string()
+                    };
                 }
                 "ProjectileStreamName" => {
                     self.projectile_stream_name = trimmed.to_string();
