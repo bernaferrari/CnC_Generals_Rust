@@ -2074,6 +2074,23 @@ impl CnCGameEngine {
                     startup_camera_presentation,
                 );
             self.sync_orbit_from_camera_transform();
+            self.view_matrix = glam::Mat4::look_at_rh(
+                self.camera_position,
+                self.camera_target,
+                glam::Vec3::Y,
+            );
+            let terrain_warm_started = Instant::now();
+            if let Err(err) = self
+                .render_pipeline
+                .warm_loaded_terrain(&self.view_matrix, &self.projection_matrix)
+            {
+                warn!("Shell terrain warmup failed: {err}");
+            } else {
+                info!(
+                    "Shell terrain warmup finished in {:?}",
+                    terrain_warm_started.elapsed()
+                );
+            }
         }
 
         if result.start_in_menu {

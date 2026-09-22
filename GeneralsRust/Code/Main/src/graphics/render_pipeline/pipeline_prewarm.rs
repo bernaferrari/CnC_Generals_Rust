@@ -364,6 +364,17 @@ impl RenderPipeline {
         }
     }
 
+    /// Build visible terrain chunks before the first interactive shell frame.
+    /// The first `render`+`update` is the multi-hundred-ms hitch.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn warm_loaded_terrain(
+        &mut self,
+        view_matrix: &Mat4,
+        projection_matrix: &Mat4,
+    ) -> Result<()> {
+        self.update_and_enqueue_terrain_pass(view_matrix, projection_matrix)
+    }
+
     #[cfg(feature = "game_client")]
     pub(super) fn update_and_enqueue_terrain_pass(
         &mut self,
