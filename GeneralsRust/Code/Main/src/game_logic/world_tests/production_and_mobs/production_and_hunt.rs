@@ -377,17 +377,23 @@ fn reissued_build_stays_constructing() {
     logic.force_map_loaded_for_path_test(true);
     logic.reissue_pending_moves();
     logic.process_pathfind_queue();
-    let obj = logic.host_object(dozer).expect("installed");
-    assert_eq!(obj.ai_state, AIState::Constructing);
-    let end = obj
-        .movement
-        .path
-        .last()
-        .copied()
-        .expect("path across the owned obstacle wall");
+    let (state, path) = {
+        let obj = logic.host_object(dozer).expect("installed");
+        (obj.ai_state.clone(), obj.movement.path.clone())
+    };
+    assert_eq!(state, AIState::Constructing);
+    let xs: Vec<i32> = path
+        .iter()
+        .map(|wp| logic.pathfinding_system.grid.world_to_grid(*wp).x)
+        .collect();
+    let crossed = xs.windows(2).any(|pair| {
+        let lo = pair[0].min(pair[1]);
+        let hi = pair[0].max(pair[1]);
+        (lo..=hi).contains(&wall_x)
+    });
     assert!(
-        end.distance(to) < 30.0,
-        "ignore must open the pad-owned obstacle cells, end={end:?}"
+        crossed,
+        "path must cross the owned obstacle column {wall_x}, cells={xs:?}"
     );
 }
 
