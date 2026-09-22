@@ -507,6 +507,7 @@ fn attack_in_range_damages_the_target() {
     let mut logic = GameLogic::new();
     let mut tmpl = ThingTemplate::new("Ranger");
     tmpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+    tmpl.set_primary_weapon_name(crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
     logic.templates.insert("Ranger".into(), tmpl);
     let id = logic
         .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))

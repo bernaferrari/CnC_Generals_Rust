@@ -364,8 +364,9 @@ impl Object {
         // flying CombatSystem dummy that can collide mid-flight.
         if leftover_projectile_object_is_empty(&projectile_object_name) && name.is_some() {
             self.queue_leftover_projectileless_flight_damage(name, target_id);
-        } else {
-            super::combat::queue_projectile(super::combat::PendingProjectile {
+        }
+        super::combat::queue_projectile(super::combat::PendingProjectile {
+
                 shooter_id,
                 shooter_pos,
                 source_context: Some(super::combat::ProjectileLaunchContext {
@@ -425,7 +426,7 @@ impl Object {
                     .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
                     .unwrap_or(false),
             });
-        }
+
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
         self.record_shot_at_target(target_id);
