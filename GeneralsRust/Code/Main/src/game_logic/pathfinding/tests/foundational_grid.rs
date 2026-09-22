@@ -422,6 +422,11 @@ fn assign_unit_path_queues_until_next_update() {
         !unit.movement.path.is_empty(),
         "processPathfindQueue must install crate A* path"
     );
+    assert!(
+        unit.movement.velocity.length() < 1.0,
+        "install must accelerate from rest, not charge at max speed ({})",
+        unit.movement.velocity.length()
+    );
 }
 
 #[test]
