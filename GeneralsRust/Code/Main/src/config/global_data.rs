@@ -654,6 +654,13 @@ pub(crate) fn normalize_startup_map_path<S: Into<String>>(path: S) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
+    let filesystem_path = std::path::Path::new(trimmed);
+    // An absolute `-file /Users/.../Foo.map` must not lose the leading `/`
+    // and must not be rewritten with Windows separators. `find_map_file`
+    // opens that path directly.
+    if filesystem_path.is_absolute() || filesystem_path.is_file() {
+        return trimmed.to_string();
+    }
 
     if !trimmed.contains('\\') && !trimmed.contains('/') {
         return trimmed.to_string();
@@ -916,5 +923,20 @@ Key2 = 42
 
         assert_eq!(crc1, crc2);
         assert_ne!(crc1, 0);
+    }
+
+    #[test]
+    fn absolute_startup_map_path_keeps_the_filesystem_path() {
+        let dir = tempdir().unwrap();
+        let map = dir.path().join("ShellMapMD.map");
+        fs::write(&map, b"MAP").unwrap();
+        let input = map.to_string_lossy().to_string();
+        let normalized = normalize_startup_map_path(input.clone());
+        assert_eq!(normalized, input);
+        assert!(std::path::Path::new(&normalized).is_file());
+        assert_eq!(
+            normalize_startup_map_path("Maps/ShellMapMD/ShellMapMD.map"),
+            "Maps\\ShellMapMD\\ShellMapMD.map"
+        );
     }
 }

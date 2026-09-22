@@ -1985,18 +1985,32 @@ impl CnCGameEngine {
         let Some(manager) = crate::assets::get_asset_manager() else {
             return;
         };
-        let Ok(mut manager) = manager.lock() else {
-            warn!("Shell model preload skipped: asset manager lock poisoned");
-            return;
-        };
-        let mut loaded = 0usize;
-        for name in &names {
-            if manager.load_w3d_model(name).is_ok() {
-                loaded += 1;
+        let loaded_models = {
+            let Ok(mut manager) = manager.lock() else {
+                warn!("Shell model preload skipped: asset manager lock poisoned");
+                return;
+            };
+            let mut loaded_models = Vec::new();
+            for name in &names {
+                match manager.load_w3d_model(name) {
+                    Ok(model) => loaded_models.push((name.clone(), model)),
+                    Err(err) => {
+                        warn!("Shell model preload failed for '{name}': {err}");
+                    }
+                }
             }
+            loaded_models
+        };
+        let found = loaded_models.len();
+        for (name, model) in loaded_models {
+            let key = crate::assets::mesh_asset_resolve::canonical_model_key(&name);
+            if key.is_empty() {
+                continue;
+            }
+            self.graphics_system.cache_model(key, model);
         }
         info!(
-            "Preloaded {loaded}/{} shell W3Ds before the menu present",
+            "Preloaded {found}/{} shell W3Ds into the graphics cache before the menu present",
             names.len()
         );
     }
