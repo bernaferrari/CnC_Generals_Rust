@@ -802,6 +802,10 @@ pub fn drawable_w3d_model_key(object_or_model_name: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
+    // Ambient sound objects (`Amb_DesertVillageDayBirds`) are not meshes.
+    if trimmed.len() >= 4 && trimmed[..4].eq_ignore_ascii_case("amb_") {
+        return String::new();
+    }
     if let Some(mapped) = authored_model_name_for_object(trimmed) {
         return remap_model_key_alias(&mapped);
     }
@@ -1441,6 +1445,13 @@ pub fn mesh_asset_available(model_key: &str) -> bool {
 mod tests {
     use super::*;
     use crate::game_logic::{KindOf, ThingTemplate};
+
+    #[test]
+    fn ambient_sound_objects_are_not_w3d_model_keys() {
+        assert!(drawable_w3d_model_key("Amb_DesertVillageDayBirds").is_empty());
+        assert!(drawable_w3d_model_key("amb_WinterNatureCrows").is_empty());
+        assert_eq!(drawable_w3d_model_key("AVHummer"), "AVHummer");
+    }
 
     #[test]
     fn failed_model_resolution_warns_once_and_probes_filesystem_once() {
