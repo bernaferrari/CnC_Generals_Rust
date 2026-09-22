@@ -273,7 +273,6 @@ impl RenderPipeline {
             if draw_models.is_empty() {
                 // Every source selection deliberately suppressed this object.
                 // It is not a missing template that may borrow pristine art.
-                model_missing += 1;
                 continue;
             }
 
