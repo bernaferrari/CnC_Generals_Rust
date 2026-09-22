@@ -1581,7 +1581,12 @@ impl GameLogic {
                             authored_range,
                         )
                     {
-                        if self.assign_unit_path(object_id, target_position, &[]) {
+                        if self.assign_unit_path_ignoring(
+                            object_id,
+                            target_position,
+                            &[],
+                            Some(capture_target_id),
+                        ) {
                             if let Some(obj) = self.objects.get_mut(&object_id) {
                                 if crate::gameworld_shadow::gameworld_ai_decision_authority_enabled(
                                 ) {
@@ -1591,18 +1596,6 @@ impl GameLogic {
                                 } else {
                                     obj.set_ai_state(AIState::Capturing);
                                 }
-                            }
-                        } else if let Some(obj) = self.objects.get_mut(&object_id) {
-                            if obj.is_alive() && !obj.can_move() {
-                                obj.pending_move = Some(target_position);
-                                obj.movement.target_position = None;
-                                obj.movement.path.clear();
-                                obj.set_ai_state(AIState::Capturing);
-                            }
-                            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                                crate::game_logic::host_ai_decision_log::record_set_state(
-                                    object_id, 19,
-                                ); // Capturing
                             }
                         }
                         continue;
