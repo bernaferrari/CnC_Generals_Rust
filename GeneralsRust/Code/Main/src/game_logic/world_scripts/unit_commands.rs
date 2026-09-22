@@ -1472,20 +1472,41 @@ impl GameLogic {
 
     /// Wave 233: return-supplies order target + ReturningResources state.
     pub fn unit_command_return_supplies(&mut self, id: ObjectId, supply_center: ObjectId) -> bool {
+        let Some(dest) = self
+            .objects
+            .get(&supply_center)
+            .filter(|dock| dock.is_alive())
+            .map(|dock| dock.get_position())
+        else {
+            return false;
+        };
         if self.objects.get(&id).is_none() {
             return false;
         }
-        // C++ privateDock(CMD_FROM_PLAYER) resets AI_DOCK (cancelDock) first.
         self.cancel_dock_reservation(id);
-        let Some(unit) = self.objects.get_mut(&id) else {
+        let cannot_path_yet = self
+            .objects
+            .get(&id)
+            .is_some_and(|unit| unit.is_alive() && !unit.can_move());
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.preferred_dock_id = Some(supply_center);
+            unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
+            unit.supply_truck_force_pending = true;
+            unit.set_order_target(Some(supply_center));
+            if cannot_path_yet {
+                unit.pending_move = Some(dest);
+                unit.movement.target_position = None;
+                unit.movement.path.clear();
+                unit.set_ai_state(AIState::ReturningResources);
+                return true;
+            }
+        } else {
             return false;
-        };
-        // `privateDock(..., CMD_FROM_PLAYER)` stores this target in C++
-        // SupplyTruckAIUpdate/WorkerAIUpdate.  The next gather/return cycle
-        // must retain the selected center rather than choose the nearest one.
-        unit.preferred_dock_id = Some(supply_center);
-        unit.set_order_target(Some(supply_center));
-        unit.set_ai_state(AIState::ReturningResources);
+        }
+        let _ = self.assign_unit_path(id, dest, &[]);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_ai_state(AIState::ReturningResources);
+        }
         true
     }
 
@@ -1499,17 +1520,40 @@ impl GameLogic {
         warehouse: ObjectId,
     ) -> bool {
         self.drop_jet_targeters_on_attack_exit(id);
+        let Some(dest) = self
+            .objects
+            .get(&warehouse)
+            .filter(|dock| dock.is_alive())
+            .map(|dock| dock.get_position())
+        else {
+            return false;
+        };
         if self.objects.get(&id).is_none() {
             return false;
         }
         self.cancel_dock_reservation(id);
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
-        };
-        unit.stop_attack();
-        unit.preferred_dock_id = Some(warehouse);
-        unit.set_order_target(Some(warehouse));
-        unit.set_ai_state(AIState::Gathering);
+        let cannot_path_yet = self
+            .objects
+            .get(&id)
+            .is_some_and(|unit| unit.is_alive() && !unit.can_move());
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.stop_attack();
+            unit.preferred_dock_id = Some(warehouse);
+            unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
+            unit.supply_truck_force_pending = true;
+            unit.set_order_target(Some(warehouse));
+            if cannot_path_yet {
+                unit.pending_move = Some(dest);
+                unit.movement.target_position = None;
+                unit.movement.path.clear();
+                unit.set_ai_state(AIState::Gathering);
+                return true;
+            }
+        }
+        let _ = self.assign_unit_path(id, dest, &[]);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.set_ai_state(AIState::Gathering);
+        }
         true
     }
 
