@@ -427,6 +427,12 @@ fn simulation_step_finishes_a_short_build() {
         pad.construction_percent,
         pad.status.under_construction
     );
+    let dozer_state = logic.host_object(dozer).expect("dozer").ai_state.clone();
+    assert_eq!(
+        dozer_state,
+        AIState::Idle,
+        "a finished build must release the dozer"
+    );
 }
 
 #[test]
