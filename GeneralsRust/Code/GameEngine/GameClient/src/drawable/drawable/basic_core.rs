@@ -341,7 +341,7 @@ impl BasicDrawable {
     /// Wave 965: stamp host presentation residual (no OBJECT_REGISTRY dual-world).
     pub fn set_presentation_host_residual(
         &mut self,
-        kind_names: Vec<String>,
+        kind_names: std::sync::Arc<Vec<String>>,
         indicator_color: Option<(u8, u8, u8)>,
         effectively_stealthed: bool,
         scene_hidden_by_stealth: bool,

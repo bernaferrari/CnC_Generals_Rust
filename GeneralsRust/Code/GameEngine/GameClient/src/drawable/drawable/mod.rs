@@ -125,7 +125,7 @@ pub struct BasicDrawable {
     /// Model condition flags for animation state (matches C++ m_conditionState)
     model_condition_flags: ModelConditionBitFlags,
     /// Wave 965: presentation KindOf Debug names (host empty dual-world).
-    presentation_kind_names: Vec<String>,
+    presentation_kind_names: std::sync::Arc<Vec<String>>,
     /// Wave 965: presentation team indicator residual.
     presentation_indicator_color: Option<(u8, u8, u8)>,
     /// Wave 965: presentation stealth residual.
@@ -270,7 +270,7 @@ impl BasicDrawable {
             current_frame: 0,
             is_model_dirty: true,
             model_condition_flags: create_model_condition_flags(),
-            presentation_kind_names: Vec::new(),
+            presentation_kind_names: std::sync::Arc::new(Vec::new()),
             presentation_indicator_color: None,
             presentation_effectively_stealthed: false,
             presentation_hotkey_group: -1,

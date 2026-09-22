@@ -2183,7 +2183,7 @@ fn health_bar_force_attackable_is_hidden() {
     drawable.presentation_health_pct = 1.0;
     drawable.selected = true;
     drawable.presentation_selected = true;
-    drawable.presentation_kind_names = vec!["ForceAttackable".to_string()];
+    drawable.presentation_kind_names = std::sync::Arc::new(vec!["ForceAttackable".to_string()]);
     drawable.draw_icon_ui();
     assert!(!drawable.overlay_data.health_bar_visible);
     if let Some(data) = game_engine::common::ini::get_global_data() {
