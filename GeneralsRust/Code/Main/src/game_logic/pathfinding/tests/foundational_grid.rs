@@ -464,6 +464,40 @@ fn open_ground_move_changes_position() {
     );
 }
 
+
+#[test]
+fn attack_order_closes_on_open_ground() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("Ranger".into(), tmpl);
+    let origin = Vec3::new(10.0, 0.0, 10.0);
+    let id = logic
+        .create_object("Ranger", Team::USA, origin)
+        .expect("ranger");
+    let victim = logic
+        .create_object("Ranger", Team::GLA, Vec3::new(90.0, 0.0, 10.0))
+        .expect("victim");
+    if let Some(unit) = logic.host_object_mut(id) {
+        unit.weapon = Some(Weapon {
+            range: 15.0,
+            damage: 10.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+    }
+    logic.force_map_loaded_for_path_test(true);
+    assert!(logic.unit_command_attack(id, victim));
+    for _ in 0..40 {
+        logic.update();
+    }
+    let end = logic.host_object(id).expect("ranger").get_position();
+    assert!(
+        end.distance(origin) > 1.0,
+        "attack out of range must chase, end={end:?}"
+    );
+}
 #[test]
 fn assign_shared_group_paths_uses_one_spine() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
