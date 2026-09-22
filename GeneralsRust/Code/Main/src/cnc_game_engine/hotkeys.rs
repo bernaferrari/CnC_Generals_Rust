@@ -462,15 +462,16 @@ impl CnCGameEngine {
                     }
                 }
                 if shift {
-                    // Debug residual: Shift+Delete destroys selection.
-                    if self.selected_objects.is_empty() {
+                    // Debug residual: Shift+Delete destroys the live selection.
+                    // A cleared presentation freeze must not delete leftover
+                    // engine ids.
+                    let selected = self.ui_selected_ids(self.current_player_id);
+                    if selected.is_empty() {
                         return;
                     }
-                    for id in self.selected_objects.clone() {
+                    for id in selected {
                         self.host_destroy_object(id);
                     }
-                    self.selected_objects.clear();
-                    // Wave 583: clear selection residual via host_set_selection.
                     self.host_set_selection(self.current_player_id, Vec::new());
                 } else if self.cancel_selected_production_queue_head() {
                     // Producer selection: Delete cancels queue head residual.
