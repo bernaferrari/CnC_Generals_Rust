@@ -314,6 +314,7 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         collector.set_stored_supplies(0);
     }
 
+
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
     let cargo = logic
@@ -343,6 +344,52 @@ fn supply_truck_gather_credits_retail_value_per_box() {
             collector.drawable_supply_boxes
         ),
         "loaded collector must be CARRYING"
+    );
+}
+
+#[test]
+fn adjacent_supply_dock_takes_a_box() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata};
+    let mut logic = GameLogic::new();
+    let mut truck = ThingTemplate::new("AmericaSupplyTruck");
+    truck
+        .add_kind_of(KindOf::Harvester)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let at = Vec3::new(40.0, 0.0, 40.0);
+    let source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, at)
+        .expect("warehouse");
+    let id = logic
+        .create_object("AmericaSupplyTruck", Team::USA, at)
+        .expect("truck");
+    if let Some(warehouse) = logic.host_object_mut(source) {
+        warehouse.set_stored_supplies(750);
+    }
+    assert!(logic.unit_command_dock_at_supply_warehouse(id, source));
+    logic.update_support_states(&[id, source], 1.0 / 30.0);
+    logic.update_support_states(&[id, source], 1.0 / 30.0);
+    let truck = logic.host_object(id).expect("truck");
+    let carried = truck.stored_resources.supplies;
+    assert!(
+        carried > 0,
+        "a truck on the warehouse must take a box, carried={carried} ai={:?} state={:?}",
+        truck.ai_state,
+        truck.supply_truck_state
     );
 }
 
