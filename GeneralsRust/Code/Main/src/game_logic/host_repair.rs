@@ -273,7 +273,7 @@ pub fn dozer_complete_end_dock(
 ) -> Vec3 {
     match stored_action {
         Some(action) => dozer_end_dock_position(action, building_position),
-        None => dozer_end_dock_position(dozer_position, building_position),
+        None => dozer_position,
     }
 }
 
