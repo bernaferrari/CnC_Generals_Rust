@@ -260,7 +260,11 @@ impl GameLogic {
                 unit.start_move();
                 if !matches!(
                     unit.ai_state,
-                    AIState::Constructing | AIState::Gathering | AIState::ReturningResources
+                    AIState::Constructing
+                        | AIState::Gathering
+                        | AIState::ReturningResources
+                        | AIState::Attacking
+                        | AIState::AttackMoving
                 ) {
                     unit.set_ai_state(AIState::Moving);
                 }
@@ -494,7 +498,11 @@ impl GameLogic {
         // would spend the first frames driving into the obstacle.
         if !matches!(
             unit.ai_state,
-            AIState::Constructing | AIState::Gathering | AIState::ReturningResources
+            AIState::Constructing
+                | AIState::Gathering
+                | AIState::ReturningResources
+                | AIState::Attacking
+                | AIState::AttackMoving
         ) {
             unit.set_ai_state(AIState::Moving);
         }
