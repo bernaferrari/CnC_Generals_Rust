@@ -1056,11 +1056,15 @@ impl BuildingBehavior {
             for _ in 0..quantity {
                 if let Some(new_id) = game_logic.create_object(&template_name, team, spawn_pos) {
                     if let Some(rally) = rally_point {
-                        // Residual BuildingBehavior path — host update_production already
-                        // path_approach_with_state; keep pathfind parity here too.
+                        // A refused path must not walk the raw rally. A unit
+                        // that cannot path yet keeps the point for later.
                         if !game_logic.assign_unit_path(new_id, rally, &[]) {
                             if let Some(unit) = game_logic.host_object_mut(new_id) {
-                                unit.set_destination(rally);
+                                if unit.is_alive() && !unit.can_move() {
+                                    unit.pending_move = Some(rally);
+                                    unit.movement.target_position = None;
+                                    unit.movement.path.clear();
+                                }
                                 unit.ai_state = AIState::Moving;
                             }
                         } else if let Some(unit) = game_logic.host_object_mut(new_id) {
