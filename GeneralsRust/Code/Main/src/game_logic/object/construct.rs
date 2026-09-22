@@ -971,6 +971,7 @@ impl Object {
             safe_path_repulsor2: None,
 
             requested_destination: None,
+            pending_move: None,
             attack_move_retry_count: 0,
             attack_move_sleep_until: 0,
             completed_waypoint_labels: Vec::new(),
@@ -1871,6 +1872,7 @@ impl Object {
             safe_path_repulsor2: None,
 
             requested_destination: None,
+            pending_move: None,
             attack_move_retry_count: 0,
             attack_move_sleep_until: 0,
             completed_waypoint_labels: Vec::new(),

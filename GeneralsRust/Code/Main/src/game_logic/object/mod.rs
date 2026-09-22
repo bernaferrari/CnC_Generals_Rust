@@ -919,6 +919,11 @@ pub struct Object {
     /// C++ m_requestedDestination residual.
     #[serde(default)]
     pub requested_destination: Option<glam::Vec3>,
+    /// Move order kept while the unit cannot path (stun, deploy, EMP).
+    /// Not `target_position`: that empty-path click is walked as soon as
+    /// the unit can move. Reissued through `assign_unit_path`.
+    #[serde(default)]
+    pub pending_move: Option<glam::Vec3>,
     /// C++ `AIAttackMoveToState::m_retryCount` (ATTACK_RETRY_COUNT=5).
     #[serde(default)]
     pub attack_move_retry_count: i32,

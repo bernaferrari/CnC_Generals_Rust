@@ -361,6 +361,7 @@ impl GameLogic {
         // tick_logic_frame/update_simulation, so the drain MUST live here — the
         // previous world_runtime::update-only call never ran live and every
         // deferred path stayed waiting_for_path=true (units never walked).
+        self.reissue_pending_moves();
         self.process_pathfind_queue();
         // -----------------------------------------------------------------------
         // Phase 1: Early Scripting (C++ line 3600)
