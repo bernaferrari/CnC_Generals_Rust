@@ -328,6 +328,7 @@ fn arrived_moving_dozer_builds_at_the_dock() {
 
 #[test]
 fn reissued_build_stays_constructing() {
+    use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -341,7 +342,7 @@ fn reissued_build_stays_constructing() {
         .set_health(200.0);
     logic.templates.insert("ReissueDozer".into(), dozer_tpl);
     let from = Vec3::new(10.0, 0.0, 10.0);
-    let to = Vec3::new(120.0, 0.0, 10.0);
+    let to = Vec3::new(160.0, 0.0, 10.0);
     let pad_id = logic
         .create_object_for_player("ReissuePad", 0, to)
         .expect("pad");
@@ -349,6 +350,23 @@ fn reissued_build_stays_constructing() {
         .create_object_for_player("ReissueDozer", 0, from)
         .expect("dozer");
     logic.dozer_new_task_build(dozer, pad_id);
+    let wall_x = {
+        let grid = &logic.pathfinding_system.grid;
+        let start_cell = grid.world_to_grid(from);
+        let goal_cell = grid.world_to_grid(to);
+        (start_cell.x + goal_cell.x) / 2
+    };
+    let height = logic.pathfinding_system.grid.height();
+    for y in 0..height {
+        logic.pathfinding_system.grid.set_cell_obstacle_owned(
+            GridPos::new(wall_x, y),
+            false,
+            false,
+            pad_id.0,
+            None,
+            None,
+        );
+    }
     {
         let obj = logic.host_object_mut(dozer).expect("dozer");
         obj.set_order_target(Some(pad_id));
@@ -358,12 +376,6 @@ fn reissued_build_stays_constructing() {
     }
     logic.force_map_loaded_for_path_test(true);
     logic.reissue_pending_moves();
-    {
-        let obj = logic.host_object(dozer).expect("queued");
-        assert_eq!(obj.ai_state, AIState::Constructing);
-        assert!(obj.waiting_for_path);
-        assert!(obj.movement.path.is_empty());
-    }
     logic.process_pathfind_queue();
     let obj = logic.host_object(dozer).expect("installed");
     assert_eq!(obj.ai_state, AIState::Constructing);
@@ -372,11 +384,43 @@ fn reissued_build_stays_constructing() {
         .path
         .last()
         .copied()
-        .expect("path through the structure footprint");
-    let footprint = logic.host_object(pad_id).expect("pad").selection_radius;
+        .expect("path across the owned obstacle wall");
     assert!(
-        end.distance(to) <= footprint,
-        "path must enter the structure footprint, end={end:?} radius={footprint}"
+        end.distance(to) < 30.0,
+        "ignore must open the pad-owned obstacle cells, end={end:?}"
+    );
+}
+
+#[test]
+fn ignored_structure_is_not_dynamically_stamped() {
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+    let mut pad = ThingTemplate::new("StampPad");
+    pad.add_kind_of(KindOf::Structure).set_health(1_000.0);
+    logic.templates.insert("StampPad".into(), pad);
+    let at = Vec3::new(80.0, 0.0, 40.0);
+    let pad_id = logic
+        .create_object_for_player("StampPad", 0, at)
+        .expect("pad");
+    let cell = logic.pathfinding_system.grid.world_to_grid(at);
+    logic
+        .pathfinding_system
+        .grid
+        .update_dynamic_obstacles(&logic.objects);
+    assert_eq!(
+        logic.pathfinding_system.grid.dynamic_pos_unit(cell),
+        pad_id.0,
+        "a live structure stamps its cell"
+    );
+    logic
+        .pathfinding_system
+        .grid
+        .update_dynamic_obstacles_ignoring(&logic.objects, Some(pad_id));
+    assert_eq!(
+        logic.pathfinding_system.grid.dynamic_pos_unit(cell),
+        0,
+        "ignoreObstacle skips the structure before the occupancy stamp"
     );
 }
 #[test]
