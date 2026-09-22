@@ -770,6 +770,12 @@ pub fn apply_locomotor_set_kind_for_surfaces(
                 &names,
                 cell_surfaces,
             )
+            .or_else(|| {
+                crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                    &names,
+                    obj.locomotor_surfaces | crate::game_logic::object::LOCO_SURFACE_AIR,
+                )
+            })
         } else {
             crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
                 &names,
