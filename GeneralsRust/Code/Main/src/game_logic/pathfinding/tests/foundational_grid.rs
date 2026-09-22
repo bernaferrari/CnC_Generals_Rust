@@ -1309,6 +1309,15 @@ fn blocked_route_does_not_walk_the_click() {
     let id = logic
         .create_object("Ranger", Team::USA, from)
         .expect("ranger");
+    let scatter = logic
+        .create_object("Ranger", Team::USA, from)
+        .expect("scatter");
+    let tight = logic
+        .create_object("Ranger", Team::USA, from)
+        .expect("tighten");
+    let stun = logic
+        .create_object("Ranger", Team::USA, from)
+        .expect("stun");
     let wall_x = {
         let grid = &logic.pathfinding_system.grid;
         let start_cell = grid.world_to_grid(from);
@@ -1324,17 +1333,36 @@ fn blocked_route_does_not_walk_the_click() {
             .set_cell_type(GridPos::new(wall_x, y), PathfindCellType::Impassable);
     }
     logic.force_map_loaded_for_path_test(true);
-    assert!(logic.unit_command_move_to(id, to));
-    logic.process_pathfind_queue();
-    let unit = logic.host_object(id).expect("ranger");
-    assert!(!unit.waiting_for_path);
+    if let Some(unit) = logic.host_object_mut(stun) {
+        unit.shock_stun_frames = 20;
+    }
+    assert!(logic.unit_command_move_to_moving(stun, to));
     assert!(
-        unit.movement.path.is_empty(),
-        "sealed wall must not install a path, got {:?}",
-        unit.movement.path
+        logic
+            .host_object(stun)
+            .expect("stun")
+            .movement
+            .target_position
+            .is_some(),
+        "a stunned scatter keeps the destination until it can path"
     );
-    assert!(unit.movement.target_position.is_none());
-    assert!(unit.movement.velocity.length() < 1.0);
+    assert!(logic.unit_command_move_to(id, to));
+    assert!(logic.unit_command_move_to_moving(scatter, to));
+    assert!(logic.unit_command_tighten_to(tight, to));
+    for _ in 0..4 {
+        logic.process_pathfind_queue();
+    }
+    for unit_id in [id, scatter, tight] {
+        let unit = logic.host_object(unit_id).expect("mover");
+        assert!(!unit.waiting_for_path);
+        assert!(
+            unit.movement.path.is_empty(),
+            "sealed wall must not install a path, got {:?}",
+            unit.movement.path
+        );
+        assert!(unit.movement.target_position.is_none());
+        assert!(unit.movement.velocity.length() < 1.0);
+    }
 }
 
 /// hq-3biqe: assign_unit_path must pass real is_crusher into live A*.
