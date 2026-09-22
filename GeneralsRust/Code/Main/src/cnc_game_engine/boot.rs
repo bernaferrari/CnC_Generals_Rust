@@ -358,6 +358,7 @@ impl CnCGameEngine {
             background_music: None,
             sound_effects: Vec::new(),
             ui_sound_cache,
+            draw_module_name_cache: std::cell::RefCell::new(HashMap::new()),
 
             // Default boot flow should land in the menu unless explicitly quick-starting.
             current_state: initial_state,

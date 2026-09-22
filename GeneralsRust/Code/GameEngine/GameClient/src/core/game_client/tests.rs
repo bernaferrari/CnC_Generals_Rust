@@ -300,7 +300,7 @@ mod tests {
             [0.0, 0.0, 0.0],
             0.0,
         );
-        first.draw_module_names = vec!["W3DTankDraw".to_string()];
+        first.draw_module_names = std::sync::Arc::new(vec!["W3DTankDraw".to_string()]);
         assert_eq!(client.sync_presentation_drawables([first.clone()]), (1, 0, 0));
         let drawable_id = client
             .presentation_direct_drawable_state(1, 501)
@@ -347,7 +347,7 @@ mod tests {
             [1.0, 2.0, 3.0],
             0.0,
         );
-        entry.draw_module_names = vec!["W3DLaserDraw".to_string()];
+        entry.draw_module_names = std::sync::Arc::new(vec!["W3DLaserDraw".to_string()]);
         assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
         let snap = presentation_specialized_draw_snapshot(777).expect("laser residual");
         assert!(snap.is_laser());
@@ -370,7 +370,7 @@ mod tests {
             [0.0, 0.0, 8.0],
             0.0,
         );
-        entry.draw_module_names = vec!["W3DDebrisDraw".to_string()];
+        entry.draw_module_names = std::sync::Arc::new(vec!["W3DDebrisDraw".to_string()]);
         assert_eq!(client.sync_presentation_drawables([entry.clone()]), (1, 0, 0));
         for frame in 0..40 {
             entry.position = [frame as f32 * 0.1, 0.0, 8.0];
@@ -948,7 +948,7 @@ mod tests {
             emoticon_frames_left: 0,
             formation_id: 0,
             caption: String::new(),
-            draw_module_names: Vec::new(),
+            draw_module_names: std::sync::Arc::new(Vec::new()),
             health_box_width: 0.0,
             health_box_z_offset: 0.0,
         }
