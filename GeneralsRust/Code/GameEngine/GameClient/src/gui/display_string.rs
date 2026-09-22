@@ -68,11 +68,18 @@ pub struct DisplayString {
 
 pub trait DisplayFontSource {
     fn to_display_font(self) -> Arc<GameFont>;
+    /// True when `current` already is this font. Must not build an atlas.
+    fn same_as_installed(&self, _current: &GameFont) -> bool {
+        false
+    }
 }
 
 impl DisplayFontSource for Arc<GameFont> {
     fn to_display_font(self) -> Arc<GameFont> {
         self
+    }
+    fn same_as_installed(&self, current: &GameFont) -> bool {
+        current.desc == self.desc
     }
 }
 
@@ -80,9 +87,15 @@ impl DisplayFontSource for &Arc<GameFont> {
     fn to_display_font(self) -> Arc<GameFont> {
         self.clone()
     }
+    fn same_as_installed(&self, current: &GameFont) -> bool {
+        current.desc == self.desc
+    }
 }
 
 impl DisplayFontSource for &GameFont {
+    fn same_as_installed(&self, current: &GameFont) -> bool {
+        current.desc == self.desc
+    }
     fn to_display_font(self) -> Arc<GameFont> {
         if let Ok(font) = get_font_library().get_font(&self.desc) {
             return font;
@@ -103,6 +116,9 @@ impl DisplayFontSource for &GameFont {
 }
 
 impl DisplayFontSource for &LegacyGameFont {
+    fn same_as_installed(&self, current: &GameFont) -> bool {
+        current.desc == self.to_font_desc()
+    }
     fn to_display_font(self) -> Arc<GameFont> {
         let desc = self.to_font_desc();
         if let Ok(font) = get_font_library().get_font(&desc) {
@@ -183,7 +199,15 @@ impl DisplayString {
     }
 
     pub fn set_font<F: DisplayFontSource>(&mut self, font: F) {
-        self.font = Some(font.to_display_font());
+        if self
+            .font
+            .as_ref()
+            .is_some_and(|current| font.same_as_installed(current))
+        {
+            return;
+        }
+        let next = font.to_display_font();
+        self.font = Some(next);
         self.dirty = true;
     }
 
@@ -192,15 +216,26 @@ impl DisplayString {
     }
 
     pub fn set_word_wrap(&mut self, width: i32) {
-        self.word_wrap = if width > 0 { Some(width) } else { None };
+        let next = if width > 0 { Some(width) } else { None };
+        if self.word_wrap == next {
+            return;
+        }
+        self.word_wrap = next;
         self.dirty = true;
     }
 
     pub fn set_word_wrap_centered(&mut self, centered: bool) {
+        if self.word_wrap_centered == centered {
+            return;
+        }
         self.word_wrap_centered = centered;
+        self.dirty = true;
     }
 
     pub fn set_use_hotkey(&mut self, use_hotkey: bool, hotkey_color: u32) {
+        if self.use_hotkey == use_hotkey && self.hotkey_color == hotkey_color {
+            return;
+        }
         self.use_hotkey = use_hotkey;
         self.hotkey_color = hotkey_color;
         self.dirty = true;

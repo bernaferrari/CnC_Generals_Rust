@@ -304,33 +304,55 @@ pub(super) fn draw_push_button_image_three(
             return;
         }
 
-        let mut x = left_end_x;
-        while x.saturating_add(center_w) <= right_start_x {
+        let piece_w = {
+            let collection = crate::display::image::get_mapped_image_collection();
+            let guard = collection.read();
+            guard
+                .find_image_by_name(&center.name)
+                .map(|mapped| {
+                    let size = mapped.get_image_size().x;
+                    if size > 1 {
+                        size
+                    } else {
+                        let uv = mapped.get_uv();
+                        let tex = mapped.get_texture_size().x;
+                        let from_uv =
+                            ((uv.max.x - uv.min.x).abs() * tex as f32).round() as i32;
+                        if from_uv > 1 { from_uv } else { center.width }
+                    }
+                })
+                .unwrap_or(center.width)
+                .max(1)
+        };
+        if piece_w <= 1 {
             manager.win_draw_image(
                 center,
-                x,
+                left_end_x,
                 start_y,
-                x.saturating_add(center_w),
+                right_start_x,
                 end_y,
                 WIN_COLOR_UNDEFINED,
             );
-            x = x.saturating_add(center_w);
-            if center_w <= 0 {
-                break;
+        } else {
+            let mut centers = Vec::new();
+            let mut x = left_end_x;
+            while x.saturating_add(piece_w) <= right_start_x {
+                centers.push((x, start_y, x.saturating_add(piece_w), end_y));
+                x = x.saturating_add(piece_w);
             }
-        }
-
-        if let Some(((tail_start_x, tail_start_y, tail_end_x, tail_end_y), clip)) =
-            push_button_three_piece_tail_clip(x, right_start_x, start_y, end_y, center_w)
-        {
-            draw_window_image_clipped(
-                center,
-                tail_start_x,
-                tail_start_y,
-                tail_end_x,
-                tail_end_y,
-                &clip,
-            );
+            manager.win_draw_image_batch(center, &centers);
+            if let Some(((tail_start_x, tail_start_y, tail_end_x, tail_end_y), clip)) =
+                push_button_three_piece_tail_clip(x, right_start_x, start_y, end_y, piece_w)
+            {
+                draw_window_image_clipped(
+                    center,
+                    tail_start_x,
+                    tail_start_y,
+                    tail_end_x,
+                    tail_end_y,
+                    &clip,
+                );
+            }
         }
 
         manager.win_draw_image(
@@ -422,8 +444,18 @@ pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstan
 }
 
 pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let image_started = std::time::Instant::now();
     draw_push_button_image_base(window, inst_data);
+    let image_elapsed = image_started.elapsed();
+    let text_started = std::time::Instant::now();
     draw_button_text(window, inst_data);
+    let text_elapsed = text_started.elapsed();
+    if image_elapsed + text_elapsed >= std::time::Duration::from_millis(5) {
+        eprintln!(
+            "UI_BTN name={} image={image_elapsed:?} text={text_elapsed:?}",
+            inst_data.decorated_name
+        );
+    }
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
         if let crate::gui::game_window::WindowWidget::PushButton(button) = widget {
