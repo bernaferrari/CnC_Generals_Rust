@@ -661,7 +661,9 @@ impl Object {
         self.record_host_combat_attack();
         self.clear_leech_range_mode_for_all_weapons();
         self.status.attacking = false;
-        crate::game_logic::host_attack_log::record(self.id, None);
+        self.set_status_aiming_weapon(false);
+        self.set_status_firing_weapon(false);
+        self.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
         // C++ parity: guard units return to guard; Hunt stays in AI_HUNT;
         // attack-move keeps AI_ATTACK_MOVE_TO so dest can resume.
         let stay_hunt = matches!(self.ai_state, AIState::Patrolling);

@@ -559,6 +559,45 @@ fn attack_in_range_damages_the_target() {
         "in-range attack must deal damage, before={before} after={after}"
     );
 }
+
+#[test]
+fn stop_prevents_further_attack_damage() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate, Weapon};
+    let mut logic = GameLogic::new();
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry).set_health(100.0);
+    tmpl.set_primary_weapon_name(crate::game_logic::weapon_bootstrap::RANGER_PRIMARY_WEAPON);
+    logic.templates.insert("Ranger".into(), tmpl);
+    let id = logic
+        .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("ranger");
+    let victim = logic
+        .create_object("Ranger", Team::GLA, Vec3::new(25.0, 0.0, 10.0))
+        .expect("victim");
+    if let Some(unit) = logic.host_object_mut(id) {
+        unit.weapon = Some(Weapon {
+            range: 40.0,
+            damage: 40.0,
+            reload_time: 0.1,
+            pre_attack_delay: 0.0,
+            projectile_speed: 0.0,
+            can_target_ground: true,
+            ..Weapon::default()
+        });
+    }
+    assert!(logic.unit_command_attack(id, victim));
+    for _ in 0..90 {
+        logic.update();
+    }
+    let mid = logic.host_object(victim).expect("victim").health.current;
+    assert!(mid < 100.0, "attack must land before stop, health={mid}");
+    assert!(logic.unit_command_stop(id));
+    for _ in 0..40 {
+        logic.update();
+    }
+    let after = logic.host_object(victim).expect("victim").health.current;
+    assert_eq!(after, mid, "stop must halt further damage");
+}
 #[test]
 fn assign_shared_group_paths_uses_one_spine() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate};
