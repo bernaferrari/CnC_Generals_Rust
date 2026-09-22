@@ -455,7 +455,7 @@ impl GameLogic {
     pub(in super::super) fn apply_computed_unit_path(
         &mut self,
         unit_id: ObjectId,
-        start: Vec3,
+        _start: Vec3,
         destination: Vec3,
         full_path: Vec<Vec3>,
     ) -> bool {
@@ -464,10 +464,17 @@ impl GameLogic {
         };
         unit.waiting_for_path = false;
         unit.is_exact_path = false;
-        unit.movement.target_position = full_path.first().copied().or(Some(destination));
+        // path[0] is the current cell (segment_start). Match the other
+        // installer: skip it and aim at the first corner, or the final
+        // destination when the path is a single node.
+        if full_path.len() >= 2 {
+            unit.movement.current_path_index = 1;
+            unit.movement.target_position = Some(full_path[1]);
+        } else {
+            unit.movement.current_path_index = 0;
+            unit.movement.target_position = Some(destination);
+        }
         unit.movement.path = full_path;
-        unit.record_host_movement();
-        unit.movement.current_path_index = 0;
         unit.record_host_movement();
         unit.start_move();
         crate::game_logic::host_move_log::record(
