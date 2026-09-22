@@ -400,7 +400,13 @@ fn simulation_step_finishes_a_short_build() {
         .create_object_for_player("FinishDozer", 0, Vec3::ZERO)
         .expect("dozer");
     logic.dozer_new_task_build(dozer, pad_id);
-    let action = Vec3::new(20.0, 0.0, 0.0);
+    let action = logic
+        .host_object(dozer)
+        .and_then(|d| d.dozer_dock_action)
+        .expect("dozer_new_task_build stores the action dock");
+    let building_pos = logic.host_object(pad_id).expect("pad").get_position();
+    let end_dock =
+        crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
     {
         let obj = logic.host_object_mut(pad_id).expect("pad");
         obj.set_status_under_construction(true);
@@ -408,32 +414,22 @@ fn simulation_step_finishes_a_short_build() {
     }
     {
         let obj = logic.host_object_mut(dozer).expect("dozer");
-        obj.dozer_dock_action = Some(action);
         obj.set_position(action);
         obj.set_target(Some(pad_id));
         obj.set_ai_state(AIState::Constructing);
         obj.movement.path.clear();
         obj.waiting_for_path = false;
     }
-    let mut at_finish: Option<(Vec3, Vec<Vec3>)> = None;
+    let mut at_finish: Option<Vec3> = None;
     for _ in 0..30 {
         logic.update();
         let done = logic
             .host_object(pad_id)
             .is_some_and(|pad| !pad.status.under_construction && pad.construction_percent >= 1.0);
         if done && at_finish.is_none() {
-            if let Some(dozer_obj) = logic.host_object(dozer) {
-                at_finish = Some((
-                    dozer_obj
-                        .movement
-                        .path
-                        .last()
-                        .copied()
-                        .or(dozer_obj.movement.target_position)
-                        .unwrap_or(dozer_obj.get_position()),
-                    dozer_obj.movement.path.clone(),
-                ));
-            }
+            at_finish = logic
+                .host_object(dozer)
+                .and_then(|dozer_obj| dozer_obj.movement.path.last().copied());
         }
     }
     let pad = logic.host_object(pad_id).unwrap();
@@ -443,10 +439,10 @@ fn simulation_step_finishes_a_short_build() {
         pad.construction_percent,
         pad.status.under_construction
     );
-    let (goal, path) = at_finish.expect("completion frame");
+    let path_end = at_finish.expect("completion-frame path to the end dock");
     assert!(
-        goal.distance(action) > 40.0,
-        "completion-frame goal must be the end dock, goal={goal:?} action={action:?} path={path:?}"
+        path_end.distance(end_dock) < 15.0,
+        "completion-frame path must end at the end dock, path_end={path_end:?} end_dock={end_dock:?}"
     );
 }
 
