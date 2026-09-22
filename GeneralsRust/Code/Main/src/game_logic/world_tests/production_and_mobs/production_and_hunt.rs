@@ -325,6 +325,57 @@ fn arrived_moving_dozer_builds_at_the_dock() {
     );
 }
 
+#[test]
+fn simulation_step_builds_when_dozer_is_at_the_pad() {
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+    let mut pad = ThingTemplate::new("SimPad");
+    pad.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::Selectable)
+        .set_health(1_000.0);
+    pad.build_time = 10.0;
+    logic.templates.insert("SimPad".into(), pad);
+    let mut dozer_tpl = ThingTemplate::new("SimDozer");
+    dozer_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic.templates.insert("SimDozer".into(), dozer_tpl);
+    let pad_id = logic
+        .create_object_for_player("SimPad", 0, Vec3::ZERO)
+        .expect("pad");
+    let dozer = logic
+        .create_object_for_player("SimDozer", 0, Vec3::ZERO)
+        .expect("dozer");
+    logic.dozer_new_task_build(dozer, pad_id);
+    let dock = logic
+        .host_object(dozer)
+        .and_then(|d| d.dozer_dock_action)
+        .unwrap_or(Vec3::ZERO);
+    {
+        let obj = logic.host_object_mut(pad_id).expect("pad");
+        obj.set_status_under_construction(true);
+        obj.builder_id = Some(dozer);
+    }
+    {
+        let obj = logic.host_object_mut(dozer).expect("dozer");
+        obj.set_position(dock);
+        obj.set_target(Some(pad_id));
+        obj.set_ai_state(AIState::Constructing);
+        obj.movement.path.clear();
+        obj.waiting_for_path = false;
+    }
+    for _ in 0..30 {
+        logic.update();
+    }
+    let progress = logic.host_object(pad_id).unwrap().construction_percent;
+    assert!(
+        progress > 0.0,
+        "a simulation step must build while the dozer is at the pad, got {progress}"
+    );
+}
+
 
 #[test]
 fn reissued_build_stays_constructing() {
