@@ -325,7 +325,12 @@ impl GameLogic {
             for (oid, mut end) in end_moves {
                 // C++ DozerAIUpdate.cpp:627-635 adjustToPossibleDestination then aiMoveToPosition(END).
                 self.adjust_to_possible_destination(oid, &mut end);
-                self.path_approach_with_state(oid, end, AIState::Moving);
+                self.path_approach_with_state_ignoring(
+                    oid,
+                    end,
+                    AIState::Moving,
+                    Some(completed_id),
+                );
             }
             if self.objects.contains_key(&completed_id) {
                 self.record_structure_completion(completed_id);

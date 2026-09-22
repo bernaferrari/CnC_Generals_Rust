@@ -417,8 +417,21 @@ fn simulation_step_finishes_a_short_build() {
         obj.movement.path.clear();
         obj.waiting_for_path = false;
     }
+    let mut at_finish: Option<(AIState, Vec<Vec3>, Vec3)> = None;
     for _ in 0..30 {
         logic.update();
+        let done = logic
+            .host_object(pad_id)
+            .is_some_and(|pad| !pad.status.under_construction && pad.construction_percent >= 1.0);
+        if done && at_finish.is_none() {
+            if let Some(dozer_obj) = logic.host_object(dozer) {
+                at_finish = Some((
+                    dozer_obj.ai_state.clone(),
+                    dozer_obj.movement.path.clone(),
+                    dock,
+                ));
+            }
+        }
     }
     let pad = logic.host_object(pad_id).unwrap();
     assert!(
@@ -427,11 +440,16 @@ fn simulation_step_finishes_a_short_build() {
         pad.construction_percent,
         pad.status.under_construction
     );
-    let dozer_state = logic.host_object(dozer).expect("dozer").ai_state.clone();
-    assert_eq!(
-        dozer_state,
-        AIState::Idle,
-        "a finished build must release the dozer"
+    let (state, path, action_dock) = at_finish.expect("completion frame");
+    let end = path.last().copied().or_else(|| {
+        logic
+            .host_object(dozer)
+            .and_then(|d| d.movement.target_position)
+    });
+    let walked_off = end.is_some_and(|p| p.distance(action_dock) > 40.0) || state == AIState::Moving;
+    assert!(
+        walked_off,
+        "completion must start the end-dock walk, state={state:?} path={path:?} dock={action_dock:?}"
     );
 }
 
