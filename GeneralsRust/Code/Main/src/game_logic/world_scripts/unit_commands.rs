@@ -312,12 +312,20 @@ impl GameLogic {
         unit.mark_jet_command_for_reload_interrupt(false);
         unit.clear_guard_chase();
         end_hunt_on_player_parent_order(unit);
-
         unit.set_force_attack(false);
-        unit.set_target(Some(target_id));
-        crate::game_logic::host_attack_log::record(id, Some(target_id));
-        unit.set_ai_state(AIState::Attacking);
         drop(unit);
+        // C++ privateAttackObject enters the attack machine and requests a
+        // chase path. A weaponless order that already passed the command
+        // legality check still stamps Attacking so existing callers keep it.
+        let engaged = self.private_attack_object(id, target_id, -1);
+        if !engaged {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.set_target(Some(target_id));
+                unit.set_ai_state(AIState::Attacking);
+            } else {
+                return false;
+            }
+        }
         self.hunt_next_enemy_scan.remove(&id);
         if let Some(tgt) = self.objects.get_mut(&target_id) {
             tgt.add_jet_targeter(id, true, self.frame);
