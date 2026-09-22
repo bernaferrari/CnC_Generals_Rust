@@ -731,9 +731,18 @@ fn apply_swap_fields(obj: &mut crate::game_logic::object::Object, swap: &Locomot
 }
 
 /// C++ `AIUpdateInterface::chooseLocomotorSet` residual — swap the whole template.
+/// `cell_surfaces == 0` keeps the historical object-mask fallback.
 pub fn apply_locomotor_set_kind(
     obj: &mut crate::game_logic::object::Object,
     kind: HostLocomotorSetKind,
+) -> bool {
+    apply_locomotor_set_kind_for_surfaces(obj, kind, 0)
+}
+
+pub fn apply_locomotor_set_kind_for_surfaces(
+    obj: &mut crate::game_logic::object::Object,
+    kind: HostLocomotorSetKind,
+    cell_surfaces: u32,
 ) -> bool {
     let kind = if kind == HostLocomotorSetKind::Normal && obj.locomotor_upgrade {
         HostLocomotorSetKind::NormalUpgraded
@@ -756,7 +765,12 @@ pub fn apply_locomotor_set_kind(
         }) {
             return false;
         }
-        let selected =
+        let selected = if cell_surfaces != 0 {
+            crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+                &names,
+                cell_surfaces,
+            )
+        } else {
             crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
                 &names,
                 obj.locomotor_surfaces | crate::game_logic::object::LOCO_SURFACE_AIR,
@@ -766,7 +780,8 @@ pub fn apply_locomotor_set_kind(
                     &names,
                     crate::game_logic::object::LOCO_SURFACE_GROUND,
                 )
-            });
+            })
+        };
         obj.locomotor_set_names = names;
         obj.cur_locomotor_name = selected.clone();
         obj.jet_ai.cur_locomotor_set = Some(token.to_string());
@@ -983,6 +998,30 @@ mod tests {
             Some("RaptorJetLocomotor")
         );
     }
+
+    #[test]
+    fn ground_cell_picks_the_ground_member_not_the_air_member() {
+        use crate::game_logic::{Object, ObjectId, Team, ThingTemplate, LOCO_SURFACE_GROUND};
+        let mut template = ThingTemplate::new("MixedLoco");
+        template.authored_locomotor_sets = Some(vec![AuthoredLocomotorSet {
+            kind: HostLocomotorSetKind::Normal,
+            members: vec![
+                "RaptorJetLocomotor".into(),
+                "CombatBikeGroundLocomotor".into(),
+            ],
+        }]);
+        let mut obj = Object::new(template, ObjectId(201), Team::USA);
+        assert!(apply_locomotor_set_kind_for_surfaces(
+            &mut obj,
+            HostLocomotorSetKind::Normal,
+            LOCO_SURFACE_GROUND,
+        ));
+        assert_eq!(
+            obj.cur_locomotor_name.as_deref(),
+            Some("CombatBikeGroundLocomotor")
+        );
+    }
+
 
     #[test]
     fn authored_locomotor_upgrade_waits_until_normal_is_selected() {
