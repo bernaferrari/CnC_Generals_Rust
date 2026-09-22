@@ -394,6 +394,69 @@ fn adjacent_supply_dock_takes_a_box() {
 }
 
 #[test]
+fn full_truck_returns_to_its_supply_center() {
+    use crate::game_logic::{DockKind, Player, SupplyTruckMetadata};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", true));
+    let mut truck = ThingTemplate::new("AmericaSupplyTruck");
+    truck
+        .add_kind_of(KindOf::Harvester)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 1,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let mut center = ThingTemplate::new("AmericaSupplyCenter");
+    center
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(1000.0);
+    center.dock_kind = DockKind::SupplyCenter;
+    logic.templates.insert(center.name.clone(), center);
+    let pad = Vec3::new(20.0, 0.0, 20.0);
+    let source = logic
+        .create_object("FiniteWarehouse", Team::Neutral, pad)
+        .expect("warehouse");
+    if let Some(warehouse) = logic.host_object_mut(source) {
+        warehouse.set_stored_supplies(750);
+    }
+    let center_id = logic
+        .create_object_for_player("AmericaSupplyCenter", 0, Vec3::new(80.0, 0.0, 20.0))
+        .expect("center");
+    if let Some(center) = logic.host_object_mut(center_id) {
+        center.construction_percent = 1.0;
+        center.set_status_under_construction(false);
+    }
+    let id = logic
+        .create_object_for_player("AmericaSupplyTruck", 0, pad)
+        .expect("truck");
+    if let Some(truck) = logic.host_object_mut(id) {
+        truck.set_stored_supplies(75);
+    }
+    assert!(logic.unit_command_dock_at_supply_warehouse(id, source));
+    logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
+    logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
+    let truck = logic.host_object(id).expect("truck");
+    assert_eq!(
+        truck.ai_state,
+        AIState::ReturningResources,
+        "a full truck must head for its supply center, state={:?}",
+        truck.supply_truck_state
+    );
+}
+
+#[test]
 fn warehouse_set_value_updates_live_host_stock() {
     crate::game_logic::host_supply_gather::reset_live_warehouse_host_state();
     use crate::game_logic::DockKind;
