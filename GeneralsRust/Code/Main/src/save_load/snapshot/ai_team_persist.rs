@@ -20,7 +20,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 const TMAI_MAGIC: &[u8; 4] = b"TMAI";
-const TMAI_VERSION: u32 = 2;
+const TMAI_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct TeamCommonAttackPersist {
@@ -75,6 +75,9 @@ struct ObjectAiOrderPersist {
     /// C++ `AIUpdateInterface::m_lastCommandSource` (CommandSourceType ordinal).
     #[serde(default = "default_last_command_source")]
     last_command_source: u32,
+    /// Move kept while the unit cannot path yet. Not a locomotor goal.
+    #[serde(default)]
+    pending_move: Option<[f32; 3]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -100,9 +103,47 @@ struct ObjectAiOrderPersistV1 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectAiOrderPersistV2 {
+    object_id: u32,
+    path: Vec<[f32; 3]>,
+    current_path_index: u32,
+    target_position: Option<[f32; 3]>,
+    requested_destination: Option<[f32; 3]>,
+    requested_victim_id: u32,
+    waiting_for_path: bool,
+    is_exact_path: bool,
+    is_attack_path: bool,
+    is_approach_path: bool,
+    is_safe_path: bool,
+    pending_waypoint_labels: Vec<String>,
+    completed_waypoint_labels: Vec<String>,
+    queue_for_path_frames: u32,
+    group_speed_factor: f32,
+    pending_path: Option<PendingPathPersist>,
+    #[serde(default)]
+    ai_attitude: i8,
+    #[serde(default)]
+    do_final_position: bool,
+    #[serde(default)]
+    final_position: [f32; 3],
+    #[serde(default)]
+    ignored_obstacle_id: u32,
+    #[serde(default)]
+    can_path_through_units: bool,
+    #[serde(default = "default_last_command_source")]
+    last_command_source: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AiTeamPersistPayload {
     team_targets: Vec<TeamCommonAttackPersist>,
     orders: Vec<ObjectAiOrderPersist>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct AiTeamPersistPayloadV2 {
+    team_targets: Vec<TeamCommonAttackPersist>,
+    orders: Vec<ObjectAiOrderPersistV2>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -140,6 +181,37 @@ impl From<ObjectAiOrderPersistV1> for ObjectAiOrderPersist {
             ignored_obstacle_id: 0,
             can_path_through_units: false,
             last_command_source: default_last_command_source(),
+            pending_move: None,
+        }
+    }
+}
+
+impl From<ObjectAiOrderPersistV2> for ObjectAiOrderPersist {
+    fn from(v2: ObjectAiOrderPersistV2) -> Self {
+        Self {
+            object_id: v2.object_id,
+            path: v2.path,
+            current_path_index: v2.current_path_index,
+            target_position: v2.target_position,
+            requested_destination: v2.requested_destination,
+            requested_victim_id: v2.requested_victim_id,
+            waiting_for_path: v2.waiting_for_path,
+            is_exact_path: v2.is_exact_path,
+            is_attack_path: v2.is_attack_path,
+            is_approach_path: v2.is_approach_path,
+            is_safe_path: v2.is_safe_path,
+            pending_waypoint_labels: v2.pending_waypoint_labels,
+            completed_waypoint_labels: v2.completed_waypoint_labels,
+            queue_for_path_frames: v2.queue_for_path_frames,
+            group_speed_factor: v2.group_speed_factor,
+            pending_path: v2.pending_path,
+            ai_attitude: v2.ai_attitude,
+            do_final_position: v2.do_final_position,
+            final_position: v2.final_position,
+            ignored_obstacle_id: v2.ignored_obstacle_id,
+            can_path_through_units: v2.can_path_through_units,
+            last_command_source: v2.last_command_source,
+            pending_move: None,
         }
     }
 }
@@ -164,7 +236,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1 && version != TMAI_VERSION {
+    if version != 1 && version != 2 && version != TMAI_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown TMAI suffix version {version}"
         )));
@@ -178,6 +250,17 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     let encoded = &rest[..payload_len];
     let payload = if version == 1 {
         let old: AiTeamPersistPayloadV1 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
+        AiTeamPersistPayload {
+            team_targets: old.team_targets,
+            orders: old
+                .orders
+                .into_iter()
+                .map(ObjectAiOrderPersist::from)
+                .collect(),
+        }
+    } else if version == 2 {
+        let old: AiTeamPersistPayloadV2 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("TMAI payload decode: {err}")))?;
         AiTeamPersistPayload {
             team_targets: old.team_targets,
@@ -236,7 +319,8 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             || object.do_final_position
             || object.ignored_obstacle_id.is_some()
             || object.can_path_through_units
-            || object.last_command_source != default_last_command_source();
+            || object.last_command_source != default_last_command_source()
+            || object.pending_move.is_some();
 
         if !interesting {
             continue;
@@ -263,6 +347,7 @@ fn capture(game_logic: &GameLogic) -> AiTeamPersistPayload {
             ignored_obstacle_id: object.ignored_obstacle_id.map(|v| v.0).unwrap_or(0),
             can_path_through_units: object.can_path_through_units,
             last_command_source: object.last_command_source,
+            pending_move: object.pending_move.as_ref().map(vec3_to_arr),
             pending_path,
         });
     }
@@ -324,6 +409,7 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
             (order.ignored_obstacle_id != 0).then_some(ObjectId(order.ignored_obstacle_id));
         object.can_path_through_units = order.can_path_through_units;
         object.last_command_source = order.last_command_source;
+        object.pending_move = order.pending_move.map(arr_to_vec3);
     }
     game_logic.restore_pending_host_paths(pending);
 }
@@ -592,6 +678,7 @@ mod tests {
             obj.ignored_obstacle_id = Some(depot);
             obj.can_path_through_units = true;
             obj.last_command_source = HUNT_CMD_FROM_PLAYER;
+            obj.pending_move = Some(Vec3::new(12.0, 0.0, 8.0));
         }
 
         let builder = SnapshotBuilder::new();
@@ -621,6 +708,8 @@ mod tests {
             loaded.last_command_source, HUNT_CMD_FROM_PLAYER,
             "m_lastCommandSource CMD_FROM_PLAYER must survive load"
         );
+        assert_eq!(loaded.pending_move, Some(Vec3::new(12.0, 0.0, 8.0)));
+
     }
 
     #[test]
