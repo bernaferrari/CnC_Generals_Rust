@@ -1390,29 +1390,36 @@ fn blocked_route_does_not_walk_the_click() {
             turrets_must_center_before_packing: false,
         });
         unit.set_deployed(true);
-        unit.set_ai_state(crate::game_logic::AIState::Moving);
     }
     assert!(logic.unit_command_move_to_moving(packed, near));
     logic.frame = 0;
     logic.reissue_pending_moves();
-    {
+    let pack_ready_frame = {
         let unit = logic.host_object(packed).expect("packed");
         assert_eq!(unit.pending_move, Some(near));
         assert!(!unit.waiting_for_path);
+        assert!(unit.movement.path.is_empty());
         assert!(unit.movement.target_position.is_none());
-        assert!(unit
-            .deploy_style
-            .as_ref()
-            .is_some_and(|ds| ds.state
-                == crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying));
-        assert_eq!(unit.ai_state, crate::game_logic::AIState::Moving);
-    }
+        let ds = unit.deploy_style.as_ref().expect("deploy style");
+        assert_eq!(
+            ds.state,
+            crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
+        );
+        assert!(ds.ready_frame > logic.frame);
+        ds.ready_frame
+    };
     logic.reissue_pending_moves();
     {
         let unit = logic.host_object(packed).expect("still packing");
-        assert_eq!(unit.ai_state, crate::game_logic::AIState::Moving);
+        let ds = unit.deploy_style.as_ref().expect("deploy style");
+        assert_eq!(
+            ds.state,
+            crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying
+        );
+        assert_eq!(ds.ready_frame, pack_ready_frame);
         assert_eq!(unit.pending_move, Some(near));
         assert!(!unit.waiting_for_path);
+        assert!(unit.movement.path.is_empty());
     }
     let pack_done = 2u32;
     logic.frame = pack_done;
