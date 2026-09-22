@@ -683,7 +683,7 @@ impl GameLogic {
         true
     }
 
-    /// Wave 231: move helper that always leaves unit in Moving state (scatter/formation).
+    /// Scatter/formation move. A refused path does not walk the click.
     pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         // C++ groupScatter / aiMoveToPosition: stunned members still receive
         // the order and execute when stun clears. No can_move gate.
@@ -694,12 +694,11 @@ impl GameLogic {
         ) {
             return true;
         }
-        let path_ok = self.assign_unit_path(id, destination, &[]);
+        if !self.assign_unit_path(id, destination, &[]) {
+            return false;
+        }
         if let Some(unit) = self.objects.get_mut(&id) {
             end_hunt_on_player_parent_order(unit);
-            if !path_ok {
-                unit.set_destination(destination);
-            }
             unit.set_ai_state(AIState::Moving);
             drop(unit);
             self.hunt_next_enemy_scan.remove(&id);
@@ -844,11 +843,10 @@ impl GameLogic {
             unit.set_guard_target(None);
             unit.end_guard_retaliate();
         }
-        let path_ok = self.assign_unit_path(id, destination, &[]);
+        if !self.assign_unit_path(id, destination, &[]) {
+            return false;
+        }
         if let Some(unit) = self.objects.get_mut(&id) {
-            if !path_ok {
-                unit.set_destination(destination);
-            }
             unit.set_ai_state(AIState::Moving);
             return true;
         }
