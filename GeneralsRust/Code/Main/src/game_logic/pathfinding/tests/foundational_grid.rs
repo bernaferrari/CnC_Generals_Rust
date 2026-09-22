@@ -1382,19 +1382,49 @@ fn blocked_route_does_not_walk_the_click() {
         .expect("packed");
     let near = Vec3::new(from.x + 20.0, 0.0, from.z);
     if let Some(unit) = logic.host_object_mut(packed) {
+        unit.deploy_style = Some(crate::game_logic::host_deploy_style::HostDeployStyleData {
+            state: crate::game_logic::host_deploy_style::HostDeployStyleState::ReadyToAttack,
+            ready_frame: 0,
+            pack_frames: 2,
+            unpack_frames: 2,
+            turrets_must_center_before_packing: false,
+        });
         unit.set_deployed(true);
+        unit.set_ai_state(crate::game_logic::AIState::Moving);
     }
     assert!(logic.unit_command_move_to_moving(packed, near));
-    {
-        let unit = logic.host_object(packed).expect("packed");
-        assert!(unit.status.deployed);
-        assert_eq!(unit.pending_move, Some(near));
-        assert!(unit.movement.target_position.is_none());
-    }
+    logic.frame = 0;
     logic.reissue_pending_moves();
     {
         let unit = logic.host_object(packed).expect("packed");
-        assert!(!unit.status.deployed);
+        assert_eq!(unit.pending_move, Some(near));
+        assert!(!unit.waiting_for_path);
+        assert!(unit.movement.target_position.is_none());
+        assert!(unit
+            .deploy_style
+            .as_ref()
+            .is_some_and(|ds| ds.state
+                == crate::game_logic::host_deploy_style::HostDeployStyleState::Undeploying));
+        assert_eq!(unit.ai_state, crate::game_logic::AIState::Moving);
+    }
+    logic.reissue_pending_moves();
+    {
+        let unit = logic.host_object(packed).expect("still packing");
+        assert_eq!(unit.ai_state, crate::game_logic::AIState::Moving);
+        assert_eq!(unit.pending_move, Some(near));
+        assert!(!unit.waiting_for_path);
+    }
+    let pack_done = 2u32;
+    logic.frame = pack_done;
+    if let Some(unit) = logic.host_object_mut(packed) {
+        if let Some(ds) = unit.deploy_style.as_mut() {
+            let (_attack, ready) = ds.tick(pack_done);
+            assert!(ready);
+        }
+    }
+    logic.reissue_pending_moves();
+    {
+        let unit = logic.host_object(packed).expect("ready");
         assert!(unit.pending_move.is_none());
         assert!(unit.waiting_for_path);
         assert!(unit.movement.target_position.is_none());
