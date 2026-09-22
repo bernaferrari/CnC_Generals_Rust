@@ -1377,6 +1377,28 @@ fn blocked_route_does_not_walk_the_click() {
         assert!(unit.movement.target_position.is_none());
         assert!(unit.movement.velocity.length() < 1.0);
     }
+    let packed = logic
+        .create_object("Ranger", Team::USA, from)
+        .expect("packed");
+    let near = Vec3::new(from.x + 20.0, 0.0, from.z);
+    if let Some(unit) = logic.host_object_mut(packed) {
+        unit.set_deployed(true);
+    }
+    assert!(logic.unit_command_move_to_moving(packed, near));
+    {
+        let unit = logic.host_object(packed).expect("packed");
+        assert!(unit.status.deployed);
+        assert_eq!(unit.pending_move, Some(near));
+        assert!(unit.movement.target_position.is_none());
+    }
+    logic.reissue_pending_moves();
+    {
+        let unit = logic.host_object(packed).expect("packed");
+        assert!(!unit.status.deployed);
+        assert!(unit.pending_move.is_none());
+        assert!(unit.waiting_for_path);
+        assert!(unit.movement.target_position.is_none());
+    }
 }
 
 /// hq-3biqe: assign_unit_path must pass real is_crusher into live A*.
