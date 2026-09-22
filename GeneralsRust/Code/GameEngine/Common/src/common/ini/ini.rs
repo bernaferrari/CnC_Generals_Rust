@@ -320,9 +320,14 @@ fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
     let mut lines = Vec::new();
 
     loop {
-        ini.read_line()?;
-        if ini.end_of_file {
-            return Err(INIError::MissingEndToken);
+        let ended = read_block_line(ini)?;
+        if ended {
+            if nested_depth == 0 {
+                break;
+            }
+            nested_depth -= 1;
+            lines.push(ini.buffer.clone());
+            continue;
         }
 
         if ini.buffer.trim().is_empty() {
@@ -330,20 +335,6 @@ fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
         }
 
         let line = ini.buffer.clone();
-        let tokens = ini.get_line_tokens();
-        let Some(first) = tokens.first() else {
-            continue;
-        };
-
-        if first.eq_ignore_ascii_case("End") {
-            if nested_depth == 0 {
-                break;
-            }
-            nested_depth -= 1;
-            lines.push(line);
-            continue;
-        }
-
         if !line.contains('=') {
             nested_depth += 1;
         }
@@ -353,6 +344,25 @@ fn consume_block_with_nesting(ini: &mut INI) -> INIResult<Vec<String>> {
 
     Ok(lines)
 }
+
+/// Read one block line. A final `End` with no trailing newline is still the
+/// terminator; EOF is an error only when that read produced an empty buffer.
+fn read_block_line(ini: &mut INI) -> INIResult<bool> {
+    ini.read_line()?;
+    if ini
+        .buffer
+        .split_whitespace()
+        .next()
+        .is_some_and(|token| token.eq_ignore_ascii_case("End"))
+    {
+        return Ok(true);
+    }
+    if ini.end_of_file && ini.buffer.trim().is_empty() {
+        return Err(INIError::MissingEndToken);
+    }
+    Ok(false)
+}
+
 
 fn parse_passthrough_block(ini: &mut INI) -> INIResult<()> {
     let _ = consume_block_with_nesting(ini)?;
@@ -367,9 +377,9 @@ fn parse_armor_block(ini: &mut INI) -> INIResult<()> {
 
     let mut entries = HashMap::new();
     loop {
-        ini.read_line()?;
-        if ini.end_of_file {
-            return Err(INIError::MissingEndToken);
+        let ended = read_block_line(ini)?;
+        if ended {
+            break;
         }
 
         if ini.buffer.trim().is_empty() {
@@ -483,9 +493,9 @@ fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<Strin
 
     let mut properties = HashMap::new();
     loop {
-        ini.read_line()?;
-        if ini.end_of_file {
-            return Err(INIError::MissingEndToken);
+        let ended = read_block_line(ini)?;
+        if ended {
+            break;
         }
 
         if ini.buffer.trim().is_empty() {
@@ -507,9 +517,9 @@ fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<Strin
 fn parse_unnamed_property_block(ini: &mut INI) -> INIResult<HashMap<String, String>> {
     let mut properties = HashMap::new();
     loop {
-        ini.read_line()?;
-        if ini.end_of_file {
-            return Err(INIError::MissingEndToken);
+        let ended = read_block_line(ini)?;
+        if ended {
+            break;
         }
 
         if ini.buffer.trim().is_empty() {
@@ -556,9 +566,8 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
     let mut fx_list = super::ini_fx_list::FXList::new(AsciiString::from(name.as_str()));
 
     loop {
-        ini.read_line()?;
-        if ini.end_of_file {
-            return Err(INIError::MissingEndToken);
+        if read_block_line(ini)? {
+            break;
         }
 
         // Client parity: the nugget kind is the FIRST token of the line
@@ -579,9 +588,8 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
         let nugget_kind = nugget_kind.to_string();
         let mut properties = HashMap::new();
         loop {
-            ini.read_line()?;
-            if ini.end_of_file {
-                return Err(INIError::MissingEndToken);
+            if read_block_line(ini)? {
+                break;
             }
             if ini.buffer.trim().is_empty() {
                 continue;
