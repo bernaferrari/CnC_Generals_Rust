@@ -1887,7 +1887,7 @@ impl CnCGameEngine {
                     model_condition_bits: o.model_condition_bits,
                     body_damage_state: o.body_damage_state,
                     // Wave 970: overlay residual (vet/construct) on Wave 965 kind/stealth/color/health.
-                    kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                    kind_names: o.kind_of.iter().map(|k| k.name().to_string()).collect(),
                     team_color: o.team_color,
                     effectively_stealthed: o.effectively_stealthed,
                     // C++ StealthUpdate resolves the look for this viewer:
