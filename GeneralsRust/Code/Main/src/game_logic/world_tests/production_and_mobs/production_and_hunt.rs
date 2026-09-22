@@ -328,6 +328,7 @@ fn arrived_moving_dozer_builds_at_the_dock() {
 
 #[test]
 fn reissued_build_stays_constructing() {
+    use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -340,27 +341,53 @@ fn reissued_build_stays_constructing() {
         .add_kind_of(KindOf::Dozer)
         .set_health(200.0);
     logic.templates.insert("ReissueDozer".into(), dozer_tpl);
+    let from = Vec3::ZERO;
+    let to = Vec3::new(160.0, 0.0, 0.0);
     let pad_id = logic
-        .create_object_for_player("ReissuePad", 0, Vec3::new(80.0, 0.0, 0.0))
+        .create_object_for_player("ReissuePad", 0, to)
         .expect("pad");
     let dozer = logic
-        .create_object_for_player("ReissueDozer", 0, Vec3::ZERO)
+        .create_object_for_player("ReissueDozer", 0, from)
         .expect("dozer");
     logic.dozer_new_task_build(dozer, pad_id);
+    let wall_x = {
+        let grid = &logic.pathfinding_system.grid;
+        let start_cell = grid.world_to_grid(from);
+        let goal_cell = grid.world_to_grid(to);
+        (start_cell.x + goal_cell.x) / 2
+    };
+    let height = logic.pathfinding_system.grid.height();
+    for y in 0..height {
+        logic.pathfinding_system.grid.set_cell_obstacle_owned(
+            GridPos::new(wall_x, y),
+            false,
+            false,
+            pad_id.0,
+            None,
+            None,
+        );
+    }
     {
         let obj = logic.host_object_mut(dozer).expect("dozer");
         obj.set_order_target(Some(pad_id));
         obj.set_ai_state(AIState::Constructing);
-        obj.pending_move = Some(Vec3::new(80.0, 0.0, 0.0));
+        obj.pending_move = Some(to);
         obj.shock_stun_frames = 0;
     }
+    logic.force_map_loaded_for_path_test(true);
     logic.reissue_pending_moves();
-    let obj = logic.host_object(dozer).expect("dozer");
+    {
+        let obj = logic.host_object(dozer).expect("queued");
+        assert_eq!(obj.ai_state, AIState::Constructing);
+        assert!(obj.waiting_for_path);
+        assert!(obj.movement.path.is_empty());
+    }
+    logic.process_pathfind_queue();
+    let obj = logic.host_object(dozer).expect("installed");
     assert_eq!(obj.ai_state, AIState::Constructing);
-    assert!(obj.pending_move.is_none());
     assert!(
-        obj.waiting_for_path || !obj.movement.path.is_empty(),
-        "reissue must path around the scaffold, path={:?}",
+        !obj.movement.path.is_empty(),
+        "ignored scaffold must still install a path, path={:?}",
         obj.movement.path
     );
 }
