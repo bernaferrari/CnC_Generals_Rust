@@ -1189,9 +1189,21 @@ impl GameLogic {
                 obj.set_ai_state(state.clone());
             }
         } else if decision_auth {
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                if obj.is_alive() && !obj.can_move() {
+                    obj.pending_move = Some(goal);
+                    obj.movement.target_position = None;
+                    obj.movement.path.clear();
+                }
+            }
             crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_ai_state(state);
+            if obj.is_alive() && !obj.can_move() {
+                obj.pending_move = Some(goal);
+                obj.movement.target_position = None;
+                obj.movement.path.clear();
+            }
         }
         if attack_moving {
             if let Some(obj) = self.objects.get_mut(&object_id) {
