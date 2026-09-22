@@ -221,6 +221,52 @@ fn supply_center_one_shot_collector_uses_exit_interface() {
 }
 
 #[test]
+fn supply_dock_command_paths_to_the_chosen_warehouse() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+    let mut logic = GameLogic::new();
+    let mut truck = ThingTemplate::new("AmericaSupplyTruck");
+    truck
+        .add_kind_of(KindOf::Harvester)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("FiniteWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let source = logic
+        .create_object(
+            "FiniteWarehouse",
+            Team::Neutral,
+            Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("warehouse");
+    let id = logic
+        .create_object("AmericaSupplyTruck", Team::USA, Vec3::ZERO)
+        .expect("truck");
+    assert!(logic.unit_command_dock_at_supply_warehouse(id, source));
+    let truck = logic.host_object(id).expect("truck");
+    assert_eq!(truck.supply_truck_state, SupplyTruckState::Wanting);
+    assert!(truck.supply_truck_force_pending);
+    assert_eq!(truck.preferred_dock_id, Some(source));
+    assert_eq!(truck.ai_state, AIState::Gathering);
+    assert!(
+        truck.waiting_for_path || !truck.movement.path.is_empty(),
+        "gather must request a path, path={:?}",
+        truck.movement.path
+    );
+}
+
+#[test]
 fn supply_truck_gather_credits_retail_value_per_box() {
     use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
 
