@@ -590,6 +590,13 @@ fn load_global_mapped_image_collection(texture_size: i32) {
     for dir in mapped_image_dirs {
         load_ini_directory_recursive(&mut ini, &dir);
     }
+    // C++ Image.cpp:226-232 loads these virtual directories through the file
+    // system, so a rejected loose dump falls through to the INIZH.big member.
+    load_virtual_mapped_image_directory(
+        &mut ini,
+        &format!("Data/INI/MappedImages/TextureSize_{texture_size}"),
+    );
+    load_virtual_mapped_image_directory(&mut ini, "Data/INI/MappedImages/HandCreated");
 }
 
 /// Global mapped image collection instance (thread-safe)
@@ -791,21 +798,58 @@ fn load_ini_directory_recursive(ini: &mut INI, dir: &Path) {
     ini.set_tolerant_blocks(true);
 
     for file in files {
+        if !crate::common::system::install_layout::ini_loose_override_is_authoritative(&file) {
+            log::info!(
+                "MappedImage: skipping non-authoritative loose INI '{}'",
+                file.display()
+            );
+            continue;
+        }
         // Fail-open: a bad HandCreatedMappedImages.INI must not abort boot.
         // C++ ImageCollection::load (Image.cpp:232) continues past missing
         // dirs; Rust additionally skips a single InvalidData file.
         if let Err(error) = ini.load(&file, INILoadType::Overwrite)
             && let Err(recovery) = ini.load_recovering_truncated_head(&file)
         {
-            // Fail-open: a bad HandCreatedMappedImages.INI must not abort boot.
-            // C++ ImageCollection::load (Image.cpp:232) continues past missing
-            // dirs; Rust additionally skips a single InvalidData file, then
-            // retries past truncated leading bytes (repacked INIZH.big
-            // head-cut entries) before giving up.
             log::warn!(
                 "MappedImage: failed to load INI '{}' (load: {error:?}, recovery: {recovery:?})",
                 file.display()
             );
+        }
+    }
+}
+
+fn load_virtual_mapped_image_directory(ini: &mut INI, directory: &str) {
+    use crate::common::system::file_system::{FilenameList, get_file_system};
+
+    let fs = get_file_system();
+    let Ok(guard) = fs.lock() else {
+        return;
+    };
+    let mut names = FilenameList::new();
+    guard.get_file_list_in_directory(
+        &AsciiString::from(directory),
+        &AsciiString::from("*.ini"),
+        &mut names,
+        false,
+    );
+    let paths: Vec<String> = names
+        .iter()
+        .map(|name| name.as_str().replace('\\', "/"))
+        .filter(|name| {
+            let lower = name.to_ascii_lowercase();
+            !lower.starts_with('/')
+                && !lower.contains(':')
+                && lower.contains("mappedimages/")
+                && lower.ends_with(".ini")
+        })
+        .collect();
+    drop(guard);
+
+    ini.set_tolerant_blocks(true);
+    for path in paths {
+        if let Err(error) = ini.load(&path, INILoadType::Overwrite) {
+            log::warn!("MappedImage: virtual INI '{path}' failed: {error:?}");
         }
     }
 }

@@ -336,7 +336,10 @@ pub fn find_file_case_insensitive(dir: &Path, name: &str) -> Option<PathBuf> {
 /// A loose `.ini` may override the archived member only when it is a complete
 /// Generals text file. Truncated extracts and BIG directory tables saved with
 /// an `.ini` suffix start mid-block, contain a NUL, or begin with a lowercase
-/// fragment. Those must not shadow `INIZH.big`. A real column-0 patch still wins.
+/// fragment. A repacked extract that pastes the whole catalog into one
+/// `HandCreatedMappedImages.INI` (dozens of unrelated block kinds; retail
+/// members have at most four) must not shadow `INIZH.big` either. A real
+/// column-0 patch still wins.
 pub fn ini_loose_override_is_authoritative(path: &Path) -> bool {
     let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
         return true;
@@ -349,6 +352,10 @@ pub fn ini_loose_override_is_authoritative(path: &Path) -> bool {
     };
     ini_bytes_are_authoritative(&bytes)
 }
+
+/// Retail `INIZH.big` members use at most four column-0 block kinds
+/// (`ControlBarScheme.ini`, `multiplayer.ini`). A pasted catalog exceeds this.
+const MAX_LOOSE_INI_BLOCK_KINDS: usize = 6;
 
 pub fn ini_bytes_are_authoritative(bytes: &[u8]) -> bool {
     if bytes.is_empty() || bytes.contains(&0) {
@@ -363,17 +370,45 @@ pub fn ini_bytes_are_authoritative(bytes: &[u8]) -> bool {
     if line.starts_with(|c: char| c.is_whitespace()) {
         return false;
     }
-    if line.starts_with(';') {
-        return true;
-    }
-    let token = line.split_whitespace().next().unwrap_or("");
-    let mut chars = token.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_uppercase() || c == '_' => {
-            token.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    let header_ok = if line.starts_with(';') {
+        true
+    } else {
+        let token = line.split_whitespace().next().unwrap_or("");
+        let mut chars = token.chars();
+        match chars.next() {
+            Some(c) if c.is_ascii_uppercase() || c == '_' => {
+                token.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+            }
+            _ => false,
         }
-        _ => false,
+    };
+    header_ok && !ini_text_mixes_unrelated_catalogs(text)
+}
+
+fn ini_text_mixes_unrelated_catalogs(text: &str) -> bool {
+    let mut kinds = HashSet::new();
+    for line in text.lines() {
+        if line.is_empty() || line.starts_with(|c: char| c.is_whitespace()) || line.starts_with(';')
+        {
+            continue;
+        }
+        let code = line.split(';').next().unwrap_or("");
+        if code.contains('=') {
+            continue;
+        }
+        let Some(token) = code.split_whitespace().next() else {
+            continue;
+        };
+        if token.eq_ignore_ascii_case("end") || !token.starts_with(|c: char| c.is_ascii_alphabetic())
+        {
+            continue;
+        }
+        kinds.insert(token.to_ascii_lowercase());
+        if kinds.len() > MAX_LOOSE_INI_BLOCK_KINDS {
+            return true;
+        }
     }
+    false
 }
 
 /// Resolve a C++ `Data\\INI\\...` virtual path against cwd, install, and extracted trees.
@@ -495,6 +530,34 @@ mod tests {
         assert!(!ini_loose_override_is_authoritative(&fragment));
         assert!(!ini_loose_override_is_authoritative(&table));
         assert!(ini_loose_override_is_authoritative(&patch));
+        let mut pasted = String::from(";\n");
+        for name in [
+            "Weapon",
+            "Object",
+            "Armor",
+            "FXList",
+            "Science",
+            "Locomotor",
+            "Water",
+        ] {
+            pasted.push_str(name);
+            pasted.push_str(" Example\nEnd\n");
+        }
+        assert!(
+            !ini_bytes_are_authoritative(pasted.as_bytes()),
+            "a pasted multi-catalog extract must not override INIZH.big"
+        );
+        let mut retail_like = String::from(";\n");
+        for name in [
+            "MultiplayerColor",
+            "MultiplayerSettings",
+            "MultiplayerStartingMoneyChoice",
+            "OnlineChatColors",
+        ] {
+            retail_like.push_str(name);
+            retail_like.push_str(" Example\nEnd\n");
+        }
+        assert!(ini_bytes_are_authoritative(retail_like.as_bytes()));
         assert!(ini_bytes_are_authoritative(
             b";//////////////////////////////////////////////////////////////////////////////\r\n;FILE: GameData.ini\r\n"
         ));
