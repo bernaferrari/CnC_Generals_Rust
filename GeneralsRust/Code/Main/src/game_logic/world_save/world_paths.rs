@@ -464,25 +464,19 @@ impl GameLogic {
         };
         unit.waiting_for_path = false;
         unit.is_exact_path = false;
+        unit.movement.target_position = full_path.first().copied().or(Some(destination));
         unit.movement.path = full_path;
         unit.record_host_movement();
         unit.movement.current_path_index = 0;
         unit.record_host_movement();
-        unit.movement.target_position = Some(destination);
         unit.start_move();
         crate::game_logic::host_move_log::record(
             unit_id,
             Some([destination.x, destination.y, destination.z]),
         );
-        // Kick toward destination at full speed so large-map marches do not
-        // burn seconds on the acceleration ramp (was a combat_no_teleport residual).
-        {
-            let mut dir = destination - start;
-            dir.y = 0.0;
-            let dir = dir.normalize_or_zero();
-            unit.movement.velocity = dir * unit.movement.max_speed;
-            unit.record_host_movement();
-        }
+        // C++ locoUpdate accelerates from the current velocity toward the
+        // path lead. Do not stamp max speed at the raw click: a detour
+        // would spend the first frames driving into the obstacle.
         unit.set_ai_state(AIState::Moving);
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
