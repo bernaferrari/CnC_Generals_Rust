@@ -189,11 +189,7 @@ impl GameLogic {
         }
     }
 
-    /// Stop the current attack, then queue a path.
-    ///
-    /// A loaded map that refuses the path (queue full, still packing, no
-    /// route) must not fall through to a straight click. Mapless tests keep
-    /// the destination so command harnesses without a grid still move.
+    /// Stop the current attack, then queue a path. A refused path stays refused.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         self.stamp_player_command_source(id);
         if !self.unit_can_move(id) {
@@ -206,16 +202,7 @@ impl GameLogic {
             return true;
         }
         self.stop_attack_clearing_jet_targeter(id);
-        let ok = if self.assign_unit_path(id, destination, &[]) {
-            true
-        } else if self.map_loaded {
-            false
-        } else if let Some(unit) = self.objects.get_mut(&id) {
-            unit.set_destination(destination);
-            true
-        } else {
-            false
-        };
+        let ok = self.assign_unit_path(id, destination, &[]);
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
                 end_hunt_on_player_parent_order(unit);
