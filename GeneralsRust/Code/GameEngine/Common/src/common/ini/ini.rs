@@ -186,6 +186,9 @@ pub struct INI {
     seps_quote: &'static str,
     block_end_token: &'static str,
     end_of_file: bool,
+    /// The last `read_line` returned a partial line and then hit EOF.
+    /// C++ still delivers that line; EOF is reported on the following read.
+    eof_pending: bool,
     /// Skip corrupt blocks/lines instead of failing the file. Repacked
     /// archives interleave binary fragments mid-file; plain [`Self::load`]
     /// stays strict — only asset loaders that opt in get recovery.
@@ -214,12 +217,46 @@ fn parse_field_line(line: &str) -> Option<(&str, Vec<&str>)> {
         return None;
     }
 
-    let values = trimmed[key_end..]
-        .split(|c: char| c.is_whitespace() || c == '=')
-        .filter(|token| !token.is_empty())
-        .collect();
+    Some((key, split_field_values(&trimmed[key_end..])))
+}
 
-    Some((key, values))
+/// Split the value side of an INI field. `=` and whitespace separate tokens,
+/// but a quoted string stays one token (`"2 Speakers"`, `"Creative Labs EAX (TM)"`).
+fn split_field_values(rest: &str) -> Vec<&str> {
+    let bytes = rest.as_bytes();
+    let mut values = Vec::new();
+    let mut index = 0;
+    while index < bytes.len() {
+        while index < bytes.len()
+            && (bytes[index].is_ascii_whitespace() || bytes[index] == b'=')
+        {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            break;
+        }
+        if bytes[index] == b'"' {
+            let start = index + 1;
+            index += 1;
+            while index < bytes.len() && bytes[index] != b'"' {
+                index += 1;
+            }
+            values.push(&rest[start..index]);
+            if index < bytes.len() {
+                index += 1;
+            }
+        } else {
+            let start = index;
+            while index < bytes.len()
+                && !bytes[index].is_ascii_whitespace()
+                && bytes[index] != b'='
+            {
+                index += 1;
+            }
+            values.push(&rest[start..index]);
+        }
+    }
+    values
 }
 
 fn parse_game_data_block(ini: &mut INI) -> INIResult<()> {
@@ -1092,6 +1129,7 @@ impl INI {
             seps_quote: "\"\n=",
             block_end_token: "END",
             end_of_file: false,
+            eof_pending: false,
             tolerant_blocks: false,
             xfer: None,
             #[cfg(debug_assertions)]
@@ -1311,6 +1349,7 @@ impl INI {
         self.load_type = INILoadType::Invalid;
         self.line_num = 0;
         self.end_of_file = false;
+        self.eof_pending = false;
     }
 
     fn stage_virtual_file_to_temp(&self, filename: &Path) -> Option<PathBuf> {
@@ -1405,6 +1444,13 @@ impl INI {
     /// chars (`>0 && <32`) to spaces, keep trailing whitespace, hard-cap at
     /// `INI_MAX_CHARS_PER_LINE` (1028), then CRC the raw buffer via `xferUser`.
     pub fn read_line(&mut self) -> INIResult<()> {
+        if self.eof_pending {
+            self.eof_pending = false;
+            self.end_of_file = true;
+            self.buffer.clear();
+            self.buffer_token_offset = 0;
+            return Ok(());
+        }
         if self.end_of_file {
             self.buffer.clear();
             return Ok(());
@@ -1427,7 +1473,11 @@ impl INI {
             if self.read_buffer_next == self.read_buffer_used {
                 match reader.read(&mut self.read_buffer) {
                     Ok(0) => {
-                        self.end_of_file = true;
+                        if self.buffer.is_empty() {
+                            self.end_of_file = true;
+                        } else {
+                            self.eof_pending = true;
+                        }
                         break;
                     }
                     Ok(n) => {
