@@ -94,6 +94,22 @@ impl GameLogic {
         }
     }
 
+    /// Unique W3D names for objects already spawned on this world.
+    pub fn live_drawable_model_names(&self) -> Vec<String> {
+        let mut names = std::collections::BTreeSet::new();
+        for obj in self.objects.values() {
+            let Some(name) = obj.thing.template.model_name.as_deref() else {
+                continue;
+            };
+            let trimmed = name.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+                continue;
+            }
+            names.insert(trimmed.to_string());
+        }
+        names.into_iter().collect()
+    }
+
     pub fn evaluate_victory_condition(&mut self) -> Option<VictoryCondition> {
         // Wave 816: under coupled shadow, player is_alive owned by GW expire + writeback.
         if !(crate::gameworld_shadow::gameworld_shadow_enabled()
