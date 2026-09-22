@@ -2044,7 +2044,11 @@ impl GameLogic {
         }
         let ok = self.assign_unit_attack_path(unit_id, victim_id, victim_pos);
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            u.waiting_for_path = false;
+            // A loaded map queues and sets waiting_for_path. Clearing it here
+            // makes the unit walk with no path until the queue installs.
+            if !ok || !u.movement.path.is_empty() {
+                u.waiting_for_path = false;
+            }
             if !ok {
                 u.is_attack_path = false;
             }

@@ -492,7 +492,9 @@ fn attack_order_closes_on_open_ground() {
     for _ in 0..40 {
         logic.update();
     }
-    let end = logic.host_object(id).expect("ranger").get_position();
+    let unit = logic.host_object(id).expect("ranger");
+    let end = unit.get_position();
+    assert_eq!(unit.ai_state, AIState::Attacking);
     assert!(
         end.distance(origin) > 1.0,
         "attack out of range must chase, end={end:?}"
