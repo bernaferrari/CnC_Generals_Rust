@@ -457,13 +457,14 @@ fn full_truck_returns_to_its_supply_center() {
     if let Some(truck) = logic.host_object_mut(id) {
         truck.set_position(Vec3::new(80.0, 0.0, 20.0));
     }
+    let starting = logic.get_player(0).expect("player").resources.supplies;
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
     logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
     let truck = logic.host_object(id).expect("after deposit");
     assert_eq!(truck.stored_resources.supplies, 0);
     assert_eq!(
         logic.get_player(0).expect("player").resources.supplies,
-        10_075,
+        starting + 75,
         "the supply center must credit the carried box"
     );
 }
