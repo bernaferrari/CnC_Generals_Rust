@@ -1059,6 +1059,19 @@ async fn collect_ini_files_current_then_nested(
     Ok((current_dir_files, nested_files))
 }
 
+/// Loose extracts keep `Data/INI/...` under a repo folder. Archive members use
+/// that virtual suffix, not the absolute loose path.
+fn archive_virtual_ini_name(path: &Path) -> String {
+    let raw = path.to_string_lossy().replace('\\', "/");
+    let lower = raw.to_ascii_lowercase();
+    for marker in ["data/ini/", "data/english/"] {
+        if let Some(index) = lower.rfind(marker) {
+            return raw[index..].to_string();
+        }
+    }
+    raw
+}
+
 impl INI {
     /// Create a new INI reader
     pub fn new() -> Self {
@@ -1265,11 +1278,12 @@ impl INI {
 
         self.staged_temp_file = None;
         let filename_ref = filename.as_ref();
+        let loose_authoritative = crate::common::system::install_layout::ini_loose_override_is_authoritative(filename_ref);
         let file = match File::open(filename_ref) {
-            Ok(file) => file,
-            Err(_) => {
+            Ok(file) if loose_authoritative => file,
+            _ => {
                 let staged = self
-                    .stage_virtual_file_to_temp(filename_ref)
+                    .stage_virtual_file_to_temp(Path::new(&archive_virtual_ini_name(filename_ref)))
                     .ok_or(INIError::CantOpenFile)?;
                 let file = File::open(&staged).map_err(|_| INIError::CantOpenFile)?;
                 self.staged_temp_file = Some(staged);
@@ -1300,7 +1314,7 @@ impl INI {
     }
 
     fn stage_virtual_file_to_temp(&self, filename: &Path) -> Option<PathBuf> {
-        let virtual_name = filename.to_string_lossy().to_string();
+        let virtual_name = archive_virtual_ini_name(filename);
         let file_system = get_file_system();
         let mut fs_guard = file_system.lock().ok()?;
         let mut file =
