@@ -1623,12 +1623,8 @@ impl CnCGameEngine {
 
     pub(super) fn host_ui_selection_seed_id(&self) -> Option<crate::game_logic::ObjectId> {
         // Wave 609/850: host UI/presentation residual helper.
-        // Wave 215/544: prefer engine selection residual, then presentation freeze.
-        // When a presentation freeze is installed, empty selection seed fails closed
-        // (no host player_selected_objects dual-read mid-frame).
-        if let Some(id) = self.selected_objects.first().copied() {
-            return Some(id);
-        }
+        // Wave 215/544: when a presentation freeze is installed, empty selection
+        // seed fails closed (no host player_selected_objects dual-read mid-frame).
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             if let Some(id) = frame.selected.first().copied() {
                 return Some(id);
@@ -1639,11 +1635,13 @@ impl CnCGameEngine {
             // Wave 544: presentation freeze owns selection seed residual — even if empty.
             return None;
         }
+        if let Some(id) = self.selected_objects.first().copied() {
+            return Some(id);
+        }
         // Wave 850/905: host-stamped selection residual before fail-closed boot.
         if let Some(ids) = self.host_match_selected_ids.as_ref() {
             return ids.first().copied();
         }
-        // Wave 905: fail-closed boot default (no player_selected_objects dual-read).
         None
     }
 

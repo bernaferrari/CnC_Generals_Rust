@@ -1009,10 +1009,9 @@ impl CnCGameEngine {
                 self.host_match_victory_winner = None;
             }
         }
-        // Wave 850: stamp selection residual (engine first, then freeze).
-        if !self.selected_objects.is_empty() {
-            self.host_match_selected_ids = Some(self.selected_objects.clone());
-        } else if let Some(pres) = self.last_presentation_frame.as_ref() {
+        // An installed freeze owns the match selection residual, including
+        // an empty deselect. The engine list is only the boot residual.
+        if let Some(pres) = self.last_presentation_frame.as_ref() {
             if !pres.selected.is_empty() {
                 self.host_match_selected_ids = Some(pres.selected.clone());
             } else {
@@ -1024,6 +1023,8 @@ impl CnCGameEngine {
                     .collect();
                 self.host_match_selected_ids = Some(from_objs);
             }
+        } else if !self.selected_objects.is_empty() {
+            self.host_match_selected_ids = Some(self.selected_objects.clone());
         }
         // Wave 851/853: alive residual stamped inside host_refresh_local_train_producer_residuals
         // (single freeze walk or single host get_objects scan).
