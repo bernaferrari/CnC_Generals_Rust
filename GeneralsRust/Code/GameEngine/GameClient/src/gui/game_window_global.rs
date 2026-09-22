@@ -71,6 +71,34 @@ impl WindowManager {
         let submitted = with_ui_renderer_mut(|renderer| {
             let mut found_mapped = false;
             let texture = {
+                let collection = get_mapped_image_collection();
+                if let Some(guard) = collection.try_read() {
+                    if let Some(mapped) = guard.find_image_by_name(&image.name) {
+                        found_mapped = true;
+                        if let Some(gpu) = mapped.get_gpu_texture() {
+                            let uv = mapped.get_uv();
+                            let rotated = mapped.get_status().contains(
+                                crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE,
+                            );
+                            Some((
+                                std::sync::Arc::new(gpu.view().clone()),
+                                uv.min.x,
+                                uv.min.y,
+                                uv.max.x,
+                                uv.max.y,
+                                rotated,
+                            ))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+            let texture = if texture.is_none() {
                 let _ = ensure_client_mapped_image(&image.name);
                 let collection = get_mapped_image_collection();
                 let mut collection = collection.write();
@@ -81,9 +109,9 @@ impl WindowManager {
                     }
                     mapped.get_gpu_texture().map(|gpu| {
                         let uv = mapped.get_uv();
-                        let rotated = mapped
-                            .get_status()
-                            .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+                        let rotated = mapped.get_status().contains(
+                            crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE,
+                        );
                         (
                             std::sync::Arc::new(gpu.view().clone()),
                             uv.min.x,
@@ -96,6 +124,8 @@ impl WindowManager {
                 } else {
                     None
                 }
+            } else {
+                texture
             };
             if let Some((texture, u0, v0, u1, v1, rotated)) = texture {
                 crate::display::display_fx::queue_draw_image_mesh_on(

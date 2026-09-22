@@ -1457,9 +1457,10 @@ impl UIRenderer {
             canvas_width as f32,
             canvas_height as f32,
         );
-        // Single-entry eviction: clearing the whole cache at 256 entries
-        // re-rasterizes every label at once (popping + frame spikes).
-        if self.text_texture_cache.len() >= 256 {
+        // A full shell draws more than 256 distinct labels. Evicting at 256
+        // re-rasterizes the overflow every frame (~0.2ms each) and the menu
+        // stays at several hundred milliseconds. 4096 covers the live shell.
+        if self.text_texture_cache.len() >= 4096 {
             if let Some(oldest) = self.text_texture_cache.keys().next().copied() {
                 self.text_texture_cache.remove(&oldest);
             }
