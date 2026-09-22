@@ -429,6 +429,41 @@ fn simulation_step_finishes_a_short_build() {
     );
 }
 
+#[test]
+fn queued_infantry_spawns_during_simulation() {
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::USA);
+    if let Some(player) = logic.get_player_mut(0) {
+        player.resources.supplies = 50_000;
+        player.power_available = 100;
+    }
+    ensure_test_barracks_template(&mut logic);
+    ensure_test_infantry_template(&mut logic);
+    if let Some(infantry) = logic.templates.get_mut("TestInfantry") {
+        infantry.build_time = 0.05;
+    }
+    let barracks = logic
+        .create_object_for_player("TestBarracks", 0, Vec3::ZERO)
+        .expect("barracks");
+    if let Some(building) = logic.host_object_mut(barracks) {
+        building.construction_percent = 1.0;
+        building.set_status_under_construction(false);
+    }
+    assert!(logic.enqueue_production(barracks, "TestInfantry".to_string()));
+    for _ in 0..60 {
+        logic.update();
+    }
+    let spawned = logic
+        .objects
+        .values()
+        .filter(|object| object.template_name == "TestInfantry")
+        .count();
+    assert!(
+        spawned >= 1,
+        "a finished factory queue must spawn the unit, spawned={spawned}"
+    );
+}
+
 
 #[test]
 fn reissued_build_stays_constructing() {
