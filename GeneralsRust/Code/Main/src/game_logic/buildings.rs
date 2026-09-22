@@ -1064,8 +1064,8 @@ impl BuildingBehavior {
                                     unit.pending_move = Some(rally);
                                     unit.movement.target_position = None;
                                     unit.movement.path.clear();
+                                    unit.ai_state = AIState::Moving;
                                 }
-                                unit.ai_state = AIState::Moving;
                             }
                         } else if let Some(unit) = game_logic.host_object_mut(new_id) {
                             unit.ai_state = AIState::Moving;
