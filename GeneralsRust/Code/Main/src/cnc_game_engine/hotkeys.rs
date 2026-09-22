@@ -22,12 +22,14 @@ impl CnCGameEngine {
 
     /// C++ `SelectionXlat.cpp:1051` CREATE_TEAM keeps only `isLocallyControlled()`.
     fn locally_controlled_selected_ids(&self) -> Vec<ObjectId> {
+        if self.last_presentation_frame.is_none() {
+            return Vec::new();
+        }
+        let ids = self.ui_selected_ids(self.current_player_id);
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return Vec::new();
         };
-        self.selected_objects
-            .iter()
-            .copied()
+        ids.into_iter()
             .filter(|id| {
                 frame
                     .objects
@@ -114,14 +116,14 @@ impl CnCGameEngine {
 
     /// C++ `TheInGameUI->getFirstSelectedDrawable()` + `KINDOF_STRUCTURE`.
     fn first_selected_is_structure(&self) -> bool {
-        let Some(first) = self.selected_objects.first() else {
+        let Some(first) = self.ui_selected_ids(self.current_player_id).into_iter().next() else {
             return false;
         };
         let Some(frame) = self.last_presentation_frame.as_ref() else {
             return false;
         };
         frame.objects.iter().any(|object| {
-            object.id == *first
+            object.id == first
                 && (object.is_structure
                     || crate::presentation_frame::PresentationFrame::object_has_kind(
                         object,
