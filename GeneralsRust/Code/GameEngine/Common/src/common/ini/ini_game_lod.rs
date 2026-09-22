@@ -340,6 +340,30 @@ impl ParticlePriorityType {
     }
 }
 
+fn ini_field_key_value<'a>(tokens: &'a [&'a str]) -> (&'a str, &'a str) {
+    let raw = tokens.first().copied().unwrap_or("");
+    if let Some((key, value)) = raw.split_once('=') {
+        let value = value.trim();
+        if !value.is_empty() {
+            return (key, value);
+        }
+        let value = tokens
+            .iter()
+            .skip(1)
+            .copied()
+            .find(|token| *token != "=")
+            .unwrap_or("");
+        return (key, value);
+    }
+    let value = tokens
+        .iter()
+        .skip(1)
+        .copied()
+        .find(|token| *token != "=")
+        .unwrap_or("");
+    (raw, value)
+}
+
 fn parse_cpp_yes_no_bool(token: &str) -> INIResult<bool> {
     match token.to_ascii_lowercase().as_str() {
         "yes" => Ok(true),
@@ -872,24 +896,20 @@ impl GameLODManager {
         // Parse fields until End
         loop {
             ini.read_line()?;
+            let tokens = ini.get_line_tokens();
+            if tokens
+                .iter()
+                .any(|token| token.eq_ignore_ascii_case("End"))
+            {
+                break;
+            }
             if ini.is_eof() {
                 return Err(INIError::MissingEndToken);
             }
-
-            let tokens = ini.get_line_tokens();
             if tokens.is_empty() {
                 continue;
             }
-
-            let key = tokens[0];
-            if key.eq_ignore_ascii_case("End") {
-                break;
-            }
-
-            // Get value tokens (skip key and '=' signs)
-            let mut value_tokens: Vec<&str> = tokens.iter().skip(1).copied().collect();
-            value_tokens.retain(|t| *t != "=");
-            let value_str = value_tokens.first().copied().unwrap_or("");
+            let (key, value_str) = ini_field_key_value(&tokens);
 
             // Parse fields based on C++ TheStaticGameLODFieldParseTable
             match key.to_ascii_lowercase().as_str() {
@@ -970,27 +990,25 @@ impl GameLODManager {
             .ok_or(INIError::InvalidData)?;
         let lod_info = &mut self.dynamic_game_lod_info[index];
 
-        // Parse fields until End
+        // Parse fields until End. The retail file's last End has no newline,
+        // so EOF is set on that same read; recognize End before treating EOF
+        // as a missing terminator. C++ also splits `Key=Value`.
         loop {
             ini.read_line()?;
+            let tokens = ini.get_line_tokens();
+            if tokens
+                .iter()
+                .any(|token| token.eq_ignore_ascii_case("End"))
+            {
+                break;
+            }
             if ini.is_eof() {
                 return Err(INIError::MissingEndToken);
             }
-
-            let tokens = ini.get_line_tokens();
             if tokens.is_empty() {
                 continue;
             }
-
-            let key = tokens[0];
-            if key.eq_ignore_ascii_case("End") {
-                break;
-            }
-
-            // Get value tokens (skip key and '=' signs)
-            let mut value_tokens: Vec<&str> = tokens.iter().skip(1).copied().collect();
-            value_tokens.retain(|t| *t != "=");
-            let value_str = value_tokens.first().copied().unwrap_or("");
+            let (key, value_str) = ini_field_key_value(&tokens);
 
             // Parse fields based on C++ TheDynamicGameLODFieldParseTable
             match key.to_ascii_lowercase().as_str() {
@@ -1500,5 +1518,34 @@ mod tests {
             assert!(!manager.is_debris_skipped());
         }
         assert!(!manager.set_dynamic_lod_level(DynamicGameLODLevel::Unknown));
+    }
+
+    #[test]
+    fn retail_gamelod_ini_parses() {
+        let src = include_str!(
+            "../../../../../../windows_game/extracted_big_files_v2/INIZH/Data/INI/GameLOD.ini"
+        );
+        init_game_lod_manager();
+        let mut ini = INI::new();
+        ini.with_inline_source(src, |ini| ini.parse_current_file())
+            .expect("retail GameLOD.ini");
+        let manager = get_game_lod_manager();
+        let very_high = DynamicGameLODLevel::VeryHigh.to_index().unwrap();
+        assert_eq!(manager.dynamic_game_lod_info[very_high].min_fps, 25);
+    }
+
+    #[test]
+    fn bench_profile_reads_successive_header_tokens() {
+        init_game_lod_manager();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "BenchProfile = P4 2189 6.1 15.1 9.4\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("bench profile header");
+        let manager = get_game_lod_manager();
+        let profile = manager.bench_profiles[0].as_ref().expect("profile stored");
+        assert_eq!(profile.mhz, 2189);
+        assert!((profile.mem_bench_index - 9.4).abs() < 0.001);
     }
 }
