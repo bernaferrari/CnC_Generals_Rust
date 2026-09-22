@@ -258,7 +258,12 @@ impl GameLogic {
                 unit.movement.target_position = None;
                 unit.movement.velocity = glam::Vec3::ZERO;
                 unit.start_move();
-                unit.set_ai_state(AIState::Moving);
+                if !matches!(
+                    unit.ai_state,
+                    AIState::Constructing | AIState::Gathering | AIState::ReturningResources
+                ) {
+                    unit.set_ai_state(AIState::Moving);
+                }
                 unit.set_status_moving(true);
                 unit.record_host_movement();
             }
@@ -487,7 +492,12 @@ impl GameLogic {
         // C++ locoUpdate accelerates from the current velocity toward the
         // path lead. Do not stamp max speed at the raw click: a detour
         // would spend the first frames driving into the obstacle.
-        unit.set_ai_state(AIState::Moving);
+        if !matches!(
+            unit.ai_state,
+            AIState::Constructing | AIState::Gathering | AIState::ReturningResources
+        ) {
+            unit.set_ai_state(AIState::Moving);
+        }
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
             // Moving
@@ -774,21 +784,37 @@ impl GameLogic {
     /// pack and clears that bit. A queued path clears the order before A*
     /// runs, so a later wall refusal does not retry every frame.
     pub(crate) fn reissue_pending_moves(&mut self) {
-        let ready: Vec<(ObjectId, Vec3)> = self
+        let ready: Vec<(ObjectId, Vec3, AIState, Option<ObjectId>)> = self
             .objects
             .iter()
             .filter_map(|(id, unit)| {
-                if Self::pending_move_ready(unit) {
-                    unit.pending_move.map(|dest| (*id, dest))
+                if !Self::pending_move_ready(unit) {
+                    return None;
+                }
+                let dest = unit.pending_move?;
+                let ignore = if matches!(unit.ai_state, AIState::Constructing) {
+                    unit.dozer_task_build_target.or(unit.target)
                 } else {
                     None
-                }
+                };
+                Some((*id, dest, unit.ai_state.clone(), ignore))
             })
             .collect();
-        for (id, dest) in ready {
-            if self.assign_unit_path(id, dest, &[]) {
+        for (id, dest, task, ignore) in ready {
+            let ok = if ignore.is_some() {
+                self.assign_unit_path_ignoring(id, dest, &[], ignore)
+            } else {
+                self.assign_unit_path(id, dest, &[])
+            };
+            if ok {
                 if let Some(unit) = self.objects.get_mut(&id) {
                     unit.pending_move = None;
+                    if matches!(
+                        task,
+                        AIState::Constructing | AIState::Gathering | AIState::ReturningResources
+                    ) {
+                        unit.set_ai_state(task);
+                    }
                 }
             }
         }

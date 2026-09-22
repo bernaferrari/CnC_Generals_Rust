@@ -325,6 +325,45 @@ fn arrived_moving_dozer_builds_at_the_dock() {
     );
 }
 
+
+#[test]
+fn reissued_build_stays_constructing() {
+    use crate::game_logic::{KindOf, Player, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "P0", true));
+    let mut pad = ThingTemplate::new("ReissuePad");
+    pad.add_kind_of(KindOf::Structure).set_health(1_000.0);
+    logic.templates.insert("ReissuePad".into(), pad);
+    let mut dozer_tpl = ThingTemplate::new("ReissueDozer");
+    dozer_tpl
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic.templates.insert("ReissueDozer".into(), dozer_tpl);
+    let pad_id = logic
+        .create_object_for_player("ReissuePad", 0, Vec3::new(80.0, 0.0, 0.0))
+        .expect("pad");
+    let dozer = logic
+        .create_object_for_player("ReissueDozer", 0, Vec3::ZERO)
+        .expect("dozer");
+    logic.dozer_new_task_build(dozer, pad_id);
+    {
+        let obj = logic.host_object_mut(dozer).expect("dozer");
+        obj.set_order_target(Some(pad_id));
+        obj.set_ai_state(AIState::Constructing);
+        obj.pending_move = Some(Vec3::new(80.0, 0.0, 0.0));
+        obj.shock_stun_frames = 0;
+    }
+    logic.reissue_pending_moves();
+    let obj = logic.host_object(dozer).expect("dozer");
+    assert_eq!(obj.ai_state, AIState::Constructing);
+    assert!(obj.pending_move.is_none());
+    assert!(
+        obj.waiting_for_path || !obj.movement.path.is_empty(),
+        "reissue must path around the scaffold, path={:?}",
+        obj.movement.path
+    );
+}
 #[test]
 fn construction_complete_end_dock_uses_stored_action() {
     // hq-pogoh: complete END is ACTION + 5 cells, not the dozer's current pose.
