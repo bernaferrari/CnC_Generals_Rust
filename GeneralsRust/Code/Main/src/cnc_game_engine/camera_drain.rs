@@ -670,12 +670,14 @@ impl CnCGameEngine {
         // Wave 602: InGame logic+presentation residual.
         // Retail m_TiVOFastMode residual: extra logic steps while armed.
         let ff_steps = replay_logic_step_count(self.replay_fast_forward);
-        // Headless residual: cap catch-up (4 logic frames ≈ 133ms) so a slow
-        // present/update path cannot freeze the host control loop for seconds.
-        let headless_step_budget = if self.runtime_host_headless {
+        // A debug logic step is about 100ms. Unbounded catch-up turns one slow
+        // present into a multi-second update and the next frame catches up again.
+        // Headless keeps a slightly larger cap. Windowed still advances, just
+        // not thirty steps at once.
+        let step_budget = if self.runtime_host_headless {
             Some(4usize)
         } else {
-            None
+            Some(2usize)
         };
         // Coupled host→shadow frame: sole-tick systems freeze host percent only
         // while this is set AND the engine owns a live GameWorldShadow that will
@@ -709,7 +711,7 @@ impl CnCGameEngine {
                 self.host_run_coupled_fast_forward_loop(
                     dt,
                     ff_steps,
-                    headless_step_budget,
+                    step_budget,
                     couple_shadow,
                 );
             });
@@ -717,7 +719,7 @@ impl CnCGameEngine {
             self.host_run_coupled_fast_forward_loop(
                 dt,
                 ff_steps,
-                headless_step_budget,
+                step_budget,
                 couple_shadow,
             );
         }
