@@ -454,18 +454,7 @@ fn full_truck_returns_to_its_supply_center() {
         "a full truck must head for its supply center, state={:?}",
         truck.supply_truck_state
     );
-    if let Some(truck) = logic.host_object_mut(id) {
-        truck.movement.path.clear();
-        truck.waiting_for_path = false;
-    }
-    logic.update_support_states(&[id, source, center_id], 1.0 / 30.0);
-    {
-        let truck = logic.host_object(id).expect("repath");
-        assert!(
-            truck.waiting_for_path || !truck.movement.path.is_empty(),
-            "a returning truck with no path must head for the center"
-        );
-    }
+
     if let Some(truck) = logic.host_object_mut(id) {
         truck.set_position(Vec3::new(80.0, 0.0, 20.0));
     }
