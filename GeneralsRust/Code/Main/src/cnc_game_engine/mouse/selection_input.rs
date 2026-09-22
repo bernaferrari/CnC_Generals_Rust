@@ -199,10 +199,7 @@ impl CnCGameEngine {
             let waypoint =
                 self.sticky_waypoint_mode || self.keys_pressed.contains(&Key::Named(NamedKey::Alt));
             if waypoint {
-                let mut selected = self.ui_selected_ids(self.current_player_id);
-                if selected.is_empty() {
-                    selected = self.selected_objects.clone();
-                }
+                let selected = self.ui_selected_ids(self.current_player_id);
                 if !selected.is_empty() {
                     self.host_queue_and_process_command_silent(
                         crate::command_system::GameCommand {
@@ -514,10 +511,7 @@ impl CnCGameEngine {
             return false;
         }
 
-        let mut selected = self.ui_selected_ids(self.current_player_id);
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        let selected = self.ui_selected_ids(self.current_player_id);
         if !selected.is_empty() {
             self.host_queue_command(crate::command_system::GameCommand {
                 command_type: crate::command_system::CommandType::Guard {
@@ -993,10 +987,7 @@ impl CnCGameEngine {
     ) -> bool {
         let mouse_pos = self.mouse_world_position;
 
-        let mut selected = self.ui_selected_ids(self.current_player_id);
-        if selected.is_empty() {
-            selected = self.selected_objects.clone();
-        }
+        let selected = self.ui_selected_ids(self.current_player_id);
         if selected.is_empty() {
             return false;
         }

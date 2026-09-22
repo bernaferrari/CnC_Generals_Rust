@@ -132,6 +132,9 @@ pub fn host_ui_selected_ids_from_residuals(
         if !flagged.is_empty() {
             return flagged;
         }
+        // An installed freeze with nothing selected is a deselect. Do not
+        // order the leftover engine or match list.
+        return Vec::new();
     }
     if !engine_selected.is_empty() {
         return engine_selected.to_vec();
