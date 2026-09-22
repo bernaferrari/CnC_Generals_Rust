@@ -189,7 +189,7 @@ impl CnCGameEngine {
         if live.is_empty() {
             return;
         }
-        let mut selection = self.selected_objects.clone();
+        let mut selection = self.ui_selected_ids(self.current_player_id);
         for id in live {
             if !selection.contains(&id) {
                 selection.push(id);

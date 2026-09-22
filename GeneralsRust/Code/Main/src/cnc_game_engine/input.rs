@@ -613,8 +613,8 @@ impl CnCGameEngine {
                             && self.rmb_scroll_started_physically;
                         if self.is_rmb_scrolling || self.rmb_scroll_anchor.is_some() {
                             if self.rmb_release_is_deselect_click() {
-                                let had_selection = !self.selected_objects.is_empty()
-                                    || !self.ui_selected_ids(self.current_player_id).is_empty();
+                                let had_selection =
+                                    !self.ui_selected_ids(self.current_player_id).is_empty();
                                 // SelectionXlat cancels an armed GUI/build
                                 // mode before CommandXlat sees a right click.
                                 // Keep that precedence in both mouse layouts.
