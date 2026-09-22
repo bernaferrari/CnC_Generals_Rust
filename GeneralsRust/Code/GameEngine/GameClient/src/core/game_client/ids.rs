@@ -133,7 +133,7 @@ pub struct PresentationDrawableSync {
     pub model_condition_bits: u128,
     pub body_damage_state: u8,
     /// Wave 965: presentation KindOf Debug names (host empty dual-world kind queries).
-    pub kind_names: Vec<String>,
+    pub kind_names: std::sync::Arc<Vec<String>>,
     /// Wave 965: team tint residual 0..1 RGBA → indicator RGB.
     pub team_color: [f32; 4],
     /// Generic frozen host stealth state used by UI/overlay residuals.

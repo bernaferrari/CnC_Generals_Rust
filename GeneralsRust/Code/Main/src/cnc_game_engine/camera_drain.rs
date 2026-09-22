@@ -1821,6 +1821,29 @@ impl CnCGameEngine {
         self.host_refresh_match_sim_residuals_from_logic();
     }
 
+    fn presentation_kind_names(
+        cache: &std::cell::RefCell<HashMap<u128, std::sync::Arc<Vec<String>>>>,
+        kinds: &[crate::game_logic::KindOf],
+    ) -> std::sync::Arc<Vec<String>> {
+        let mut key = 0u128;
+        for kind in kinds {
+            let bit = *kind as u32;
+            if bit < 128 {
+                key |= 1u128 << bit;
+            }
+        }
+        if let Ok(guard) = cache.try_borrow() {
+            if let Some(hit) = guard.get(&key) {
+                return std::sync::Arc::clone(hit);
+            }
+        }
+        let names = std::sync::Arc::new(kinds.iter().map(|kind| kind.name().to_string()).collect());
+        if let Ok(mut guard) = cache.try_borrow_mut() {
+            guard.insert(key, std::sync::Arc::clone(&names));
+        }
+        names
+    }
+
     #[cfg(feature = "game_client")]
     fn presentation_draw_module_names_from_template(
         cache: &std::cell::RefCell<HashMap<String, std::sync::Arc<Vec<String>>>>,
@@ -1903,7 +1926,10 @@ impl CnCGameEngine {
                     model_condition_bits: o.model_condition_bits,
                     body_damage_state: o.body_damage_state,
                     // Wave 970: overlay residual (vet/construct) on Wave 965 kind/stealth/color/health.
-                    kind_names: o.kind_of.iter().map(|k| k.name().to_string()).collect(),
+                    kind_names: Self::presentation_kind_names(
+                        &self.kind_name_cache,
+                        &o.kind_of,
+                    ),
                     team_color: o.team_color,
                     effectively_stealthed: o.effectively_stealthed,
                     // C++ StealthUpdate resolves the look for this viewer:

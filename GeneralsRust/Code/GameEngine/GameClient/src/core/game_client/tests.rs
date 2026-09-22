@@ -921,7 +921,7 @@ mod tests {
             destroyed,
             model_condition_bits: 0,
             body_damage_state: 0,
-            kind_names: Vec::new(),
+            kind_names: std::sync::Arc::new(Vec::new()),
             team_color: [1.0, 1.0, 1.0, 1.0],
             effectively_stealthed: false,
             scene_hidden_by_stealth: false,
