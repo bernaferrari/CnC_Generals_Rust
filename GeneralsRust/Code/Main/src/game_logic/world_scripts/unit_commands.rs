@@ -683,15 +683,29 @@ impl GameLogic {
         true
     }
 
-    /// Scatter/formation move. A refused path does not walk the click.
+    /// Scatter/formation move.
+    ///
+    /// A unit that cannot path yet (stun, deployed) keeps the destination and
+    /// walks it when it can move. A path the finder refuses does not.
     pub fn unit_command_move_to_moving(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
-        // C++ groupScatter / aiMoveToPosition: stunned members still receive
-        // the order and execute when stun clears. No can_move gate.
         self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
             id,
             crate::game_logic::host_hacker_income::PendingHackerCommand::MoveTo(destination),
         ) {
+            return true;
+        }
+        let cannot_path_yet = self
+            .objects
+            .get(&id)
+            .is_some_and(|unit| unit.is_alive() && !unit.can_move());
+        if cannot_path_yet {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                end_hunt_on_player_parent_order(unit);
+                unit.set_destination(destination);
+                unit.set_ai_state(AIState::Moving);
+            }
+            self.hunt_next_enemy_scan.remove(&id);
             return true;
         }
         if !self.assign_unit_path(id, destination, &[]) {
@@ -700,7 +714,6 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             end_hunt_on_player_parent_order(unit);
             unit.set_ai_state(AIState::Moving);
-            drop(unit);
             self.hunt_next_enemy_scan.remove(&id);
             return true;
         }
@@ -820,7 +833,9 @@ impl GameLogic {
         true
     }
 
-    /// Wave 232: tighten-group prep — stop attack, clear formation/guard, then Moving path.
+    /// Tighten-group prep. Formation and guard clear only when the order is
+    /// kept: a queued path, or a destination stored because the unit cannot
+    /// path yet. A refused path leaves the group alone.
     pub fn unit_command_tighten_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         let can = self
             .objects
@@ -836,21 +851,36 @@ impl GameLogic {
             return false;
         }
         self.drop_jet_targeters_on_attack_exit(id);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.stop_attack();
-            unit.set_formation(0, glam::Vec2::ZERO);
-            unit.set_guard_position(None);
-            unit.set_guard_target(None);
-            unit.end_guard_retaliate();
+        let cannot_path_yet = self
+            .objects
+            .get(&id)
+            .is_some_and(|unit| unit.is_alive() && !unit.can_move());
+        if cannot_path_yet {
+            if let Some(unit) = self.objects.get_mut(&id) {
+                Self::accept_tighten_order(unit, destination);
+            }
+            return true;
         }
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.set_ai_state(AIState::Moving);
+            Self::accept_tighten_order(unit, destination);
             return true;
         }
         false
+    }
+
+    fn accept_tighten_order(unit: &mut crate::game_logic::Object, destination: glam::Vec3) {
+        unit.stop_attack();
+        unit.set_formation(0, glam::Vec2::ZERO);
+        unit.set_guard_position(None);
+        unit.set_guard_target(None);
+        unit.end_guard_retaliate();
+        if !unit.can_move() {
+            unit.set_destination(destination);
+        }
+        unit.set_ai_state(AIState::Moving);
     }
 
     /// Wave 232: stamp formation id + offset (create/dissolve).
