@@ -557,7 +557,7 @@ impl GameClient {
                 destroyed: false,
                 model_condition_bits: 0,
                 body_damage_state: 0,
-                kind_names: Vec::new(),
+                kind_names: std::sync::Arc::new(Vec::new()),
                 team_color: [1.0, 1.0, 1.0, 1.0],
                 effectively_stealthed: false,
                 scene_hidden_by_stealth: false,
@@ -793,7 +793,7 @@ impl GameClient {
             0.0
         };
         drawable.set_presentation_host_residual(
-            e.kind_names.clone(),
+            (*e.kind_names).clone(),
             Some((r, g, b)),
             e.effectively_stealthed,
             e.scene_hidden_by_stealth,

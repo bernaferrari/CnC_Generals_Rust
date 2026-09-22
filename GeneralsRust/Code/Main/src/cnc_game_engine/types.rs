@@ -1067,6 +1067,11 @@ pub struct CnCGameEngine {
     pub(crate) draw_module_name_cache: std::cell::RefCell<
         HashMap<String, std::sync::Arc<Vec<String>>>,
     >,
+    /// Kind-name lists keyed by the KindOf bitset. The set does not change
+    /// per object after spawn, so presents share one `Arc`.
+    pub(crate) kind_name_cache: std::cell::RefCell<
+        HashMap<u128, std::sync::Arc<Vec<String>>>,
+    >,
 
     // Game state machine - matches C++ GameEngine m_quitting and state management
     pub(crate) current_state: GameState,

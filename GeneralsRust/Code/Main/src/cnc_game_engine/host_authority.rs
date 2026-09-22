@@ -1104,6 +1104,7 @@ impl CnCGameEngine {
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         self.draw_module_name_cache.borrow_mut().clear();
+        self.kind_name_cache.borrow_mut().clear();
     }
 
     /// Commit-time reseed of a staged world's driving-instance logic RNG from
