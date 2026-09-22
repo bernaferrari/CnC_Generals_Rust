@@ -177,6 +177,89 @@ impl WindowManager {
             }
         }
     }
+    /// Same pixels as repeated `win_draw_image` calls, one texture lookup.
+    /// W3D window borders tile a 20px piece across the edge; doing that as
+    /// thousands of separate draws made the shell menu a 600ms paint.
+    pub fn win_draw_image_batch(&self, image: &Image, rects: &[(i32, i32, i32, i32)]) {
+        if rects.is_empty() {
+            return;
+        }
+        let _ = with_ui_renderer_mut(|renderer| {
+            let _ = ensure_client_mapped_image(&image.name);
+            let collection = get_mapped_image_collection();
+            let mut collection = collection.write();
+            let Some(mapped) = collection.find_image_by_name_mut(&image.name) else {
+                return;
+            };
+            if mapped.get_gpu_texture().is_none() {
+                let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
+            }
+            let Some(gpu) = mapped.get_gpu_texture() else {
+                return;
+            };
+            let uv = mapped.get_uv();
+            let u0 = uv.min.x;
+            let v0 = uv.min.y;
+            let u1 = uv.max.x;
+            let v1 = uv.max.y;
+            let rotated = mapped
+                .get_status()
+                .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
+            let texture = std::sync::Arc::new(gpu.view().clone());
+            drop(collection);
+            if rotated {
+                for &(x1, y1, x2, y2) in rects {
+                    crate::display::display_fx::queue_draw_image_mesh_on(
+                        renderer,
+                        texture.clone(),
+                        x1 as f32,
+                        y1 as f32,
+                        x2 as f32,
+                        y2 as f32,
+                        u0,
+                        v0,
+                        u1,
+                        v1,
+                        [1.0, 1.0, 1.0, 1.0],
+                        crate::display::DrawImageMode::Alpha,
+                        true,
+                    );
+                }
+            } else {
+                let mut positions = Vec::with_capacity(rects.len() * 4);
+                let mut uvs = Vec::with_capacity(rects.len() * 4);
+                let mut indices = Vec::with_capacity(rects.len() * 6);
+                for (index, &(x1, y1, x2, y2)) in rects.iter().enumerate() {
+                    let base = (index * 4) as u32;
+                    positions.extend_from_slice(&[
+                        [x1 as f32, y1 as f32],
+                        [x2 as f32, y1 as f32],
+                        [x2 as f32, y2 as f32],
+                        [x1 as f32, y2 as f32],
+                    ]);
+                    uvs.extend_from_slice(&[[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
+                    indices.extend_from_slice(&[
+                        base,
+                        base + 1,
+                        base + 2,
+                        base,
+                        base + 2,
+                        base + 3,
+                    ]);
+                }
+                renderer.draw_textured_mesh(
+                    &positions,
+                    &uvs,
+                    &indices,
+                    texture,
+                    [1.0, 1.0, 1.0, 1.0],
+                    crate::gui::ui_renderer::UIBlendMode::Alpha,
+                    0.0,
+                );
+            }
+            note_win_draw_image_command();
+        });
+    }
 
     /// Draw a filled rectangle using UI renderer.
     pub fn win_fill_rect(

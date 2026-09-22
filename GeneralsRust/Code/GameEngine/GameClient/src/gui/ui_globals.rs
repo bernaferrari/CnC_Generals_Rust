@@ -36,6 +36,7 @@ where
     UI_RENDERER.get().map(f)
 }
 
+
 thread_local! {
     /// In-draw / write-held flag. Never stores `*mut UIRenderer`.
     static UI_DRAW_ACTIVE: Cell<bool> = const { Cell::new(false) };

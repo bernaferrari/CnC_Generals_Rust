@@ -1792,7 +1792,7 @@ impl GameWindow {
     /// Draw the window
     pub fn draw(&self) {
         if !self.is_hidden() {
-            if let Some(ref draw_callback) = self.callbacks.draw {
+            if let Some(draw_callback) = &self.callbacks.draw {
                 draw_callback(self, &self.inst_data);
             }
         }

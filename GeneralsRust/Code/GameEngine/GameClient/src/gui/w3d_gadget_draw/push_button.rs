@@ -444,18 +444,8 @@ pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstan
 }
 
 pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let image_started = std::time::Instant::now();
     draw_push_button_image_base(window, inst_data);
-    let image_elapsed = image_started.elapsed();
-    let text_started = std::time::Instant::now();
     draw_button_text(window, inst_data);
-    let text_elapsed = text_started.elapsed();
-    if image_elapsed + text_elapsed >= std::time::Duration::from_millis(5) {
-        eprintln!(
-            "UI_BTN name={} image={image_elapsed:?} text={text_elapsed:?}",
-            inst_data.decorated_name
-        );
-    }
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
         if let crate::gui::game_window::WindowWidget::PushButton(button) = widget {

@@ -571,12 +571,6 @@ impl ForwardPass {
         // C++ parity: first-use textures should resolve quickly; avoid one-texture-per-frame trickle.
         self.stream_pending_textures(self.texture_stream_budget());
 
-        static FP_FRAME: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let fp_frame = FP_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if fp_frame < 5 {
-            info!("ForwardPass::render #{} begin_frame_start", fp_frame);
-        }
-
         // Freeze GPU resource state before the renderer frame. An absent or
         // inactive presentation snapshot explicitly releases stale map data.
         let inactive_projected_shroud;
@@ -599,17 +593,20 @@ impl ForwardPass {
         self.ghost_lighting_environment =
             Self::build_always_fogged_light_environment(lighting).map(Arc::new);
 
-        // Begin frame - initialize render state
-        self.renderer
-            .begin_frame()
-            .map_err(|e| anyhow::anyhow!("WW3D renderer begin_frame failed: {e:?}"))?;
-
-        if fp_frame < 5 {
-            info!("ForwardPass::render #{} begin_frame_done", fp_frame);
+        // An occluded window must not fail the frame or present into a drawable
+        // the compositor will not take.
+        if let Err(err) = self.renderer.begin_frame() {
+            let message = err.to_string();
+            if message.contains("surface occluded") || message.contains("surface timeout") {
+                return Ok(());
+            }
+            return Err(anyhow::anyhow!("WW3D renderer begin_frame failed: {message}"));
         }
 
         let mut queued_count_total = 0usize;
         let mut queue_error_total = 0usize;
+
+        // Scope to ensure mutex lock is released before end_frame
 
         // Scope to ensure mutex lock is released before end_frame
         {
