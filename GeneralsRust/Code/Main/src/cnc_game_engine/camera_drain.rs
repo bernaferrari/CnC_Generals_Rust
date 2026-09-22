@@ -2610,7 +2610,10 @@ impl CnCGameEngine {
                             template_name: o.template_name.clone(),
                             position: [o.position.x, o.position.y, o.position.z],
                             health_pct,
-                            kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                            kind_names: Self::presentation_kind_names(
+                                &self.kind_name_cache,
+                                &o.kind_of,
+                            ),
                             // Wave 1040: selection HUD legality residual.
                             destroyed: o.destroyed,
                             sold: o.sold,
@@ -2676,12 +2679,15 @@ impl CnCGameEngine {
                             disguised: o.disguised,
                             disguise_as_template: o.disguise_as_template.clone(),
                             disguise_as_team: o.disguise_as_team.map(|t| format!("{t:?}")),
-                            kind_names: o.kind_of.iter().map(|k| format!("{k:?}")).collect(),
+                            kind_names: Self::presentation_kind_names(
+                                &self.kind_name_cache,
+                                &o.kind_of,
+                            ),
                             // Wave 979: airborne catalog.
                             // Wave 971: special-power ready residual for host SP targeting.
                             special_power_ready: o.special_power_ready,
                             airborne_target: o.airborne_target
-                                || o.kind_of.iter().any(|k| format!("{k:?}") == "Aircraft"),
+                                || o.kind_of.iter().any(|k| k.name() == "Aircraft"),
                             // Wave 981: FOW → command-hint shroud residual.
                             shroud_status: {
                                 use crate::fow_rendering::ObjectVisibility;

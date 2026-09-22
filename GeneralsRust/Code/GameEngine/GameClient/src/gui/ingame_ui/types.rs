@@ -928,7 +928,7 @@ pub struct PresentationSelectedUnitResidual {
     pub position: [f32; 3],
     pub health_pct: f32,
     /// Debug/Display names of KindOf flags from presentation freeze.
-    pub kind_names: Vec<String>,
+    pub kind_names: std::sync::Arc<Vec<String>>,
     /// Wave 1040: legality residual for dual selection HUD (C++ status bits).
     pub destroyed: bool,
     pub sold: bool,
@@ -980,7 +980,7 @@ pub struct PresentationUnitCatalogEntry {
     /// Wave 1041: apparent team while disguised (non-allied viewers).
     pub disguise_as_team: Option<String>,
     /// Wave 968: KindOf Debug names from presentation freeze.
-    pub kind_names: Vec<String>,
+    pub kind_names: std::sync::Arc<Vec<String>>,
     /// Wave 971: special power ready residual for host SP targeting.
     pub special_power_ready: bool,
     /// Wave 979: airborne residual for host plane-camera lock.

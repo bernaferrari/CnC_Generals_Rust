@@ -16,7 +16,7 @@ pub struct TranslatorCatalogEntry {
     pub template_name: String,
     pub team_name: String,
     pub selectable: bool,
-    pub kind_names: Vec<String>,
+    pub kind_names: std::sync::Arc<Vec<String>>,
     pub special_power_ready: bool,
     /// Wave 974: world position residual for host context pick.
     pub position: [f32; 3],
