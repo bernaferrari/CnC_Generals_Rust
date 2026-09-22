@@ -1973,6 +1973,34 @@ impl CnCGameEngine {
         self.host_finalize_startup_map_load(result)
     }
 
+    /// Load shell drawables before `GameState::Menu`. The worker must not take
+    /// the asset-manager lock (that hung startup). The menu model budget stays
+    /// at least 4 for anything this pass misses.
+    fn preload_shell_drawable_models(&mut self) {
+        let names = self.game_logic.live_drawable_model_names();
+        if names.is_empty() {
+            return;
+        }
+        self.update_shell_loading_progress(0.997, Some("Loading shell models"));
+        let Some(manager) = crate::assets::get_asset_manager() else {
+            return;
+        };
+        let Ok(mut manager) = manager.lock() else {
+            warn!("Shell model preload skipped: asset manager lock poisoned");
+            return;
+        };
+        let mut loaded = 0usize;
+        for name in &names {
+            if manager.load_w3d_model(name).is_ok() {
+                loaded += 1;
+            }
+        }
+        info!(
+            "Preloaded {loaded}/{} shell W3Ds before the menu present",
+            names.len()
+        );
+    }
+
     pub(super) fn host_finalize_startup_map_load(
         &mut self,
         result: StartupLoadResult,
@@ -2032,6 +2060,10 @@ impl CnCGameEngine {
                     startup_camera_presentation,
                 );
             self.sync_orbit_from_camera_transform();
+        }
+
+        if result.start_in_menu {
+            self.preload_shell_drawable_models();
         }
 
         let fallback_to_menu = result.start_in_menu
