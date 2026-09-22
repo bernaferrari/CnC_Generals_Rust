@@ -189,8 +189,11 @@ impl GameLogic {
         }
     }
 
-    /// Prepare move: stop attack then assign path (fallback set_destination).
-    /// Wave 230/232: stop attack residual then path or set destination + Moving.
+    /// Stop the current attack, then queue a path.
+    ///
+    /// A loaded map that refuses the path (queue full, still packing, no
+    /// route) must not fall through to a straight click. Mapless tests keep
+    /// the destination so command harnesses without a grid still move.
     pub fn unit_command_move_to(&mut self, id: ObjectId, destination: glam::Vec3) -> bool {
         self.stamp_player_command_source(id);
         if !self.unit_can_move(id) {
@@ -205,6 +208,8 @@ impl GameLogic {
         self.stop_attack_clearing_jet_targeter(id);
         let ok = if self.assign_unit_path(id, destination, &[]) {
             true
+        } else if self.map_loaded {
+            false
         } else if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_destination(destination);
             true

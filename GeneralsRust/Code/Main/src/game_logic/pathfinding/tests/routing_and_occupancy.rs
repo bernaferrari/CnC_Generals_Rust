@@ -184,6 +184,44 @@ fn queued_move_does_not_charge_before_path() {
     );
 }
 
+/// A loaded map with a full path queue must refuse the newest move.
+/// It must not install the raw click as a straight march.
+#[test]
+fn full_path_queue_does_not_straight_march() {
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    use gamelogic::ai::pathfind_complete::{PATHFIND_QUEUE_LEN, SURFACE_GROUND};
+    let mut logic = GameLogic::new();
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("Ranger".into(), tmpl);
+    let id = logic
+        .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 10.0))
+        .expect("ranger");
+    logic.force_map_loaded_for_path_test(true);
+    for i in 0..PATHFIND_QUEUE_LEN as u32 {
+        assert!(logic.pathfinding_system.queue_path(
+            crate::game_logic::pathfinding::PendingHostPath {
+                unit_id: ObjectId(10_000 + i),
+                start: Vec3::ZERO,
+                destination: Vec3::new(i as f32, 0.0, 0.0),
+                waypoints: Vec::new(),
+                aircraft: false,
+                surfaces: SURFACE_GROUND,
+                is_crusher: false,
+                ignore_obstacle: None,
+            }
+        ));
+    }
+    assert!(
+        !logic.unit_command_move_to(id, Vec3::new(80.0, 0.0, 10.0)),
+        "full queue must refuse the newest move"
+    );
+    let unit = logic.host_object(id).expect("unit");
+    assert!(unit.movement.path.is_empty());
+    assert!(unit.movement.target_position.is_none());
+    assert!(!unit.waiting_for_path);
+}
+
 /// hq-985ts: leftover/C++ clearCellForDiameter on the live grid.
 #[test]
 fn clear_cell_for_diameter_open_and_blocked() {
