@@ -453,14 +453,19 @@ fn queued_infantry_spawns_during_simulation() {
     for _ in 0..60 {
         logic.update();
     }
-    let spawned = logic
+    let unit = logic
         .objects
         .values()
-        .filter(|object| object.template_name == "TestInfantry")
-        .count();
+        .find(|object| object.template_name == "TestInfantry")
+        .expect("spawned infantry");
+    let left = unit.get_position().distance(Vec3::ZERO) > 5.0
+        || !unit.movement.path.is_empty()
+        || unit.waiting_for_path;
     assert!(
-        spawned >= 1,
-        "a finished factory queue must spawn the unit, spawned={spawned}"
+        left,
+        "spawned infantry must leave the barracks, pos={:?} path={:?}",
+        unit.get_position(),
+        unit.movement.path
     );
 }
 
