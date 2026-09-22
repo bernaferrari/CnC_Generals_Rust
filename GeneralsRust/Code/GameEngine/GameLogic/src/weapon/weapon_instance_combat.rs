@@ -231,6 +231,11 @@ impl Weapon {
         damage_info.clone()
     }
 
+    fn projectile_name_launches_object(name: &str) -> bool {
+        let name = name.trim();
+        !name.is_empty() && !name.eq_ignore_ascii_case("NONE")
+    }
+
     /// Deal damage internally (THE CRITICAL BRIDGE TO OBJECT DAMAGE)
     /// C++ Reference: Weapon.cpp lines 1221-1500 (dealDamageInternal)
     ///
@@ -240,10 +245,6 @@ impl Weapon {
     /// - Handles single-target damage
     /// - Calls object.attempt_damage() for each target
     /// - Returns total damage applied
-    fn projectile_name_launches_object(name: &str) -> bool {
-        let name = name.trim();
-        !name.is_empty() && !name.eq_ignore_ascii_case("NONE")
-    }
 
     pub(crate) fn deal_damage_internal(
         &self,

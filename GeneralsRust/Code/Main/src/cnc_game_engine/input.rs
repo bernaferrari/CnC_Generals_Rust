@@ -982,7 +982,14 @@ impl CnCGameEngine {
         // A 220ms–1.4s Menu stall used to consume only one 33ms step, so
         // Difficulty FLASH never reached Easy unhide. Drain a bounded catch-up.
         let mut steps = 0u32;
+        let catchup_started = Instant::now();
         while self.menu_loading_tick_accumulator >= SHELL_MENU_STEP && steps < 8 {
+            // One slow shell step must not be repeated eight times in the same
+            // present. That catch-up used to turn a ~100ms tick into a ~900ms
+            // update and the next frame then caught up again.
+            if steps > 0 && catchup_started.elapsed() > Duration::from_millis(12) {
+                break;
+            }
             self.menu_loading_tick_accumulator -= SHELL_MENU_STEP;
             steps += 1;
             let clock_timing = self.frame_clock.advance_fixed(SHELL_MENU_STEP);
