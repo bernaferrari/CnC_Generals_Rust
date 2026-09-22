@@ -2887,6 +2887,8 @@ impl GameLogic {
                 return false;
             };
             jet.set_contained_by(Some(airfield_id));
+            jet.set_ai_state(AIState::Docked);
+            jet.set_status_moving(false);
             jet.status.airborne_target = false;
             jet.jet_ai.landing_in_progress = false;
             jet.jet_ai.rtb_landing_phase = 0;
