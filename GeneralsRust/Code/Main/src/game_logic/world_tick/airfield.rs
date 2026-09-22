@@ -1806,6 +1806,15 @@ impl GameLogic {
         }
     }
 
+    fn locomotor_surfaces_at(&self, pos: glam::Vec3) -> u32 {
+        let grid = &self.pathfinding_system.grid;
+        let cell = grid.world_to_grid(pos);
+        if !grid.is_valid_pos(cell) {
+            return 0;
+        }
+        crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(grid.cell_type(cell))
+    }
+
     /// C++ `ParkingPlaceBehavior::exitObjectViaDoor` hangar/parking bone pose.
     pub(in super::super) fn place_produced_jet_at_parking_pose(
         &mut self,
@@ -1815,6 +1824,7 @@ impl GameLogic {
         let Some(info) = self.calc_airfield_pp_info(producer_id, jet_id) else {
             return false;
         };
+        let taxi_surfaces = self.locomotor_surfaces_at(info.hangar_internal);
         let Some(jet) = self.objects.get_mut(&jet_id) else {
             return false;
         };
@@ -1825,7 +1835,7 @@ impl GameLogic {
         jet.set_ai_state(AIState::Docked);
         jet.set_status_moving(false);
         jet.status.airborne_target = false;
-        jet.apply_taxiing_locomotor_set();
+        jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
         jet.movement.path.clear();
         if crate::gameworld_shadow::gameworld_movement_authority_live() {
             crate::game_logic::host_move_log::record(
@@ -2388,13 +2398,18 @@ impl GameLogic {
             .objects
             .get(&jet_id)
             .is_some_and(|jet| jet.is_parked_at_airfield() || jet.contained_by.is_some());
+        let taxi_surfaces = self
+            .objects
+            .get(&jet_id)
+            .map(|jet| self.locomotor_surfaces_at(jet.get_position()))
+            .unwrap_or(0);
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.set_contained_by(None);
             jet.status.airborne_target = false;
             // C++ JetOrHeliTaxiState::onEnter: chooseLocomotorSet then
             // setUsePreciseZPos + setUltraAccurate (JetAIUpdate.cpp:615-616).
             // Bind first — apply_host_locomotor_binding clears both flags.
-            jet.apply_taxiing_locomotor_set();
+            jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
             jet.set_precise_z_and_ultra_accurate(true);
         }
         self.remove_jet_from_airfield_occupants(jet_id, af_hint);
@@ -2767,11 +2782,12 @@ impl GameLogic {
                 // when the landing path never lowered Y to the deck.
                 self.play_jet_wheel_screech(jet_id, true);
             }
+            let taxi_surfaces = self.locomotor_surfaces_at(jet_position);
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_TAXI;
                 jet.jet_ai.landing_in_progress = false;
                 jet.status.airborne_target = false;
-                jet.apply_taxiing_locomotor_set();
+                jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
                 // C++ JetOrHeliTaxiState::onEnter (JetAIUpdate.cpp:615-616).
                 jet.set_precise_z_and_ultra_accurate(true);
                 jet.target = None;
@@ -2864,18 +2880,17 @@ impl GameLogic {
         let parking_orientation = self
             .calc_airfield_pp_info(airfield_id, jet_id)
             .map(|info| info.parking_orientation);
+        let taxi_surfaces = self.locomotor_surfaces_at(pad);
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
                 self.release_airfield_runway_for_jet(jet_id);
                 return false;
             };
             jet.set_contained_by(Some(airfield_id));
-            jet.set_ai_state(AIState::Docked);
-            jet.set_status_moving(false);
             jet.status.airborne_target = false;
             jet.jet_ai.landing_in_progress = false;
             jet.jet_ai.rtb_landing_phase = 0;
-            jet.apply_taxiing_locomotor_set();
+            jet.apply_taxiing_locomotor_set_for_surfaces(taxi_surfaces);
             // C++ JetOrHeliTaxiState / JetTakeoffOrLandingState::onExit.
             jet.set_precise_z_and_ultra_accurate(false);
             jet.set_allow_invalid_position(false);

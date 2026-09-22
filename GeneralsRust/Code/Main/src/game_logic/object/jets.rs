@@ -444,8 +444,22 @@ impl Object {
 
     /// C++ `friend_setAllowAirLoco(false)` + `chooseLocomotorSet(TAXIING)`.
     pub fn apply_taxiing_locomotor_set(&mut self) {
+        self.apply_taxiing_locomotor_set_for_surfaces(0);
+    }
+
+    /// Same as `apply_taxiing_locomotor_set`, but a non-zero mask is the
+    /// path cell under the jet. Air is not added.
+    pub fn apply_taxiing_locomotor_set_for_surfaces(&mut self, cell_surfaces: u32) {
         self.jet_ai.allow_air_loco = false;
-        self.choose_jet_locomotor_set("SET_TAXIING");
+        if cell_surfaces == 0 {
+            self.choose_jet_locomotor_set("SET_TAXIING");
+        } else {
+            let _ = crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind_for_surfaces(
+                self,
+                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Taxiing,
+                cell_surfaces,
+            );
+        }
         // C++ JetOrHeliTaxiState::onEnter setAllowInvalidPosition
         // (JetAIUpdate.cpp:617) so stall/runway cells skip 3x3 shove.
         self.set_allow_invalid_position(true);
