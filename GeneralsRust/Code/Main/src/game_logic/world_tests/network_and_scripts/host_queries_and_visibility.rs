@@ -2438,6 +2438,36 @@ fn infantry_capture_start_range_requires_approach_los() {
 }
 
 #[test]
+fn capture_approach_keeps_capturing_and_requests_a_path() {
+    let mut logic = GameLogic::new();
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_structure_template(&mut logic);
+    let captor = logic
+        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .expect("captor");
+    let building = logic
+        .create_object("TestBuilding", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+        .expect("building");
+    if let Some(unit) = logic.host_object_mut(captor) {
+        unit.set_selection_radius(5.0);
+        unit.target = Some(building);
+        unit.set_ai_state(AIState::Capturing);
+    }
+    if let Some(unit) = logic.host_object_mut(building) {
+        unit.set_selection_radius(5.0);
+    }
+    logic.force_map_loaded_for_path_test(true);
+    logic.update_ai(&[captor, building], 1.0 / 30.0);
+    let unit = logic.host_object(captor).expect("captor");
+    assert_eq!(unit.ai_state, AIState::Capturing);
+    assert!(
+        unit.waiting_for_path || !unit.movement.path.is_empty(),
+        "out-of-range capture must path, ignoring the building, path={:?}",
+        unit.movement.path
+    );
+}
+
+#[test]
 fn lotus_capture_prep_stamps_firing_a() {
     use crate::game_logic::CapturePowerKind;
     use crate::game_logic::host_enum_table_residual::firing_a_model_bit;
