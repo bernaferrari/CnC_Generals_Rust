@@ -584,7 +584,7 @@ impl GameClient {
                 emoticon_frames_left: 0,
                 formation_id: 0,
                 caption: String::new(),
-                draw_module_names: Vec::new(),
+                draw_module_names: std::sync::Arc::new(Vec::new()),
                 health_box_width: 0.0,
                 health_box_z_offset: 0.0,
             });

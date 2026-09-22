@@ -1062,6 +1062,11 @@ pub struct CnCGameEngine {
     pub(crate) background_music: Option<Sink>,
     pub(crate) sound_effects: Vec<Sink>,
     pub(crate) ui_sound_cache: HashMap<String, Arc<[u8]>>,
+    /// Draw-module class names keyed by object template. Filled only when the
+    /// asset manager actually has that definition, and cleared on world replace.
+    pub(crate) draw_module_name_cache: std::cell::RefCell<
+        HashMap<String, std::sync::Arc<Vec<String>>>,
+    >,
 
     // Game state machine - matches C++ GameEngine m_quitting and state management
     pub(crate) current_state: GameState,

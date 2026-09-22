@@ -1822,39 +1822,42 @@ impl CnCGameEngine {
     }
 
     #[cfg(feature = "game_client")]
-    fn presentation_draw_module_names_from_template(template: &str) -> Vec<String> {
-        use std::collections::HashMap;
-        use std::sync::{LazyLock, Mutex};
-        static CACHE: LazyLock<Mutex<HashMap<String, Vec<String>>>> =
-            LazyLock::new(|| Mutex::new(HashMap::new()));
-        if let Ok(guard) = CACHE.lock() {
+    fn presentation_draw_module_names_from_template(
+        cache: &std::cell::RefCell<HashMap<String, std::sync::Arc<Vec<String>>>>,
+        template: &str,
+    ) -> std::sync::Arc<Vec<String>> {
+        if let Ok(guard) = cache.try_borrow() {
             if let Some(hit) = guard.get(template) {
-                return hit.clone();
+                return std::sync::Arc::clone(hit);
             }
         }
-        let built = (|| {
-            let manager = crate::assets::get_asset_manager()?;
-            let manager = manager.lock().ok()?;
-            let definition = manager.get_object_definition(template)?;
-            Some(
-                definition
-                    .draw_modules
-                    .iter()
-                    .filter_map(|module| {
-                        module
-                            .declaration
-                            .split_whitespace()
-                            .next()
-                            .map(str::to_string)
-                    })
-                    .collect::<Vec<_>>(),
-            )
-        })()
-        .unwrap_or_default();
-        if let Ok(mut guard) = CACHE.lock() {
-            guard.insert(template.to_string(), built.clone());
+        let Some(manager) = crate::assets::get_asset_manager() else {
+            return std::sync::Arc::new(Vec::new());
+        };
+        let Ok(manager) = manager.lock() else {
+            return std::sync::Arc::new(Vec::new());
+        };
+        let Some(definition) = manager.get_object_definition(template) else {
+            return std::sync::Arc::new(Vec::new());
+        };
+        let names = std::sync::Arc::new(
+            definition
+                .draw_modules
+                .iter()
+                .filter_map(|module| {
+                    module
+                        .declaration
+                        .split_whitespace()
+                        .next()
+                        .map(str::to_string)
+                })
+                .collect::<Vec<_>>(),
+        );
+        drop(manager);
+        if let Ok(mut guard) = cache.try_borrow_mut() {
+            guard.insert(template.to_string(), std::sync::Arc::clone(&names));
         }
-        built
+        names
     }
 
     /// Freeze-to-GameClient direct Drawable association boundary shared by the
@@ -1874,6 +1877,7 @@ impl CnCGameEngine {
 
         let logic_frame = pres.frame.0;
         let host_epoch = self.host_direct_visual_world_epoch;
+        let draw_module_cache = &self.draw_module_name_cache;
         // Materialize every borrowed presentation fact before mutating
         // GameClient, preserving the immutable host→client boundary.
         let sync_entries = pres
@@ -1953,6 +1957,7 @@ impl CnCGameEngine {
                         }
                     },
                     draw_module_names: Self::presentation_draw_module_names_from_template(
+                        draw_module_cache,
                         if direct.visual_template_name.trim().is_empty() {
                             o.template_name.as_str()
                         } else {
