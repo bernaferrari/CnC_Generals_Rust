@@ -2439,14 +2439,17 @@ fn infantry_capture_start_range_requires_approach_los() {
 
 #[test]
 fn capture_approach_keeps_capturing_and_requests_a_path() {
+    use crate::game_logic::pathfinding::GridPos;
     let mut logic = GameLogic::new();
     ensure_test_infantry_template(&mut logic);
     ensure_test_structure_template(&mut logic);
+    let from = Vec3::ZERO;
+    let to = Vec3::new(200.0, 0.0, 0.0);
     let captor = logic
-        .create_object("TestInfantry", Team::USA, Vec3::ZERO)
+        .create_object("TestInfantry", Team::USA, from)
         .expect("captor");
     let building = logic
-        .create_object("TestBuilding", Team::GLA, Vec3::new(200.0, 0.0, 0.0))
+        .create_object("TestBuilding", Team::GLA, to)
         .expect("building");
     if let Some(unit) = logic.host_object_mut(captor) {
         unit.set_selection_radius(5.0);
@@ -2456,14 +2459,41 @@ fn capture_approach_keeps_capturing_and_requests_a_path() {
     if let Some(unit) = logic.host_object_mut(building) {
         unit.set_selection_radius(5.0);
     }
+    let wall_x = {
+        let grid = &logic.pathfinding_system.grid;
+        let start_cell = grid.world_to_grid(from);
+        let goal_cell = grid.world_to_grid(to);
+        (start_cell.x + goal_cell.x) / 2
+    };
+    let height = logic.pathfinding_system.grid.height();
+    for y in 0..height {
+        logic.pathfinding_system.grid.set_cell_obstacle_owned(
+            GridPos::new(wall_x, y),
+            false,
+            false,
+            building.0,
+            None,
+            None,
+        );
+    }
     logic.force_map_loaded_for_path_test(true);
     logic.update_ai(&[captor, building], 1.0 / 30.0);
+    logic.process_pathfind_queue();
     let unit = logic.host_object(captor).expect("captor");
     assert_eq!(unit.ai_state, AIState::Capturing);
+    let path = unit.movement.path.clone();
+    let xs: Vec<i32> = path
+        .iter()
+        .map(|wp| logic.pathfinding_system.grid.world_to_grid(*wp).x)
+        .collect();
+    let crossed = xs.windows(2).any(|pair| {
+        let lo = pair[0].min(pair[1]);
+        let hi = pair[0].max(pair[1]);
+        (lo..=hi).contains(&wall_x)
+    });
     assert!(
-        unit.waiting_for_path || !unit.movement.path.is_empty(),
-        "out-of-range capture must path, ignoring the building, path={:?}",
-        unit.movement.path
+        crossed,
+        "installed capture path must cross the building-owned column {wall_x}, cells={xs:?}"
     );
 }
 
