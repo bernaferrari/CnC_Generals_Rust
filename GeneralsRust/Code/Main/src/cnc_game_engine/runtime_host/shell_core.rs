@@ -299,15 +299,12 @@ impl CnCGameEngine {
             self.runtime_host_last_gameplay_cmd = "winit_gameplay_order_fail_not_ingame".into();
             return;
         }
-        // Host select for selection residual; evidence still requires RMB inject.
-        // Prefer engine/host selection residual (host_set_selection stamps presentation).
-        if self.selected_objects.is_empty()
-            && self.ui_selected_ids(self.current_player_id).is_empty()
-        {
+        // A cleared presentation freeze is not a selection, even if
+        // selected_objects still holds leftover ids.
+        if self.ui_selected_ids(self.current_player_id).is_empty() {
             self.runtime_host_cmd_select_local_unit(_args);
         }
-        let had_sel = !self.selected_objects.is_empty()
-            || !self.ui_selected_ids(self.current_player_id).is_empty();
+        let had_sel = !self.ui_selected_ids(self.current_player_id).is_empty();
         // Only path that may latch gameplay_order: shared mouse handler via inject.
         // handle_mouse_button_input also uses ui_selected_ids for had_selection —
         // presentation stamp in host_set_selection keeps those residual sources aligned.

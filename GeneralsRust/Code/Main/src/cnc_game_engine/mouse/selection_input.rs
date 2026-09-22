@@ -747,8 +747,7 @@ impl CnCGameEngine {
         if release_behavior == LeftMouseReleaseBehavior::ContextCommand
             && is_point_click_drag(drag_dx, drag_dy)
         {
-            let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty()
-                || !self.selected_objects.is_empty();
+            let had_selection = !self.ui_selected_ids(self.current_player_id).is_empty();
             let issued = self.handle_left_context_click(origin, physical_lmb_gesture);
             self.interactive_playability.note_gameplay_order(
                 matches!(origin, MouseInputOrigin::Physical) && !self.runtime_host_headless,
