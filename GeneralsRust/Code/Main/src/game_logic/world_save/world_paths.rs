@@ -161,6 +161,7 @@ impl GameLogic {
                         unit.turret_natural_angle_deg,
                         unit.turret_natural_pitch_deg,
                     );
+                    let mut just_started = false;
                     let outcome = unit.deploy_style.as_mut().map(|ds| {
                         let started = ds.begin_undeploy_with_weapon_turret(
                             self.frame,
@@ -170,6 +171,7 @@ impl GameLogic {
                         (started, ds.is_aligning_turrets())
                     });
                     if let Some((started, now_aligning)) = outcome {
+                        just_started = started;
                         if started && now_aligning {
                             unit.turret_substate =
                                 crate::game_logic::object::TurretSubState::Recenter;
@@ -189,7 +191,13 @@ impl GameLogic {
                             unit.set_deployed(false);
                         }
                     }
-                    unit.stop_moving();
+                    if just_started
+                        && (unit.movement.target_position.is_some()
+                            || !unit.movement.path.is_empty()
+                            || unit.waiting_for_path)
+                    {
+                        unit.stop_moving();
+                    }
                     block_path = true;
                 }
             } else if unit.is_deployed() {
