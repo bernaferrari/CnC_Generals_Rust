@@ -1189,12 +1189,8 @@ impl GameLogic {
                 obj.set_ai_state(state.clone());
             }
         } else if decision_auth {
-            if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_destination(goal);
-            }
             crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.set_destination(goal);
             obj.set_ai_state(state);
         }
         if attack_moving {

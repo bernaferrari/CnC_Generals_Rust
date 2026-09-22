@@ -3413,20 +3413,6 @@ impl GameLogic {
 
                     if let Some(rid) = refinery_id {
                         if !self.try_claim_dock(rid, object_id) {
-                            let needs_path = self.objects.get(&object_id).is_some_and(|object| {
-                                object.movement.path.is_empty() && !object.waiting_for_path
-                            });
-                            if can_move && needs_path {
-                                if let Some(dest) =
-                                    self.objects.get(&rid).map(|center| center.get_position())
-                                {
-                                    self.path_approach_with_state(
-                                        object_id,
-                                        dest,
-                                        AIState::ReturningResources,
-                                    );
-                                }
-                            }
                             continue;
                         }
 
