@@ -123,29 +123,43 @@ impl HealContain {
             return Ok(UpdateSleepTime::None);
         }
 
-        // Extend base functionality
-        self.base.update()?;
+        if let Err(err) = self.base.update() {
+            log::warn!("HealContain::update base update failed: {}", err);
+        }
 
         // Get contained objects list (need to collect to avoid borrow issues)
         let contained_ids: Vec<_> = self.base.get_contained_object_ids().to_vec();
 
         // Process each contained object for healing
         for patient_id in contained_ids {
-            let done_healing = self.do_heal(patient_id, module_data.frames_for_full_heal)?;
+            let done_healing = match self.do_heal(patient_id, module_data.frames_for_full_heal) {
+                Ok(done) => done,
+                Err(err) => {
+                    log::warn!("HealContain::update skipped patient {}: {}", patient_id, err);
+                    continue;
+                }
+            };
 
             if done_healing {
                 // Reserve door for exit
                 if let Some(obj) = TheGameLogic::find_object_by_id(patient_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(patient_id))
                 {
-                    if let Ok(object) = obj.read() {
+                    if let Ok(object) = obj.try_read() {
                         if let Ok(exit_door) = self
                             .base
                             .reserve_door_for_exit(&super::open_contain::ObjectTemplate {}, &object)
                         {
                             if exit_door != ExitDoorType::NoneAvailable {
-                                drop(object); // Release lock before calling exit
-                                self.base.exit_object_via_door(patient_id, exit_door)?;
+                                drop(object);
+                                if let Err(err) =
+                                    self.base.exit_object_via_door(patient_id, exit_door)
+                                {
+                                    log::warn!(
+                                        "HealContain::update exit failed for {}: {}",
+                                        patient_id, err
+                                    );
+                                }
                             }
                         }
                     }
@@ -196,44 +210,36 @@ impl HealContain {
         // Get current frame and contained frame
         let current_frame = self.get_current_frame();
 
-        if let Ok(object) = obj.read() {
-            let contained_by_frame = object.get_contained_by_frame();
-
-            // Get body module for healing
-            if let Some(body) = object.get_body_module() {
-                if let Ok(body_module) = body.lock() {
-                    let max_health = body_module.get_max_health();
-
-                    // C++ compares elapsed logic frames:
-                    // TheGameLogic->getFrame() - obj->getContainedByFrame()
-                    let frames_contained = current_frame.saturating_sub(contained_by_frame);
-                    if frames_contained >= frames_for_full_heal {
-                        // Set amount to max health to ensure full healing
-                        heal_info.input.amount = max_health;
-                        heal_info.sync_from_input();
-
-                        // Apply full healing
-                        drop(body_module); // Release lock before mutable operation
-                        if let Ok(mut body_mut) = body.lock() {
-                            body_mut.attempt_healing(&mut heal_info)?;
-                        }
-
-                        done_healing = true;
-                    } else {
-                        // Give incremental healing over time
-                        // Calculate healing amount as if object started at 0 health
-                        // and would be fully healed at frames_for_full_heal
-                        heal_info.input.amount = max_health / frames_for_full_heal as f32;
-                        heal_info.sync_from_input();
-
-                        // Apply incremental healing
-                        drop(body_module); // Release lock before mutable operation
-                        if let Ok(mut body_mut) = body.lock() {
-                            body_mut.attempt_healing(&mut heal_info)?;
-                        }
-                    }
-                }
-            }
+        let Ok(object) = obj.try_read() else {
+            return Err("HealContain patient lock busy".into());
+        };
+        let contained_by_frame = object.get_contained_by_frame();
+        let body = object.get_body_module();
+        drop(object);
+        let Some(body) = body else {
+            return Ok(false);
+        };
+        let Ok(body_module) = body.try_lock() else {
+            return Err("HealContain body lock busy".into());
+        };
+        let max_health = body_module.get_max_health();
+        drop(body_module);
+        let frames_contained = current_frame.saturating_sub(contained_by_frame);
+        if frames_contained >= frames_for_full_heal {
+            heal_info.input.amount = max_health;
+            heal_info.sync_from_input();
+            let Ok(mut body_mut) = body.try_lock() else {
+                return Err("HealContain body lock busy".into());
+            };
+            body_mut.attempt_healing(&mut heal_info)?;
+            done_healing = true;
+        } else {
+            heal_info.input.amount = max_health / frames_for_full_heal as f32;
+            heal_info.sync_from_input();
+            let Ok(mut body_mut) = body.try_lock() else {
+                return Err("HealContain body lock busy".into());
+            };
+            body_mut.attempt_healing(&mut heal_info)?;
         }
 
         Ok(done_healing)
@@ -350,19 +356,19 @@ impl ContainModuleInterface for HealContain {
             return Ok(());
         }
 
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
         self.base
-            .remove_from_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                false,
-            )
+            .remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
+    }
+
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .remove_from_contain(object_id, expose_stealth)
+            .map_err(|e| e.into())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -413,8 +419,39 @@ impl ContainModuleInterface for HealContain {
         self.base.on_die(damage_info).map_err(|e| e.into())
     }
 
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .on_die_for_owner(Some(owner), damage_info)
+            .map_err(|e| e.into())
+    }
+
     fn is_heal_contain(&self) -> bool {
         Self::is_heal_contain(self)
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.contain_object(other_id)?;
+        }
+        Ok(())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {

@@ -561,9 +561,14 @@ impl GameLogic {
                         o.record_host_turret();
                         o.turret_pitch_deg = aim_p;
                         o.record_host_turret();
-                        o.set_ai_state(AIState::Attacking);
                         o.set_status_attacking(true);
-                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                        let entered_attack = o.ai_state != AIState::Attacking;
+                        if entered_attack {
+                            o.set_ai_state(AIState::Attacking);
+                        }
+                        if entered_attack
+                            && crate::gameworld_shadow::gameworld_ai_decision_authority_live()
+                        {
                             crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
                         }
                     }
@@ -666,26 +671,33 @@ impl GameLogic {
             }
             if let Some((tid, _, tx, tz)) = best {
                 let (aim_a, aim_p) = strategy_center_turret_aim_at(fire_pos.x, fire_pos.z, tx, tz);
+                let mut entered_attack = false;
                 if let Some(o) = self.objects.get_mut(&cid) {
-                    o.set_target(Some(tid));
+                    o.note_attack_target(tid);
                     o.turret_mood_target = true;
                     o.turret_angle_deg = aim_a;
                     o.record_host_turret();
                     o.turret_pitch_deg = aim_p;
                     o.record_host_turret();
-                    // Mood acquire cancels idle-scan residual.
                     o.turret_idle_scanning = false;
                     o.record_host_turret();
                     o.turret_holding = false;
                     o.record_host_turret();
                     o.turret_hold_until_frame = 0;
                     o.turret_idle_recentering = false;
-                    o.set_ai_state(AIState::Attacking);
-                    o.set_status_attacking(true);
+                    entered_attack = !matches!(
+                        o.ai_state,
+                        AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                    );
+                    if entered_attack {
+                        o.set_ai_state(AIState::Attacking);
+                    }
                 }
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_attack(cid, tid);
-                    crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
+                    if entered_attack {
+                        crate::game_logic::host_ai_decision_log::record_set_state(cid, 2);
+                    }
                 }
                 acquires = acquires.saturating_add(1);
             }

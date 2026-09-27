@@ -2024,7 +2024,7 @@ impl ShroudManager {
         ShroudState::Hidden
     }
 
-    /// Reveal the entire map for a player (permanent shroud removal).
+    /// Reveal the entire map for a player (addLooker then removeLooker; not permanent).
     pub fn reveal_map_for_player(&mut self, player_id: u32) -> Result<(), String> {
         if (player_id as usize) >= MAX_PLAYER_COUNT {
             return Err(format!("Invalid player index {player_id}"));

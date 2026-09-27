@@ -233,29 +233,31 @@ impl DieMuxData {
     /// Check if this die module is applicable given the object and damage info
     /// (matches C++ DieMuxData::isDieApplicable)
     pub fn is_die_applicable(&self, obj: &Object, damage_info: &DamageInfo) -> bool {
-        let obj_veterancy_level = obj.get_veterancy_level();
-        let obj_status_bits = ObjectStatusMask::from_bits_truncate(obj.get_status_bits().bits());
+        self.is_die_applicable_snapshot(
+            obj.get_veterancy_level(),
+            ObjectStatusMask::from_bits_truncate(obj.get_status_bits().bits()),
+            damage_info,
+        )
+    }
 
-        // Check death type
+    pub fn is_die_applicable_snapshot(
+        &self,
+        obj_veterancy_level: VeterancyLevel,
+        obj_status_bits: ObjectStatusMask,
+        damage_info: &DamageInfo,
+    ) -> bool {
         if !crate::damage::get_death_type_flag(self.death_types, damage_info.input.death_type) {
             return false;
         }
-
-        // Check veterancy level
         if !get_veterancy_level_flag(self.veterancy_levels, obj_veterancy_level) {
             return false;
         }
-
-        // Check exempt status - all exempt bits must be clear
         if !self.exempt_status.is_empty() && obj_status_bits.intersects(self.exempt_status) {
             return false;
         }
-
-        // Check required status - all required bits must be set
         if !self.required_status.is_empty() && !obj_status_bits.contains(self.required_status) {
             return false;
         }
-
         true
     }
 }
@@ -316,24 +318,7 @@ impl Default for DieModuleData {
 
 impl Snapshotable for DieModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("DieModuleData crc version: {e:?}"))?;
-        let mut death_types = self.die_mux_data.death_types;
-        xfer.xfer_unsigned_int(&mut death_types)
-            .map_err(|e| format!("DieModuleData crc death_types: {e:?}"))?;
-        let mut veterancy_levels = self.die_mux_data.veterancy_levels;
-        xfer.xfer_unsigned_int(&mut veterancy_levels)
-            .map_err(|e| format!("DieModuleData crc veterancy_levels: {e:?}"))?;
-        let mut exempt_status = self.die_mux_data.exempt_status.bits();
-        xfer.xfer_u64(&mut exempt_status)
-            .map_err(|e| format!("DieModuleData crc exempt_status: {e:?}"))?;
-        let mut required_status = self.die_mux_data.required_status.bits();
-        xfer.xfer_u64(&mut required_status)
-            .map_err(|e| format!("DieModuleData crc required_status: {e:?}"))?;
-        let mut module_tag_name_key = self.module_tag_name_key;
-        xfer.xfer_unsigned_int(&mut module_tag_name_key)
-            .map_err(|e| format!("DieModuleData crc module_tag_name_key: {e:?}"))?;
+        let _ = xfer;
         Ok(())
     }
 

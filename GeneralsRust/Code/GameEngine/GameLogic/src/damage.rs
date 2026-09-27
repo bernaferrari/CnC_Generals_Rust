@@ -112,7 +112,8 @@ pub enum DamageType {
 
 impl Default for DamageType {
     fn default() -> Self {
-        DamageType::Unresistable
+        // C++ zero-initialized DamageType is DAMAGE_EXPLOSION (0), not UNRESISTABLE.
+        DamageType::Explosion
     }
 }
 
@@ -431,19 +432,20 @@ pub const DEATH_TYPE_FLAGS_NONE: DeathTypeFlags = 0x0000_0000;
 
 /// Check a particular death flag.
 pub fn get_death_type_flag(flags: DeathTypeFlags, death_type: DeathType) -> bool {
-    let bit = 1u32 << (death_type as u32 - 1);
+    // C++ `1UL << (dt - 1)`. dt 0 wraps; MSVC masks the count to 5 bits (bit 31).
+    let bit = 1u32 << ((death_type as u32).wrapping_sub(1) & 31);
     (flags & bit) != 0
 }
 
 /// Set a particular death flag.
 pub fn set_death_type_flag(flags: DeathTypeFlags, death_type: DeathType) -> DeathTypeFlags {
-    let bit = 1u32 << (death_type as u32 - 1);
+    let bit = 1u32 << ((death_type as u32).wrapping_sub(1) & 31);
     flags | bit
 }
 
 /// Clear a particular death flag.
 pub fn clear_death_type_flag(flags: DeathTypeFlags, death_type: DeathType) -> DeathTypeFlags {
-    let bit = 1u32 << (death_type as u32 - 1);
+    let bit = 1u32 << ((death_type as u32).wrapping_sub(1) & 31);
     flags & !bit
 }
 
@@ -489,35 +491,8 @@ impl Default for DamageInfoInput {
 }
 
 impl Snapshot for DamageInfoInput {
-    fn crc(&self, xfer: &mut dyn Xfer) {
-        // CRC the same fields as xfer() — uses local mutables for the xfer API.
-        // C++: DamageInfoInput::crc calls xferUnsignedInt/xferReal/xferCoord3d on each field.
-        let mut version: u8 = 3;
-        let _ = xfer.xfer_version(&mut version, 3);
-        let mut v = self.source_id;
-        let _ = xfer.xfer_unsigned_int(&mut v);
-        let mut v = self.source_player_mask.bits();
-        let _ = xfer.xfer_unsigned_int(&mut v);
-        let mut v = self.damage_type as u32;
-        let _ = xfer.xfer_unsigned_int(&mut v);
-        let mut v = self.damage_fx_override as u32;
-        let _ = xfer.xfer_unsigned_int(&mut v);
-        let mut v = self.death_type as u32;
-        let _ = xfer.xfer_unsigned_int(&mut v);
-        let mut v = self.amount;
-        let _ = xfer.xfer_real(&mut v);
-        let mut v = self.kill;
-        let _ = xfer.xfer_bool(&mut v);
-        let mut v = self.damage_status_type as u32;
-        let _ = xfer.xfer_unsigned_int(&mut v);
-        let mut v = self.shock_wave_vector;
-        let _ = xfer.xfer_coord3d(&mut v);
-        let mut v = self.shock_wave_amount;
-        let _ = xfer.xfer_real(&mut v);
-        let mut v = self.shock_wave_radius;
-        let _ = xfer.xfer_real(&mut v);
-        let mut v = self.shock_wave_taper_off;
-        let _ = xfer.xfer_real(&mut v);
+    fn crc(&self, _xfer: &mut dyn Xfer) {
+        // C++ DamageInfoInput::crc is empty. ActiveBody checksums go through xfer().
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
@@ -529,9 +504,9 @@ impl Snapshot for DamageInfoInput {
         let _ = xfer.xfer_unsigned_int(&mut source_id);
         self.source_id = source_id;
 
-        let mut player_mask_bits = self.source_player_mask.bits();
-        let _ = xfer.xfer_unsigned_int(&mut player_mask_bits);
-        self.source_player_mask = PlayerMaskType::from_bits_truncate(player_mask_bits);
+        let mut player_mask_bits = self.source_player_mask.bits() as u16;
+        let _ = xfer.xfer_unsigned_short(&mut player_mask_bits);
+        self.source_player_mask = PlayerMaskType::from_bits_truncate(player_mask_bits as u32);
 
         let mut damage_type = self.damage_type as u32;
         let _ = xfer.xfer_unsigned_int(&mut damage_type);
@@ -551,11 +526,10 @@ impl Snapshot for DamageInfoInput {
         let _ = xfer.xfer_real(&mut amount);
         self.amount = amount;
 
-        if version >= 2 {
-            let mut kill = self.kill;
-            let _ = xfer.xfer_bool(&mut kill);
-            self.kill = kill;
-        }
+        // C++ tests currentVersion (the constant 3), not the loaded version.
+        let mut kill = self.kill;
+        let _ = xfer.xfer_bool(&mut kill);
+        self.kill = kill;
 
         let mut status_type = self.damage_status_type as u32;
         let _ = xfer.xfer_unsigned_int(&mut status_type);
@@ -618,16 +592,7 @@ impl Default for DamageInfoOutput {
 }
 
 impl Snapshot for DamageInfoOutput {
-    fn crc(&self, xfer: &mut dyn Xfer) {
-        let mut version: u8 = 1;
-        let _ = xfer.xfer_version(&mut version, 1);
-        let mut v = self.actual_damage_dealt;
-        let _ = xfer.xfer_real(&mut v);
-        let mut v = self.actual_damage_clipped;
-        let _ = xfer.xfer_real(&mut v);
-        let mut v = self.no_effect;
-        let _ = xfer.xfer_bool(&mut v);
-    }
+    fn crc(&self, _xfer: &mut dyn Xfer) {}
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         const CURRENT_VERSION: u8 = 1;
@@ -671,12 +636,7 @@ pub struct DamageInfo {
 }
 
 impl Snapshot for DamageInfo {
-    fn crc(&self, xfer: &mut dyn Xfer) {
-        let mut version: u8 = 1;
-        let _ = xfer.xfer_version(&mut version, 1);
-        self.input.crc(xfer);
-        self.output.crc(xfer);
-    }
+    fn crc(&self, _xfer: &mut dyn Xfer) {}
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
         const CURRENT_VERSION: u8 = 1;

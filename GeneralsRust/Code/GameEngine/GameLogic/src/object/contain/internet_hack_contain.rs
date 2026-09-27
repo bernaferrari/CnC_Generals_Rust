@@ -80,17 +80,21 @@ impl InternetHackContain {
             return Ok(());
         };
 
-        if let Ok(rider_guard) = rider.read() {
-            if let Some(ai) = rider_guard.get_ai() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let params = AiCommandParams::new(
-                        AiCommandType::HackInternet,
-                        CommandSourceType::FromAi,
-                    );
-                    let _ = ai_guard.execute_command(&params);
-                }
-            }
-        }
+        let Ok(rider_guard) = rider.try_read() else {
+            return Err("Internet hack rider lock busy".into());
+        };
+        let Some(ai) = rider_guard.get_ai() else {
+            return Ok(());
+        };
+        let Ok(mut ai_guard) = ai.try_lock() else {
+            return Err("Internet hack AI lock busy".into());
+        };
+        drop(rider_guard);
+        let params = AiCommandParams::new(
+            AiCommandType::HackInternet,
+            CommandSourceType::FromAi,
+        );
+        ai_guard.execute_command(&params)?;
         Ok(())
     }
 
@@ -120,19 +124,19 @@ impl ContainModuleInterface for InternetHackContain {
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
         self.base
-            .remove_from_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-                false,
-            )
+            .remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
+    }
+
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .remove_from_contain(object_id, expose_stealth)
+            .map_err(|e| e.into())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -168,6 +172,37 @@ impl ContainModuleInterface for InternetHackContain {
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.on_die(damage_info).map_err(|e| e.into())
+    }
+
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .on_die_for_owner(Some(owner), damage_info)
+            .map_err(|e| e.into())
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.add_to_contain(other_id)?;
+        }
+        Ok(())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {

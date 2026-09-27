@@ -200,7 +200,7 @@ impl GameLogic {
                 ),
             );
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_target(Some(target_id));
+                obj.set_order_target(Some(target_id));
                 obj.set_ai_state(AIState::SpecialAbility);
             }
             self.path_approach_with_state_ignoring(
@@ -1559,12 +1559,21 @@ impl GameLogic {
         // target is cleared through stop_attack_decision_aware before it can
         // become a stale post-deploy shot.
         if let Some(attacker) = self.objects.get_mut(&sentry_id) {
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            attacker.note_attack_target(target_id);
+            let entered_attack = !matches!(
+                attacker.ai_state,
+                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+            );
+            if entered_attack {
+                attacker.set_ai_state(AIState::Attacking);
+            }
+            if entered_attack
+                && crate::gameworld_shadow::gameworld_ai_decision_authority_live()
+            {
                 crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
                 crate::game_logic::host_ai_decision_log::record_set_state(sentry_id, 2);
+            } else if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                crate::game_logic::host_ai_decision_log::record_attack(sentry_id, target_id);
             }
         }
         if !self.ensure_deploy_style_ready_to_fire(sentry_id) {
@@ -1810,12 +1819,19 @@ impl GameLogic {
                 );
                 attacker.fire_intent_count = next_count;
             }
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            attacker.note_attack_target(target_id);
+            let entered_attack = !matches!(
+                attacker.ai_state,
+                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+            );
+            if entered_attack {
+                attacker.set_ai_state(AIState::Attacking);
+            }
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(hellfire_id, target_id);
-                crate::game_logic::host_ai_decision_log::record_set_state(hellfire_id, 2);
+                if entered_attack {
+                    crate::game_logic::host_ai_decision_log::record_set_state(hellfire_id, 2);
+                }
             }
             if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
                 attacker.break_stealth();
@@ -2231,20 +2247,20 @@ impl GameLogic {
             .get(&target_id)
             .map(|t| t.contained_units())
             .unwrap_or_default();
-        let kill_n = kill_garrisoned_count(damage_amount, occupants.len());
+        let alive: Vec<ObjectId> = occupants
+            .into_iter()
+            .filter(|id| self.objects.get(id).is_some_and(|o| o.is_alive()))
+            .collect();
+        let kill_n = kill_garrisoned_count(damage_amount, alive.len());
         if kill_n == 0 {
             return 0;
         }
-
-        let to_kill: Vec<ObjectId> = occupants.into_iter().take(kill_n).collect();
-        if let Some(target) = self.objects.get_mut(&target_id) {
-            for &occ_id in &to_kill {
-                target.remove_occupant(occ_id);
-            }
-        }
+        let to_kill: Vec<ObjectId> = alive.into_iter().take(kill_n).collect();
 
         let mut kills = 0u32;
         let mut destroy_ids: Vec<ObjectId> = Vec::new();
+        let mut clear_players: Vec<i32> = Vec::new();
+        let mut score_pairs: Vec<(ObjectId, ObjectId)> = Vec::new();
         for occ_id in to_kill {
             let Some(occ) = self.objects.get_mut(&occ_id) else {
                 continue;
@@ -2252,23 +2268,52 @@ impl GameLogic {
             if !occ.is_alive() {
                 continue;
             }
+            let owner_pid = occ.owner_player_id;
+            let _ = occ.take_damage_from(
+                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
+                attacker_id,
+            );
+            let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
+            if !dead {
+                let _ = occ.take_damage_from(999_999.0, attacker_id);
+            }
+            let dead = !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed;
+            if !dead {
+                continue;
+            }
+            if let Some(pid) = owner_pid {
+                clear_players.push(pid as i32);
+            }
             occ.set_contained_by(None);
             occ.set_ai_state(AIState::Idle);
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(occ_id, 0);
             }
-            let _ = occ.take_damage_from(
-                BUNKER_BUSTER_OCCUPANT_DAMAGE.max(occ.health.current * 10.0),
-                attacker_id,
-            );
-            if !occ.is_alive() || occ.health.current <= 0.0 || occ.status.destroyed {
-                kills = kills.saturating_add(1);
-                destroy_ids.push(occ_id);
-            } else {
-                let _ = occ.take_damage_from(999_999.0, attacker_id);
-                kills = kills.saturating_add(1);
-                destroy_ids.push(occ_id);
+            if let Some(aid) = attacker_id {
+                score_pairs.push((aid, occ_id));
             }
+            kills = kills.saturating_add(1);
+            destroy_ids.push(occ_id);
+        }
+        if let Some(target) = self.objects.get_mut(&target_id) {
+            for &occ_id in &destroy_ids {
+                target.remove_occupant(occ_id);
+            }
+        }
+        if let Ok(list) = gamelogic::player::player_list().read() {
+            for pid in clear_players {
+                let Some(player) = list.get_player(pid) else {
+                    continue;
+                };
+                if let Ok(mut guard) = player.write() {
+                    guard
+                        .get_academy_stats_mut()
+                        .record_cleared_garrisoned_building();
+                }
+            }
+        }
+        for (killer, victim) in score_pairs {
+            self.award_score_the_kill_experience(killer, victim);
         }
         for id in destroy_ids {
             if let Some(player_id) = self.tunnel_network.player_holding_unit(id) {

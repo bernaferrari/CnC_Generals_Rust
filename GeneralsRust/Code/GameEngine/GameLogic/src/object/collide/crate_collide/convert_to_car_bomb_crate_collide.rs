@@ -378,56 +378,57 @@ impl ConvertToCarBombCrateCollide {
             drop(obj_guard);
 
             if let Some(team) = new_team {
-                let mut other_guard = other.write().map_err(|_| GameError::LockError)?;
-                other_guard.defect(Some(team), 0);
-            }
-        }
-
-        // Transfer terrorist name to the car for script control.
-        {
-            let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
-            let owner_name = obj_guard.get_name().clone();
-            if !owner_name.is_empty() {
-                transfer_object_name(&owner_name, other_id).ok();
-            }
-        }
-
-        // Transfer vision and shroud clearing ranges.
-        {
-            let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
-            let vision = obj_guard.get_vision_range();
-            let shroud = obj_guard.get_shroud_clearing_range();
-            drop(obj_guard);
-
-            let mut other_guard = other.write().map_err(|_| GameError::LockError)?;
-            other_guard.set_vision_range(vision);
-            other_guard.set_shroud_clearing_range(shroud);
-        }
-
-        // Mark as car bomb.
-        {
-            let mut other_guard = other.write().map_err(|_| GameError::LockError)?;
-            other_guard.set_status(ObjectStatusMaskType::IS_CAR_BOMB, true);
-        }
-
-        // Copy veterancy level.
-        {
-            let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
-            let level = obj_guard.get_veterancy_level();
-            drop(obj_guard);
-
-            let other_guard = other.read().map_err(|_| GameError::LockError)?;
-            if let Some(exp) = other_guard.get_experience_tracker() {
-                if let Ok(mut exp_guard) = exp.lock() {
-                    exp_guard.set_veterancy_level(level);
+                if let Ok(mut other_guard) = other.write() {
+                    other_guard.defect(Some(team), 0);
                 }
             }
         }
 
-        other
-            .read()
-            .map_err(|_| GameError::LockError)?
-            .refresh_radar_object_from_state();
+        {
+            if let Ok(obj_guard) = obj.read() {
+                let owner_name = obj_guard.get_name().clone();
+                if !owner_name.is_empty() {
+                    transfer_object_name(&owner_name, other_id).ok();
+                }
+            }
+        }
+
+        {
+            if let Ok(obj_guard) = obj.read() {
+                let vision = obj_guard.get_vision_range();
+                let shroud = obj_guard.get_shroud_clearing_range();
+                drop(obj_guard);
+
+                if let Ok(mut other_guard) = other.write() {
+                    other_guard.set_vision_range(vision);
+                    other_guard.set_shroud_clearing_range(shroud);
+                }
+            }
+        }
+
+        if let Ok(mut other_guard) = other.write() {
+            other_guard.set_status(ObjectStatusMaskType::IS_CAR_BOMB, true);
+        }
+
+        if let Ok(obj_guard) = obj.read() {
+            let level = obj_guard.get_veterancy_level();
+            drop(obj_guard);
+
+            if let Ok(mut other_guard) = other.write() {
+                if let Some(exp) = other_guard.get_experience_tracker() {
+                    if let Ok(mut exp_guard) = exp.lock() {
+                        if let Some(old_level) = exp_guard.set_veterancy_level(level) {
+                            drop(exp_guard);
+                            other_guard.on_veterancy_level_changed(old_level, level, true);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(other_guard) = other.read() {
+            other_guard.refresh_radar_object_from_state();
+        }
 
         Ok(true)
     }

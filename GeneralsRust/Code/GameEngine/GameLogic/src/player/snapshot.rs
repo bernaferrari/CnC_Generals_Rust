@@ -130,7 +130,7 @@ impl Snapshotable for Player {
         }
 
         // Upgrade instances
-        if xfer.get_xfer_mode() == XferMode::Save {
+        if xfer.get_xfer_mode() != XferMode::Load {
             for upgrade in &mut self.upgrade_list {
                 let mut upgrade_name = upgrade.get_template().get_name().to_string();
                 xfer.xfer_ascii_string(&mut upgrade_name)
@@ -138,7 +138,6 @@ impl Snapshotable for Player {
                 upgrade.xfer(xfer)?;
             }
         } else {
-            self.upgrade_list.clear();
             for _ in 0..upgrade_count {
                 let mut upgrade_name = String::new();
                 xfer.xfer_ascii_string(&mut upgrade_name)
@@ -178,7 +177,7 @@ impl Snapshotable for Player {
             xfer.xfer_upgrade_mask(&mut in_progress)
                 .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                self.upgrades_in_progress = UpgradeMaskType::from_bits_truncate(in_progress);
+                self.upgrades_in_progress = UpgradeMaskType::from_bits_retain(in_progress);
             }
         }
         {
@@ -186,7 +185,7 @@ impl Snapshotable for Player {
             xfer.xfer_upgrade_mask(&mut completed)
                 .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                self.upgrades_completed = UpgradeMaskType::from_bits_truncate(completed);
+                self.upgrades_completed = UpgradeMaskType::from_bits_retain(completed);
             }
         }
 
@@ -219,7 +218,7 @@ impl Snapshotable for Player {
             let mut prototype_count = self.player_team_prototypes.len() as u16;
             xfer.xfer_unsigned_short(&mut prototype_count)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Save {
+            if xfer.get_xfer_mode() != XferMode::Load {
                 for prototype in &self.player_team_prototypes {
                     let mut proto_id = prototype.get_id();
                     xfer.xfer_u32(&mut proto_id).map_err(|e| e.to_string())?;
@@ -243,18 +242,16 @@ impl Snapshotable for Player {
         // Build list info (count + snapshots)
         {
             let mut build_list_count: UnsignedShort = 0;
-            if xfer.get_xfer_mode() == XferMode::Save {
-                let mut entry = self.build_list.as_deref();
-                while let Some(info) = entry {
-                    build_list_count = build_list_count.saturating_add(1);
-                    entry = info.get_next();
-                }
+            let mut entry = self.build_list.as_deref();
+            while let Some(info) = entry {
+                build_list_count = build_list_count.saturating_add(1);
+                entry = info.get_next();
             }
 
             xfer.xfer_unsigned_short(&mut build_list_count)
                 .map_err(|e| e.to_string())?;
 
-            if xfer.get_xfer_mode() == XferMode::Save {
+            if xfer.get_xfer_mode() != XferMode::Load {
                 let mut entry = self.build_list.as_deref_mut();
                 while let Some(info) = entry {
                     info.xfer(xfer);
@@ -378,10 +375,8 @@ impl Snapshotable for Player {
             .map_err(|e| e.to_string())?;
 
         // Level up/down (C++ has these, Rust may not track them separately)
-        let mut level_up: Int = 0;
-        xfer.xfer_int(&mut level_up).map_err(|e| e.to_string())?;
-        let mut level_down: Int = 0;
-        xfer.xfer_int(&mut level_down).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.level_up).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.level_down).map_err(|e| e.to_string())?;
 
         // General name (C++ Player::xfer writes UnicodeString)
         xfer.xfer_unicode_string(&mut self.general_name)
@@ -395,7 +390,7 @@ impl Snapshotable for Player {
             let mut rel_count = self.player_relations.map.len() as u16;
             xfer.xfer_unsigned_short(&mut rel_count)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Save {
+            if xfer.get_xfer_mode() != XferMode::Load {
                 for (&pidx, &rel) in &self.player_relations.map {
                     let mut player_idx = pidx;
                     let mut rel_raw = rel as Int;
@@ -403,7 +398,6 @@ impl Snapshotable for Player {
                     xfer.xfer_int(&mut rel_raw).map_err(|e| e.to_string())?;
                 }
             } else {
-                self.player_relations.map.clear();
                 for _ in 0..rel_count {
                     let mut player_idx: Int = 0;
                     let mut rel_raw: Int = 0;
@@ -432,7 +426,7 @@ impl Snapshotable for Player {
                 .unwrap_or(0);
             xfer.xfer_unsigned_short(&mut rel_count)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Save {
+            if xfer.get_xfer_mode() != XferMode::Load {
                 if let Some(ref relations) = self.team_relations {
                     for (&tid, &rel) in &relations.map {
                         let mut team_id_val = tid;
@@ -442,9 +436,10 @@ impl Snapshotable for Player {
                     }
                 }
             } else {
-                self.team_relations = None;
-                if rel_count > 0 {
-                    let mut map = crate::team::TeamRelationMap::new();
+                if self.team_relations.is_none() && rel_count > 0 {
+                    self.team_relations = Some(crate::team::TeamRelationMap::new());
+                }
+                if let Some(relations) = self.team_relations.as_mut() {
                     for _ in 0..rel_count {
                         let mut team_id_val: UnsignedInt = 0;
                         let mut rel_raw: Int = 0;
@@ -456,9 +451,8 @@ impl Snapshotable for Player {
                             2 => Relationship::Allies,
                             _ => Relationship::Neutral,
                         };
-                        map.map.insert(team_id_val, rel);
+                        relations.map.insert(team_id_val, rel);
                     }
-                    self.team_relations = Some(map);
                 }
             }
         }
@@ -559,7 +553,7 @@ impl Snapshotable for Player {
             let mut change_count = self.kind_of_percent_production_change_list.len() as u16;
             xfer.xfer_unsigned_short(&mut change_count)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Save {
+            if xfer.get_xfer_mode() != XferMode::Load {
                 for entry in &self.kind_of_percent_production_change_list {
                     let mut kind_of_raw = entry.kind_of;
                     xfer_kind_of_mask(xfer, &mut kind_of_raw)?;
@@ -596,7 +590,7 @@ impl Snapshotable for Player {
             }
             xfer.xfer_unsigned_short(&mut timer_count)
                 .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Save {
+            if xfer.get_xfer_mode() != XferMode::Load {
                 if let Ok(timers) = self.special_power_ready_timers.read() {
                     for timer in timers.iter() {
                         let mut template_id = timer.template_id;
@@ -630,7 +624,7 @@ impl Snapshotable for Player {
             }
             for slot in &mut self.squads {
                 if slot.is_none() {
-                    *slot = Some(Squad::new());
+                    return Err("Player::xfer - NULL squad".to_string());
                 }
                 if let Some(squad) = slot.as_mut() {
                     squad.xfer(xfer)?;
@@ -644,14 +638,12 @@ impl Snapshotable for Player {
             xfer.xfer_bool(&mut selection_present)
                 .map_err(|e| e.to_string())?;
             if selection_present {
-                if self.current_selection.is_none() {
+                if self.current_selection.is_none() && xfer.get_xfer_mode() == XferMode::Load {
                     self.current_selection = Some(Squad::new());
                 }
                 if let Some(ref mut selection) = self.current_selection {
                     selection.xfer(xfer)?;
                 }
-            } else {
-                self.current_selection = None;
             }
         }
 

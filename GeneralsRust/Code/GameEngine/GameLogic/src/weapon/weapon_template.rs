@@ -676,6 +676,103 @@ impl WeaponTemplate {
         false
     }
 
+    /// Snapshot this template as the store's `WeaponTemplate`.
+    /// Damage, speed, and reload fields are copied unchanged.
+    fn store_template(&self) -> super::template::WeaponTemplate {
+        let mut template = super::template::WeaponTemplate::new(self.name.clone());
+        template.name_key = self.name_key;
+        template.primary_damage = self.primary_damage;
+        template.primary_damage_radius = self.primary_damage_radius;
+        template.secondary_damage = self.secondary_damage;
+        template.secondary_damage_radius = self.secondary_damage_radius;
+        template.shock_wave_amount = self.shock_wave_amount;
+        template.shock_wave_radius = self.shock_wave_radius;
+        template.shock_wave_taper_off = self.shock_wave_taper_off;
+        template.attack_range = self.attack_range;
+        template.minimum_attack_range = self.minimum_attack_range;
+        template.request_assist_range = self.request_assist_range;
+        template.aim_delta = self.aim_delta;
+        template.scatter_radius = self.scatter_radius;
+        template.scatter_target_scalar = self.scatter_target_scalar;
+        template.scatter_targets = self
+            .scatter_targets
+            .iter()
+            .map(|point| super::masks_enums::Coord2D::new(point.x, point.y))
+            .collect();
+        template.min_delay_between_shots = self.min_delay_between_shots;
+        template.max_delay_between_shots = self.max_delay_between_shots;
+        template.clip_size = self.clip_size;
+        template.clip_reload_time = self.clip_reload_time;
+        template.pre_attack_delay = self.pre_attack_delay;
+        template.auto_reload_when_idle_frames = self.auto_reload_when_idle_frames;
+        template.suspend_fx_delay = self.suspend_fx_delay;
+        template.weapon_speed = self.weapon_speed;
+        template.min_weapon_speed = self.min_weapon_speed;
+        template.is_scale_weapon_speed = self.is_scale_weapon_speed;
+        template.weapon_recoil = self.weapon_recoil;
+        template.min_target_pitch = self.min_target_pitch;
+        template.max_target_pitch = self.max_target_pitch;
+        template.radius_damage_angle = self.radius_damage_angle;
+        template.projectile_name = self.projectile_name.clone();
+        template.projectile_stream_name = self.projectile_stream_name.clone();
+        template.laser_name = self.laser_name.clone();
+        template.laser_bone_name = self.laser_bone_name.clone();
+        template.damage_type = self.damage_type;
+        template.damage_status_type =
+            super::masks_enums::ObjectStatusTypes::from(self.damage_status_type);
+        template.death_type = self.death_type;
+        template.anti_mask = self.anti_mask;
+        template.affects_mask = self.affects_mask;
+        template.collide_mask = self.collide_mask;
+        template.damage_dealt_at_self_position = self.damage_dealt_at_self_position;
+        template.reload_type = self.reload_type;
+        template.prefire_type = self.prefire_type;
+        template.leech_range_weapon = self.leech_range_weapon;
+        template.capable_of_following_waypoint = self.capable_of_following_waypoint;
+        template.is_shows_ammo_pips = self.is_shows_ammo_pips;
+        template.allow_attack_garrisoned_bldgs = self.allow_attack_garrisoned_bldgs;
+        template.play_fx_when_stealthed = self.play_fx_when_stealthed;
+        template.die_on_detonate = self.die_on_detonate;
+        template.must_travel_pfx = self.must_travel_pfx;
+        template.continuous_fire_one_shots_needed = self.continuous_fire_one_shots_needed;
+        template.continuous_fire_two_shots_needed = self.continuous_fire_two_shots_needed;
+        template.continuous_fire_coast_frames = self.continuous_fire_coast_frames;
+        template.continue_attack_range = self.continue_attack_range;
+        template.infantry_inaccuracy_dist = self.infantry_inaccuracy_dist;
+        template.shots_per_barrel = self.shots_per_barrel;
+        template.historic_bonus_time = self.historic_bonus_time;
+        template.historic_bonus_radius = self.historic_bonus_radius;
+        template.historic_bonus_count = self.historic_bonus_count;
+        if let Some(bonus_weapon) = self
+            .historic_bonus_weapon
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+        {
+            template.historic_bonus_weapon_name = bonus_weapon.name.clone();
+        }
+        template.fire_sound = self.fire_sound.clone();
+        template.fire_sound_loop_time = self.fire_sound_loop_time;
+        template.fire_fx = self.fire_fx.clone();
+        template.projectile_detonate_fx = self.projectile_detonate_fx.clone();
+        template.fire_ocl = self
+            .fire_ocl
+            .clone()
+            .map(|entry| entry.map(Arc::new));
+        template.projectile_detonation_ocl = self
+            .projectile_detonation_ocl
+            .clone()
+            .map(|entry| entry.map(Arc::new));
+        template.projectile_exhaust = self
+            .projectile_exhaust
+            .clone()
+            .map(|entry| entry.map(Arc::new));
+        template.extra_bonus = self.extra_bonus.clone();
+        if let Some(next) = self.get_next_template() {
+            template.set_next_template(next.store_template());
+        }
+        template
+    }
+
     // ===== CORE WEAPON FIRING SYSTEM =====
 
     /// Fire the weapon template with full damage calculation
@@ -765,14 +862,15 @@ impl WeaponTemplate {
 
         // Range checking if not ignoring ranges (C++ lines 850-886)
         if !ignore_ranges {
+            let leech = self.leech_range_weapon;
             let attack_range_sqr = self.get_attack_range(bonus).powi(2);
-            if dist_sqr > attack_range_sqr {
-                return Ok(0); // Out of max range
+            if !leech && dist_sqr > attack_range_sqr {
+                return Ok(0);
             }
 
             let min_attack_range_sqr = self.get_minimum_attack_range().powi(2);
             if dist_sqr < min_attack_range_sqr && !is_projectile_detonation {
-                return Ok(0); // Too close (inside min range)
+                return Ok(0);
             }
         }
 
@@ -806,10 +904,14 @@ impl WeaponTemplate {
             }
         }
 
+        let muzzle_fx = if fx_suspended {
+            None
+        } else if is_projectile_detonation {
+            self.get_projectile_detonate_fx(veterancy)
+        } else {
+            self.get_fire_fx(veterancy)
+        };
         let mut handled_fire_fx = stealth_suppressed;
-        // If a draw module fires at the FX bone it returns true and this
-        // origin fallback is skipped (Weapon.cpp:923-940). C++ still calls the
-        // drawable with a null FX so barrel recoil plays (Weapon.cpp:899).
         if !stealth_suppressed {
             if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
                 let drawable = source_arc
@@ -819,29 +921,27 @@ impl WeaponTemplate {
                 if let Some(drawable) = drawable {
                     if let Ok(mut draw_guard) = drawable.write() {
                         handled_fire_fx = draw_guard.handle_weapon_fire_fx(
-                            map_weapon_slot_to_common(weapon_slot),
+                            crate::common::WeaponSlotType::from(weapon_slot),
                             specific_barrel_to_use,
+                            muzzle_fx,
                             &actual_victim_pos,
+                            self.weapon_speed,
+                            self.get_primary_damage_radius(bonus),
                         );
                     }
                 }
             }
         }
 
-        log::debug!(
-            "Fire FX for weapon '{}' at barrel {} (veterancy: {:?})",
-            self.name,
-            specific_barrel_to_use,
-            veterancy
-        );
-
-        if !handled_fire_fx && !fx_suspended {
-            if let Some(fx) = self.get_fire_fx(veterancy) {
-                if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
-                    let _ = fx.do_fx_obj(&source_arc, None);
-                } else {
-                    let _ = fx.do_fx_at_position(&source_pos);
-                }
+        if !handled_fire_fx {
+            if let Some(fx) = muzzle_fx {
+                let _ = fx.do_fx_pos(
+                    &source_pos,
+                    None,
+                    self.weapon_speed,
+                    Some(&actual_victim_pos),
+                    self.get_primary_damage_radius(bonus),
+                );
             }
         }
 
@@ -927,15 +1027,9 @@ impl WeaponTemplate {
             )?;
             *projectile_id = proj_id;
 
-            // Notify firing weapon of new projectile (C++ line 1116)
+            // C++ Weapon.cpp:1116 newProjectileFired. The stream object
+            // and add_projectile live on Weapon::new_projectile_fired.
             if let Some(firing_wpn) = firing_weapon {
-                // Notify weapon that projectile was created for tracking/management
-                // C++ line 1116: firingWpn->newProjectileFired(sourceID, projectileID, actualVictimID, projectileDestination)
-                // NOTE: Projectile tracking system integration pending
-                // When implemented, this will:
-                // 1. Store projectile ID in weapon for lifetime management
-                // 2. Track projectile stream continuity
-                // 3. Handle multi-barrel rotation
                 if let Some(new_projectile_id) = proj_id {
                     firing_wpn.new_projectile_fired(
                         source_id,
@@ -1079,66 +1173,31 @@ impl WeaponTemplate {
 
                 return Ok(current_frame);
             } else {
-                // ===== DELAYED DAMAGE (C++ lines 1055-1075) =====
-                // Slow enough that we need to schedule damage for a future frame
-
-                let delay_in_whole_frames = delay_in_frames.ceil() as u32;
-                let when = current_frame + delay_in_whole_frames;
-
+                // C++ Weapon.cpp:1057 queues this template when the store exists.
+                // A name miss must not drop the shot or deal it now.
+                let mut when = 0u32;
                 if inflict_damage {
-                    // Schedule on the active runtime store by template name.
-                    // This keeps delayed damage alive even though this module has
-                    // a parallel template type.
-                    let mut scheduled = false;
+                    let delay_in_whole_frames = delay_in_frames.ceil() as u32;
+                    let scheduled_frame = current_frame + delay_in_whole_frames;
+                    let queued = self.store_template();
                     match crate::weapon::with_weapon_store_mut(|store| {
-                        if let Some(active_template) =
-                            store.find_weapon_template(&self.name).cloned()
-                        {
-                            store.set_delayed_damage(
-                                &active_template,
-                                damage_pos,
-                                when,
-                                source_id,
-                                damage_id,
-                                bonus,
-                            );
-                            true
-                        } else {
-                            false
-                        }
+                        store.set_delayed_damage_from_template(
+                            &queued,
+                            damage_pos,
+                            scheduled_frame,
+                            source_id,
+                            damage_id,
+                            bonus,
+                        );
                     }) {
-                        Ok(true) => {
-                            scheduled = true;
-                            log::debug!(
-                                "Scheduled delayed damage for frame {} (delay {} frames) for weapon '{}'",
-                                when,
-                                delay_in_whole_frames,
-                                self.name
-                            );
-                        }
-                        Ok(false) => {
-                            log::warn!(
-                                "Failed to schedule delayed damage for '{}' (template not found in active store); applying immediate fallback",
-                                self.name
-                            );
-                        }
+                        Ok(()) => when = scheduled_frame,
                         Err(err) => {
                             log::warn!(
-                                "Failed to schedule delayed damage for '{}' ({:?}); applying immediate fallback",
+                                "Failed to schedule delayed damage for '{}' ({:?}); not applying early",
                                 self.name,
                                 err
                             );
                         }
-                    }
-
-                    if !scheduled {
-                        self.deal_damage_internal(
-                            source_id,
-                            damage_id,
-                            damage_pos,
-                            bonus,
-                            is_projectile_detonation,
-                        )?;
                     }
                 }
 
@@ -1461,7 +1520,11 @@ impl WeaponTemplate {
             if let Ok(source_guard) = source_obj.read() {
                 damage_info.input.source_template = Some(source_guard.get_template().clone());
                 if let Some(player_id) = source_guard.get_controlling_player_id() {
-                    let bit = if player_id < 8 { 1u32 << player_id } else { 0 };
+                    let bit = if (0..16).contains(&player_id) {
+                        1u32 << player_id
+                    } else {
+                        0
+                    };
                     damage_info.input.source_player_mask = PlayerMaskType::from_bits_truncate(bit);
                 }
             }
@@ -1668,29 +1731,18 @@ impl WeaponTemplate {
                         continue; // Can't read source, bail
                     };
 
-                    // Get source's forward direction vector (X-axis from transform)
-                    // C++ code: Vector3 sourceVector = source->getTransformMatrix()->Get_X_Vector()
-                    let source_angle = source_guard.get_geometry_info().angle;
-                    let source_dir = Coord3D::new(source_angle.cos(), source_angle.sin(), 0.0);
-
-                    // Calculate damage direction vector (from source position to target)
-                    // C++ code: damageDirection.set(curVictim->getPosition()); damageDirection.sub(source->getPosition())
+                    let x_axis = source_guard.get_transform_matrix().x_axis;
                     let source_pos = source_guard.get_position();
-                    let damage_dir = Coord3D::new(
-                        target_pos.x - source_pos.x,
-                        target_pos.y - source_pos.y,
-                        target_pos.z - source_pos.z,
-                    );
-
-                    // Normalize both vectors for dot product calculation
-                    let source_dir_norm = source_dir.normalize();
-                    let damage_dir_norm = damage_dir.normalize();
-
-                    // Dot product gives cos(angle between vectors)
-                    // C++ code: if( Vector3::Dot_Product(sourceVector, damageVector) < Cos(allowedAngle) )
-                    let dot = source_dir_norm.x * damage_dir_norm.x
-                        + source_dir_norm.y * damage_dir_norm.y
-                        + source_dir_norm.z * damage_dir_norm.z;
+                    let dx = target_pos.x - source_pos.x;
+                    let dy = target_pos.y - source_pos.y;
+                    let dz = target_pos.z - source_pos.z;
+                    let dlen = (dx * dx + dy * dy + dz * dz).sqrt();
+                    let slen =
+                        (x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z).sqrt();
+                    if dlen <= f32::EPSILON || slen <= f32::EPSILON {
+                        continue;
+                    }
+                    let dot = (x_axis.x * dx + x_axis.y * dy + x_axis.z * dz) / (slen * dlen);
 
                     // If dot < cos(allowed_angle), target is outside the cone
                     if dot < allowed_angle.cos() {
@@ -2138,16 +2190,8 @@ impl WeaponTemplate {
         weapon_slot: WeaponSlotType,
         bonus: &WeaponBonus,
     ) -> GameLogicResult<()> {
-        // 1. Play fire sound
-        if !self.fire_sound.is_empty() {
-            log::debug!("Playing fire sound for weapon '{}'", self.name);
-            game_engine::common::audio::dispatch_weapon_fire(
-                self.fire_sound.name(),
-                source_pos.x,
-                source_pos.y,
-                source_pos.z,
-            );
-        }
+        // C++ FireSound is FiringTracker::shotFired only.
+        let _ = (source_obj, source_pos, weapon_slot, bonus);
 
         // 2. Apply weapon recoil to source object
         if self.weapon_recoil > 0.0 {

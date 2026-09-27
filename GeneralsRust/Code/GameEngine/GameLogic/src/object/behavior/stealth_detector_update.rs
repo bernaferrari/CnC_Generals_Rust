@@ -564,16 +564,12 @@ impl StealthDetectorUpdate {
         // C++ StealthDetectorUpdate.cpp:67-70 — random first wake so detectors
         // do not all scan on the same frame.
         let update_rate = specific_data.update_rate.max(1);
+        let now = crate::helpers::TheGameLogic::get_frame();
         let next_call_frame_and_phase = if enabled {
             let wake = stealth_detector_ctor_wake_frames(update_rate);
-            crate::helpers::TheGameLogic::set_wake_frame(
-                object_id,
-                UpdateSleepTime::from_u32(wake),
-            );
-            wake
+            now.saturating_add(wake)
         } else {
-            crate::helpers::TheGameLogic::set_wake_frame(object_id, UpdateSleepTime::Forever);
-            0
+            UpdateSleepTime::Forever.to_u32()
         };
 
         Ok(Self {
@@ -595,6 +591,23 @@ impl StealthDetectorUpdate {
     /// Set detector enabled state
     pub fn set_enabled(&mut self, enabled: Bool) {
         self.enabled = enabled;
+        let now = crate::helpers::TheGameLogic::get_frame();
+        self.next_call_frame_and_phase = if enabled {
+            now.saturating_add(1)
+        } else {
+            UpdateSleepTime::Forever.to_u32()
+        };
+        if self.object_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
+            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
+        ) else {
+            return;
+        };
+        if let Ok(guard) = object.read() {
+            guard.reschedule_named_update("StealthDetectorUpdate", self.next_call_frame_and_phase);
+        }
     }
 
     fn clear_grid_particles(&mut self) {
@@ -1040,6 +1053,10 @@ pub struct StealthDetectorUpdateModule {
 }
 
 impl StealthDetectorUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: StealthDetectorUpdate,
         module_name: &AsciiString,

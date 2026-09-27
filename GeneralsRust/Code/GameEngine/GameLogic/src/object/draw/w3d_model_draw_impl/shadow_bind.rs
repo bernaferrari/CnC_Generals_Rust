@@ -27,76 +27,92 @@ impl W3DModelDraw {
                 self.cap_terrain_track();
             }
         }
-        self.sync_shadow_render_flags();
         if self.terrain_decal != TerrainDecalType::None {
             self.apply_terrain_decal(self.terrain_decal);
         }
+        // Decal render is !hidden. Blob render is !hidden && options, and shroud stays.
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = terrain_decal_client() else {
+            return;
+        };
+        client.set_shadow_enabled(owner_id, !self.hidden);
+        client.set_blob_render(owner_id, !self.hidden && self.shadow_enabled);
     }
 
     fn apply_shadows_enabled(&mut self, enable: bool) {
-        // C++ setShadowsEnabled: enableShadowRender(enable); m_shadowEnabled = enable.
+        // C++ setShadowsEnabled only toggles m_shadow, including while a ring exists.
         self.shadow_enabled = enable;
-        self.sync_shadow_render_flags();
-        if self.terrain_decal != TerrainDecalType::None {
-            self.apply_terrain_decal(self.terrain_decal);
-        }
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+        let Some(client) = terrain_decal_client() else {
+            return;
+        };
+        client.set_blob_render(owner_id, enable && !self.hidden);
     }
 
     fn allocate_template_shadow(&mut self) {
-        // C++ allocateShadows: TheW3DShadowManager->addShadow only when Shadow != NONE.
+        // C++ allocateShadows addShadow even when m_terrainDecal is a ring.
         if self.shadow_allocated {
             return;
         }
         let Some(owner_id) = self.owner_id else {
             return;
         };
-        if self.terrain_decal != TerrainDecalType::None {
-            // A live horde/crate decal already occupies the client handle.
-            self.sync_shadow_render_flags();
-            self.shadow_allocated = true;
-            return;
-        }
-        let shadow_none = TheGameLogic::find_object_by_id(owner_id)
-            .and_then(|object| {
-                object
-                    .read()
-                    .ok()
-                    .map(|obj| obj.get_template().as_ref().get_shadow_type_bits() == 0)
-            })
-            .unwrap_or(true);
-        if shadow_none {
-            return;
-        }
-        // C++ addShadow returns NULL when !TheGlobalData->m_useShadowDecals.
         if !game_engine::common::game_lod::use_shadow_decals() {
             return;
         }
-        self.apply_terrain_decal(TerrainDecalType::ShadowTexture);
-
-        if terrain_decal_client().is_some() {
-            self.shadow_allocated = true;
-        }
-        self.sync_shadow_render_flags();
-    }
-
-
-    fn release_template_shadow(&mut self) {
-        // C++ releaseShadows: m_shadow->release(); m_shadow = NULL.
-        if !self.shadow_allocated {
-            self.sync_shadow_render_flags();
+        let Some(client) = terrain_decal_client() else {
+            return;
+        };
+        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(obj) = object.read() else {
+            return;
+        };
+        let tmpl = obj.get_template();
+        let shadow_type = tmpl.as_ref().get_shadow_type_bits();
+        if shadow_type == 0 {
             return;
         }
-        if self.terrain_decal == TerrainDecalType::None
-            || self.terrain_decal == TerrainDecalType::ShadowTexture
-        {
-            if let Some(owner_id) = self.owner_id {
-                if let Some(client) = terrain_decal_client() {
-                    client.release(owner_id);
-                }
+        let position = *obj.get_position();
+        let mut texture_name = tmpl.as_ref().get_shadow_texture_name().to_string();
+        // C++ `addShadow`: an empty `m_ShadowName` on `SHADOW_PROJECTION` uses
+        // `robj->Get_Name()`. Decal shadows stay empty so the client can
+        // substitute `shadow.tga`.
+        const SHADOW_PROJECTION: u32 = 0x0000_0004;
+        if shadow_type == SHADOW_PROJECTION && texture_name.is_empty() {
+            if let Some(state) = self.current_state() {
+                texture_name = state.model_name.as_str().to_string();
             }
-            self.terrain_decal = TerrainDecalType::None;
-        } else {
-            self.sync_shadow_render_flags();
+        }
+        client.add_unit_shadow(&TerrainDecalDesc {
+            object_id: owner_id,
+            texture_name,
+            size_x: tmpl.as_ref().get_shadow_size_x(),
+            size_y: tmpl.as_ref().get_shadow_size_y(),
+            opacity: 1.0,
+            offset_x: tmpl.as_ref().get_shadow_offset_x(),
+            offset_y: tmpl.as_ref().get_shadow_offset_y(),
+            position,
+            angle: obj.get_orientation(),
+            hidden: self.hidden,
+            shrouded: self.fully_obscured_by_shroud,
+            shadow_enabled: self.shadow_enabled,
+            is_unit_blob: true,
+            shadow_type,
+        });
+        self.shadow_allocated = true;
+    }
+
+    fn release_template_shadow(&mut self) {
+        if let Some(owner_id) = self.owner_id {
+            if let Some(client) = terrain_decal_client() {
+                client.release_unit_shadow(owner_id);
+            }
         }
         self.shadow_allocated = false;
     }

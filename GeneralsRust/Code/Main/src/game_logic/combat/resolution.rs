@@ -5,6 +5,21 @@ impl Default for CombatSystem {
         Self::new()
     }
 }
+fn projectile_goal_on_object(target: &Object) -> Vec3 {
+    let pos = target.get_position();
+    let mut goal = pos;
+    let half = target
+        .thing
+        .template
+        .geometry_info
+        .max_height_above_position()
+        * 0.5;
+    goal.y += half;
+    if pos.y < goal.y {
+        goal.y += half;
+    }
+    goal
+}
 
 impl CombatSystem {
     pub fn new() -> Self {
@@ -354,6 +369,7 @@ impl CombatSystem {
     }
 
     /// Projectile step that applies RadiusDamageAffects via GameWorld player relationships.
+
     pub fn update_projectiles_with_relationships(
         &mut self,
         dt: f32,
@@ -380,11 +396,12 @@ impl CombatSystem {
                     .map(|target_id| objects.get(&target_id).is_some_and(Object::is_alive))
                     .unwrap_or(true);
                 // Homing residual: refresh aim point from live target before step.
+                // C++ AIMoveToState::onEnter lifts projectile goals by target height.
                 if projectile.is_homing {
                     if let Some(tid) = projectile.target_id {
                         if let Some(tgt) = objects.get(&tid) {
                             if tgt.is_alive() {
-                                projectile.target_position = tgt.get_position();
+                                projectile.target_position = projectile_goal_on_object(tgt);
                             }
                         }
                     }

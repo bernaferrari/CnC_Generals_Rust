@@ -21,6 +21,8 @@ pub struct AIInternalMoveToState {
     name: String,
     machine: Weak<Mutex<StateMachine>>,
     goal_position: Coord3D,
+    goal_object_id: crate::common::ObjectID,
+    owner_id: crate::common::ObjectID,
     goal_layer: PathfindLayerEnum,
     waiting_for_path: bool,
     path_goal_position: Coord3D,
@@ -47,6 +49,8 @@ impl AIInternalMoveToState {
             name,
             machine: Arc::downgrade(machine),
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
+            goal_object_id: crate::common::INVALID_ID,
+            owner_id: crate::common::INVALID_ID,
             goal_layer: PathfindLayerEnum::Invalid,
             waiting_for_path: false,
             path_goal_position: Coord3D::new(0.0, 0.0, 0.0),
@@ -72,12 +76,12 @@ impl AIInternalMoveToState {
         F: FnOnce(&mut StateMachine) -> R,
     {
         let machine = self.upgrade_machine()?;
-        let mut guard = machine.lock().map_err(|_| {
-            format!(
-                "AIInternalMoveToState '{}' failed to lock machine",
+        let Ok(mut guard) = machine.try_lock() else {
+            return Err(format!(
+                "AIInternalMoveToState '{}' machine lock busy",
                 self.name
-            )
-        })?;
+            ));
+        };
         Ok(f(&mut guard))
     }
 
@@ -100,25 +104,27 @@ impl AIInternalMoveToState {
             owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
             owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
         }
+        drop(owner_guard);
         let mut ai_guard = ai
             .lock()
             .map_err(|_| "AIInternalMoveToState AI lock poisoned".to_string())?;
 
-        if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-            if let Ok(mut loco_guard) = locomotor.lock() {
-                if loco_guard.is_ultra_accurate() {
-                    self.set_adjusts_destination(false);
-                }
-                // C++ AIInternalMoveToState::onEnter (AIStates.cpp:1604-1605).
-                loco_guard.start_move();
+        ai_guard.with_cur_locomotor(&mut |loco| {
+            if loco.is_ultra_accurate() {
+                self.set_adjusts_destination(false);
             }
-        }
+            // C++ AIInternalMoveToState::onEnter (AIStates.cpp:1604-1605).
+            loco.start_move();
+        });
 
         ai_guard.set_adjusts_destination(self.get_adjusts_destination());
 
         if let Ok(goal) = self.get_machine_goal_position() {
             self.goal_position = goal;
         }
+        let mut owner_guard = owner
+            .write()
+            .map_err(|_| "AIInternalMoveToState owner lock poisoned".to_string())?;
         if let Ok(Some(goal_id)) = self.get_machine_goal_object_id() {
             if let Some(goal_pos) =
                 crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
@@ -158,14 +164,29 @@ impl AIInternalMoveToState {
     /// Update hook – drives path recompute and completion checks.
     pub fn update(&mut self) -> Result<StateReturnType, String> {
         let owner = self.get_machine_owner()?;
+        let ai = {
+            let owner_guard = owner
+                .read()
+                .map_err(|_| "AIInternalMoveToState owner lock poisoned".to_string())?;
+            owner_guard
+                .get_ai_update_interface()
+                .ok_or_else(|| "AIInternalMoveToState missing AIUpdateInterface".to_string())?
+        };
+        let mut moving_backwards = false;
+        let mut close_enough = 0.0;
+        {
+            let ai_guard = ai
+                .lock()
+                .map_err(|_| "AIInternalMoveToState AI lock poisoned".to_string())?;
+            ai_guard.with_cur_locomotor(&mut |loco| {
+                moving_backwards = loco.is_moving_backwards();
+                close_enough = loco.get_close_enough_dist();
+            });
+        }
         let mut owner_guard = owner
             .write()
             .map_err(|_| "AIInternalMoveToState owner lock poisoned".to_string())?;
         let owner_pos = *owner_guard.get_position();
-
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "AIInternalMoveToState missing AIUpdateInterface".to_string())?;
         let mut ai_guard = ai
             .lock()
             .map_err(|_| "AIInternalMoveToState AI lock poisoned".to_string())?;
@@ -214,10 +235,6 @@ impl AIInternalMoveToState {
         } else {
             let mut set_condition_flag = ModelConditionFlags::MOVING;
             if is_cliff_at(owner_guard.get_position()) {
-                let moving_backwards = ai_guard
-                    .get_cur_locomotor()
-                    .and_then(|loc| loc.lock().ok().map(|loco| loco.is_moving_backwards()))
-                    .unwrap_or(false);
                 set_condition_flag = if moving_backwards {
                     ModelConditionFlags::RAPPELLING
                 } else {
@@ -257,11 +274,6 @@ impl AIInternalMoveToState {
             }
         }
 
-        let close_enough = ai_guard
-            .get_cur_locomotor()
-            .and_then(|loc| loc.lock().ok().map(|loco| loco.get_close_enough_dist()))
-            .unwrap_or(0.0);
-
         let dist_remaining = ai_guard.get_locomotor_distance_to_goal();
         if dist_remaining <= close_enough {
             return Ok(StateReturnType::Success);
@@ -279,33 +291,37 @@ impl AIInternalMoveToState {
             self.ambient_playing_handle = 0;
         }
         if let Ok(owner) = self.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.friend_ending_move();
-                        if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                            if let Ok(loco_guard) = locomotor.lock() {
-                                if loco_guard.is_ultra_accurate()
-                                    && !matches!(
-                                        loco_guard.get_appearance(),
-                                        LocomotorAppearance::Hover
-                                            | LocomotorAppearance::Thrust
-                                            | LocomotorAppearance::Wings
-                                    )
-                                {
-                                    let dx = self.goal_position.x - owner_guard.get_position().x;
-                                    let dy = self.goal_position.y - owner_guard.get_position().y;
-                                    if dx * dx + dy * dy
-                                        < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F
-                                    {
-                                        let _ = owner_guard.set_position(&self.goal_position);
-                                    }
-                                }
+            let ai = owner
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_ai_update_interface());
+            if let Some(ai) = ai {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    ai_guard.friend_ending_move();
+                    let goal = self.goal_position;
+                    let mut snap = false;
+                    ai_guard.with_cur_locomotor(&mut |loco| {
+                        snap = loco.is_ultra_accurate()
+                            && !matches!(
+                                loco.get_appearance(),
+                                LocomotorAppearance::Hover
+                                    | LocomotorAppearance::Thrust
+                                    | LocomotorAppearance::Wings
+                            );
+                    });
+                    if snap {
+                        if let Ok(mut owner_guard) = owner.write() {
+                            let dx = goal.x - owner_guard.get_position().x;
+                            let dy = goal.y - owner_guard.get_position().y;
+                            if dx * dx + dy * dy < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
+                                let _ = owner_guard.set_position(&goal);
                             }
                         }
-                        ai_guard.destroy_path();
                     }
+                    ai_guard.destroy_path();
                 }
+            }
+            if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
             }
         }
@@ -350,11 +366,12 @@ impl AIInternalMoveToState {
     }
 
     fn get_machine_goal_position(&self) -> Result<Coord3D, String> {
-        let machine = self.upgrade_machine()?;
-        let guard = machine
-            .lock()
-            .map_err(|_| "AIInternalMoveToState machine lock poisoned".to_string())?;
-        Ok(guard.get_goal_position())
+        if let Ok(machine) = self.upgrade_machine() {
+            if let Ok(guard) = machine.try_lock() {
+                return Ok(guard.get_goal_position());
+            }
+        }
+        Ok(self.goal_position)
     }
 
     fn is_same_position(
@@ -459,46 +476,48 @@ impl AIInternalMoveToState {
 
     /// Access the machine owner object.
     pub fn get_machine_owner(&self) -> Result<Arc<RwLock<Object>>, String> {
-        let machine = self.upgrade_machine()?;
-        let guard = machine.lock().map_err(|_| {
-            format!(
-                "AIInternalMoveToState '{}' failed to lock machine",
-                self.name
-            )
-        })?;
-        guard
-            .get_owner()
+        let id = self.get_machine_owner_id()?;
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .ok_or_else(|| "state machine owner not set".to_string())
     }
+    pub fn note_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.goal_object_id = id;
+    }
+
+    pub fn note_owner_id(&mut self, id: crate::common::ObjectID) {
+        self.owner_id = id;
+    }
+
     pub fn get_machine_goal_object_id(&self) -> Result<Option<crate::common::ObjectID>, String> {
-        let machine = self.upgrade_machine()?;
-        let guard = machine.lock().map_err(|_| {
-            format!(
-                "AIInternalMoveToState '{}' failed to lock machine",
-                self.name
-            )
-        })?;
-        let id = guard.get_goal_object_id();
-        if id == crate::common::INVALID_ID {
+        if let Ok(machine) = self.upgrade_machine() {
+            if let Ok(guard) = machine.try_lock() {
+                let id = guard.get_goal_object_id();
+                if id != crate::common::INVALID_ID {
+                    return Ok(Some(id));
+                }
+            }
+        }
+        if self.goal_object_id == crate::common::INVALID_ID {
             Ok(None)
         } else {
-            Ok(Some(id))
+            Ok(Some(self.goal_object_id))
         }
     }
 
     pub fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
-        let machine = self.upgrade_machine()?;
-        let guard = machine.lock().map_err(|_| {
-            format!(
-                "AIInternalMoveToState '{}' failed to lock machine",
-                self.name
-            )
-        })?;
-        let id = guard.get_owner_id();
-        if id == crate::common::INVALID_ID {
+        if let Ok(machine) = self.upgrade_machine() {
+            if let Ok(guard) = machine.try_lock() {
+                let id = guard.get_owner_id();
+                if id != crate::common::INVALID_ID {
+                    return Ok(id);
+                }
+            }
+        }
+        if self.owner_id == crate::common::INVALID_ID {
             Err("state machine owner not set".to_string())
         } else {
-            Ok(id)
+            Ok(self.owner_id)
         }
     }
 

@@ -228,17 +228,13 @@ impl AIState for AIHuntState {
                 return StateReturnType::Failed;
             }
 
-            if let Some(ai) = owner.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                        if let Some(hunt_machine) = self.hunt_machine.as_mut() {
-                            hunt_machine
-                                .set_goal_object(crate_obj.read().ok().map(|g| g.get_id()));
-                            let _ = hunt_machine.set_state(LegacyAIStateType::PickUpCrate);
-                        }
-                        return StateReturnType::Continue;
-                    }
+            if owner.ai_fire_crate_id != crate::common::INVALID_ID {
+                let crate_id = owner.ai_fire_crate_id;
+                if let Some(hunt_machine) = self.hunt_machine.as_mut() {
+                    hunt_machine.set_goal_object(Some(crate_id));
+                    let _ = hunt_machine.set_state(LegacyAIStateType::PickUpCrate);
                 }
+                return StateReturnType::Continue;
             }
 
             self.next_enemy_scan_time = current_frame + LOGICFRAMES_PER_SECOND;

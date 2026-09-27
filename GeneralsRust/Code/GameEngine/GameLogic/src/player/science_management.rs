@@ -23,6 +23,8 @@ impl Player {
 
         self.rank_level = 1;
         self.skill_points = 0;
+        self.level_down = 0;
+        self.level_up = Int::MAX;
 
         let intrinsic_points = self
             .get_player_template()
@@ -31,11 +33,11 @@ impl Player {
         self.science_purchase_points = intrinsic_points;
 
         if let Some(rank_store) = the_rank_info_store() {
+            if let Some(next_rank) = rank_store.get_rank_info(2) {
+                self.level_up = next_rank.skill_points_needed;
+            }
             if let Some(cur_rank) = rank_store.get_rank_info(self.rank_level as usize) {
                 self.science_purchase_points += cur_rank.science_purchase_points_granted;
-                if self.science_purchase_points < 0 {
-                    self.science_purchase_points = 0;
-                }
             }
         }
 
@@ -97,11 +99,9 @@ impl Player {
             // Set m_levelUp to the skill points needed for the next rank
             // If we're at max rank, set to INT_MAX
             if let Some(next_rank) = rank_store.get_rank_info((new_level + 1) as usize) {
-                // In full implementation, would set: self.level_up = next_rank.skill_points_needed
-                let _ = next_rank.skill_points_needed;
+                self.level_up = next_rank.skill_points_needed;
             } else {
-                // At max rank, set threshold to INT_MAX to prevent further leveling
-                // In full implementation: self.level_up = Int::MAX
+                self.level_up = Int::MAX;
             }
 
             // If we gained levels, grant sciences for the new rank
@@ -118,6 +118,7 @@ impl Player {
                         if self.skill_points < rank_info.skill_points_needed {
                             self.skill_points = rank_info.skill_points_needed;
                         }
+                        self.level_down = rank_info.skill_points_needed;
 
                         // Grant all sciences for this rank (C++ Player.cpp:2685-2691)
                         for &science in &rank_info.sciences_granted {
@@ -129,20 +130,22 @@ impl Player {
         }
 
         self.rank_level = new_level;
-        if new_level > old_level && self.is_local_player() {
+        if self.level_up != 0 && self.is_local_player() {
             let _ =
                 crate::helpers::TheEva::set_should_play(crate::helpers::EvaEvent::GeneralLevelUp);
         }
-        crate::control_bar::notify_player_rank_changed(
-            self.player_index,
-            self.rank_level,
-            self.science_purchase_points,
-        );
-        if old_spp != self.science_purchase_points {
-            crate::control_bar::notify_science_purchase_points_changed(
+        if self.is_local_player() {
+            crate::control_bar::notify_player_rank_changed(
                 self.player_index,
+                self.rank_level,
                 self.science_purchase_points,
             );
+            if old_spp != self.science_purchase_points {
+                crate::control_bar::notify_science_purchase_points_changed(
+                    self.player_index,
+                    self.science_purchase_points,
+                );
+            }
         }
         true
     }
@@ -177,8 +180,7 @@ impl Player {
         let point_cap = if let Some(ref rank_store) = rank_store_guard {
             // Cap at the lowest point of cap level, not highest
             let rank_count = rank_store.get_rank_level_count() as Int;
-            const RANK_LEVEL_LIMIT: Int = 20; // Would come from TheGameLogic->getRankLevelLimit()
-            let cap_level = rank_count.min(RANK_LEVEL_LIMIT);
+            let cap_level = rank_count.min(TheGameLogic::get_rank_level_limit());
 
             // Get the skill points needed for the cap level
             if let Some(cap_rank) = rank_store.get_rank_info(cap_level as usize) {
@@ -194,23 +196,16 @@ impl Player {
         let mut level_gained = false;
         self.skill_points = (self.skill_points + delta).min(point_cap);
 
-        // Keep leveling up while we have enough skill points (C++ Player.cpp:2449-2455)
-        // The C++ code uses m_levelUp which stores the threshold for the next level
-        if let Some(rank_store) = rank_store_guard {
-            loop {
-                if let Some(next_rank) = rank_store.get_rank_info((self.rank_level + 1) as usize) {
-                    if self.skill_points >= next_rank.skill_points_needed {
-                        // Level up! (C++ calls setRankLevel which updates m_levelUp as side effect)
-                        self.set_rank_level(self.rank_level + 1);
-                        level_gained = true;
-                    } else {
-                        break;
-                    }
-                } else {
-                    // No more levels available
-                    break;
-                }
+        // C++ Player.cpp:2449 — while skill points reach m_levelUp.
+        // setRankLevel raises m_levelUp, or sets INT_MAX when there is no next rank.
+        loop {
+            if self.skill_points < self.level_up {
+                break;
             }
+            if !self.set_rank_level(self.rank_level + 1) {
+                break;
+            }
+            level_gained = true;
         }
 
         level_gained
@@ -233,9 +228,7 @@ impl Player {
         victim_under_construction: bool,
         victim_skill_value: Int,
     ) -> Bool {
-        // C++ Player.cpp:2467-2469
-        // "per dustin, no experience (et al) for killing things under construction"
-        if victim_under_construction {
+        if _killer.is_none() || victim_under_construction {
             return false;
         }
 
@@ -263,14 +256,11 @@ impl Player {
             self.science_purchase_points = 0;
         }
 
-        // C++ Player.cpp:2563-2564
-        // Notify UI if points changed
-        if old_spp != self.science_purchase_points {
+        if old_spp != self.science_purchase_points && self.is_local_player() {
             crate::control_bar::notify_science_purchase_points_changed(
                 self.player_index,
                 self.science_purchase_points,
             );
-            crate::control_bar::mark_ui_dirty();
         }
     }
 
@@ -340,7 +330,6 @@ impl Player {
                     if let Some(instance_arc) = manager.get_object(object_id) {
                         let instance_lock = &*instance_arc;
                         if let Ok(mut instance) = instance_lock.write() {
-                            instance.wake_update_modules_sleeping_forever(current_frame);
                             for behavior in instance.get_behavior_modules() {
                                 if let Ok(mut module_guard) = behavior.lock() {
                                     if let Some(module) =
@@ -364,7 +353,9 @@ impl Player {
             };
         }
 
-        crate::control_bar::mark_ui_dirty();
+        if !self.player_team_prototypes.is_empty() {
+            crate::control_bar::mark_ui_dirty();
+        }
 
         // Notify script engine
         if let Ok(mut engine_guard) = get_script_engine().write() {
@@ -435,24 +426,17 @@ impl Player {
             return false;
         };
 
-        // C++ Player.cpp:2578 - deduct points
         self.add_science_purchase_points(-cost);
+        let _ = self.add_science(science);
 
-        // C++ Player.cpp:2579 - add science
-        let result = self.add_science(science);
+        self.get_academy_stats_mut()
+            .record_generals_points_spent(cost);
 
-        if result {
-            // C++ Player.cpp:2581 - track for statistics
-            self.get_academy_stats_mut()
-                .record_generals_points_spent(cost);
-
-            // C++ Player.cpp:2583-2586 - local player UI refresh
-            if self.is_local_player() {
-                crate::control_bar::mark_ui_dirty();
-            }
+        if self.is_local_player() {
+            crate::control_bar::mark_ui_dirty();
         }
 
-        result
+        true
     }
 
     /// Check if player can purchase a specific science (matches C++ Player::isCapableOfPurchasingScience)

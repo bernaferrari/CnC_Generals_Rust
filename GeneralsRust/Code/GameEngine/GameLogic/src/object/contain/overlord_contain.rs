@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain, TransportContainModuleData};
 use crate::common::types::BodyDamageType;
-use crate::common::{GameResult, KindOf, ObjectID, PlayerMaskType};
+use crate::common::{Coord3D, GameResult, KindOf, Matrix3D, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -173,7 +173,7 @@ impl OverlordContain {
     pub fn is_garrisonable(&self) -> bool {
         if let Some(redirected) = self.get_redirected_contain() {
             redirected
-                .lock()
+                .try_lock()
                 .map(|guard| guard.is_garrisonable())
                 .unwrap_or(false)
         } else {
@@ -216,12 +216,13 @@ impl OverlordContain {
     pub fn is_passenger_allowed_to_fire(&self, id: Option<ObjectId>) -> bool {
         if let Some(obj_id) = id {
             if let Some(passenger) = TheGameLogic::find_object_by_id(obj_id) {
-                if let Ok(passenger_guard) = passenger.read() {
-                    if !passenger_guard.is_kind_of(KindOf::Infantry)
-                        && !passenger_guard.is_kind_of(KindOf::PortableStructure)
-                    {
-                        return false;
-                    }
+                let Ok(passenger_guard) = passenger.try_read() else {
+                    return false;
+                };
+                if !passenger_guard.is_kind_of(KindOf::Infantry)
+                    && !passenger_guard.is_kind_of(KindOf::PortableStructure)
+                {
+                    return false;
                 }
             }
         }
@@ -233,20 +234,30 @@ impl OverlordContain {
             return false;
         }
 
-        self.base.is_passenger_allowed_to_fire(id)
+        // C++ calls TransportContain::isPassengerAllowedToFire() with no id,
+        // so the base sees INVALID_ID and does not reject the bunker again.
+        self.base.is_passenger_allowed_to_fire(None)
     }
 
     /// Handle death of the Overlord.
     /// Matches C++ OverlordContain::onDie (OverlordContain.cpp:185-205)
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        self.on_die_for_owner(None, damage_info)
+    }
+
+    pub fn on_die_for_owner(
+        &mut self,
+        owner: Option<&Object>,
+        damage_info: Option<&DamageInfo>,
+    ) -> GameResult<()> {
         // Wave 300: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
         // Do you mean me the Overlord, or my behavior of passing stuff on to my passengers?
-        if self.get_redirected_contain().is_none() {
-            return self.base.on_die(damage_info);
+        if !(self.redirection_activated && self.base.base.get_contain_count() >= 1) {
+            return self.base.on_die_for_owner(owner, damage_info);
         }
 
         // Everything is fine if I am empty or carrying a regular guy. If I have a redirected
@@ -254,35 +265,36 @@ impl OverlordContain {
         // become confused when I stop redirecting in the middle of the process.
         // So this is an extend that lets me control the order of death.
 
+        let rider_id = self.base.base.get_contained_object_ids().first().copied();
         self.deactivate_redirected_contain()?;
-
-        if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
+        if let Some(rider_id) = rider_id {
             if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
             {
-                if let Ok(mut rider_guard) = rider.write() {
+                if let Ok(mut rider_guard) = rider.try_write() {
                     rider_guard.kill(None, None);
                 }
             }
         }
 
-        self.base.on_die(damage_info)
+        self.base.on_die_for_owner(owner, damage_info)
     }
 
     /// Handle deletion of the Overlord.
     /// Matches C++ OverlordContain::onDelete (OverlordContain.cpp:208-224)
     pub fn on_delete(&mut self) -> GameResult<()> {
         // Do you mean me the Overlord, or my behavior of passing stuff on to my passengers?
-        if self.get_redirected_contain().is_none() {
+        if !(self.redirection_activated && self.base.base.get_contain_count() >= 1) {
             return self.base.on_delete();
         }
 
         // Without my throwing the redirect switch, teardown deletion will get confused
         // and fire off a bunch of asserts
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
-                let _ = guard.remove_all_contained(false);
-            }
+        let Some(redirected) = self.get_redirected_contain() else {
+            return self.base.on_delete();
+        };
+        if let Ok(mut guard) = redirected.try_lock() {
+            guard.remove_all_contained(false)?;
         }
 
         self.deactivate_redirected_contain()?;
@@ -314,12 +326,15 @@ impl OverlordContain {
                 if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
                 {
-                    if let Ok(mut rider_guard) = rider.write() {
-                        if let Ok(new_owner_guard) = new_owner_arc.read() {
-                            let default_team = new_owner_guard.get_default_team();
-                            rider_guard.set_team(default_team)?;
-                        }
-                    }
+                    let Ok(mut rider_guard) = rider.try_write() else {
+                        return Ok(());
+                    };
+                    let Ok(new_owner_guard) = new_owner_arc.try_read() else {
+                        return Ok(());
+                    };
+                    let default_team = new_owner_guard.get_default_team();
+                    drop(new_owner_guard);
+                    rider_guard.set_team(default_team)?;
                 }
             }
         }
@@ -347,11 +362,12 @@ impl OverlordContain {
             return Ok(());
         };
 
-        if let Some(redirected) = self.get_redirected_contain() {
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            let Ok(mut guard) = redirected.try_lock() else {
+                return Err("Overlord redirected contain lock busy".into());
+            };
             self.base.base.on_containing(obj_id, was_selected)?;
-            if let Ok(mut guard) = redirected.lock() {
-                let _ = guard.on_containing(obj_id, was_selected);
-            }
+            guard.on_containing(obj_id, was_selected)?;
             return Ok(());
         }
 
@@ -396,15 +412,13 @@ impl OverlordContain {
     /// Kill all contained passengers (not the portable turret).
     /// Matches C++ OverlordContain::killAllContained
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(guard) = redirected.lock() {
-                for obj_id in guard.get_contained_objects() {
-                    if let Some(obj) = TheGameLogic::find_object_by_id(*obj_id) {
-                        if let Ok(mut obj_guard) = obj.write() {
-                            obj_guard.kill(None, None);
-                        }
-                    }
-                }
+        let redirected = match self.redirected_contain_for_mutation() {
+            Ok(value) => value,
+            Err(_) => return Ok(()),
+        };
+        if let Some(redirected) = redirected {
+            if let Ok(mut guard) = redirected.try_lock() {
+                let _ = guard.kill_all_contained();
             }
         }
         Ok(())
@@ -416,24 +430,26 @@ impl OverlordContain {
     where
         F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
     {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(guard) = redirected.lock() {
-                let mut objs: Vec<Arc<RwLock<Object>>> = guard
-                    .get_contained_objects()
-                    .iter()
-                    .filter_map(|id| TheGameLogic::find_object_by_id(*id))
-                    .collect();
-
-                if reverse {
-                    objs.reverse();
-                }
-
-                for obj in objs {
-                    func(obj)?;
-                }
-
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            let Ok(guard) = redirected.try_lock() else {
                 return Ok(());
+            };
+            let mut objs: Vec<Arc<RwLock<Object>>> = guard
+                .get_contained_objects()
+                .iter()
+                .filter_map(|id| TheGameLogic::find_object_by_id(*id))
+                .collect();
+            drop(guard);
+
+            if reverse {
+                objs.reverse();
             }
+
+            for obj in objs {
+                func(obj)?;
+            }
+
+            return Ok(());
         }
 
         self.base.base.iterate_contained(func, reverse)
@@ -447,16 +463,12 @@ impl OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
 
-        if let Some(redirected) = self.get_redirected_contain() {
+
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
             self.base.base.on_removing(obj_id)?;
-            if let Ok(mut guard) = redirected.lock() {
-                let _ = guard.on_removing(obj_id);
+            if let Ok(mut guard) = redirected.try_lock() {
+                guard.on_removing(obj_id)?;
             }
         } else {
             self.base.on_removing(obj_id)?;
@@ -473,10 +485,11 @@ impl OverlordContain {
     /// Get contained items list.
     /// Matches C++ OverlordContain::getContainedItemsList
     pub fn get_contained_items_list(&self) -> GameResult<Vec<ObjectID>> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(guard) = redirected.lock() {
-                return Ok(guard.get_contained_objects().to_vec());
-            }
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            let Ok(guard) = redirected.try_lock() else {
+                return Ok(Vec::new());
+            };
+            return Ok(guard.get_contained_objects().to_vec());
         }
 
         self.base.base.get_contained_items_list()
@@ -484,15 +497,21 @@ impl OverlordContain {
 
     /// Add object to contain list.
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
-                if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
-                    if let Ok(obj_guard) = obj.read() {
-                        guard.add_to_contain_list(&*obj_guard)?;
-                    }
-                }
-            }
-            return Ok(());
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            let Ok(mut guard) = redirected.try_lock() else {
+                return Err("Overlord redirected contain lock busy".into());
+            };
+            let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                return Err("Overlord contain object not found".into());
+            };
+            let Ok(obj_guard) = obj.try_read() else {
+                return Err("Overlord passenger lock busy".into());
+            };
+            return guard
+                .add_to_contain_list(&*obj_guard)
+                .map_err(|e| e.into());
         }
 
         self.base.add_to_contain_list(obj_id)
@@ -500,15 +519,19 @@ impl OverlordContain {
 
     /// Add object to containment.
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
-                if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
-                    if let Ok(obj_guard) = obj.read() {
-                        let _ = guard.add_to_contain(&*obj_guard);
-                    }
-                }
-            }
-            return Ok(());
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            let Ok(mut guard) = redirected.try_lock() else {
+                return Err("Overlord redirected contain lock busy".into());
+            };
+            let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            else {
+                return Err("Overlord contain object not found".into());
+            };
+            let Ok(obj_guard) = obj.try_read() else {
+                return Err("Overlord passenger lock busy".into());
+            };
+            return guard.add_to_contain(&*obj_guard).map_err(|e| e.into());
         }
 
         self.base.add_to_contain(obj_id)
@@ -520,13 +543,13 @@ impl OverlordContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(mut guard) = redirected.lock() {
-                guard.release_object(obj_id).map_err(
-                    |e: String| -> Box<dyn std::error::Error + Send + Sync> { e.into() },
-                )?;
-            }
-            return Ok(());
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            let Ok(mut guard) = redirected.try_lock() else {
+                return Err("Overlord redirected contain lock busy".into());
+            };
+            return guard
+                .remove_from_contain(obj_id, expose_stealth_units)
+                .map_err(|e| e.into());
         }
 
         self.base.remove_from_contain(obj_id, expose_stealth_units)
@@ -534,17 +557,9 @@ impl OverlordContain {
 
     /// Remove all contained objects.
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            let ids = if let Ok(guard) = redirected.lock() {
-                guard.get_contained_objects().to_vec()
-            } else {
-                Vec::new()
-            };
-
-            for obj_id in ids {
-                if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
-                    self.remove_from_contain(obj_id, expose_stealth_units)?;
-                }
+        if let Some(redirected) = self.redirected_contain_for_mutation()? {
+            if let Ok(mut guard) = redirected.try_lock() {
+                guard.remove_all_contained(expose_stealth_units)?;
             }
             return Ok(());
         }
@@ -557,7 +572,7 @@ impl OverlordContain {
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         if let Some(redirected) = self.get_redirected_contain() {
             redirected
-                .lock()
+                .try_lock()
                 .map(|guard| guard.is_valid_container_for(obj, check_capacity))
                 .unwrap_or(false)
         } else {
@@ -570,7 +585,7 @@ impl OverlordContain {
     pub fn get_contain_count(&self) -> u32 {
         if let Some(redirected) = self.get_redirected_contain() {
             redirected
-                .lock()
+                .try_lock()
                 .map(|guard| guard.get_contain_count())
                 .unwrap_or(0)
         } else {
@@ -583,7 +598,7 @@ impl OverlordContain {
     pub fn get_contain_max(&self) -> i32 {
         if let Some(redirected) = self.get_redirected_contain() {
             redirected
-                .lock()
+                .try_lock()
                 .map(|guard| guard.get_contain_max())
                 .unwrap_or(super::CONTAIN_MAX_UNKNOWN)
         } else {
@@ -606,7 +621,7 @@ impl OverlordContain {
     /// Matches C++ OverlordContain::getContainerPipsToShow
     pub fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
         if let Some(redirected) = self.get_redirected_contain() {
-            if let Ok(guard) = redirected.lock() {
+            if let Ok(guard) = redirected.try_lock() {
                 let max = guard.get_contain_max();
                 let total = if max < 0 { 0 } else { max };
                 let full = guard.get_contain_count() as i32;
@@ -622,7 +637,7 @@ impl OverlordContain {
     pub fn is_displayed_on_control_bar(&self) -> bool {
         if let Some(redirected) = self.get_redirected_contain() {
             redirected
-                .lock()
+                .try_lock()
                 .map(|guard| guard.is_displayed_on_control_bar())
                 .unwrap_or(false)
         } else {
@@ -635,7 +650,7 @@ impl OverlordContain {
     pub fn is_kick_out_on_capture(&self) -> bool {
         if let Some(redirected) = self.get_redirected_contain() {
             redirected
-                .lock()
+                .try_lock()
                 .map(|guard| guard.is_kick_out_on_capture())
                 .unwrap_or(false)
         } else {
@@ -666,14 +681,18 @@ impl OverlordContain {
             if let Some(item) = TheGameLogic::find_object_by_id(item_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(item_id))
             {
-                if let Ok(item_guard) = item.read() {
+                let drawable = {
+                    let Ok(item_guard) = item.try_read() else {
+                        continue;
+                    };
                     if !item_guard.is_kind_of(KindOf::PortableStructure) {
                         continue;
                     }
-                    if let Some(drawable) = item_guard.get_drawable() {
-                        if let Ok(mut drawable_guard) = drawable.write() {
-                            drawable_guard.flash_as_selected();
-                        }
+                    item_guard.get_drawable()
+                };
+                if let Some(drawable) = drawable {
+                    if let Ok(mut drawable_guard) = drawable.try_write() {
+                        drawable_guard.flash_as_selected();
                     }
                 }
             }
@@ -700,17 +719,17 @@ impl OverlordContain {
         let factory = match TheThingFactory::get() {
             Ok(factory) => factory,
             Err(err) => {
-                log::warn!(
+                return Err(format!(
                     "OverlordContain::createPayload: thing factory unavailable: {}",
                     err
-                );
-                self.base.set_payload_created(true);
-                return Ok(());
+                )
+                .into());
             }
         };
         let payload_templates = self.module_data.payload_template_names.clone();
 
         self.base.base.enable_load_sounds(false);
+        let mut added_any = false;
 
         for template_name in payload_templates {
             let Some(template) = TheThingFactory::find_template(&template_name) else {
@@ -731,17 +750,17 @@ impl OverlordContain {
                 continue;
             };
 
-            let can_add = payload
-                .read()
-                .ok()
-                .map(|payload_guard| self.is_valid_container_for(&*payload_guard, true))
-                .unwrap_or(false);
+            let Ok(payload_guard) = payload.try_read() else {
+                self.base.base.enable_load_sounds(true);
+                if added_any {
+                    self.base.set_payload_created(true);
+                }
+                return Err("Overlord payload lock busy".into());
+            };
+            let payload_id = payload_guard.get_id();
+            let can_add = self.is_valid_container_for(&*payload_guard, true);
+            drop(payload_guard);
             if can_add {
-                let payload_id = payload
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
                 if let Err(err) = self.add_to_contain(payload_id) {
                     log::warn!(
                         "OverlordContain::createPayload: failed to add payload {} to {}: {}",
@@ -749,6 +768,8 @@ impl OverlordContain {
                         owner_name,
                         err
                     );
+                } else {
+                    added_any = true;
                 }
             } else {
                 // C++ DEBUG_CRASH then continue; always mark payload created.
@@ -787,10 +808,16 @@ impl OverlordContain {
                 if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
                 {
-                    if let Ok(rider_guard) = rider.read() {
-                        if let Some(body) = rider_guard.get_body_module() {
-                            body.set_damage_state(new_state);
-                        }
+                    let Ok(rider_guard) = rider.try_read() else {
+                        return Err("Overlord rider lock busy".into());
+                    };
+                    let body = rider_guard.get_body_module();
+                    drop(rider_guard);
+                    if let Some(body) = body {
+                        let Ok(mut body_guard) = body.try_lock() else {
+                            return Err("Overlord rider body lock busy".into());
+                        };
+                        body_guard.set_damage_state(new_state)?;
                     }
                 }
             }
@@ -825,7 +852,7 @@ impl OverlordContain {
             if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
             {
-                if let Ok(rider_guard) = rider.read() {
+                if let Ok(rider_guard) = rider.try_read() {
                     return rider_guard.get_contain();
                 }
             }
@@ -833,6 +860,26 @@ impl OverlordContain {
 
         None // Or say no if they have no contain
     }
+    fn redirected_contain_for_mutation(
+        &self,
+    ) -> GameResult<Option<Arc<Mutex<dyn ContainModuleInterface>>>> {
+        if !(self.redirection_activated && self.base.base.get_contain_count() >= 1) {
+            return Ok(None);
+        }
+        let Some(&rider_id) = self.base.base.get_contained_object_ids().first() else {
+            return Ok(None);
+        };
+        let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        else {
+            return Ok(None);
+        };
+        let Ok(rider_guard) = rider.try_read() else {
+            return Ok(None);
+        };
+        Ok(rider_guard.get_contain())
+    }
+
 
     /// Activate redirection to contained bunker.
     /// Matches C++ OverlordContain::activateRedirectedContain (OverlordContain.h:99)
@@ -854,7 +901,9 @@ impl OverlordContain {
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         // Create payload if not already created
         if !self.base.is_payload_created() {
-            self.create_payload()?;
+            if let Err(err) = self.create_payload() {
+                log::warn!("OverlordContain::update: createPayload failed: {}", err);
+            }
         }
 
         self.base.update()
@@ -926,6 +975,14 @@ impl ContainModuleInterface for OverlordContain {
         self.remove_object(object_id).map_err(|e| e.to_string())
     }
 
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OverlordContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
+    }
+
     fn get_contained_objects(&self) -> &[ObjectID] {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
@@ -944,7 +1001,7 @@ impl ContainModuleInterface for OverlordContain {
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
-        self.get_container_pips_to_show()
+        OverlordContain::get_container_pips_to_show(self)
     }
 
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -989,6 +1046,35 @@ impl ContainModuleInterface for OverlordContain {
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         OverlordContain::on_die(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OverlordContain::on_die_for_owner(self, Some(owner), damage_info).map_err(|e| e.into())
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.add_to_contain(other_id)?;
+        }
+        Ok(())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
@@ -1065,7 +1151,7 @@ impl ContainModuleInterface for OverlordContain {
     }
 
     fn is_special_overlord_style_container(&self) -> bool {
-        self.is_special_overlord_style_container()
+        OverlordContain::is_special_overlord_style_container(self)
     }
 
     fn remove_all_contained(
@@ -1089,12 +1175,28 @@ impl ContainModuleInterface for OverlordContain {
         OverlordContain::kill_all_contained(self).map_err(|e| e.into())
     }
 
+    fn reserve_door_for_exit(
+        &mut self,
+        spawner: Option<&Object>,
+        spawn: Option<&Object>,
+    ) -> crate::modules::ExitDoorType {
+        ContainModuleInterface::reserve_door_for_exit(&mut self.base, spawner, spawn)
+    }
+
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = self.base.process_damage_to_contained(percent_damage);
     }
 
     fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.on_selling().map_err(|e| e.into())
+    }
+
+    fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
+        self.base.redeploy_riders_at(owner_pos, fire_points);
+    }
+
+    fn passengers_in_turret(&self) -> bool {
+        self.base.passengers_in_turret()
     }
 
     fn is_displayed_on_control_bar(&self) -> bool {

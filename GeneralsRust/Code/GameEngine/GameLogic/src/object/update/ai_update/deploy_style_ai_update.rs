@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::ai::states::AIStateType;
 use crate::common::{
     Bool, MODELCONDITION_DEPLOYED, MODELCONDITION_MOVING, MODELCONDITION_PACKING,
-    MODELCONDITION_UNPACKING, ObjectID, ObjectStatusMaskType, UnsignedInt,
+    MODELCONDITION_UNPACKING, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, UnsignedInt,
 };
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::modules::AIUpdateInterface;
@@ -404,34 +404,34 @@ impl DeployStyleAIUpdate {
         if is_trying_to_attack {
             if let Some(weapon) = weapon {
                 let _source_pos = owner_guard.get_position();
-                let mut target_pos = None;
 
-                if let Some(victim_id) = ai.get_current_victim() {
-                    if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
-                        if let Ok(victim_guard) = victim.read() {
-                            target_pos = Some(*victim_guard.get_position());
-                        }
+                if let Some(victim_id) = ai
+                    .get_current_victim()
+                    .filter(|id| *id != crate::common::INVALID_ID)
+                {
+                    if TheGameLogic::find_object_by_id(victim_id).is_some() {
+                        is_in_range = weapon.is_within_attack_range(
+                            owner_guard.get_id(),
+                            Some(victim_id),
+                            None,
+                        );
                     }
-                }
-
-                if target_pos.is_none() {
-                    target_pos = ai.get_original_victim_pos();
-                }
-
-                if let Some(target_pos) = target_pos {
+                } else if let Some(pos) = ai.get_current_victim_pos() {
                     is_in_range = weapon.is_within_attack_range(
                         owner_guard.get_id(),
-                        ai.get_current_victim(),
-                        Some(&target_pos),
+                        None,
+                        Some(&pos),
                     );
                 }
             }
         }
+        drop(owner_guard);
+
 
         if self.frame_to_wait_for_deploy != 0 && now >= self.frame_to_wait_for_deploy {
             match self.state {
-                DeployStateType::Deploy => self.set_my_state(DeployStateType::ReadyToAttack, false),
-                DeployStateType::Undeploy => self.set_my_state(DeployStateType::ReadyToMove, false),
+                DeployStateType::Deploy => self.set_my_state(ai, DeployStateType::ReadyToAttack, false),
+                DeployStateType::Undeploy => self.set_my_state(ai, DeployStateType::ReadyToMove, false),
                 _ => {}
             }
         }
@@ -439,17 +439,17 @@ impl DeployStyleAIUpdate {
         if is_in_range || is_in_guard_idle_state {
             match self.state {
                 DeployStateType::ReadyToMove => {
-                    self.set_my_state(DeployStateType::Deploy, false);
+                    self.set_my_state(ai, DeployStateType::Deploy, false);
                 }
                 DeployStateType::ReadyToAttack => {}
                 DeployStateType::Deploy => {}
                 DeployStateType::Undeploy => {
                     if self.frame_to_wait_for_deploy != 0 {
-                        self.set_my_state(DeployStateType::Deploy, true);
+                        self.set_my_state(ai, DeployStateType::Deploy, true);
                     }
                 }
                 DeployStateType::AligningTurrets => {
-                    self.set_my_state(DeployStateType::ReadyToAttack, false);
+                    self.set_my_state(ai, DeployStateType::ReadyToAttack, false);
                 }
             }
         } else if is_trying_to_move {
@@ -460,14 +460,14 @@ impl DeployStyleAIUpdate {
                     if turret != crate::common::TurretType::Invalid
                         && self.data.turrets_must_center_before_packing
                     {
-                        self.set_my_state(DeployStateType::AligningTurrets, false);
+                        self.set_my_state(ai, DeployStateType::AligningTurrets, false);
                     } else {
-                        self.set_my_state(DeployStateType::Undeploy, false);
+                        self.set_my_state(ai, DeployStateType::Undeploy, false);
                     }
                 }
                 DeployStateType::Deploy => {
                     if self.frame_to_wait_for_deploy != 0 {
-                        self.set_my_state(DeployStateType::Undeploy, true);
+                        self.set_my_state(ai, DeployStateType::Undeploy, true);
                     }
                 }
                 DeployStateType::Undeploy => {}
@@ -476,13 +476,12 @@ impl DeployStyleAIUpdate {
                     if turret != crate::common::TurretType::Invalid
                         && ai.is_turret_in_natural_position(turret)
                     {
-                        self.set_my_state(DeployStateType::Undeploy, false);
+                        self.set_my_state(ai, DeployStateType::Undeploy, false);
                     }
                 }
             }
         }
 
-        drop(owner_guard);
         if let Ok(mut owner_guard) = owner.write() {
             match self.state {
                 DeployStateType::ReadyToMove => {
@@ -527,7 +526,7 @@ impl DeployStyleAIUpdate {
         self.data.pack_time
     }
 
-    fn set_my_state(&mut self, state: DeployStateType, reverse_deploy: Bool) {
+    fn set_my_state(&mut self, ai: &mut dyn AIUpdateInterface, state: DeployStateType, reverse_deploy: Bool) {
         self.state = state;
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
@@ -535,7 +534,6 @@ impl DeployStyleAIUpdate {
         let Ok(mut owner_guard) = owner.write() else {
             return;
         };
-        let ai = owner_guard.get_ai_update_interface();
         let now = TheGameLogic::get_frame();
         let mut turret_action: Option<(crate::common::TurretType, bool, bool)> = None;
 
@@ -581,14 +579,7 @@ impl DeployStyleAIUpdate {
                 }
 
                 if self.data.turrets_function_only_when_deployed {
-                    let turret = ai
-                        .as_ref()
-                        .and_then(|ai| {
-                            ai.lock()
-                                .ok()
-                                .map(|guard| guard.get_which_turret_for_cur_weapon())
-                        })
-                        .unwrap_or(crate::common::TurretType::Invalid);
+                    let turret = ai.get_which_turret_for_cur_weapon();
                     if turret != crate::common::TurretType::Invalid {
                         turret_action = Some((turret, false, false));
                     }
@@ -619,14 +610,7 @@ impl DeployStyleAIUpdate {
                 let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
 
                 if self.data.turrets_function_only_when_deployed {
-                    let turret = ai
-                        .as_ref()
-                        .and_then(|ai| {
-                            ai.lock()
-                                .ok()
-                                .map(|guard| guard.get_which_turret_for_cur_weapon())
-                        })
-                        .unwrap_or(crate::common::TurretType::Invalid);
+                    let turret = ai.get_which_turret_for_cur_weapon();
                     if turret != crate::common::TurretType::Invalid {
                         turret_action = Some((turret, true, false));
                     }
@@ -634,14 +618,7 @@ impl DeployStyleAIUpdate {
             }
             DeployStateType::AligningTurrets => {
                 self.frame_to_wait_for_deploy = 0;
-                let turret = ai
-                    .as_ref()
-                    .and_then(|ai| {
-                        ai.lock()
-                            .ok()
-                            .map(|guard| guard.get_which_turret_for_cur_weapon())
-                    })
-                    .unwrap_or(crate::common::TurretType::Invalid);
+                let turret = ai.get_which_turret_for_cur_weapon();
                 if turret != crate::common::TurretType::Invalid {
                     turret_action = Some((turret, true, true));
                 }
@@ -649,13 +626,11 @@ impl DeployStyleAIUpdate {
         }
 
         drop(owner_guard);
-        if let (Some(ai), Some((turret, enable, recenter))) = (ai.as_ref(), turret_action) {
-            if let Ok(mut guard) = ai.lock() {
-                if recenter {
-                    guard.recenter_turret(turret);
-                } else {
-                    guard.set_turret_enabled(turret, enable);
-                }
+        if let Some((turret, enable, recenter)) = turret_action {
+            if recenter {
+                ai.recenter_turret(turret);
+            } else {
+                ai.set_turret_enabled(turret, enable);
             }
         }
     }

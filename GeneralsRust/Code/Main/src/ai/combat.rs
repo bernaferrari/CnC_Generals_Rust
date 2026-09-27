@@ -254,6 +254,12 @@ impl AIPlayer {
             if !mobile {
                 continue;
             }
+            if let Some(unit) = game_logic.host_object_mut(unit_id) {
+                unit.is_final_goal = true;
+                unit.num_frames_blocked = 0;
+                unit.is_blocked_and_stuck = false;
+                unit.set_status_moving(true);
+            }
             if game_logic.assign_unit_path(unit_id, enemy_base, &[]) {
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
                 if let Some(unit) = game_logic.host_object_mut(unit_id) {

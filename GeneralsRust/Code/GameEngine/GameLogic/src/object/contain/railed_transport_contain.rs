@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
-use crate::common::{GameResult, ObjectID, PlayerMaskType};
+use crate::common::{Coord3D, GameResult, Matrix3D, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
@@ -129,7 +129,7 @@ impl RailedTransportContain {
 impl ContainModuleInterface for RailedTransportContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
+            if let Ok(obj_guard) = obj.try_read() {
                 return self.base.is_valid_container_for(&*obj_guard, true);
             }
         }
@@ -146,6 +146,16 @@ impl ContainModuleInterface for RailedTransportContain {
         self.base
             .remove_from_contain(object_id, false)
             .map_err(|e| e.to_string())
+    }
+
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .remove_from_contain(object_id, expose_stealth)
+            .map_err(|e| e.into())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -181,6 +191,37 @@ impl ContainModuleInterface for RailedTransportContain {
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.on_die(damage_info).map_err(|e| e.into())
+    }
+
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .on_die_for_owner(Some(owner), damage_info)
+            .map_err(|e| e.into())
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.contain_object(other_id)?;
+        }
+        Ok(())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
@@ -232,7 +273,7 @@ impl ContainModuleInterface for RailedTransportContain {
         else {
             return false;
         };
-        obj.read()
+        obj.try_read()
             .ok()
             .and_then(|guard| {
                 self.base
@@ -311,6 +352,14 @@ impl ContainModuleInterface for RailedTransportContain {
 
     fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.on_selling().map_err(|e| e.into())
+    }
+
+    fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
+        self.base.redeploy_riders_at(owner_pos, fire_points);
+    }
+
+    fn passengers_in_turret(&self) -> bool {
+        self.base.passengers_in_turret()
     }
 }
 

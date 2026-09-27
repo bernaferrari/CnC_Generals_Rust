@@ -67,10 +67,6 @@ impl Object {
     }
 
     pub fn relationship_to(&self, other: &Object) -> Relationship {
-        if self.get_id() == other.get_id() {
-            return Relationship::Allies;
-        }
-
         if let (Some(my_team), Some(other_team)) = (self.get_team(), other.get_team()) {
             if let (Ok(my_guard), Ok(other_guard)) = (my_team.read(), other_team.read()) {
                 if self.is_undetected_defector() {
@@ -217,11 +213,9 @@ impl Object {
             if stop_dist >= 0.5 {
                 if let Some(ai) = self.get_ai_update_interface() {
                     if let Ok(ai_guard) = ai.lock() {
-                        if let Some(loco) = ai_guard.get_cur_locomotor() {
-                            if let Ok(mut loco_guard) = loco.lock() {
-                                loco_guard.set_close_enough_dist(stop_dist);
-                            }
-                        }
+                        ai_guard.with_cur_locomotor(&mut |loco| {
+                            loco.set_close_enough_dist(stop_dist);
+                        });
                     }
                 }
             }
@@ -574,12 +568,16 @@ impl Object {
         self.contained_by_id != INVALID_ID
     }
 
-    /// Get locomotor for this object, if any.
+    /// Borrow the current locomotor, if any.
     /// C++ Reference: Object.cpp - getLocomotor()
-    pub fn get_locomotor(&self) -> Option<Arc<Mutex<crate::locomotor::Locomotor>>> {
-        let ai = self.ai.as_ref()?;
-        let guard = ai.lock().ok()?;
-        guard.get_cur_locomotor()
+    pub fn with_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        let Some(ai) = self.ai.as_ref() else {
+            return;
+        };
+        let Ok(guard) = ai.lock() else {
+            return;
+        };
+        guard.with_cur_locomotor(f);
     }
 
     /// C++ ControlBarCommand.cpp:1140 `dozerAI->isTaskPending(DOZER_TASK_BUILD)`.
@@ -875,19 +873,21 @@ impl Object {
         use crate::common::types::ObjectStatusMaskType;
         use crate::modules::ContainModuleInterfaceExt;
 
-        // Set UNSELECTABLE status (C++ line 673)
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
-
-        // Check if container is enclosing - if so, set MASKED status (C++ lines 674-677)
         let is_enclosing = if container_id != INVALID_ID {
             if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
             {
-                if let Ok(guard) = container.read() {
-                    guard
-                        .get_contain()
-                        .map(|contain| contain.is_enclosing_container_for(self))
-                        .unwrap_or(true)
+                if let Ok(guard) = container.try_read() {
+                    if let Some(contain) = guard.get_contain() {
+                        if let Ok(contain_guard) = contain.try_lock() {
+                            contain_guard.is_enclosing_container_for(self)
+                        } else {
+                            true
+                        }
+                    } else {
+                        true
+                    }
                 } else {
                     true
                 }
@@ -897,6 +897,26 @@ impl Object {
         } else {
             true
         };
+        self.finish_on_contained_by(container_id, is_enclosing)
+    }
+
+    /// Same as [`Self::on_contained_by`] when the caller already holds the contain mutex.
+    pub fn on_contained_by_enclosing(
+        &mut self,
+        container_id: ObjectID,
+        is_enclosing: bool,
+    ) -> Result<(), ObjectError> {
+        use crate::common::types::ObjectStatusMaskType;
+        self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
+        self.finish_on_contained_by(container_id, is_enclosing)
+    }
+
+    fn finish_on_contained_by(
+        &mut self,
+        container_id: ObjectID,
+        is_enclosing: bool,
+    ) -> Result<(), ObjectError> {
+        use crate::common::types::ObjectStatusMaskType;
         if is_enclosing {
             self.set_status(ObjectStatusMaskType::MASKED, true);
         } else {
@@ -959,25 +979,37 @@ impl Object {
     pub fn get_transport_slot_count(&self) -> usize {
         let mut count = self.thing_template.get_raw_transport_slot_count() as usize;
 
-        let zero_slot_riders: Option<Vec<ObjectID>> = self.contain.as_ref().and_then(|contain| {
-            let guard = contain.lock().ok()?;
-            if !guard.is_special_zero_slot_container() {
-                return None;
-            }
-            Some(guard.get_contained_objects().to_vec())
-        });
-
-        if let Some(rider_ids) = zero_slot_riders {
-            count = 0;
-            for rider_id in rider_ids {
-                if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-                {
-                    if let Ok(rider_guard) = rider.read() {
-                        count += rider_guard.get_transport_slot_count();
+        enum SlotLook {
+            Normal,
+            Busy,
+            Riders(Vec<ObjectID>),
+        }
+        let look = self
+            .contain
+            .as_ref()
+            .map(|contain| match contain.try_lock() {
+                Ok(guard) if guard.is_special_zero_slot_container() => {
+                    SlotLook::Riders(guard.get_contained_objects().to_vec())
+                }
+                Ok(_) => SlotLook::Normal,
+                Err(_) => SlotLook::Busy,
+            })
+            .unwrap_or(SlotLook::Normal);
+        match look {
+            SlotLook::Riders(rider_ids) => {
+                count = 0;
+                for rider_id in rider_ids {
+                    if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                    {
+                        if let Ok(rider_guard) = rider.try_read() {
+                            count += rider_guard.get_transport_slot_count();
+                        }
                     }
                 }
             }
+            SlotLook::Busy | SlotLook::Normal => {}
+
         }
 
         count

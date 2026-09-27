@@ -399,7 +399,7 @@ impl ModelConditionInfo {
     }
 
     fn validate_weapon_barrel_info(&mut self) {
-        if (self.valid_stuff & MODEL_CONDITION_BARRELS_VALID) != 0 {
+        if self.barrels_are_valid() {
             return;
         }
         // C++ still walks authored weapon-bone names after a failed model load.
@@ -497,6 +497,18 @@ impl ModelConditionInfo {
         }
 
         self.weapon_barrels = validated_barrels;
+        self.valid_stuff |= MODEL_CONDITION_BARRELS_VALID;
+    }
+
+    pub(crate) fn barrels_are_valid(&self) -> bool {
+        (self.valid_stuff & MODEL_CONDITION_BARRELS_VALID) != 0
+    }
+
+    pub(crate) fn turrets_are_valid(&self) -> bool {
+        (self.valid_stuff & MODEL_CONDITION_TURRETS_VALID) != 0
+    }
+
+    pub(crate) fn mark_barrels_validated(&mut self) {
         self.valid_stuff |= MODEL_CONDITION_BARRELS_VALID;
     }
 

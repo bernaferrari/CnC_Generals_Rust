@@ -204,7 +204,7 @@ impl FireWeaponUpdate {
 
         // Calculate initial delay frame
         let current_frame = Self::get_current_frame();
-        let initial_delay_frame = current_frame + data.initial_delay_frames;
+        let initial_delay_frame = current_frame.wrapping_add(data.initial_delay_frames);
 
         Ok(Self {
             object_id: object
@@ -292,8 +292,10 @@ impl FireWeaponUpdate {
             let current_frame = Self::get_current_frame();
             let last_shot_frame = obj.get_last_shot_fired_frame();
 
-            if current_frame < (last_shot_frame + self.module_data.exclusive_weapon_delay) {
-                return false; // Another weapon fired too recently
+            let ready_frame =
+                last_shot_frame.wrapping_add(self.module_data.exclusive_weapon_delay);
+            if current_frame < ready_frame {
+                return false;
             }
         }
 
@@ -338,12 +340,9 @@ impl UpdateModuleInterface for FireWeaponUpdate {
                 }) {
                     if let Ok(obj) = obj_arc.read() {
                         let obj_id = obj.get_id();
-                        let obj_pos = obj.get_position();
-
-                        // Fire weapon at own position (force fire)
-                        // This is what "forceFireWeapon" does in C++
-                        // Matches C++: m_weapon->forceFireWeapon( getObject(), getObject()->getPosition() )
-                        let _ = weapon.fire_weapon_at_position(obj_id, &obj_pos);
+                        let obj_pos = *obj.get_position();
+                        drop(obj);
+                        let _ = weapon.force_fire_weapon(obj_id, &obj_pos);
                     }
                 }
             }
@@ -370,9 +369,7 @@ impl BehaviorModuleInterface for FireWeaponUpdate {
 
 impl Snapshotable for FireWeaponUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

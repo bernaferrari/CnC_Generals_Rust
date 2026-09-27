@@ -147,31 +147,7 @@ impl ClientUpdateInterface for SwayClientUpdateModule {
 
 impl Snapshotable for SwayClientUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: u8 = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut cur_value = self.cur_value;
-        xfer.xfer_real(&mut cur_value)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut cur_angle = self.cur_angle;
-        xfer.xfer_real(&mut cur_angle)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut cur_delta = self.cur_delta;
-        xfer.xfer_real(&mut cur_delta)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut cur_angle_limit = self.cur_angle_limit;
-        xfer.xfer_real(&mut cur_angle_limit)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut lean_angle = self.lean_angle;
-        xfer.xfer_real(&mut lean_angle)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut cur_version = self.cur_version;
-        xfer.xfer_short(&mut cur_version)
-            .map_err(|e| format!("{:?}", e))?;
-        let mut swaying = self.swaying;
-        xfer.xfer_bool(&mut swaying)
-            .map_err(|e| format!("{:?}", e))?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -179,6 +155,12 @@ impl Snapshotable for SwayClientUpdateModule {
         const CURRENT_VERSION: u8 = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+        let mut drawable_version: u8 = 1;
+        xfer.xfer_version(&mut drawable_version, 1)
+            .map_err(|e| format!("{:?}", e))?;
+        let mut module_version: u8 = 1;
+        xfer.xfer_version(&mut module_version, 1)
             .map_err(|e| format!("{:?}", e))?;
 
         xfer.xfer_real(&mut self.cur_value)

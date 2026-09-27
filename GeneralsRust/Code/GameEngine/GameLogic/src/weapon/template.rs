@@ -330,11 +330,11 @@ impl WeaponTemplate {
     fn projectile_missile_initial_velocity(&self) -> Option<crate::common::Real> {
         self.with_projectile_missile_ai_data(|data| {
             if data.use_weapon_speed {
-                self.weapon_speed.max(self.min_weapon_speed)
+                self.weapon_speed
             } else if data.initial_velocity > 0.0 {
                 data.initial_velocity
             } else {
-                self.weapon_speed.max(self.min_weapon_speed)
+                self.weapon_speed
             }
         })
     }
@@ -345,11 +345,11 @@ impl WeaponTemplate {
                 return 0.0;
             }
             let speed = if data.use_weapon_speed {
-                self.weapon_speed.max(self.min_weapon_speed)
+                self.weapon_speed
             } else if data.initial_velocity > 0.0 {
                 data.initial_velocity
             } else {
-                self.weapon_speed.max(self.min_weapon_speed)
+                self.weapon_speed
             };
             if speed <= 0.0 {
                 0.0
@@ -622,9 +622,34 @@ impl WeaponTemplate {
             }
         };
 
-        // 1. Validate target and range
-        if !ignore_ranges && !self.is_target_in_range(&source_pos, &target_pos, bonus) {
-            return Ok(0);
+        if !ignore_ranges {
+            let source_radius = TheGameLogic::find_object_by_id(source_obj)
+                .and_then(|arc| {
+                    arc.read()
+                        .ok()
+                        .map(|guard| guard.get_geometry_info().get_bounding_circle_radius())
+                })
+                .unwrap_or(0.0);
+            let target_radius = victim_obj
+                .and_then(TheGameLogic::find_object_by_id)
+                .and_then(|arc| {
+                    arc.read()
+                        .ok()
+                        .map(|guard| guard.get_geometry_info().get_bounding_circle_radius())
+                })
+                .unwrap_or(0.0);
+            let dx = source_pos.x - target_pos.x;
+            let dy = source_pos.y - target_pos.y;
+            let center = (dx * dx + dy * dy).sqrt();
+            let distance = (center - source_radius - target_radius).max(0.0);
+            let attack_range = self.get_attack_range(bonus);
+            let min_range = self.get_minimum_attack_range();
+            if !self.leech_range_weapon && distance > attack_range {
+                return Ok(0);
+            }
+            if !is_projectile_detonation && distance < min_range {
+                return Ok(0);
+            }
         }
 
         // 2. Apply scatter (C++ Weapon.cpp lines ~953-1008)
@@ -1130,7 +1155,7 @@ impl WeaponTemplate {
             if let Ok(launcher_guard) = launcher_phys.lock() {
                 let velocity = launcher_guard.get_velocity();
                 if let Ok(mut projectile_guard) = projectile_phys.lock() {
-                    projectile_guard.set_velocity(&velocity);
+                    projectile_guard.add_velocity_to(&velocity);
                     projectile_guard.set_ignore_collisions_with(launcher_id);
                 }
             }
@@ -1380,7 +1405,7 @@ impl WeaponTemplate {
     }
 
     pub fn get_projectile_speed(&self) -> crate::common::Real {
-        self.weapon_speed.max(self.min_weapon_speed)
+        self.weapon_speed
     }
 
     pub fn get_projectile_lifetime(&self) -> crate::common::Real {
@@ -1396,7 +1421,7 @@ impl WeaponTemplate {
 
     pub fn get_initial_velocity(&self) -> crate::common::Real {
         self.projectile_missile_initial_velocity()
-            .unwrap_or_else(|| self.weapon_speed.max(self.min_weapon_speed))
+            .unwrap_or(self.weapon_speed)
     }
 
     pub fn get_damage_type(&self) -> DamageType {

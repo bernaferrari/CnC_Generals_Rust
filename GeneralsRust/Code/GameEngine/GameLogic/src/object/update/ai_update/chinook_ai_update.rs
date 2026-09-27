@@ -1185,20 +1185,16 @@ impl ChinookAIUpdate {
             ChinookFlightStatus::TakingOff | ChinookFlightStatus::Landing => {
                 let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let _ = ai.set_allow_invalid_position(false);
-                if let Some(locomotor) = ai.get_cur_locomotor() {
-                    if let Ok(mut guard) = locomotor.lock() {
-                        guard.set_precise_z_pos(true);
-                        guard.set_ultra_accurate(true);
-                    }
-                }
+                ai.with_cur_locomotor(&mut |loco| {
+                    loco.set_precise_z_pos(true);
+                    loco.set_ultra_accurate(true);
+                });
             }
             ChinookFlightStatus::Flying => {
-                if let Some(locomotor) = ai.get_cur_locomotor() {
-                    if let Ok(mut guard) = locomotor.lock() {
-                        guard.set_precise_z_pos(false);
-                        guard.set_ultra_accurate(false);
-                    }
-                }
+                ai.with_cur_locomotor(&mut |loco| {
+                    loco.set_precise_z_pos(false);
+                    loco.set_ultra_accurate(false);
+                });
             }
             _ => {}
         }
@@ -1383,18 +1379,16 @@ impl ChinookAIUpdate {
             },
             ai,
         );
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(mut guard) = locomotor.lock() {
-                guard.set_precise_z_pos(false);
-                guard.set_ultra_accurate(false);
-                let owner_dead = TheGameLogic::find_object_by_id(self.object_id)
-                    .and_then(|owner| owner.read().ok().map(|g| g.is_effectively_dead()))
-                    .unwrap_or(false);
-                if !owner_dead {
-                    guard.set_max_lift(CHINOOK_BIGNUM);
-                }
+        let owner_dead = TheGameLogic::find_object_by_id(self.object_id)
+            .and_then(|owner| owner.read().ok().map(|g| g.is_effectively_dead()))
+            .unwrap_or(false);
+        ai.with_cur_locomotor(&mut |loco| {
+            loco.set_precise_z_pos(false);
+            loco.set_ultra_accurate(false);
+            if !owner_dead {
+                loco.set_max_lift(CHINOOK_BIGNUM);
             }
-        }
+        });
         if landing {
             let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Taxiing);
         } else if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
@@ -1439,12 +1433,10 @@ impl ChinookAIUpdate {
 
     /// C++ `ChinookMoveToBldgState::onEnter`.
     fn enter_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(mut guard) = locomotor.lock() {
-                guard.set_ultra_accurate(true);
-                self.move_to_bldg_old_preferred = guard.preferred_height;
-            }
-        }
+        ai.with_cur_locomotor(&mut |loco| {
+            loco.set_ultra_accurate(true);
+            self.move_to_bldg_old_preferred = loco.preferred_height;
+        });
         self.move_to_bldg_new_preferred = self.move_to_bldg_old_preferred;
         let mut dest_pos = self.goal_pos;
         if let Some(target_id) = self.goal_object {
@@ -1465,11 +1457,9 @@ impl ChinookAIUpdate {
                 }
             }
         }
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(mut guard) = locomotor.lock() {
-                guard.set_preferred_height(self.move_to_bldg_new_preferred);
-            }
-        }
+        ai.with_cur_locomotor(&mut |loco| {
+            loco.set_preferred_height(self.move_to_bldg_new_preferred);
+        });
         let ground = TheTerrainLogic::get()
             .map(|terrain| terrain.get_ground_height(dest_pos.x, dest_pos.y, None))
             .unwrap_or(0.0);
@@ -1498,12 +1488,10 @@ impl ChinookAIUpdate {
     }
 
     fn exit_move_to_bldg(&mut self, ai: &mut dyn AIUpdateInterface) {
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(mut guard) = locomotor.lock() {
-                guard.set_preferred_height(self.move_to_bldg_old_preferred);
-                guard.set_ultra_accurate(false);
-            }
-        }
+        ai.with_cur_locomotor(&mut |loco| {
+            loco.set_preferred_height(self.move_to_bldg_old_preferred);
+            loco.set_ultra_accurate(false);
+        });
     }
 
     /// C++ `ChinookHeadOffMapState::update`.
@@ -1672,6 +1660,10 @@ impl ChinookAIUpdate {
         self.flight_status != ChinookFlightStatus::Landed
     }
 
+    pub fn is_landed(&self) -> bool {
+        self.flight_status == ChinookFlightStatus::Landed
+    }
+
     pub fn get_ai_free_to_exit(
         &self,
         exiter: &Object,
@@ -1735,6 +1727,17 @@ impl ChinookAIUpdate {
 
         self.set_airfield_for_healing(INVALID_ID);
 
+        let dead = TheGameLogic::find_object_by_id(self.object_id)
+            .and_then(|owner| owner.read().ok().map(|guard| guard.is_effectively_dead()))
+            .unwrap_or(false);
+        let mood = ai.get_mood_matrix_value();
+        let asleep = (mood & crate::ai::mood_matrix_parameters::CONTROLLER_AI) != 0
+            && (mood & crate::ai::mood_matrix_parameters::MOOD_SLEEP) != 0
+            && params.cmd != AiCommandType::MoveToPositionEvenIfSleeping;
+        if dead || asleep {
+            return true;
+        }
+
         if matches!(
             self.flight_status,
             ChinookFlightStatus::TakingOff
@@ -1746,6 +1749,12 @@ impl ChinookAIUpdate {
         }
 
         match params.cmd {
+            AiCommandType::Idle
+            | AiCommandType::Busy
+            | AiCommandType::FollowExitProductionPath => {
+                self.pending_command = None;
+                false
+            }
             AiCommandType::MoveToPositionAndEvacuate
             | AiCommandType::MoveToPositionAndEvacuateAndExit => {
                 let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
@@ -1795,6 +1804,7 @@ impl ChinookAIUpdate {
                     );
                     return true;
                 }
+                self.pending_command = None;
                 false
             }
             _ => {
@@ -1809,6 +1819,7 @@ impl ChinookAIUpdate {
                     );
                     return true;
                 }
+                self.pending_command = None;
                 false
             }
         }
@@ -1827,9 +1838,7 @@ impl ChinookAIUpdate {
                         if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
                             if let Ok(rider_guard) = rider.read() {
                                 if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                    if let Ok(mut ai_guard) = ai.lock() {
-                                        let _ = ai_guard.ai_idle();
-                                    }
+                                    ai.ai_idle(cmd_source);
                                 }
                             }
                         }
@@ -1974,6 +1983,10 @@ impl ChinookAIUpdate {
                             }
                         }
                     }
+                    if matches!(
+                        cmd_source,
+                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                    ) {
                     if let Some(rider_id) = contain.friend_get_rider() {
                         if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
                             if let Ok(rider_guard) = rider.read() {
@@ -2006,6 +2019,7 @@ impl ChinookAIUpdate {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -2067,6 +2081,10 @@ impl ChinookAIUpdate {
                             }
                         }
                     }
+                    if matches!(
+                        cmd_source,
+                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                    ) {
                     if let Some(rider_id) = contain.friend_get_rider() {
                         if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
                             if let Ok(rider_guard) = rider.read() {
@@ -2089,6 +2107,7 @@ impl ChinookAIUpdate {
                                 }
                             }
                         }
+                    }
                     }
                 }
             }
@@ -2208,20 +2227,20 @@ impl ChinookAIUpdate {
         let target = target_id.and_then(TheGameLogic::find_object_by_id);
         if let Some(target_obj) = target.as_ref() {
             if cmd_source == CommandSourceType::FromPlayer {
-                if let (Some(owner), Ok(target_guard)) = (
-                    TheGameLogic::find_object_by_id(self.object_id),
-                    target_obj.read(),
-                ) {
-                    if let Ok(owner_guard) = owner.read() {
-                        if !ActionManager::can_enter_object(
+                let allowed = TheGameLogic::find_object_by_id(self.object_id)
+                    .and_then(|owner| {
+                        let owner_guard = owner.read().ok()?;
+                        let target_guard = target_obj.read().ok()?;
+                        Some(ActionManager::can_enter_object(
                             &*owner_guard,
                             &*target_guard,
                             cmd_source,
                             CanEnterType::CombatDropInto,
-                        ) {
-                            return;
-                        }
-                    }
+                        ))
+                    })
+                    .unwrap_or(false);
+                if !allowed {
+                    return;
                 }
             }
         }
@@ -2299,7 +2318,7 @@ impl ChinookAIUpdate {
         let ground = terrain.get_ground_height(pos.x, pos.y, None);
         pos.z = ground + 3.0;
         let chopper_elevation = owner_guard.get_position().z - pos.z;
-        if get_game_logic_random_value_real(0.0, chopper_elevation) < 5.0 {
+        if crate::helpers::game_client_random_value_real(0.0, chopper_elevation) < 5.0 {
             if let Some(ps_manager) = TheParticleSystemManager::get() {
                 let template = if self.data.rotor_wash_particle_system.is_empty() {
                     None

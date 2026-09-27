@@ -371,7 +371,7 @@ impl PartitionManager {
         position: Coord3D,
         geometry: GeometryInfo,
     ) -> Result<(), CollisionError> {
-        self.register_object(id, position, geometry)
+        self.register_object_oriented(id, position, geometry, 0.0)
     }
 
     pub fn unregister_ghost_object(&mut self, id: ObjectId) -> Result<(), CollisionError> {
@@ -383,7 +383,9 @@ impl PartitionManager {
         position: Coord3D,
         geometry: GeometryInfo,
     ) -> Result<(), CollisionError> {
-        self.register_object_oriented(id, position, geometry, 0.0)
+        self.register_object_oriented(id, position, geometry, 0.0)?;
+        self.cell_changed_events.push(id);
+        Ok(())
     }
 
     pub fn register_object_oriented(
@@ -396,10 +398,8 @@ impl PartitionManager {
         let cells = super::partition_coi::cells_touched_for_geometry(
             position.x, position.y, &geometry, angle,
         );
-        let cell = cells
-            .first()
-            .copied()
-            .unwrap_or_else(|| CellCoord::from_world_pos(&position));
+        // C++ m_lastCell is worldToCell(position), not the first COI cell.
+        let cell = CellCoord::from_world_pos(&position);
         for &c in &cells {
             self.cells
                 .entry(c)
@@ -415,7 +415,7 @@ impl PartitionManager {
                 cell,
                 cells,
                 angle,
-                shroud_last_cell: None,
+                shroud_last_cell: Some(cell),
             },
         );
         Ok(())
@@ -438,20 +438,26 @@ impl PartitionManager {
         id: ObjectId,
         new_position: Coord3D,
     ) -> Result<(), CollisionError> {
-        let (geometry, angle) = match self.objects.get(&id) {
-            Some(obj) => (obj.geometry, obj.angle),
+        let angle = match self.objects.get(&id) {
+            Some(obj) => obj.angle,
             None => return Ok(()),
         };
-        // Re-registration builds a fresh PartitionObject, so carry the
-        // C++ `m_lastCell` memory across the update.
+        self.update_object_pose(id, new_position, angle)
+    }
+
+    pub fn update_object_pose(
+        &mut self,
+        id: ObjectId,
+        new_position: Coord3D,
+        angle: f32,
+    ) -> Result<(), CollisionError> {
+        let geometry = match self.objects.get(&id) {
+            Some(obj) => obj.geometry,
+            None => return Ok(()),
+        };
         let prev_last_cell = self.objects.get(&id).and_then(|obj| obj.shroud_last_cell);
         self.unregister_object(id)?;
         self.register_object_oriented(id, new_position, geometry, angle)?;
-        // C++ PartitionData::friend_updateCellsTouched
-        // (PartitionManager.cpp:2052-2062): when the center cell changed
-        // (including the very first update against the NULL m_lastCell),
-        // the object gets `onPartitionCellChange` — the movement-driven
-        // shroud look/unlook driver.
         if let Some(obj) = self.objects.get_mut(&id) {
             let new_cell = obj.cell;
             let changed = prev_last_cell != Some(new_cell);
@@ -629,29 +635,20 @@ impl PartitionManager {
     /// Matches C++ PartitionManager collision detection
     pub fn build_contact_list(&mut self) {
         self.contact_list.clear();
-
-        // Check each cell for internal collisions
         for cell in self.cells.values() {
             let objects: Vec<ObjectId> = cell.objects.iter().copied().collect();
-
-            // Check all pairs within cell
             for i in 0..objects.len() {
                 for j in (i + 1)..objects.len() {
                     let id_a = objects[i];
                     let id_b = objects[j];
-
-                    // Quick bounds check before detailed collision test
                     if let (Some(obj_a), Some(obj_b)) =
                         (self.objects.get(&id_a), self.objects.get(&id_b))
                     {
-                        let max_radius =
-                            obj_a.geometry.get_major_radius() + obj_b.geometry.get_major_radius();
-                        let dist_sqr = (obj_a.position.x - obj_b.position.x)
-                            * (obj_a.position.x - obj_b.position.x)
-                            + (obj_a.position.y - obj_b.position.y)
-                                * (obj_a.position.y - obj_b.position.y);
-
-                        if dist_sqr <= max_radius * max_radius {
+                        let max_radius = obj_a.geometry.get_bounding_circle_radius()
+                            + obj_b.geometry.get_bounding_circle_radius();
+                        let dx = obj_a.position.x - obj_b.position.x;
+                        let dy = obj_a.position.y - obj_b.position.y;
+                        if dx * dx + dy * dy <= max_radius * max_radius {
                             self.contact_list.push((id_a, id_b));
                         }
                     }
@@ -964,7 +961,7 @@ impl PartitionManager {
                     let dx = pobj.position.x - pos.x;
                     let dy = pobj.position.y - pos.y;
                     let dist2 = dx * dx + dy * dy;
-                    let combined_r = pobj.geometry.get_major_radius() + probe_radius;
+                    let combined_r = pobj.geometry.get_bounding_circle_radius() + probe_radius;
                     if dist2 < combined_r * combined_r {
                         return None;
                     }
@@ -1067,8 +1064,8 @@ impl PartitionManager {
             let other_v3 = glam::Vec3::new(pos_other.x, pos_other.y, pos_other.z);
             terrain.is_clear_line_of_sight(&pos_v3, &other_v3)
         } else {
-            // If terrain is unavailable, assume clear.
-            true
+            // C++ W3DTerrainLogic: no render object → false.
+            false
         }
     }
 
@@ -1101,8 +1098,8 @@ impl PartitionManager {
         let mut x = start.x;
         let mut y = start.y;
 
-        let (xinc1, xinc2) = if end.x >= start.x { (0, 1) } else { (0, -1) };
-        let (yinc1, yinc2) = if end.y >= start.y { (0, 1) } else { (0, -1) };
+        let (xinc1, xinc2) = if end.x >= start.x { (1, 1) } else { (-1, -1) };
+        let (yinc1, yinc2) = if end.y >= start.y { (1, 1) } else { (-1, -1) };
 
         let (den, numadd, numpixels, xinc1, yinc1, xinc2, yinc2) = if delta_x >= delta_y {
             let den = delta_x;
@@ -1267,6 +1264,9 @@ impl PartitionManager {
         allowed_player_mask: u32,
         val_type: ValueOrThreat,
     ) -> Option<Coord3D> {
+        if allowed_player_mask == 0 {
+            return None;
+        }
         let mut best_cell: Option<CellCoord> = None;
         let mut best_value: i32 = -1;
 
@@ -1285,7 +1285,11 @@ impl PartitionManager {
                 cell_value += contribution;
             }
 
-            if cell_value > best_value {
+            let better = cell_value > best_value
+                || best_cell.is_some_and(|best| {
+                    cell_value == best_value && (cell_coord.y, cell_coord.x) < (best.y, best.x)
+                });
+            if better {
                 best_value = cell_value;
                 best_cell = Some(cell_coord);
             }
@@ -1315,6 +1319,9 @@ impl PartitionManager {
         value_required: i32,
         _greater_than: bool,
     ) -> Option<Coord3D> {
+        if allowed_player_mask == 0 {
+            return None;
+        }
         // C++: parms.greaterThan = valueRequired; (Bool from Int)
         let query = CellValueQuery {
             value_required,
@@ -1340,10 +1347,14 @@ impl PartitionManager {
                 }
             }
 
+            // C++ promotes Int valueRequired to UnsignedInt. A negative
+            // requirement becomes a huge threshold, so 0 is not a hit.
+            let val_u = value as u32;
+            let required_u = query.value_required as u32;
             let passes = if query.greater_than {
-                value > query.value_required
+                val_u > required_u
             } else {
-                value < query.value_required
+                val_u < required_u
             };
 
             if passes {
@@ -1387,28 +1398,49 @@ impl PartitionManager {
             is_valid: false,
         };
 
+        let (min_x, min_y, max_x, max_y) = self.cell_grid_limits();
         self.iterate_cells_along_line(pos, other_pos, |cell_coord| {
+            if !Self::cell_in_grid(cell_coord, min_x, min_y, max_x, max_y) {
+                return 0;
+            }
             accum.is_valid = true;
-
-            // Sample terrain height at the cell center.
-            let cx = cell_coord.x as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
-            let cy = cell_coord.y as f32 * PARTITION_CELL_SIZE + PARTITION_CELL_SIZE * 0.5;
-            let h = terrain.get_ground_height(cx, cy, None);
-
+            let xbase = cell_coord.x as f32 * PARTITION_CELL_SIZE;
+            let ybase = cell_coord.y as f32 * PARTITION_CELL_SIZE;
+            let rough = crate::common::MAP_XY_FACTOR.max(1.0);
+            let num_steps = (PARTITION_CELL_SIZE / rough).ceil().max(1.0);
+            let step = PARTITION_CELL_SIZE / num_steps;
+            let mut lo_z = HUGE_DIST;
+            let mut hi_z = -HUGE_DIST;
+            let mut yy = 0.0;
+            while yy <= PARTITION_CELL_SIZE {
+                let mut xx = 0.0;
+                while xx <= PARTITION_CELL_SIZE {
+                    let h = terrain.get_ground_height(xbase + xx, ybase + yy, None);
+                    if h < lo_z {
+                        lo_z = h;
+                    }
+                    if h > hi_z {
+                        hi_z = h;
+                    }
+                    xx += step;
+                }
+                yy += step;
+            }
+            let cx = xbase + PARTITION_CELL_SIZE * 0.5;
+            let cy = ybase + PARTITION_CELL_SIZE * 0.5;
             if let Some(ref mut min_z) = accum.min_z {
-                if h < *min_z {
-                    *min_z = h;
+                if lo_z < *min_z {
+                    *min_z = lo_z;
                     accum.min_z_pos = Some((cx, cy));
                 }
             }
             if let Some(ref mut max_z) = accum.max_z {
-                if h > *max_z {
-                    *max_z = h;
+                if hi_z > *max_z {
+                    *max_z = hi_z;
                     accum.max_z_pos = Some((cx, cy));
                 }
             }
-
-            0 // continue
+            0
         });
 
         if !accum.is_valid {

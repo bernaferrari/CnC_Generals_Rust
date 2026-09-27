@@ -155,14 +155,10 @@ pub struct OverchargeBehavior {
 
 impl OverchargeBehavior {
     pub fn new(object_id: ObjectID, module_data: Arc<OverchargeBehaviorModuleData>) -> Self {
-        // start off sleeping forever until we become active (matches C++)
-        if object_id != 0 {
-            TheGameLogic::set_wake_frame(object_id, UPDATE_SLEEP_FOREVER);
-        }
         Self {
             object_id,
             module_data,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UPDATE_SLEEP_FOREVER.to_u32(),
             overcharge_active: false,
         }
     }
@@ -309,45 +305,26 @@ impl UpdateModuleInterface for OverchargeBehavior {
             return Ok(UPDATE_SLEEP_NONE);
         }
 
-        let Some(max_health) = self
-            .with_object(|obj_read| {
-                obj_read.get_body_module().and_then(|body| {
-                    body.lock()
-                        .ok()
-                        .map(|body_guard| body_guard.get_max_health())
-                })
-            })
-            .flatten()
-        else {
+        let Some(body) = self.with_object(|obj_read| obj_read.get_body_module()).flatten() else {
             return Ok(UPDATE_SLEEP_NONE);
         };
 
+        let Ok(mut body_guard) = body.lock() else {
+            return Ok(UPDATE_SLEEP_NONE);
+        };
+        let max_health = body_guard.get_max_health();
         let drain_amount = (max_health * self.module_data.health_percent_to_drain_per_second)
             / LOGICFRAMES_PER_SECOND as Real;
-
-        if drain_amount > 0.0 {
-            let _ = self.with_object_mut(|obj_write| {
-                let mut damage_info = DamageInfo::with_simple(
-                    drain_amount,
-                    obj_write.get_id(),
-                    DamageType::Penalty,
-                    DeathType::Normal,
-                );
-                damage_info.sync_from_input();
-                let _ = obj_write.attempt_damage(&mut damage_info);
-            });
-        }
-
-        let Some(current_health) = self
-            .with_object(|obj_read| {
-                obj_read
-                    .get_body_module()
-                    .and_then(|body| body.lock().ok().map(|body_guard| body_guard.get_health()))
-            })
-            .flatten()
-        else {
-            return Ok(UPDATE_SLEEP_NONE);
-        };
+        let mut damage_info = DamageInfo::with_simple(
+            drain_amount,
+            self.object_id,
+            DamageType::Penalty,
+            DeathType::Normal,
+        );
+        damage_info.sync_from_input();
+        let _ = body_guard.attempt_damage(&mut damage_info);
+        let current_health = body_guard.get_health();
+        drop(body_guard);
 
         let min_health_threshold =
             max_health * self.module_data.not_allowed_when_health_below_percent;
@@ -403,19 +380,32 @@ impl OverchargeBehaviorInterface for OverchargeBehavior {
     fn enable(&mut self, enable: Bool) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if !enable {
             if self.overcharge_active {
-                self.set_rod_state(false)?;
+                let _ = self.set_rod_state(false);
                 self.remove_power_bonus();
                 self.overcharge_active = false;
-                if self.object_id != 0 {
-                    TheGameLogic::set_wake_frame(self.object_id, UPDATE_SLEEP_FOREVER);
+                self.next_call_frame_and_phase = UPDATE_SLEEP_FOREVER.to_u32();
+                if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id) {
+                    if let Ok(guard) = obj.read() {
+                        guard.reschedule_named_update(
+                            "OverchargeBehavior",
+                            self.next_call_frame_and_phase,
+                        );
+                    }
                 }
             }
         } else if !self.overcharge_active {
             self.set_rod_state(true)?;
             self.add_power_bonus();
             self.overcharge_active = true;
-            if self.object_id != 0 {
-                TheGameLogic::set_wake_frame(self.object_id, UPDATE_SLEEP_NONE);
+            let now = crate::helpers::TheGameLogic::get_frame();
+            self.next_call_frame_and_phase = now.saturating_add(1);
+            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id) {
+                if let Ok(guard) = obj.read() {
+                    guard.reschedule_named_update(
+                        "OverchargeBehavior",
+                        self.next_call_frame_and_phase,
+                    );
+                }
             }
         }
         Ok(())
@@ -456,15 +446,7 @@ impl BehaviorModuleInterface for OverchargeBehavior {
 
 impl Snapshotable for OverchargeBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("xfer version failed: {e:?}"))?;
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
-            .map_err(|e| format!("xfer update module base state failed: {e}"))?;
-        let mut overcharge_active = self.overcharge_active;
-        xfer.xfer_bool(&mut overcharge_active)
-            .map_err(|e| format!("xfer overcharge_active failed: {e:?}"))?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -493,6 +475,10 @@ pub struct OverchargeBehaviorModule {
 }
 
 impl OverchargeBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: OverchargeBehavior,
         module_name: &AsciiString,

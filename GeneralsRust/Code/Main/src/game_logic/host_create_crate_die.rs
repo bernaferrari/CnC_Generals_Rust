@@ -437,27 +437,27 @@ fn residual_as_crate_template(
     tmpl
 }
 
-fn host_kind_names_to_common_mask(names: &[&str]) -> u64 {
+fn host_kind_names_to_common_mask(names: &[&str]) -> u128 {
     let bits = game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
-    let mut mask = 0u64;
+    let mut mask = 0u128;
     for (index, bit_name) in bits.iter().enumerate() {
-        if index >= 64 {
+        if index >= 128 {
             break;
         }
         if names.iter().any(|have| have.eq_ignore_ascii_case(bit_name)) {
-            mask |= 1u64 << index;
+            mask |= 1u128 << index;
         }
     }
     mask
 }
 
-fn salvage_killed_by_mask() -> u64 {
+fn salvage_killed_by_mask() -> u128 {
     let names = game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
     names
         .iter()
         .position(|n| n.eq_ignore_ascii_case("SALVAGER"))
-        .filter(|i| *i < 64)
-        .map(|i| 1u64 << i)
+        .filter(|i| *i < 128)
+        .map(|i| 1u128 << i)
         .unwrap_or(0)
 }
 

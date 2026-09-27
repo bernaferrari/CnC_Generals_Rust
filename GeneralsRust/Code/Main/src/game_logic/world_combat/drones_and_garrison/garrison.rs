@@ -237,7 +237,6 @@ impl GameLogic {
             attacker.set_order_target(Some(target_id));
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(garrisoned_id, target_id);
-                crate::game_logic::host_ai_decision_log::record_set_state(garrisoned_id, 2);
             }
             // Kill XP awarded after this borrow via award_experience.
         }
@@ -688,23 +687,39 @@ impl GameLogic {
         let container_layer = container.pathfind_layer;
         let door_open_time = container.thing.template.contain_module.door_open_time;
         let template_name = container.template_name.clone();
-        let (start, end, next) = if is_garrison {
+        let mut exit_count = 1i32;
+        let snap_garrison_to_ground = is_garrison && container.is_enclosing_garrison_container();
+        let (mut start, end, next) = if is_garrison {
             let origin = container.get_position();
-            let geom = container.thing.template.geometry_info;
-            let major = if geom.authored {
-                geom.major_radius.max(8.0)
-            } else {
-                20.0
-            };
             let enclosing = container.is_enclosing_garrison_container();
+            let disposition = container.garrison_evac_disposition();
             let (sin, cos) = yaw.sin_cos();
-            let dest = glam::Vec3::new(origin.x + major * cos, origin.y, origin.z + major * sin);
-            let start = if enclosing {
-                origin
+            if disposition == 1 || disposition == 2 {
+                let geom = container.thing.template.geometry_info;
+                let half_length = if geom.authored { geom.major_radius } else { 20.0 };
+                let half_width = if geom.authored { geom.minor_radius } else { 10.0 };
+                let scalar = if disposition == 1 { 1.0 } else { -1.0 };
+                let rnd = gamelogic::helpers::get_game_logic_random_value_real;
+                let door_x = rnd(-half_length / 4.0, half_length / 4.0);
+                let door_y = rnd(half_width / 2.0, half_width * 2.0) * scalar;
+                let walk_x = rnd(-half_length, half_length);
+                let walk_y = half_width * 10.0 * scalar;
+                let to_world = |local_x: f32, local_y: f32| {
+                    glam::Vec3::new(
+                        origin.x + local_x * cos - local_y * sin,
+                        origin.y,
+                        origin.z + local_x * sin + local_y * cos,
+                    )
+                };
+                (to_world(door_x, door_y), to_world(walk_x, walk_y), 0u8)
             } else {
-                unit_pos.unwrap_or(origin)
-            };
-            (start, dest, 0u8)
+                let start = if enclosing {
+                    origin
+                } else {
+                    unit_pos.unwrap_or(origin)
+                };
+                (start, origin, 0u8)
+            }
         } else {
             let which = if container.which_exit_path > 0 {
                 container.which_exit_path
@@ -716,15 +731,26 @@ impl GameLogic {
                     .unwrap_or(0)
             };
             let number_exits = container.transport_number_of_exit_paths();
+            exit_count = number_exits;
             open_contain_exit_path(container, which, number_exits)
         };
-        // C++ exitPath = [end, end, rally?]. Live dest is rally after the door.
-        let dest = if is_garrison {
-            end
-        } else {
-            rally.unwrap_or(end)
-        };
-        if next > 0 {
+        if snap_garrison_to_ground {
+            let side_dump = self.objects.get(&container_id).is_some_and(|c| {
+                let disposition = c.garrison_evac_disposition();
+                disposition == 1 || disposition == 2
+            });
+            if !side_dump {
+                if let Ok(terrain) = gamelogic::terrain::get_terrain_logic().read() {
+                    start.y = terrain.get_ground_height(start.x, start.z, None);
+                }
+            }
+        }
+        if let Some(c) = self.objects.get_mut(&container_id) {
+            let _ = c.remove_occupant(unit_id);
+        }
+        // C++ exitPath = [adjusted end, adjusted end, rally?]. Rally is not snapped.
+        let mut door_end = end;
+        if exit_count > 1 {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 c.which_exit_path = next;
                 if let Some(bd) = c.building_data.as_mut() {
@@ -732,54 +758,115 @@ impl GameLogic {
                 }
             }
         }
+        if is_garrison || exit_count > 0 {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.set_contained_by(None);
+                unit.target = None;
+                unit.set_position(start);
+                unit.set_orientation(yaw);
+                if !is_garrison {
+                    unit.pathfind_layer = container_layer;
+                }
+            }
+        }
+        let skip_follow = !is_garrison && exit_count <= 0;
+        if is_garrison || !skip_follow {
+            let _ = self.adjust_to_possible_destination(unit_id, &mut door_end);
+        }
+        let dest = door_end;
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.set_contained_by(None);
             unit.target = None;
-            unit.set_position(start);
-            unit.set_orientation(yaw);
-            if !is_garrison {
-                // C++ exitObj->setLayer(me->getLayer()) so bridge/deck unload
-                // does not pick a ground cell.
-                unit.pathfind_layer = container_layer;
-                // Amphibious transports unload ~3ft off the ground. Force
-                // allowToFall off around aiFollowPath so riders pathfind
-                // instead of stacking, then restore (onRemoving airborne
-                // re-enables fall below).
-                let previous_allow_to_fall = unit.allow_to_fall;
-                unit.allow_to_fall = false;
-                unit.set_destination(dest);
-                unit.allow_to_fall = previous_allow_to_fall;
-            } else {
-                unit.set_destination(dest);
+            if !skip_follow {
+                unit.set_position(start);
+                unit.set_orientation(yaw);
+                if !is_garrison {
+                    unit.pathfind_layer = container_layer;
+                }
             }
-            unit.set_ai_state(AIState::Moving);
-            unit.status.moving = true;
+            if !skip_follow {
+                if !is_garrison {
+                    let previous_allow_to_fall = unit.allow_to_fall;
+                    unit.allow_to_fall = false;
+                    unit.set_destination(dest);
+                    unit.allow_to_fall = previous_allow_to_fall;
+                    let mut path = vec![start, door_end, door_end];
+                    if let Some(rally_point) = rally {
+                        path.push(rally_point);
+                    }
+                    unit.movement.path = path;
+                    unit.movement.current_path_index = 1;
+                    unit.movement.target_position = Some(door_end);
+                } else {
+                    unit.set_destination(dest);
+                    unit.movement.path = vec![start, door_end];
+                    unit.movement.current_path_index = 1;
+                    unit.movement.target_position = Some(door_end);
+                }
+                unit.set_ai_state(AIState::Moving);
+                unit.last_command_source =
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+                unit.status.moving = true;
+            }
             if is_garrison {
                 unit.stamp_safe_occlusion_frame(self.frame);
             }
-            // C++ OpenContain::exitObjectViaDoor: ignoreObstacle(NULL) +
-            // setIgnoreCollisionTime(LOGICFRAMES_PER_SECOND).
-            unit.ignore_collisions_with = None;
-            unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
-            if go_aggressive {
+            // OpenContain only. GarrisonContain::exitObjectViaDoor does not
+            // call ignoreObstacle or setIgnoreCollisionTime.
+            if !is_garrison {
+                unit.ignored_obstacle_id = None;
+                unit.ignore_collisions_with = None;
+                unit.ignore_collisions_until_frame = self.frame.saturating_add(30);
+            }
+            if go_aggressive && !is_garrison {
                 unit.set_ai_attitude(
                     crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
                 );
             }
-            if let Some(hull_vel) = hull_vel {
-                // C++ onRemoving: KeepContainerVelocityOnExit copies parent
-                // velocity×mass as motive force. Independent of airborne.
-                let mass = unit.physics_get_mass();
-                unit.apply_motive_force(hull_vel * mass);
+            if !is_garrison {
+                if let Some(hull_vel) = hull_vel {
+                    // TransportContain::onRemoving KeepContainerVelocityOnExit.
+                    let mass = unit.physics_get_mass();
+                    unit.apply_motive_force(hull_vel * mass);
+                }
+                if airborne {
+                    // TransportContain::onRemoving isAboveTerrain → setAllowToFall.
+                    unit.allow_to_fall = true;
+                }
             }
-            if airborne {
-                // C++ onRemoving: isAboveTerrain → setAllowToFall only.
-                unit.allow_to_fall = true;
-            }
+        }
+        // C++ updateGoal is inside the numberExits > 0 path (OpenContain.cpp:1016).
+        if !skip_follow {
+            self.register_ground_path_goal(unit_id, door_end);
         }
         // C++ TransportContain::onRemoving ResetMoodCheckTimeOnExit + OpenContain
         // template SoundExit / SoundFallingFromPlane.
-        self.reset_rider_mood_check_on_exit(unit_id);
+        let transport_mood = self.objects.get(&container_id).is_some_and(|c| {
+            matches!(
+                c.thing.template.contain_module.kind,
+                crate::game_logic::ContainModuleKind::Transport
+                    | crate::game_logic::ContainModuleKind::RiderChange
+                    | crate::game_logic::ContainModuleKind::RailedTransport
+                    | crate::game_logic::ContainModuleKind::InternetHack
+            )
+        });
+        if transport_mood {
+            self.reset_rider_mood_check_on_exit(unit_id);
+            if let Some(container) = self.objects.get_mut(&container_id) {
+                if container.uses_transport_contain_exit_busy() {
+                    let delay = container.transport_exit_delay_frames();
+                    container.frame_exit_not_busy = self.frame.saturating_add(delay);
+                }
+                if container.contained_units().is_empty() {
+                    let bit = crate::game_logic::host_enum_table_residual::loaded_model_bit();
+                    container.model_condition_bits &= !(1u128 << bit);
+                    container.record_host_model_condition();
+                }
+            }
+        }
+        if transport_mood {
+            self.refresh_battle_bus_armed_riders_weapon_set(container_id);
+        }
         self.play_container_removing_template_sounds(container_id, unit_id);
         // C++ OpenContain::exitObjectViaDoor door countdown + DOOR_1_OPENING.
         // GarrisonContain overrides and never diddles the door.

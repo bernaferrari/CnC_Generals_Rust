@@ -324,7 +324,7 @@ impl MinefieldBehavior {
                 .ok()
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             next_death_check_frame: 0,
             scoot_frames_left: 0,
             scoot_vel: Coord3D::new(0.0, 0.0, 0.0),
@@ -456,9 +456,10 @@ impl MinefieldBehavior {
         }
 
         let mut scoot_time = self.module_data.scoot_from_starting_point_time;
+        let gravity = crate::object::die::eject_pilot_die::current_gravity();
         if start.z > end_on_ground.z {
-            let gravity: Real = 1.0;
-            let falling_time = (2.0 * (start.z - end_on_ground.z) / gravity).sqrt().ceil() as u32;
+            let falling_time =
+                (2.0 * (start.z - end_on_ground.z) / gravity.abs()).sqrt().ceil() as u32;
             scoot_time = scoot_time.max(falling_time);
         }
 
@@ -492,10 +493,24 @@ impl MinefieldBehavior {
         let dx_norm = if dist <= 0.1 { 0.0 } else { dx / dist };
         let dy_norm = if dist <= 0.1 { 0.0 } else { dy / dist };
         self.scoot_vel = Coord3D::new(dx_norm * speed, dy_norm * speed, 0.0);
-        self.scoot_accel = Coord3D::new(-dx_norm * accel_mag, -dy_norm * accel_mag, -1.0);
+        self.scoot_accel = Coord3D::new(-dx_norm * accel_mag, -dy_norm * accel_mag, gravity);
         self.scoot_frames_left = scoot_time;
         if let Ok(mut object) = owner.write() {
             let _ = object.set_position(start);
+        }
+        let sleep = self.calc_sleep_time();
+        let now = crate::helpers::TheGameLogic::get_frame();
+        self.next_call_frame_and_phase = match sleep {
+            UpdateSleepTime::None => now.saturating_add(1),
+            UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+            UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+        };
+        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        {
+            if let Ok(guard) = object.read() {
+                guard.reschedule_named_update("MinefieldBehavior", self.next_call_frame_and_phase);
+            }
         }
         Ok(())
     }
@@ -643,7 +658,7 @@ impl MinefieldBehavior {
             return;
         }
 
-        if self.virtual_mines_remaining == 0 || self.scoot_frames_left > 0 {
+        if self.virtual_mines_remaining == 0 {
             return;
         }
         let Some(owner) = self.owner() else {
@@ -699,8 +714,8 @@ impl MinefieldBehavior {
                 *other_object.get_position(),
                 *object.get_position(),
                 geom.get_geometry_type(),
-                geom.get_major_radius(),
-                geom.get_minor_radius(),
+                (geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5,
+                (geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5,
                 worker,
                 clearing,
                 object.relationship_to(&other_object),
@@ -713,6 +728,9 @@ impl MinefieldBehavior {
         if (self.module_data.detonated_by & relationship_mask(relationship)) == 0 {
             return;
         }
+        if self.scoot_frames_left > 0 {
+            return;
+        }
         if clearing_mines {
             if let Some(slot) = self
                 .immunes
@@ -721,6 +739,9 @@ impl MinefieldBehavior {
             {
                 slot.id = other_id;
                 slot.collide_time = now;
+                if let Ok(object) = owner.read() {
+                    object.reschedule_named_update("MinefieldBehavior", now.saturating_add(1));
+                }
             }
             return;
         }
@@ -1045,6 +1066,10 @@ pub struct MinefieldBehaviorModule {
 }
 
 impl MinefieldBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: MinefieldBehavior,
         module_name: &AsciiString,

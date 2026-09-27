@@ -59,13 +59,11 @@ impl DefaultCommandHandler {
             None
         };
 
-        let target_arc = match target_object {
-            Some(id) => match TheGameLogic::find_object_by_id(id) {
-                Some(obj) => Some(obj),
-                None => return CommandExecutionResult::Success,
-            },
-            None => None,
-        };
+        if let Some(id) = target_object {
+            if TheGameLogic::find_object_by_id(id).is_none() {
+                return CommandExecutionResult::Success;
+            }
+        }
 
         let selection_manager = get_selection_manager();
         let selected = selection_manager
@@ -78,48 +76,218 @@ impl DefaultCommandHandler {
             })
             .unwrap_or_default();
 
-        for object_id in selected {
-            let Some((ai, own_position)) = OBJECT_REGISTRY
-                .with_object_mut(object_id, |guard| {
+        if cmd_type == CommandType::DoWeapon {
+            let mut members = Vec::new();
+            let mut any_locked = false;
+            for object_id in &selected {
+                let locked = OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
                     if guard.is_destroyed() {
                         return None;
                     }
-                    if guard.get_controlling_player_id().map(|id| id as Int)
-                        != Some(context.player_id)
+                    if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
                     {
                         return None;
                     }
+                    Some(guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily))
+                });
+                if let Some(locked) = locked.flatten() {
+                    members.push(*object_id);
+                    any_locked |= locked;
+                }
+            }
+            if any_locked {
+                for object_id in members {
+                    self.order_attack_position(object_id, None, max_shots_to_fire);
+                }
+            }
+            return CommandExecutionResult::Success;
+        }
+        if cmd_type == CommandType::DoWeaponAtLocation {
+            if let Some(position) = target_position {
+                let mut members = Vec::new();
+                let mut any_locked = false;
+                for object_id in &selected {
+                    let locked = OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
+                        if guard.is_destroyed() {
+                            return None;
+                        }
+                        if guard.get_controlling_player_id().map(|id| id as Int)
+                            != Some(context.player_id)
+                        {
+                            return None;
+                        }
+                        Some(guard.set_weapon_lock(
+                            weapon_slot,
+                            WeaponLockType::LockedTemporarily,
+                        ))
+                    });
+                    if let Some(locked) = locked.flatten() {
+                        members.push(*object_id);
+                        any_locked |= locked;
+                    }
+                }
+                if any_locked {
+                    for object_id in members {
+                        self.order_attack_position(object_id, Some(&position), max_shots_to_fire);
+                    }
+                }
+            }
+            return CommandExecutionResult::Success;
+        }
 
-                    guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
-                    let Some(ai) = guard.get_ai_update_interface() else {
-                        return None;
-                    };
-                    let own_position = if cmd_type == CommandType::DoWeapon {
-                        Some(*guard.get_position())
-                    } else {
-                        None
-                    };
-                    Some((ai, own_position))
-                })
-                .flatten()
-            else {
-                continue;
-            };
-
-            if let Some(target) = &target_arc {
-                ai.ai_attack_object(
-                    target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                    max_shots_to_fire,
-                    CommandSourceType::FromPlayer,
-                );
-            } else if let Some(position) = target_position {
-                ai.ai_attack_position(&position, max_shots_to_fire, CommandSourceType::FromPlayer);
-            } else if let Some(position) = own_position {
-                ai.ai_attack_position(&position, max_shots_to_fire, CommandSourceType::FromPlayer);
+        if cmd_type == CommandType::DoWeaponAtObject {
+            if let Some(victim_id) = target_object {
+                let mut members = Vec::new();
+                let mut any_locked = false;
+                for object_id in &selected {
+                    let locked = OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
+                        if guard.is_destroyed() {
+                            return None;
+                        }
+                        if guard.get_controlling_player_id().map(|id| id as Int)
+                            != Some(context.player_id)
+                        {
+                            return None;
+                        }
+                        Some(guard.set_weapon_lock(
+                            weapon_slot,
+                            WeaponLockType::LockedTemporarily,
+                        ))
+                    });
+                    if let Some(locked) = locked.flatten() {
+                        members.push(*object_id);
+                        any_locked |= locked;
+                    }
+                }
+                if any_locked {
+                    for object_id in members {
+                        self.order_attack_object(object_id, victim_id, max_shots_to_fire);
+                    }
+                }
             }
         }
 
         CommandExecutionResult::Success
+    }
+
+    fn order_attack_position(
+        &self,
+        object_id: crate::common::ObjectID,
+        pos: Option<&Coord3D>,
+        max_shots_to_fire: i32,
+    ) {
+        let _ = OBJECT_REGISTRY.with_object(object_id, |obj_ref| {
+            let attack_pos = pos.copied().unwrap_or_else(|| *obj_ref.get_position());
+            if let Some(contain) = obj_ref.get_contain() {
+                if contain.is_passenger_allowed_to_fire(None) {
+                    for passenger_id in contain.get_contained_objects() {
+                        let can = OBJECT_REGISTRY
+                            .with_object(passenger_id, |passenger| {
+                                passenger.get_able_to_use_weapon_against_position(
+                                    crate::attack::AbleToAttackType::NewTarget,
+                                    &attack_pos,
+                                    CommandSourceType::FromPlayer,
+                                )
+                            })
+                            .unwrap_or(crate::attack::CanAttackResult::NotPossible);
+                        if matches!(
+                            can,
+                            crate::attack::CanAttackResult::Possible
+                                | crate::attack::CanAttackResult::PossibleAfterMoving
+                        ) {
+                            let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
+                                if let Some(pai) = passenger.get_ai_update_interface() {
+                                    pai.ai_attack_position(
+                                        &attack_pos,
+                                        max_shots_to_fire,
+                                        CommandSourceType::FromPlayer,
+                                    );
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                if let Ok(mut guard) = behavior.lock() {
+                    if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
+                        if !spawn.do_slaves_have_freedom() {
+                            let _ = spawn.order_slaves_to_attack_position(
+                                &attack_pos,
+                                max_shots_to_fire,
+                                CommandSourceType::FromPlayer,
+                            );
+                        }
+                    }
+                }
+            }
+            if let Some(ai) = obj_ref.get_ai_update_interface() {
+                ai.ai_attack_position(&attack_pos, max_shots_to_fire, CommandSourceType::FromPlayer);
+            }
+        });
+    }
+    fn order_attack_object(
+        &self,
+        object_id: crate::common::ObjectID,
+        victim_id: crate::common::ObjectID,
+        max_shots_to_fire: i32,
+    ) {
+        let _ = OBJECT_REGISTRY.with_object(object_id, |obj_ref| {
+            if let Some(contain) = obj_ref.get_contain() {
+                if contain.is_passenger_allowed_to_fire(None) {
+                    for passenger_id in contain.get_contained_objects() {
+                        let can = OBJECT_REGISTRY
+                            .with_object(passenger_id, |passenger| {
+                                OBJECT_REGISTRY
+                                    .with_object(victim_id, |victim| {
+                                        passenger.get_able_to_attack_specific_object(
+                                            crate::attack::AbleToAttackType::NewTarget,
+                                            victim,
+                                            CommandSourceType::FromPlayer,
+                                        )
+                                    })
+                                    .unwrap_or(crate::attack::CanAttackResult::NotPossible)
+                            })
+                            .unwrap_or(crate::attack::CanAttackResult::NotPossible);
+                        if matches!(
+                            can,
+                            crate::attack::CanAttackResult::Possible
+                                | crate::attack::CanAttackResult::PossibleAfterMoving
+                        ) {
+                            let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
+                                if let Some(pai) = passenger.get_ai_update_interface() {
+                                    pai.ai_attack_object(
+                                        victim_id,
+                                        max_shots_to_fire,
+                                        CommandSourceType::FromPlayer,
+                                    );
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+            if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                if let Ok(mut guard) = behavior.lock() {
+                    if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
+                        if !spawn.do_slaves_have_freedom() {
+                            let _ = OBJECT_REGISTRY.with_object(victim_id, |victim| {
+                                let _ = spawn.order_slaves_to_attack_target(
+                                    victim,
+                                    max_shots_to_fire,
+                                    CommandSourceType::FromPlayer,
+                                );
+                            });
+                        }
+                    }
+                }
+            }
+            if object_id != victim_id {
+                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                    ai.ai_attack_object(victim_id, max_shots_to_fire, CommandSourceType::FromPlayer);
+                }
+            }
+        });
     }
 
     fn execute_enable_retaliation(

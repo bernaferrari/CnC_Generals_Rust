@@ -3,7 +3,7 @@
 //! Provides the base functionality for object body modules, handling health,
 //! damage, armor, and body states in a thread-safe manner.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::common::{AsciiString, INVALID_ID, ObjectID, ThingTemplate};
 pub use crate::common::{BodyDamageType, VeterancyLevel};
@@ -297,8 +297,11 @@ pub trait BodyModuleInterface: Send + Sync {
 
 /// Base body module implementation
 pub struct BodyModule {
-    /// Damage scalar for defensive bonuses/penalties
-    damage_scalar: Arc<RwLock<f32>>,
+    /// Damage scalar for defensive bonuses/penalties.
+    /// C++ `BodyModule::m_damageScalar` is a plain `Real` on the body the
+    /// caller already owns (`Object::body`). No inner lock: a second
+    /// `read`/`write` on the same call stack would deadlock `std::sync::RwLock`.
+    damage_scalar: f32,
     /// Module configuration data
     module_data: Arc<BodyModuleData>,
 }
@@ -307,7 +310,7 @@ impl BodyModule {
     /// Create a new body module
     pub fn new(module_data: BodyModuleData) -> Self {
         Self {
-            damage_scalar: Arc::new(RwLock::new(1.0)),
+            damage_scalar: 1.0,
             module_data: Arc::new(module_data),
         }
     }
@@ -337,20 +340,23 @@ impl Snapshotable for BodyModule {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|err| err.to_string())?;
 
-        let mut scalar = self
-            .damage_scalar
-            .read()
-            .map_err(|_| "BodyModule damage_scalar lock poisoned".to_string())?
-            .to_owned();
-        xfer.xfer_real(&mut scalar).map_err(|err| err.to_string())?;
+        // C++ BodyModule::xfer calls BehaviorModule::xfer, which calls
+        // ObjectModule::xfer, which calls Module::xfer. Each writes version 1
+        // and no payload. The damage scalar comes after that chain.
+        let mut behavior_version: XferVersion = 1;
+        xfer.xfer_version(&mut behavior_version, 1)
+            .map_err(|err| err.to_string())?;
+        let mut object_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut object_module_version, 1)
+            .map_err(|err| err.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|err| err.to_string())?;
 
-        if xfer.is_reading() {
-            if let Ok(mut damage_scalar) = self.damage_scalar.write() {
-                *damage_scalar = scalar;
-            } else {
-                return Err("BodyModule damage_scalar lock poisoned".to_string());
-            }
-        }
+        // C++ xfers `m_damageScalar` in place. Owned f32, so this cannot
+        // lock the scalar a second time on the same stack.
+        xfer.xfer_real(&mut self.damage_scalar)
+            .map_err(|err| err.to_string())?;
 
         Ok(())
     }
@@ -494,16 +500,12 @@ impl BodyModuleInterface for BodyModule {
     }
 
     fn apply_damage_scalar(&mut self, scalar: f32) -> BodyResult<()> {
-        if let Ok(mut damage_scalar) = self.damage_scalar.write() {
-            *damage_scalar *= scalar;
-            Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
-        }
+        self.damage_scalar *= scalar;
+        Ok(())
     }
 
     fn get_damage_scalar(&self) -> f32 {
-        self.damage_scalar.read().map(|guard| *guard).unwrap_or(1.0)
+        self.damage_scalar
     }
 
     fn internal_change_health(&mut self, _delta: f32) -> BodyResult<()> {

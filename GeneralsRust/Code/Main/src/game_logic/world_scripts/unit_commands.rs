@@ -202,6 +202,11 @@ impl GameLogic {
             return true;
         }
         self.stop_attack_clearing_jet_targeter(id);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.ignored_obstacle_id = None;
+        }
+        let _ = self.note_move_to_request_path(id);
+        let destination = self.clip_player_goal(id, destination);
         let ok = self.assign_unit_path(id, destination, &[]);
         if ok {
             if let Some(unit) = self.objects.get_mut(&id) {
@@ -211,6 +216,26 @@ impl GameLogic {
             self.hunt_next_enemy_scan.remove(&id);
         }
         ok
+    }
+
+    /// C++ `setGoalPositionClipped` for `CMD_FROM_PLAYER` only.
+    pub(crate) fn clip_player_goal(&self, id: ObjectId, mut pos: glam::Vec3) -> glam::Vec3 {
+        use crate::game_logic::partition_manager::PARTITION_CELL_SIZE_RESIDUAL;
+        let mut fudge = PARTITION_CELL_SIZE_RESIDUAL * 0.5;
+        if let Some(unit) = self.objects.get(&id) {
+            if unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                && unit.is_significantly_above_terrain()
+            {
+                fudge = fudge.max(unit.loco_preferred_height);
+            }
+        }
+        let (min, max) = self.world_bounds();
+        if max.x <= min.x + fudge * 2.0 || max.z <= min.z + fudge * 2.0 {
+            return pos;
+        }
+        pos.x = pos.x.clamp(min.x + fudge, max.x - fudge);
+        pos.z = pos.z.clamp(min.z + fudge, max.z - fudge);
+        pos
     }
 
     /// Wave 232: path with waypoints after stop_attack (executor move_to residual).
@@ -239,7 +264,10 @@ impl GameLogic {
         // releases any temporary weapon lock before aiMoveToPosition.
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.release_weapon_lock(crate::game_logic::WeaponLockType::LockedTemporarily);
+            unit.ignored_obstacle_id = None;
         }
+        let _ = self.note_move_to_request_path(id);
+        let destination = self.clip_player_goal(id, destination);
         self.assign_unit_path(id, destination, waypoints)
     }
 
@@ -256,6 +284,11 @@ impl GameLogic {
             return true;
         }
         self.stop_attack_clearing_jet_targeter(id);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.ignored_obstacle_id = None;
+        }
+        let _ = self.note_move_to_request_path(id);
+        let destination = self.clip_player_goal(id, destination);
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
         }
@@ -321,7 +354,6 @@ impl GameLogic {
         if !engaged {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.set_target(Some(target_id));
-                unit.set_ai_state(AIState::Attacking);
             } else {
                 return false;
             }
@@ -379,9 +411,7 @@ impl GameLogic {
         end_hunt_on_player_parent_order(unit);
 
         unit.set_target(Some(target_id));
-        crate::game_logic::host_attack_log::record(id, Some(target_id));
         unit.set_force_attack(true);
-        unit.set_ai_state(AIState::Attacking);
         drop(unit);
         self.hunt_next_enemy_scan.remove(&id);
         if let Some(tgt) = self.objects.get_mut(&target_id) {
@@ -447,6 +477,7 @@ impl GameLogic {
         if should_land {
             if let Some(unit) = self.objects.get_mut(&id) {
                 unit.stop();
+                unit.ignored_obstacle_id = None;
                 unit.set_target(None);
                 unit.set_force_attack(false);
                 unit.set_guard_position(None);
@@ -465,6 +496,7 @@ impl GameLogic {
             return false;
         };
         unit.stop();
+        unit.ignored_obstacle_id = None;
         unit.set_target(None);
         unit.set_force_attack(false);
         unit.set_guard_position(None);
@@ -518,6 +550,41 @@ impl GameLogic {
         true
     }
 
+    /// C++ `Pathfinder::adjustDestination` (AIPathfind.cpp:5331), not the weaker
+    /// `adjustToPossibleDestination` spiral.
+    pub(crate) fn adjust_guard_goal(&self, unit_id: ObjectId, dest: &mut glam::Vec3) {
+        let Some(obj) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let surfaces = if obj.locomotor_surfaces != 0 {
+            obj.locomotor_surfaces
+        } else {
+            crate::game_logic::object::LOCO_SURFACE_GROUND
+        };
+        let grid = &self.pathfinding_system.grid;
+        let cell = grid.world_to_grid(*dest);
+        let raw_layer = obj.pathfind_layer as u32;
+        let layer = if raw_layer <= 1 {
+            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+        } else {
+            let parsed = gamelogic::ai::pathfind_astar::PathfindLayerEnum::from_u32(raw_layer);
+            if parsed == gamelogic::ai::pathfind_astar::PathfindLayerEnum::Invalid {
+                gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground
+            } else {
+                parsed
+            }
+        };
+        let Some(adjusted) =
+            grid.adjust_destination_on_layer(cell, surfaces, false, 400, None, 0, layer)
+        else {
+            return;
+        };
+        let world = grid.grid_to_world(adjusted);
+        dest.x = world.x;
+        dest.z = world.z;
+    }
+
+
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
@@ -543,7 +610,8 @@ impl GameLogic {
             unit.can_move()
         };
         if can_move {
-            if let Some(pos) = goal {
+            if let Some(mut pos) = goal {
+                self.adjust_guard_goal(id, &mut pos);
                 self.path_approach_with_state(id, pos, AIState::GuardingObject);
             }
         }
@@ -582,13 +650,18 @@ impl GameLogic {
             return true;
         }
 
-        // C++ AIGroup::groupAttackMoveToPosition: no locomotor/can-move gate.
-        // Deployed artillery and turret structures still enter attack-move.
-        let (alive, can_attack) = match self.objects.get(&id) {
-            Some(unit) => (unit.is_alive(), unit.can_attack() || unit.weapon.is_some()),
+        // C++ privateAttackMoveToPosition returns before setState when
+        // isMobile() is false (KINDOF_IMMOBILE or disabled). A deploy pack
+        // block is still mobile.
+        let (alive, can_attack, mobile) = match self.objects.get(&id) {
+            Some(unit) => (
+                unit.is_alive(),
+                unit.can_attack() || unit.weapon.is_some(),
+                !unit.is_kind_of(crate::game_logic::KindOf::Immobile) && !unit.is_disabled(),
+            ),
             None => return false,
         };
-        if !alive {
+        if !alive || !mobile {
             return false;
         }
         self.drop_jet_targeters_on_attack_exit(id);
@@ -596,30 +669,68 @@ impl GameLogic {
             unit.stop_attack();
             unit.set_force_attack(false);
             unit.set_max_shots_to_fire(max_shots);
-            // C++ AIAttackMoveToState::onEnter: ATTACK_RETRY_COUNT=5, sleep 0.
             unit.attack_move_retry_count = 5;
             unit.attack_move_sleep_until = 0;
+            let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
+                ai.flight_status
+                    == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+            });
+            unit.is_final_goal = !unit.is_parachuting()
+                && !landed_chinook
+                && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
+                && unit.adjust_destinations;
         }
-        let _path_ok = self.assign_unit_path(id, destination, &[]);
+        let destination = self.clip_player_goal(id, destination);
+        let path_ok = self.assign_unit_path(id, destination, &[]);
         // C++ does not walk a raw dest line when pathing fails (hq-65aus).
-        // Retry / 3s sleep / close-enough live in process_ai_behavior.
+        // assign false is not always onEnter failure: a queue, a deploy
+        // block, !can_move, and an already-there route stay out of AI_IDLE.
+        // Only computePath's closest-path miss matches STATE_FAILURE.
         if self.objects.get(&id).is_none() {
             return false;
         }
+        let hard_miss = !path_ok
+            && self.objects.get(&id).is_some_and(|unit| {
+                unit.path_timestamp == self.frame && unit.retry_path
+            });
+        let deploy_blocked = !path_ok
+            && self.objects.get(&id).is_some_and(|unit| {
+                unit.deploy_style
+                    .as_ref()
+                    .is_some_and(|style| !style.is_ready_to_move())
+            });
+        let start = self
+            .objects
+            .get(&id)
+            .map(|unit| unit.get_position())
+            .unwrap_or(destination);
+        let already_there =
+            !path_ok && Self::route_is_already_there(start, destination, &[]);
         if let Some(unit) = self.objects.get_mut(&id) {
             end_hunt_on_player_parent_order(unit);
-            if can_attack {
-                unit.is_attack_path = true;
+            if hard_miss {
+                unit.requested_destination = None;
+                unit.retry_path = false;
+                if unit.ai_state != AIState::Idle {
+                    unit.set_ai_state(AIState::Idle);
+                }
+            } else if can_attack && (path_ok || deploy_blocked || already_there) {
                 unit.auto_acquire_when_idle = true;
                 unit.requested_destination = Some(destination);
-                unit.set_ai_state(AIState::AttackMoving);
-            } else {
+                if unit.ai_state != AIState::AttackMoving {
+                    unit.set_ai_state(AIState::AttackMoving);
+                }
+            } else if path_ok && unit.ai_state != AIState::Moving {
                 unit.is_attack_path = false;
                 unit.set_ai_state(AIState::Moving);
+            } else if path_ok {
+                unit.is_attack_path = false;
             }
             drop(unit);
-            self.hunt_next_enemy_scan.remove(&id);
-            self.assault_transport_on_player_attack_move(id, destination);
+            if !hard_miss {
+                self.hunt_next_enemy_scan.remove(&id);
+                self.assault_transport_on_player_attack_move(id, destination);
+            }
             return true;
         }
         false
@@ -639,7 +750,6 @@ impl GameLogic {
             if let Some(slot) = unit.find_waypoint_following_capable_weapon_slot() {
                 unit.set_active_weapon_slot(slot);
             }
-            unit.is_attack_path = true;
             unit.attack_move_retry_count = 5;
             unit.attack_move_sleep_until = 0;
             if unit.requested_destination.is_none() {
@@ -650,7 +760,9 @@ impl GameLogic {
                     .copied()
                     .or(unit.movement.target_position);
             }
-            unit.set_ai_state(AIState::AttackMoving);
+            if unit.ai_state != AIState::AttackMoving {
+                unit.set_ai_state(AIState::AttackMoving);
+            }
             return true;
         }
         false
@@ -709,9 +821,10 @@ impl GameLogic {
             .get(&id)
             .is_some_and(|unit| unit.is_alive() && !unit.can_move());
         if cannot_path_yet {
+            let clipped = self.clip_player_goal(id, destination);
             if let Some(unit) = self.objects.get_mut(&id) {
                 end_hunt_on_player_parent_order(unit);
-                unit.pending_move = Some(destination);
+                unit.pending_move = Some(clipped);
                 unit.movement.target_position = None;
                 unit.movement.path.clear();
                 unit.set_ai_state(AIState::Moving);
@@ -719,6 +832,8 @@ impl GameLogic {
             self.hunt_next_enemy_scan.remove(&id);
             return true;
         }
+        let _ = self.note_move_to_request_path(id);
+        let destination = self.clip_player_goal(id, destination);
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
         }
@@ -730,6 +845,7 @@ impl GameLogic {
         }
         false
     }
+
 
     /// Wave 232: dozer construct — path/destination + Constructing AI state.
     /// C++ `findGoodBuildOrRepairPosition` docks at half major radius and
@@ -749,9 +865,13 @@ impl GameLogic {
                 return false;
             };
             let site = dozer.target.and_then(|tid| {
-                self.objects
-                    .get(&tid)
-                    .map(|st| (st.get_position(), st.selection_radius, tid))
+                self.objects.get(&tid).and_then(|st| {
+                    if st.status.under_construction {
+                        Some((st.get_position(), st.selection_radius, tid))
+                    } else {
+                        None
+                    }
+                })
             });
             (
                 dozer.get_position(),
@@ -773,7 +893,23 @@ impl GameLogic {
             }
             None => (location, None),
         };
-        if !self.assign_unit_path_ignoring(id, dock, &[], ignore) {
+        if ignore.is_some() {
+            // C++ AIMoveToState::onEnter (AIStates.cpp:2013-2017): the goal
+            // object is the ignored obstacle, so the destination must not snap.
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.adjust_destinations = false;
+            }
+        }
+        if let Some(tid) = ignore {
+            self.dozer_new_task_build(id, tid);
+        }
+        let dock = self
+            .objects
+            .get(&id)
+            .and_then(|unit| unit.dozer_dock_action)
+            .unwrap_or(dock);
+        let assigned = self.assign_unit_path_ignoring(id, dock, &[], ignore);
+        if !assigned {
             if let Some(unit) = self.objects.get_mut(&id) {
                 if unit.is_alive() && !unit.can_move() {
                     unit.pending_move = Some(dock);
@@ -786,9 +922,12 @@ impl GameLogic {
         }
         // C++ WorkerAIUpdate::newTask — drop preferred dock and leave supply mode.
         self.worker_exit_supply_for_dozer_task(id);
+        self.set_ai_state_decision_aware(id, AIState::Constructing);
         if let Some(unit) = self.objects.get_mut(&id) {
-            unit.set_ai_state(AIState::Constructing);
             unit.set_ultra_accurate(true);
+            if assigned && !unit.movement.path.is_empty() {
+                unit.set_status_moving(true);
+            }
             return true;
         }
         false
@@ -836,6 +975,8 @@ impl GameLogic {
             return false;
         }
         self.stop_attack_clearing_jet_targeter(id);
+        let _ = self.note_move_to_request_path(id);
+        let destination = self.clip_player_goal(id, destination);
         if !self.assign_unit_path(id, destination, &[]) {
             return false;
         }
@@ -865,6 +1006,7 @@ impl GameLogic {
         if !can {
             return false;
         }
+        let destination = self.clip_player_goal(id, destination);
         self.drop_jet_targeters_on_attack_exit(id);
         let cannot_path_yet = self
             .objects
@@ -876,10 +1018,22 @@ impl GameLogic {
             }
             return true;
         }
+        let _ = self.note_move_to_request_path(id);
+        // C++ AIMoveAndTightenState::onEnter clears adjust before the
+        // nested move. update sets it true only once a path exists and
+        // the unit is not waiting.
+        if let Some(unit) = self.objects.get_mut(&id) {
+            unit.adjust_destinations = false;
+        }
+        self.pathfinding_system.tighten_restore_adjust = true;
         if !self.assign_unit_path(id, destination, &[]) {
+            self.pathfinding_system.tighten_restore_adjust = false;
             return false;
         }
         if let Some(unit) = self.objects.get_mut(&id) {
+            if !unit.waiting_for_path && !unit.movement.path.is_empty() {
+                unit.adjust_destinations = true;
+            }
             Self::accept_tighten_order(unit, destination);
             return true;
         }
@@ -982,12 +1136,14 @@ impl GameLogic {
             if let Some(pos) = position {
                 self.path_approach_with_state(id, pos, AIState::GuardingArea);
             } else if let Some(tid) = target {
-                if let Some(tpos) = self
+                if let Some(mut tpos) = self
                     .objects
                     .get(&tid)
                     .filter(|o| o.is_alive())
                     .map(|o| o.get_position())
                 {
+                    // C++ AIGuardReturnState::onEnter: pathfinder->adjustDestination.
+                    self.adjust_guard_goal(id, &mut tpos);
                     self.path_approach_with_state(id, tpos, AIState::GuardingObject);
                 }
             }
@@ -1167,7 +1323,9 @@ impl GameLogic {
             if transitioned {
                 unit.stop_moving();
                 unit.set_status_moving(false);
+                if unit.ai_state != AIState::Idle {
                 unit.set_ai_state(AIState::Idle);
+                }
                 if !deployed_direction {
                     aligning = unit
                         .deploy_style
@@ -1249,7 +1407,6 @@ impl GameLogic {
         }
         unit.set_target(Some(target_id));
         unit.set_force_attack(false);
-        unit.set_ai_state(AIState::Attacking);
         true
     }
 
@@ -1303,6 +1460,8 @@ impl GameLogic {
         }
         self.stop_attack_clearing_jet_targeter(id);
         let goal = self.adjust_group_member_goal(id, goal, click_destination);
+        let goal = self.clip_player_goal(id, goal);
+        let _ = self.note_move_to_request_path(id);
         if !self.assign_unit_path(id, goal, &[]) {
             return false;
         }
@@ -1484,41 +1643,29 @@ impl GameLogic {
 
     /// Wave 233: return-supplies order target + ReturningResources state.
     pub fn unit_command_return_supplies(&mut self, id: ObjectId, supply_center: ObjectId) -> bool {
-        let Some(dest) = self
+        if !self
             .objects
             .get(&supply_center)
-            .filter(|dock| dock.is_alive())
-            .map(|dock| dock.get_position())
-        else {
+            .is_some_and(|dock| dock.is_alive())
+        {
             return false;
-        };
+        }
         if self.objects.get(&id).is_none() {
             return false;
         }
         self.cancel_dock_reservation(id);
-        let cannot_path_yet = self
-            .objects
-            .get(&id)
-            .is_some_and(|unit| unit.is_alive() && !unit.can_move());
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.preferred_dock_id = Some(supply_center);
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
             unit.supply_truck_force_pending = true;
             unit.set_order_target(Some(supply_center));
-            if cannot_path_yet {
-                unit.pending_move = Some(dest);
-                unit.movement.target_position = None;
-                unit.movement.path.clear();
-                unit.set_ai_state(AIState::ReturningResources);
-                return true;
-            }
+            unit.set_ai_state(AIState::ReturningResources);
+            unit.ignored_obstacle_id = None;
         } else {
             return false;
         }
-        let _ = self.assign_unit_path(id, dest, &[]);
-        if let Some(unit) = self.objects.get_mut(&id) {
-            unit.set_ai_state(AIState::ReturningResources);
-        }
+        // C++ aiDock: DockUpdate approach. Do not path at the center or ignore it.
+        let _ = self.try_claim_dock(supply_center, id);
         true
     }
 
@@ -1532,40 +1679,29 @@ impl GameLogic {
         warehouse: ObjectId,
     ) -> bool {
         self.drop_jet_targeters_on_attack_exit(id);
-        let Some(dest) = self
+        if !self
             .objects
             .get(&warehouse)
-            .filter(|dock| dock.is_alive())
-            .map(|dock| dock.get_position())
-        else {
+            .is_some_and(|dock| dock.is_alive())
+        {
             return false;
-        };
+        }
         if self.objects.get(&id).is_none() {
             return false;
         }
         self.cancel_dock_reservation(id);
-        let cannot_path_yet = self
-            .objects
-            .get(&id)
-            .is_some_and(|unit| unit.is_alive() && !unit.can_move());
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.stop_attack();
             unit.preferred_dock_id = Some(warehouse);
             unit.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
             unit.supply_truck_force_pending = true;
             unit.set_order_target(Some(warehouse));
-            if cannot_path_yet {
-                unit.pending_move = Some(dest);
-                unit.movement.target_position = None;
-                unit.movement.path.clear();
-                unit.set_ai_state(AIState::Gathering);
-                return true;
-            }
-        }
-        let _ = self.assign_unit_path(id, dest, &[]);
-        if let Some(unit) = self.objects.get_mut(&id) {
             unit.set_ai_state(AIState::Gathering);
+            unit.ignored_obstacle_id = None;
+        } else {
+            return false;
         }
+        let _ = self.try_claim_dock(warehouse, id);
         true
     }
 
@@ -1749,7 +1885,9 @@ impl GameLogic {
         unit.set_position(drop_position);
         unit.set_contained_by(None);
         unit.set_target(None);
+        if unit.ai_state != AIState::Idle {
         unit.set_ai_state(AIState::Idle);
+        }
         if go_aggressive {
             unit.set_ai_attitude(
                 crate::game_logic::host_strategy_center::HostAiAttitude::Aggressive,
@@ -1758,7 +1896,20 @@ impl GameLogic {
         unit.set_status_moving(false);
         unit.set_status_attacking(false);
         drop(unit);
-        self.reset_rider_mood_check_on_exit(id);
+        let reset_mood = container_id.is_some_and(|cid| {
+            self.objects.get(&cid).is_some_and(|c| {
+                matches!(
+                    c.thing.template.contain_module.kind,
+                    crate::game_logic::ContainModuleKind::Transport
+                        | crate::game_logic::ContainModuleKind::RiderChange
+                        | crate::game_logic::ContainModuleKind::RailedTransport
+                        | crate::game_logic::ContainModuleKind::InternetHack
+                )
+            })
+        });
+        if reset_mood {
+            self.reset_rider_mood_check_on_exit(id);
+        }
         if let Some(cid) = container_id {
             self.play_container_removing_template_sounds(cid, id);
         }
@@ -1865,14 +2016,11 @@ impl GameLogic {
 
     /// Wave 233: set AI state if alive.
     pub fn unit_command_set_ai_state(&mut self, id: ObjectId, state: AIState) -> bool {
+        self.cancel_dock_reservation(id);
         if self.objects.get(&id).is_none() {
             return false;
         }
-        self.cancel_dock_reservation(id);
-        let Some(unit) = self.objects.get_mut(&id) else {
-            return false;
-        };
-        unit.set_ai_state(state);
+        self.set_ai_state_decision_aware(id, state);
         true
     }
 
@@ -2197,17 +2345,23 @@ impl GameLogic {
             return false;
         }
         self.cancel_dock_reservation(id);
+        if self.objects.get(&id).is_none() {
+            return false;
+        }
         if let Some(unit) = self.objects.get_mut(&id) {
-            // C++ AIUpdateInterface::ignoreObstacle — persist for collide recrew.
             if ignore_obstacle.is_some() {
                 unit.ignored_obstacle_id = ignore_obstacle;
             } else if !matches!(state, AIState::Entering) {
                 unit.ignored_obstacle_id = None;
             }
-            unit.set_ai_state(state);
-            return true;
         }
-        false
+        self.set_ai_state_decision_aware(id, state);
+        if let Some(unit) = self.objects.get_mut(&id) {
+            if !unit.movement.path.is_empty() {
+                unit.set_status_moving(true);
+            }
+        }
+        true
     }
 
     /// Wave 233: C++ groupIdle stealth mood delay residual for one unit.
@@ -2461,15 +2615,23 @@ mod tests {
         }
         let dest = glam::Vec3::new(250.0, 0.0, 0.0);
         assert!(logic.unit_command_attack_move_to(id, dest));
-        let unit = logic.host_object(id).expect("unit");
-        assert_eq!(unit.ai_state, AIState::AttackMoving);
-        assert_eq!(unit.requested_destination, Some(dest));
-        assert_eq!(unit.attack_move_retry_count, 5);
-        assert_eq!(unit.attack_move_sleep_until, 0);
+        let (state, stored, retry, sleep, target) = {
+            let unit = logic.host_object(id).expect("unit");
+            (
+                unit.ai_state.clone(),
+                unit.requested_destination,
+                unit.attack_move_retry_count,
+                unit.attack_move_sleep_until,
+                unit.movement.target_position,
+            )
+        };
+        assert_eq!(state, AIState::AttackMoving);
+        assert_eq!(stored, Some(logic.clip_player_goal(id, dest)));
+        assert_eq!(retry, 5);
+        assert_eq!(sleep, 0);
         assert!(
-            unit.movement.target_position.is_none(),
-            "path fail must not walk a raw dest line; got {:?}",
-            unit.movement.target_position
+            target.is_none(),
+            "path fail must not walk a raw dest line; got {target:?}"
         );
     }
 

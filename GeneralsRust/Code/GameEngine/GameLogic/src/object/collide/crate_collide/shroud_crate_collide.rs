@@ -207,16 +207,22 @@ impl ShroudCrateCollide {
         &self,
         other: &dyn GameObject,
     ) -> Result<bool, CollisionError> {
-        // Get the controlling player of the object that picked up the crate
-        let crate_player = other.get_controlling_player();
-        let player_id = crate_player.value() as u32;
-
-        // Reveal the entire map for this player
-        if let Ok(mut shroud_manager) = crate::system::shroud_manager::get_shroud_manager().lock() {
-            let _ = shroud_manager.reveal_map_for_player(player_id);
+        let Some(handle) = other.as_object_handle() else {
+            return Ok(false);
+        };
+        let Some(player_id) = handle.read().ok().and_then(|obj| obj.get_player_id()) else {
+            return Ok(false);
+        };
+        let player_id = player_id.value() as u32;
+        let shroud = crate::system::shroud_manager::get_shroud_manager();
+        let Ok(mut shroud_manager) = shroud.lock() else {
+            return Ok(false);
+        };
+        if shroud_manager.reveal_map_for_player(player_id).is_err() {
+            return Ok(false);
         }
+        drop(shroud_manager);
 
-        // C++ parity: use MiscAudio::m_crateShroud and bind the event to the picker object ID.
         if let Some(audio) = TheAudio::get() {
             let mut event = TheAudio::get_misc_audio().crate_shroud.clone();
             event.object_id = other.get_id();

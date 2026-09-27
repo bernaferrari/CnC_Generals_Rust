@@ -124,29 +124,26 @@ impl UnitCrateCollide {
             return Ok(false);
         };
 
-        let controlling_player = other.get_controlling_player();
+        let Some(handle) = other.as_object_handle() else {
+            return Ok(false);
+        };
+        let Some(player_id) = handle.read().ok().and_then(|obj| obj.get_player_id()) else {
+            return Ok(false);
+        };
         let team_arc = {
-            let list_guard = player_list().read().map_err(|_| {
-                CollisionError::InvalidObject("Player list lock poisoned".to_string())
-            })?;
-            let player_arc = list_guard
-                .get_player(controlling_player.value() as i32)
-                .cloned()
-                .ok_or_else(|| {
-                    CollisionError::InvalidObject(format!(
-                        "Player {} not found for unit crate",
-                        controlling_player.value()
-                    ))
-                })?;
-            let player_guard = player_arc
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("Player lock poisoned".to_string()))?;
-            player_guard.get_default_team().ok_or_else(|| {
-                CollisionError::InvalidObject(format!(
-                    "Player {} has no default team",
-                    controlling_player.value()
-                ))
-            })?
+            let Ok(list_guard) = player_list().read() else {
+                return Ok(false);
+            };
+            let Some(player_arc) = list_guard.get_player(player_id.value() as i32).cloned() else {
+                return Ok(false);
+            };
+            let Ok(player_guard) = player_arc.read() else {
+                return Ok(false);
+            };
+            let Some(team) = player_guard.get_default_team() else {
+                return Ok(false);
+            };
+            team
         };
 
         // Snapshot collision object transform once to avoid repeated object lock churn.

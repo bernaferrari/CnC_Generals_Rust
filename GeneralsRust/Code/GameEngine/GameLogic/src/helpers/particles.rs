@@ -333,6 +333,13 @@ impl TheParticleSystemManager {
         }
     }
 
+    /// C++ ParticleSystem::setLifetimeRange.
+    pub fn set_particle_lifetime_range(&self, id: u32, min: f32, max: f32) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.set_particle_lifetime_range(id, min, max);
+        }
+    }
+
     /// C++ ParticleSystem::setInitialDelay.
     pub fn set_initial_delay(&self, id: u32, frames: u32) {
         if let Some(manager) = get_particle_system_manager() {

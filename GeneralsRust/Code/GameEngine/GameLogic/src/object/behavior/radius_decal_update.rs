@@ -82,9 +82,7 @@ impl RadiusDecalUpdate {
         let mut decal = RadiusDecal::new(Coord3D::origin(), 0.0);
         decal.clear();
 
-        if let Ok(obj) = object.read() {
-            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
-        }
+
 
         Ok(Self {
             object_id: object
@@ -93,7 +91,7 @@ impl RadiusDecalUpdate {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             delivery_decal: decal,
             kill_when_no_longer_attacking: false,
             sleeping: true, // Start sleeping (UPDATE_SLEEP_FOREVER in C++)
@@ -152,12 +150,13 @@ impl RadiusDecalUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = obj_arc.read() {
-                let sleep = if self.sleeping {
-                    UpdateSleepTime::Forever
+                let now = crate::helpers::TheGameLogic::get_frame();
+                let wake_frame = if self.sleeping {
+                    UpdateSleepTime::Forever.to_u32()
                 } else {
-                    UpdateSleepTime::None
+                    now.saturating_add(1)
                 };
-                TheGameLogic::set_wake_frame(obj.get_id(), sleep);
+                obj.reschedule_named_update("RadiusDecalUpdate", wake_frame);
             }
         }
     }
@@ -183,7 +182,10 @@ impl RadiusDecalUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = obj_arc.read() {
-                TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
+                obj.reschedule_named_update(
+                    "RadiusDecalUpdate",
+                    UpdateSleepTime::Forever.to_u32(),
+                );
             }
         }
     }
@@ -195,42 +197,23 @@ impl UpdateModuleInterface for RadiusDecalUpdate {
         if dual_world_registry_unavailable() {
             return UPDATE_SLEEP_FOREVER;
         }
-
-        // If sleeping and nothing to update, stay asleep
-        if self.sleeping && decal_is_empty(&self.delivery_decal) {
-            return UPDATE_SLEEP_FOREVER;
-        }
-
-        // Check if we should kill decal when object stops attacking
         if self.kill_when_no_longer_attacking {
-            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(obj) = obj_arc.read() {
-                    // Check if object is no longer attacking
-                    if !obj.get_status_bits().test(ObjectStatusTypes::IsAttacking) {
-                        self.delivery_decal.clear();
-                        self.sleeping = true;
-                        if let Some(obj_id) = (if self.object_id == crate::common::INVALID_ID {
-                            None
-                        } else {
-                            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                                || {
-                                    crate::object::registry::OBJECT_REGISTRY
-                                        .get_object(self.object_id)
-                                },
-                            )
-                        })
-                        .and_then(|o| o.read().ok().map(|g| g.get_id()))
-                        {
-                            TheGameLogic::set_wake_frame(obj_id, UpdateSleepTime::Forever);
-                        }
-                        return UPDATE_SLEEP_FOREVER;
-                    }
-                }
+            }) else {
+                return UPDATE_SLEEP_FOREVER;
+            };
+            let Ok(obj) = obj_arc.read() else {
+                return UPDATE_SLEEP_FOREVER;
+            };
+            if !obj.get_status_bits().test(ObjectStatusTypes::IsAttacking) {
+                drop(obj);
+                self.delivery_decal.clear();
+                self.sleeping = true;
+                return UPDATE_SLEEP_FOREVER;
             }
         }
 
@@ -339,9 +322,7 @@ impl RadiusDecalUpdateInterface for RadiusDecalUpdate {
 
 impl Snapshotable for RadiusDecalUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

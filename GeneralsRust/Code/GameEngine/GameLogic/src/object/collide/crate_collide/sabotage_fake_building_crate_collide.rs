@@ -320,27 +320,25 @@ impl SabotageFakeBuildingCrateCollide {
             .base
             .do_sabotage_feedback_fx(&other, SabotageVictimType::FakeBuilding);
 
-        // Play eva sound if locally controlled
         {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
-            if other_lock.is_locally_controlled() {
-                let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
+            if let Ok(other_lock) = other.read() {
+                if other_lock.is_locally_controlled() {
+                    let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
+                }
             }
         }
 
-        // Apply unresistable damage equal to max health
-        let (should_damage, max_health) = {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
-            if other_lock.get_controlling_player().is_none() {
-                (false, 0.0)
-            } else if let Some(body) = other_lock.get_body_module() {
-                let body_guard = body.lock().map_err(|_| GameError::LockError)?;
-                (true, body_guard.get_max_health())
-            } else {
-                return Err(GameError::ModuleError(
-                    "fake building sabotage target has no body module".to_string(),
-                ));
+        let (should_damage, max_health) = match other.read() {
+            Ok(other_lock) if other_lock.get_controlling_player().is_some() => {
+                match other_lock.get_body_module() {
+                    Some(body) => match body.lock() {
+                        Ok(body_guard) => (true, body_guard.get_max_health()),
+                        Err(_) => (false, 0.0),
+                    },
+                    None => (false, 0.0),
+                }
             }
+            _ => (false, 0.0),
         };
 
         if should_damage {
@@ -350,8 +348,9 @@ impl SabotageFakeBuildingCrateCollide {
                 DamageType::Unresistable,
                 DeathType::Detonated,
             );
-            let mut other_guard = other.write().map_err(|_| GameError::LockError)?;
-            let _ = other_guard.attempt_damage(&mut damage_info);
+            if let Ok(mut other_guard) = other.write() {
+                let _ = other_guard.attempt_damage(&mut damage_info);
+            }
         }
 
         Ok(true)

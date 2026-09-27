@@ -755,7 +755,8 @@ fn vehicle_crash_into_structure_residual() {
         Some(PHYSICS_VEHICLE_CRASHES_INTO_BUILDING_WEAPON)
     );
 
-    // Rising vehicle: no crash.
+    // On the ground C++ zeros delta.z, so a rising velocity does not crash.
+    v.set_position(glam::Vec3::ZERO);
     v.movement.velocity.y = 2.0;
     assert_eq!(
         v.evaluate_vehicle_crash_into(&s),

@@ -58,4 +58,41 @@ impl Weapon {
 
         bonus
     }
+
+    /// Same bonus math as `compute_bonus`, but the caller already holds the object.
+    pub(crate) fn bonus_from_flags(&self, flags: WeaponBonusConditionFlags) -> WeaponBonus {
+        let mut bonus = WeaponBonus::new();
+        if let Some(global) = TheGameLogic::get_global_weapon_bonus_set() {
+            global.append_bonuses(flags, &mut bonus);
+        }
+        if let Some(extra_bonus_set) = &self.template.extra_bonus {
+            extra_bonus_set.append_bonuses(flags, &mut bonus);
+        }
+        bonus
+    }
+}
+
+/// C++ `Weapon::computeBonus` ORs the container mask when passengers inherit it.
+/// The source object is already borrowed; this only looks up the container.
+pub(crate) fn container_passenger_bonus_flags(
+    container_id: Option<super::helpers::ObjectId>,
+) -> crate::common::types::WeaponBonusConditionFlags {
+    let empty = crate::common::types::WeaponBonusConditionFlags::empty();
+    let Some(container_id) = container_id else {
+        return empty;
+    };
+    OBJECT_REGISTRY
+        .with_object(container_id, |container| {
+            let Some(contain) = container.get_contain() else {
+                return empty;
+            };
+            let Ok(contain_guard) = contain.try_lock() else {
+                return empty;
+            };
+            if !contain_guard.passes_weapon_bonus_to_passengers() {
+                return empty;
+            }
+            container.get_weapon_bonus_condition()
+        })
+        .unwrap_or(empty)
 }

@@ -382,6 +382,8 @@ fn host_path_queue_defers_until_taken() {
         surfaces: SURFACE_GROUND,
         is_crusher: false,
         ignore_obstacle: None,
+        adjust_destinations: true,
+        restore_adjust_on_install: false,
     });
     assert_eq!(sys.pending_path_count(), 1);
     let drained = sys.take_pending_paths();
@@ -633,7 +635,57 @@ fn assign_shared_group_paths_uses_one_spine() {
         10.0,
         "follower last waypoint is slot"
     );
+    let leader = logic.host_object(a).unwrap();
+    assert!(leader.is_final_goal);
+    assert_ne!(
+        leader.pathfind_goal_cell,
+        (-1, -1),
+        "a group install has no requestPath, so it must set the flag itself"
+    );
 }
+
+#[test]
+fn group_march_request_path_clears_safe_and_skips_parachute() {
+    use crate::game_logic::{GameLogic, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic.force_map_loaded_for_path_test(false);
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("Ranger".into(), tmpl);
+    let safe = logic
+        .create_object("Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("safe");
+    let chute = logic
+        .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+        .expect("chute");
+    if let Some(u) = logic.host_object_mut(safe) {
+        u.is_safe_path = true;
+        u.is_attack_path = true;
+        u.is_approach_path = true;
+        u.is_final_goal = false;
+        u.movement.max_speed = 20.0;
+    }
+    if let Some(u) = logic.host_object_mut(chute) {
+        u.set_status_parachuting(true);
+        u.is_final_goal = true;
+        u.movement.max_speed = 20.0;
+    }
+    let dest = Vec3::new(80.0, 0.0, 0.0);
+    assert!(logic.assign_shared_group_paths(
+        &[(safe, dest), (chute, dest + Vec3::new(0.0, 0.0, 10.0))],
+        dest,
+    ));
+    let safe_u = logic.host_object(safe).unwrap();
+    assert!(!safe_u.is_safe_path);
+    assert!(!safe_u.is_attack_path);
+    assert!(!safe_u.is_approach_path);
+    assert!(safe_u.is_final_goal);
+    assert_ne!(safe_u.pathfind_goal_cell, (-1, -1));
+    let chute_u = logic.host_object(chute).unwrap();
+    assert!(!chute_u.is_final_goal);
+    assert_eq!(chute_u.pathfind_goal_cell, (-1, -1));
+}
+
 
 #[test]
 fn cliff_pinch_converts_clear_neighbors() {

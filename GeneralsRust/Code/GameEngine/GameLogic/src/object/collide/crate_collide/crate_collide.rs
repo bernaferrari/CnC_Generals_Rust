@@ -260,8 +260,8 @@ impl CrateCollide {
         // Must match our kindof flags (if any)
         if !self.is_kind_of_multi(
             other,
-            self.module_data.required_kind_of as u64,
-            self.module_data.forbidden_kind_of as u64,
+            self.module_data.required_kind_of,
+            self.module_data.forbidden_kind_of,
         ) {
             return false;
         }
@@ -277,12 +277,11 @@ impl CrateCollide {
 
         // Check owner player restriction
         if self.module_data.is_forbid_owner_player {
-            if let Some(crate_owner) =
-                self.get_controlling_player_for_object(self.base_module.get_object_id())
-            {
-                if crate_owner == other.get_controlling_player() {
-                    return false;
-                }
+            let crate_owner = self
+                .get_controlling_player_for_object(self.base_module.get_object_id())
+                .unwrap_or(PlayerId::NEUTRAL);
+            if crate_owner == other.get_controlling_player() {
+                return false;
             }
         }
 
@@ -403,13 +402,16 @@ impl CrateCollide {
     }
 
     fn play_execution_animation_at(&self, position: &Coord3D) -> Result<(), CollisionError> {
+        if !crate::helpers::TheGameLogic::get_draw_icon_ui() {
+            return Ok(());
+        }
         if !self.module_data.execution_animation_template.is_empty() {
             self.play_world_animation(
                 &self.module_data.execution_animation_template,
                 position,
                 self.module_data.execute_animation_display_time_seconds,
                 self.module_data.execute_animation_z_rise_per_second,
-                self.module_data.execute_animation_fades,
+                true,
             )?;
         }
 
@@ -437,14 +439,19 @@ impl CrateCollide {
         false
     }
 
-    fn is_kind_of_multi(&self, _other: &dyn GameObject, _required: u64, _forbidden: u64) -> bool {
+    fn is_kind_of_multi(
+        &self,
+        _other: &dyn GameObject,
+        _required: KindOfMaskType,
+        _forbidden: KindOfMaskType,
+    ) -> bool {
         let Some(handle) = _other.as_object_handle() else {
             return _required == 0 && _forbidden == 0;
         };
         let Ok(guard) = handle.read() else {
             return _required == 0 && _forbidden == 0;
         };
-        guard.is_kind_of_multi(_required as KindOfMaskType, _forbidden as KindOfMaskType)
+        guard.is_kind_of_multi(_required, _forbidden)
     }
 
     fn has_ai_update_interface(&self, _other: &dyn GameObject) -> bool {
@@ -478,7 +485,8 @@ impl CrateCollide {
             return false;
         };
         let Some(player) = list.get_player(index) else {
-            return false;
+            // C++ skips the human-only test when getControllingPlayer() is null.
+            return true;
         };
         let Ok(guard) = player.read() else {
             return false;
@@ -496,7 +504,8 @@ impl CrateCollide {
             return false;
         };
         let Some(player) = list.get_player(index) else {
-            return false;
+            // C++ skips the science test when getControllingPlayer() is null.
+            return true;
         };
         let Ok(guard) = player.read() else {
             return false;

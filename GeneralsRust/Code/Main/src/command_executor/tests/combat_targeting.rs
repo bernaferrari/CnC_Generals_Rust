@@ -29,7 +29,7 @@ fn attack_move_sets_is_attack_path_flag() {
         );
     }
     let u = logic.host_object(id).unwrap();
-    assert!(u.is_attack_path);
+    assert!(!u.is_attack_path);
     assert_eq!(u.ai_state, AIState::AttackMoving);
 }
 

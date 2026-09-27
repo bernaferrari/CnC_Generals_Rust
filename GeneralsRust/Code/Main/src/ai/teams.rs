@@ -636,6 +636,9 @@ impl AIPlayer {
                 None => return,
             };
         if other_idle {
+            if let Some(unit) = game_logic.host_object_mut(obj_id) {
+                unit.is_final_goal = true;
+            }
             if game_logic.assign_unit_path(obj_id, other_pos, &[]) {
                 game_logic.set_ai_state_decision_aware_for_ai(obj_id, AIState::Moving);
             } else if let Some(unit) = game_logic.host_object_mut(obj_id) {

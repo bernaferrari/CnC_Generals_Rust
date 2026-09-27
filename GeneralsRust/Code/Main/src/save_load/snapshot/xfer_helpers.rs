@@ -432,3 +432,39 @@ impl XferData for Weapon {
 // ---------------------------------------------------------------------------
 // XferData implementations for snapshot types
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::save_load::{XferLoad, XferSave};
+    use std::io::Cursor;
+
+    #[test]
+    fn movement_xfer_keeps_the_live_locomotor_speed() {
+        let mut source = Movement::default();
+        source.max_speed = 35.0;
+        source.acceleration = 12.0;
+        source.turn_rate = 1.25;
+        source.max_speed_damaged = 18.0;
+        source.acceleration_damaged = 6.0;
+        source.turn_rate_damaged = 0.4;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut writer = XferSave::new(&mut bytes);
+            source.xfer(&mut writer).expect("write movement");
+        }
+        bytes.set_position(0);
+        let mut loaded = Movement::default();
+        {
+            let mut reader = XferLoad::new(bytes);
+            loaded.xfer(&mut reader).expect("read movement");
+        }
+        assert!((loaded.max_speed - 35.0).abs() < 0.001);
+        assert!((loaded.acceleration - 12.0).abs() < 0.001);
+        assert!((loaded.turn_rate - 1.25).abs() < 0.001);
+        assert!((loaded.max_speed_damaged - 18.0).abs() < 0.001);
+        assert!((loaded.acceleration_damaged - 6.0).abs() < 0.001);
+        assert!((loaded.turn_rate_damaged - 0.4).abs() < 0.001);
+    }
+}

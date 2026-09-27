@@ -193,21 +193,26 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        let _ = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
-        if let Some(controlling_player) =
-            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
-        {
-            let mut player_guard = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            player_guard.init_tunnel_tracker();
-            if let Some(tunnel_system) = player_guard.get_tunnel_system_mut() {
-                tunnel_system.add_to_contain_list(obj_id)?;
-            }
-        }
-
+        let owner = self.get_object()?;
+        let Ok(owner) = owner.try_read() else {
+            return Err("Tunnel owner lock busy".into());
+        };
+        let Some(player) = owner.get_controlling_player() else {
+            return Err("Tunnel owner has no player".into());
+        };
+        drop(owner);
+        let Ok(mut player_guard) = player.try_write() else {
+            return Err("Tunnel player lock busy".into());
+        };
+        player_guard.init_tunnel_tracker();
+        let Some(tunnel_system) = player_guard.get_tunnel_system_mut() else {
+            return Err("Tunnel player has no tunnel system".into());
+        };
+        tunnel_system.add_to_contain_list(obj_id)?;
+        drop(player_guard);
         self.contained_object_ids.push(obj_id);
 
         Ok(())
@@ -224,40 +229,82 @@ impl TunnelContain {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
         let was_selected = obj
-            .read()
+            .try_read()
             .ok()
             .and_then(|guard| guard.get_drawable())
-            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
             .unwrap_or(false);
 
         {
-            let obj_guard = obj.read().map_err(|_| "Object lock poisoned")?;
+            let Ok(obj_guard) = obj.try_read() else {
+                return Err("Tunnel passenger lock busy".into());
+            };
             if !ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true) {
                 return Err("Object not valid for this tunnel container".into());
             }
-            if obj_guard.get_contained_by().is_some() {
+            let already_listed = self.contained_object_ids.contains(&obj_id)
+                || self.base.get_contained_object_ids().contains(&obj_id);
+            let contained_by = obj_guard.get_contained_by();
+            let owner_id = self.get_object().ok().and_then(|owner| {
+                owner.try_read().ok().map(|guard| guard.get_id())
+            });
+            if contained_by.is_some() && (already_listed || contained_by != owner_id) {
                 return Ok(());
             }
         }
 
-        self.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )?;
+        self.add_to_contain_list(obj_id)?;
 
         let should_remove_from_world = obj
-            .read()
+            .try_read()
             .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
             .unwrap_or(false);
         if should_remove_from_world {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
         }
 
-        self.base.redeploy_occupants()?;
-        self.on_containing(obj_id, was_selected)?;
-
+        let entered = self
+            .base
+            .redeploy_occupants()
+            .and_then(|_| self.on_containing(obj_id, was_selected));
+        if let Err(err) = entered {
+            let removed = self.get_object().ok().and_then(|owner| {
+                let owner = owner.try_read().ok()?;
+                let player = owner.get_controlling_player()?;
+                drop(owner);
+                let mut player = player.try_write().ok()?;
+                let tunnel = player.get_tunnel_system_mut()?;
+                tunnel.remove_from_contain(obj_id, false).ok()
+            });
+            if removed.is_none() {
+                return Err(err);
+            }
+            let Ok(mut rider) = obj.try_write() else {
+                let _ = self.get_object().ok().and_then(|owner| {
+                    let owner = owner.try_read().ok()?;
+                    let player = owner.get_controlling_player()?;
+                    drop(owner);
+                    let mut player = player.try_write().ok()?;
+                    let tunnel = player.get_tunnel_system_mut()?;
+                    tunnel.add_to_contain_list(obj_id).ok()
+                });
+                log::warn!(
+                    "TunnelContain::add_to_contain kept {} listed; rider lock busy",
+                    obj_id
+                );
+                return Err(err);
+            };
+            let _ = rider.set_contained_by(None);
+            rider.clear_disabled(DISABLED_HELD);
+            drop(rider);
+            self.base.unlink_contained_id(obj_id);
+            self.contained_object_ids.retain(|id| *id != obj_id);
+            if should_remove_from_world {
+                let _ = self.base.add_or_remove_obj_from_world(obj_id, true);
+            }
+            return Err(err);
+        }
+        self.base.do_load_sound();
         Ok(())
     }
 
@@ -268,49 +315,59 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        let _obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Contain object not found")?;
-        let owner_id = self.owner_object_id()?;
-        if let Some(contain) = self.with_owner_object(|owner_read| owner_read.get_contain())? {
-            let obj_read = obj.read().map_err(|_| "Object lock poisoned")?;
-            contain.on_removing(&*obj_read);
+        let player = match self.get_object() {
+            Ok(owner) => {
+                let Ok(owner) = owner.try_read() else {
+                    return Err("Tunnel owner lock busy".into());
+                };
+                let player = owner.get_controlling_player();
+                drop(owner);
+                player
+            }
+            Err(_) => None,
+        };
+        let Some(player) = player else {
+            self.on_removing(obj_id)?;
+            return Ok(());
+        };
+        if player.try_read().is_err() {
+            return Err("Tunnel player lock busy".into());
         }
-
-        // Trigger onRemovedFrom event for the object being removed
-        {
-            let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
-            obj_write.on_removed_from(owner_id)?;
+        let in_container = {
+            let Ok(player_guard) = player.try_read() else {
+                return Err("Tunnel player lock busy".into());
+            };
+            player_guard
+                .get_tunnel_system()
+                .map(|tunnel| tunnel.is_in_container(obj_id))
+                .unwrap_or(false)
+        };
+        if !in_container {
+            self.on_removing(obj_id)?;
+            return Ok(());
         }
-
-        // Remove from tunnel network if still valid
-        if let Some(controlling_player) =
-            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
-        {
-            let player_read = controlling_player
-                .read()
-                .map_err(|_| "Player lock poisoned")?;
-
-            if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                if !tunnel_system.is_in_container(obj_id) {
-                    return Ok(());
+        let Ok(mut player_write) = player.try_write() else {
+            return Err("Tunnel player lock busy".into());
+        };
+        if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+            tunnel_system.remove_from_contain(obj_id, expose_stealth_units)?;
+        }
+        drop(player_write);
+        self.contained_object_ids.retain(|id| *id != obj_id);
+        if let Err(err) = self.on_removing(obj_id) {
+            if let Ok(mut player_write) = player.try_write() {
+                if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                    let _ = tunnel_system.add_to_contain_list(obj_id);
                 }
             }
-
-            drop(player_read);
-            let mut player_write = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            if let Some(tunnel_system_mut) = player_write.get_tunnel_system_mut() {
-                tunnel_system_mut.remove_from_contain(obj_id, expose_stealth_units)?;
+            if !self.contained_object_ids.contains(&obj_id) {
+                self.contained_object_ids.push(obj_id);
             }
+            return Err(err);
         }
-
-        if let Ok(obj_read) = obj.read() {
-            self.contained_object_ids
-                .retain(|id| *id != obj_read.get_id());
-        }
-
         Ok(())
     }
 
@@ -380,12 +437,19 @@ impl TunnelContain {
             return Ok(());
         }
 
-        if let Some(controlling_player) =
-            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        let controlling_player = match self
+            .with_owner_object(|owner_read| owner_read.get_controlling_player())
         {
-            let player_read = controlling_player
-                .read()
-                .map_err(|_| "Player lock poisoned")?;
+            Ok(player) => player,
+            Err(err) => {
+                log::warn!("TunnelContain::kill_all_contained owner lock failed: {}", err);
+                return Ok(());
+            }
+        };
+        if let Some(controlling_player) = controlling_player {
+            let Ok(player_read) = controlling_player.try_read() else {
+                return Err("Tunnel player lock busy".into());
+            };
             let object_ids: Vec<_> = if let Some(tunnel_system) = player_read.get_tunnel_system() {
                 tunnel_system.get_contained_item_ids().to_vec()
             } else {
@@ -393,12 +457,24 @@ impl TunnelContain {
             };
             drop(player_read);
             for object_id in object_ids {
-                self.remove_from_contain(object_id, true)?;
+                if let Err(err) = self.remove_from_contain(object_id, true) {
+                    log::warn!(
+                        "TunnelContain::kill_all_contained remove failed for {}: {}",
+                        object_id, err
+                    );
+                    continue;
+                }
                 if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
                 {
-                    let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
-                    obj_write.kill(None, None);
+                    if let Ok(mut obj_write) = obj.try_write() {
+                        obj_write.kill(None, None);
+                    } else {
+                        log::warn!(
+                            "TunnelContain::kill_all_contained kill lock busy for {}",
+                            object_id
+                        );
+                    }
                 }
             }
         }
@@ -420,26 +496,38 @@ impl TunnelContain {
             return Ok(());
         };
 
-        self.base.on_containing(obj_id, was_selected)?;
-
-        let mut obj_guard = obj.write().map_err(|_| "Object lock poisoned")?;
-
-        // Objects inside tunnels are held (disabled)
+        let Ok(mut obj_guard) = obj.try_write() else {
+            return Err("Tunnel passenger lock busy".into());
+        };
         obj_guard.set_disabled(DISABLED_HELD);
-
-        // Record academy stats
-        if let Some(controlling_player) = obj_guard.get_controlling_player() {
-            let mut player_write = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            player_write
-                .get_academy_stats_mut()
-                .record_unit_entered_tunnel_network();
+        let player = obj_guard.get_controlling_player();
+        drop(obj_guard);
+        if let Err(err) = self.base.on_containing(obj_id, was_selected) {
+            if let Ok(mut obj_guard) = obj.try_write() {
+                obj_guard.clear_disabled(DISABLED_HELD);
+            } else {
+                log::warn!(
+                    "TunnelContain::on_containing could not clear held for {}",
+                    obj_id
+                );
+            }
+            return Err(err);
         }
-
-        // Handle partition cell maintenance
-        obj_guard.handle_partition_cell_maintenance();
-
+        if let Some(controlling_player) = player {
+            if let Ok(mut player_write) = controlling_player.try_write() {
+                player_write
+                    .get_academy_stats_mut()
+                    .record_unit_entered_tunnel_network();
+            }
+        }
+        if let Ok(mut obj_guard) = obj.try_write() {
+            obj_guard.handle_partition_cell_maintenance();
+        } else {
+            log::warn!(
+                "TunnelContain::on_containing partition maintenance skipped for {}",
+                obj_id
+            );
+        }
         Ok(())
     }
 
@@ -459,11 +547,13 @@ impl TunnelContain {
 
         self.base.on_removing(obj_id)?;
 
-        let mut obj_guard = obj.write().map_err(|_| "Object lock poisoned")?;
-
-        // Object is no longer held
+        let position = self.get_object().ok().and_then(|owner| {
+            owner.try_read().ok().map(|guard| *guard.get_position())
+        });
+        let Ok(mut obj_guard) = obj.try_write() else {
+            return Err("Tunnel passenger lock busy".into());
+        };
         obj_guard.clear_disabled(DISABLED_HELD);
-
         if let Err(err) = obj_guard.register_in_partition_manager() {
             log::warn!(
                 "TunnelContain::on_removing failed to register object {} in partition manager: {}",
@@ -471,23 +561,38 @@ impl TunnelContain {
                 err
             );
         }
-
-        // Place object at container position
-        let position = self.with_owner_object(|owner_read| *owner_read.get_position())?;
-        obj_guard.set_position(&position)?;
+        if let Some(position) = position {
+            if let Err(err) = obj_guard.set_position(&position) {
+                log::warn!(
+                    "TunnelContain::on_removing failed to place {}: {}",
+                    obj_id, err
+                );
+            }
+        }
 
         // Show drawable
         if let Some(drawable) = obj_guard.get_drawable() {
-            let current_frame = get_current_frame()?;
-            let occlusion_delay = obj_guard.get_template().get_occlusion_delay();
-            obj_guard.set_safe_occlusion_frame(current_frame + occlusion_delay);
-
-            let mut drawable_write = drawable.write().map_err(|_| "Drawable lock poisoned")?;
-            if let Err(err) = drawable_write.set_drawable_hidden(false) {
+            if let Ok(current_frame) = get_current_frame() {
+                let occlusion_delay = obj_guard.get_template().get_occlusion_delay();
+                obj_guard.set_safe_occlusion_frame(current_frame + occlusion_delay);
+            } else {
                 log::warn!(
-                    "TunnelContain::on_removing failed to unhide drawable for object {}: {}",
-                    obj_guard.get_id(),
-                    err
+                    "TunnelContain::on_removing occlusion frame unavailable for {}",
+                    obj_id
+                );
+            }
+
+            if let Ok(mut drawable_write) = drawable.try_write() {
+                if let Err(err) = drawable_write.set_drawable_hidden(false) {
+                    log::warn!(
+                        "TunnelContain::on_removing failed to unhide drawable for object {}: {}",
+                        obj_guard.get_id(),
+                        err
+                    );
+                }
+            } else {
+                log::warn!(
+                    "TunnelContain::on_removing skipped unhide because the drawable lock was busy"
                 );
             }
         }
@@ -495,6 +600,13 @@ impl TunnelContain {
         // Play unload sound
         self.base.do_unload_sound();
 
+        drop(obj_guard);
+        if let Err(err) = self.base.note_removed_from(obj_id) {
+            log::warn!(
+                "TunnelContain::on_removing note_removed_from failed for {}: {}",
+                obj_id, err
+            );
+        }
         Ok(())
     }
 
@@ -595,22 +707,34 @@ impl TunnelContain {
     }
 
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        self.on_die_for_owner(None, damage_info)
+    }
+
+    pub fn on_die_for_owner(
+        &mut self,
+        owner: Option<&Object>,
+        damage_info: Option<&DamageInfo>,
+    ) -> GameResult<()> {
         let Some(damage_info) = damage_info else {
             return Ok(());
         };
         if !self.is_currently_registered {
             return Ok(());
         }
-
-        let die_applicable = self
-            .with_owner_object(|owner_read| self.base.is_die_applicable(owner_read, damage_info))?;
+        let die_applicable = if let Some(owner) = owner {
+            self.base.is_die_applicable(owner, damage_info)
+        } else {
+            self.with_owner_object(|owner_read| self.base.is_die_applicable(owner_read, damage_info))?
+        };
         if !die_applicable {
             return Ok(());
         }
-
-        if let Some(controlling_player) =
+        let controlling_player = if let Some(owner) = owner {
+            owner.get_controlling_player()
+        } else {
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
-        {
+        };
+        if let Some(controlling_player) = controlling_player {
             let mut player_write = controlling_player
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
@@ -688,32 +812,48 @@ impl TunnelContain {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        self.base.update()?;
+        if let Err(err) = self.base.update() {
+            log::warn!("TunnelContain::update base update failed: {}", err);
+        }
 
-        if let Some(controlling_player) =
-            self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
+        let controlling_player = match self
+            .with_owner_object(|owner_read| owner_read.get_controlling_player())
         {
+            Ok(player) => player,
+            Err(err) => {
+                log::warn!("TunnelContain::update owner lock failed: {}", err);
+                None
+            }
+        };
+        if let Some(controlling_player) = controlling_player {
             {
-                let mut player_write = controlling_player
-                    .write()
-                    .map_err(|_| "Player lock poisoned")?;
+                let Ok(mut player_write) = controlling_player.try_write() else {
+                    log::warn!("TunnelContain::update player lock busy");
+                    return Ok(UpdateSleepTime::None);
+                };
                 if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                    tunnel_system.heal_objects(self.module_data.frames_for_full_heal)?;
+                    if let Err(err) =
+                        tunnel_system.heal_objects(self.module_data.frames_for_full_heal)
+                    {
+                        log::warn!("TunnelContain::update heal failed: {}", err);
+                    }
                 }
             }
 
-            let nemesis_id =
-                self.with_owner_object(|owner_read| -> GameResult<Option<ObjectID>> {
+            let nemesis_id = match self
+                .with_owner_object(|owner_read| -> GameResult<Option<ObjectID>> {
                     let Some(body) = owner_read.get_body_module() else {
                         return Ok(None);
                     };
-                    let Ok(body_guard) = body.lock() else {
+                    let Ok(body_guard) = body.try_lock() else {
                         return Ok(None);
                     };
                     let Some(info) = body_guard.get_last_damage_info() else {
                         return Ok(None);
                     };
-                    let frame = get_current_frame()?;
+                    let Ok(frame) = get_current_frame() else {
+                        return Ok(None);
+                    };
                     if body_guard
                         .get_last_damage_timestamp()
                         .saturating_add(crate::common::LOGICFRAMES_PER_SECOND)
@@ -725,7 +865,7 @@ impl TunnelContain {
                     else {
                         return Ok(None);
                     };
-                    let Ok(attacker_guard) = attacker.read() else {
+                    let Ok(attacker_guard) = attacker.try_read() else {
                         return Ok(None);
                     };
                     if owner_read.get_relationship_to(&*attacker_guard) == ObjectRelationship::Enemy
@@ -734,18 +874,31 @@ impl TunnelContain {
                     } else {
                         Ok(None)
                     }
-                })??;
+                }) {
+            Ok(Ok(id)) => id,
+            Ok(Err(err)) => {
+                log::warn!("TunnelContain::update nemesis lookup failed: {}", err);
+                None
+            }
+            Err(err) => {
+                log::warn!("TunnelContain::update owner lock failed: {}", err);
+                None
+            }
+        };
 
             if let Some(nemesis_id) = nemesis_id {
                 if let Some(attacker) = TheGameLogic::find_object_by_id(nemesis_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id))
                 {
-                    if let Ok(attacker_guard) = attacker.read() {
-                        let mut player_write = controlling_player
-                            .write()
-                            .map_err(|_| "Player lock poisoned")?;
+                    if let Ok(attacker_guard) = attacker.try_read() {
+                        let Ok(mut player_write) = controlling_player.try_write() else {
+                            log::warn!("TunnelContain::update nemesis player lock busy");
+                            return Ok(UpdateSleepTime::None);
+                        };
                         if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                            tunnel_system.update_nemesis(Some(&*attacker_guard))?;
+                            if let Err(err) = tunnel_system.update_nemesis(Some(&*attacker_guard)) {
+                                log::warn!("TunnelContain::update nemesis failed: {}", err);
+                            }
                         }
                     }
                 }
@@ -880,18 +1033,16 @@ impl ContainModuleInterface for TunnelContain {
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            true,
-        )
-        .map_err(|e| e.to_string())
+        self.remove_from_contain(object_id, true)
+            .map_err(|e| e.to_string())
+    }
+
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        TunnelContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
     fn exit_object_in_a_hurry(
@@ -964,6 +1115,14 @@ impl ContainModuleInterface for TunnelContain {
         TunnelContain::on_die(self, damage_info).map_err(|e| e.into())
     }
 
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        TunnelContain::on_die_for_owner(self, Some(owner), damage_info).map_err(|e| e.into())
+    }
+
     fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         TunnelContain::on_delete(self).map_err(|e| e.into())
     }
@@ -972,19 +1131,47 @@ impl ContainModuleInterface for TunnelContain {
         TunnelContain::on_selling(self).map_err(|e| e.into())
     }
 
-    fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        if let Ok(Some(controlling_player)) =
-            self.with_owner_object(|owner_read| owner_read.get_controlling_player())
-        {
-            if let Ok(player_read) = controlling_player.read() {
-                if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                    return tunnel_system
-                        .is_valid_container_for(obj, check_capacity)
-                        .unwrap_or(false);
-                }
-            }
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
         }
-        false
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.add_to_contain(other_id)?;
+        }
+        Ok(())
+    }
+
+    fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
+        let Ok(owner) = self.get_object() else {
+            return false;
+        };
+        let Ok(owner) = owner.try_read() else {
+            return false;
+        };
+        let Some(player) = owner.get_controlling_player() else {
+            return false;
+        };
+        drop(owner);
+        let Ok(player_read) = player.try_read() else {
+            return false;
+        };
+        let Some(tunnel_system) = player_read.get_tunnel_system() else {
+            return false;
+        };
+        tunnel_system
+            .is_valid_container_for(obj, check_capacity)
+            .unwrap_or(false)
     }
 
     fn add_to_contain(

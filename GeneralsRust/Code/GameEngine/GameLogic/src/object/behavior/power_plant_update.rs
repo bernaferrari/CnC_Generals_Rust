@@ -130,29 +130,25 @@ impl PowerPlantUpdate {
         // Matches C++ PowerPlantUpdate::extendRods (sets upgrading flag and wake frame)
         if extend {
             if !self.extended {
-                let current_frame = get_game_logic()
-                    .lock()
-                    .map(|logic| logic.get_frame())
-                    .unwrap_or(0);
-                self.extend_done_frame = current_frame + self.module_data.rods_extend_time;
-                self.extended = true;
-
-                if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                }) {
-                    if let Ok(mut obj) = object.write() {
-                        // Set upgrading model condition so the animation plays while extending
-                        obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
+                if self.object_id != crate::common::INVALID_ID {
+                    if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+                    {
+                        if let Ok(mut obj) = object.write() {
+                            obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
+                        }
                     }
                 }
+                self.extended = true;
+                let now = crate::helpers::TheGameLogic::get_frame();
+                self.next_call_frame_and_phase = now.saturating_add(self.module_data.rods_extend_time);
+                self.reschedule_self();
             }
         } else {
             self.extended = false;
             self.extend_done_frame = 0;
+            self.next_call_frame_and_phase = UPDATE_SLEEP_FOREVER.to_u32();
+            self.reschedule_self();
 
             if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
                 None
@@ -166,6 +162,20 @@ impl PowerPlantUpdate {
                     obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADED);
                 }
             }
+        }
+    }
+
+    fn reschedule_self(&self) {
+        if self.object_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return;
+        };
+        if let Ok(guard) = object.read() {
+            guard.reschedule_named_update("PowerPlantUpdate", self.next_call_frame_and_phase);
         }
     }
 
@@ -189,30 +199,13 @@ impl UpdateModuleInterface for PowerPlantUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut obj) = object.write() {
-                let current_frame = get_game_logic()
-                    .lock()
-                    .map(|logic| logic.get_frame())
-                    .unwrap_or(0);
-
-                // Check if extension is complete
-                if self.extend_done_frame > 0 && current_frame >= self.extend_done_frame {
-                    self.extended = true;
-                    self.extend_done_frame = 0;
-
-                    // Replace upgrading with upgraded model condition (matches C++)
-                    obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
-                    obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADED);
-                }
-
-                // Only need to update while extending
-                if self.extend_done_frame > 0 {
-                    return UpdateSleepTime::Frames(1);
-                }
-
-                return UPDATE_SLEEP_FOREVER;
+                obj.clear_and_set_model_condition_flags(
+                    ModelConditionFlags::POWER_PLANT_UPGRADING,
+                    ModelConditionFlags::POWER_PLANT_UPGRADED,
+                );
             }
         }
-
+        self.extended = true;
         UPDATE_SLEEP_FOREVER
     }
 }
@@ -239,9 +232,7 @@ impl PowerPlantUpdateInterface for PowerPlantUpdate {
 
 impl Snapshotable for PowerPlantUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -376,7 +367,6 @@ mod tests {
         update.extend_rods(true);
 
         assert!(update.extended);
-        assert_eq!(update.extend_done_frame, 25);
     }
 
     #[test]

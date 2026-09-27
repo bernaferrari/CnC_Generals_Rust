@@ -120,7 +120,7 @@ fn vehicle_requests_infantry_move_away() {
         // Prevent ensure_crush_levels from promoting crusher during overlap.
         let blocked = v.ai_blocked_by(&other, true);
         assert!(blocked, "vehicle should be blocked by infantry ahead");
-        let force = v.ai_process_collision(&other, 0, true);
+        let force = v.ai_process_collision(&other, 0, true, true);
         assert!(!force);
         assert!(v.is_blocked);
         assert_eq!(v.request_other_move_away, Some(iid));
@@ -174,8 +174,8 @@ fn ai_blocked_sets_speed_cap() {
 }
 
 #[test]
-fn panic_infantry_allows_bounce_force() {
-    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+fn panicking_infantry_stays_on_the_blocked_path() {
+    use crate::game_logic::{AIState, KindOf, LocoGoalType, Object, ObjectId, Team, ThingTemplate};
     use glam::Vec3;
     let mut logic = GameLogic::new();
     let mut at = ThingTemplate::new("PanicA");
@@ -183,7 +183,10 @@ fn panic_infantry_allows_bounce_force() {
     let aid = ObjectId(711);
     let mut a = Object::new(at, aid, Team::USA);
     a.is_panicking = true;
-    a.movement.velocity = Vec3::new(0.0, 0.0, 2.0);
+    a.ai_state = AIState::Moving;
+    a.locomotor_goal_type = LocoGoalType::PositionOnPath;
+    a.set_status_moving(true);
+    a.movement.velocity = Vec3::new(2.0, 0.0, 0.0);
     a.set_position(Vec3::new(0.0, 0.0, 0.0));
     a.set_orientation(0.0);
     a.selection_radius = 5.0;
@@ -193,15 +196,18 @@ fn panic_infantry_allows_bounce_force() {
     bt.add_kind_of(KindOf::Infantry);
     let bid = ObjectId(712);
     let mut b = Object::new(bt, bid, Team::USA);
-    b.set_position(Vec3::new(0.0, 0.0, 3.0));
+    b.set_position(Vec3::new(5.0, 0.0, 0.0));
     b.set_orientation(0.0);
     b.selection_radius = 5.0;
     logic.objects.insert(bid, b);
 
     assert!(logic.try_physics_collide(aid, bid, 5.0));
     let a = logic.objects.get(&aid).unwrap();
-    // Bounce impulse residual should push velocity somewhat.
-    assert!(a.last_collidee == Some(bid));
+    assert_eq!(a.last_collidee, Some(bid));
+    assert!(
+        a.is_blocked,
+        "MODELCONDITION_PANICKING is not AI_PANIC and must not skip the block"
+    );
 }
 
 #[test]

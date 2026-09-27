@@ -1209,13 +1209,12 @@ impl AiGroup {
         add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
+        use crate::modules::AIUpdateInterfaceExt;
         // Wave 263: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
         }
 
-        use crate::common::{FormationID, KindOf};
-        let center = self.get_center().unwrap_or(*position);
         let mut movers: Vec<(ObjectId, f32)> = Vec::new();
         for obj_id in &self.member_list {
             let Some(key) = OBJECT_REGISTRY
@@ -1238,25 +1237,25 @@ impl AiGroup {
             movers.push((*obj_id, key));
         }
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut heli_idx = 0i32;
         for (member_id, _) in movers {
-            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
-                obj.set_formation_id(FormationID::NONE);
-            });
-            let dest = self.compute_individual_destination(member_id, position, &center, false);
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(member_id, |obj| obj.get_ai_update_interface())
-                .flatten()
-            else {
-                continue;
-            };
-            {
-                use crate::modules::AIUpdateInterfaceExt;
+            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface() else {
+                    return;
+                };
                 if add_waypoint {
-                    ai.ai_follow_path_append(&dest, cmd_source);
-                } else {
-                    ai.ai_move_to_position(&dest, false, cmd_source);
+                    ai.ai_follow_path_append(position, cmd_source);
+                    return;
                 }
-            }
+                if obj.is_kind_of(KindOf::ProducedAtHelipad) {
+                    let mut heli_offs = *position;
+                    crate::ai::ai_group::get_helicopter_offset(&mut heli_offs, heli_idx);
+                    heli_idx += 1;
+                    ai.ai_tighten_to_position(&heli_offs, CommandSourceType::FromAi);
+                } else {
+                    ai.ai_tighten_to_position(position, cmd_source);
+                }
+            });
         }
     }
 
@@ -2573,10 +2572,7 @@ impl Pathfinder {
         }
 
         let locomotor = locomotor_set.get_default_locomotor()?;
-        let Ok(loco_guard) = locomotor.lock() else {
-            return None;
-        };
-        let mut surfaces = loco_guard.get_legal_surfaces();
+        let mut surfaces = locomotor.get_legal_surfaces();
         let mut is_crusher = false;
         let mut unit_radius = 0.0;
         let mut move_allies = false;
@@ -3234,10 +3230,7 @@ impl Pathfinder {
         let Some(locomotor) = locomotor_set.get_default_locomotor() else {
             return false;
         };
-        let Ok(loco_guard) = locomotor.lock() else {
-            return false;
-        };
-        let mut surfaces = loco_guard.get_legal_surfaces();
+        let mut surfaces = locomotor.get_legal_surfaces();
         if is_crusher {
             surfaces |= crate::path::SURFACE_RUBBLE;
         }
@@ -3553,70 +3546,85 @@ impl Pathfinder {
     }
 
     pub fn create_wall_from_object(&mut self, obj: &Object) {
-        let pos = obj.get_position();
-        let radius = obj
-            .get_geometry_info()
-            .get_major_radius()
-            .max(self::pathfind_astar::PATHFIND_CELL_SIZE_F * 0.5);
-        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
-        let center_x = (pos.x / cell_size) as i32;
-        let center_y = (pos.y / cell_size) as i32;
-        let radius_cells = (radius / cell_size).ceil() as i32;
-
-        for dy in -radius_cells..=radius_cells {
-            for dx in -radius_cells..=radius_cells {
-                let cell_x = center_x + dx;
-                let cell_y = center_y + dy;
-                if cell_x < 0 || cell_y < 0 {
-                    continue;
-                }
-                let world_x = (cell_x as f32 + 0.5) * cell_size;
-                let world_y = (cell_y as f32 + 0.5) * cell_size;
-                let delta_x = world_x - pos.x;
-                let delta_y = world_y - pos.y;
-                if (delta_x * delta_x + delta_y * delta_y) > radius * radius {
-                    continue;
-                }
-                self.inner.set_cell_type(
-                    &Coord3D::new(world_x, world_y, 0.0),
-                    PathfindCellType::Obstacle,
-                );
-            }
-        }
+        self.stamp_wall_cells(obj, true);
     }
 
     pub fn remove_wall_from_object(&mut self, obj: &Object) {
-        let pos = obj.get_position();
-        let radius = obj
-            .get_geometry_info()
-            .get_major_radius()
-            .max(self::pathfind_astar::PATHFIND_CELL_SIZE_F * 0.5);
-        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
-        let center_x = (pos.x / cell_size) as i32;
-        let center_y = (pos.y / cell_size) as i32;
-        let radius_cells = (radius / cell_size).ceil() as i32;
+        self.stamp_wall_cells(obj, false);
+    }
 
-        for dy in -radius_cells..=radius_cells {
-            for dx in -radius_cells..=radius_cells {
-                let cell_x = center_x + dx;
-                let cell_y = center_y + dy;
-                if cell_x < 0 || cell_y < 0 {
+    fn stamp_wall_cells(&mut self, obj: &Object, insert: bool) {
+        self.inner.mark_zones_dirty();
+        let cell = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        let pos = *obj.get_position();
+        let geom = obj.get_geometry_info();
+        let kind = if insert {
+            PathfindCellType::Obstacle
+        } else {
+            PathfindCellType::Clear
+        };
+        if geom.get_geometry_type() == game_engine::system::geometry::GeometryType::Box {
+            let angle = obj.get_orientation();
+            let half_x = geom.get_major_radius();
+            let half_y = geom.get_minor_radius();
+            let (s, c) = angle.sin_cos();
+            let step = cell * 0.5;
+            if step <= 0.0 {
+                return;
+            }
+            let ydx = s * step;
+            let ydy = -c * step;
+            let xdx = c * step;
+            let xdy = s * step;
+            let num_x = (2.0 * half_x / step).ceil().max(0.0) as i32;
+            let num_y = (2.0 * half_y / step).ceil().max(0.0) as i32;
+            let mut tl_x = pos.x - half_x * c - half_y * s;
+            let mut tl_y = pos.y + half_y * c - half_x * s;
+            for _iy in 0..num_y {
+                let mut x = tl_x;
+                let mut y = tl_y;
+                for _ix in 0..num_x {
+                    self.inner
+                        .set_cell_type(&Coord3D::new(x + 0.5, y + 0.5, 0.0), kind);
+                    x += xdx;
+                    y += xdy;
+                }
+                tl_x += ydx;
+                tl_y += ydy;
+            }
+            self.inner.mark_zones_dirty();
+            return;
+        }
+
+        let radius = geom.get_major_radius();
+        let mut size = radius / cell;
+        let center_x = pos.x / cell;
+        let center_y = pos.y / cell;
+        let top_x = (0.5 + (pos.x - radius) / cell).floor() as i32 - 1;
+        let top_y = (0.5 + (pos.y - radius) / cell).floor() as i32 - 1;
+        size += 0.4;
+        let r2 = size * size;
+        let bottom_x = top_x + (2.0 * size) as i32 + 2;
+        let bottom_y = top_y + (2.0 * size) as i32 + 2;
+        for j in top_y..bottom_y {
+            for i in top_x..bottom_x {
+                if i < 0 || j < 0 {
                     continue;
                 }
-                let world_x = (cell_x as f32 + 0.5) * cell_size;
-                let world_y = (cell_y as f32 + 0.5) * cell_size;
-                let delta_x = world_x - pos.x;
-                let delta_y = world_y - pos.y;
-                if (delta_x * delta_x + delta_y * delta_y) > radius * radius {
+                let delta_x = i as f32 + 0.5 - center_x;
+                let delta_y = j as f32 + 0.5 - center_y;
+                if delta_x * delta_x + delta_y * delta_y > r2 {
                     continue;
                 }
-                self.inner.set_cell_type(
-                    &Coord3D::new(world_x, world_y, 0.0),
-                    PathfindCellType::Clear,
-                );
+                let world_x = (i as f32 + 0.5) * cell;
+                let world_y = (j as f32 + 0.5) * cell;
+                self.inner
+                    .set_cell_type(&Coord3D::new(world_x, world_y, 0.0), kind);
             }
         }
+        self.inner.mark_zones_dirty();
     }
+
 
     pub fn is_line_clear_between(&self, from: &Coord3D, to: &Coord3D) -> bool {
         self.inner.is_line_clear_between(from, to)

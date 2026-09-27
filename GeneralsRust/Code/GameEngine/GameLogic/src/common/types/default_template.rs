@@ -763,6 +763,10 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
         (**self).get_experience_value(level)
     }
 
+    fn get_skill_point_value(&self, level: usize) -> Int {
+        (**self).get_skill_point_value(level)
+    }
+
     fn get_experience_required(&self, level: usize) -> Int {
         (**self).get_experience_required(level)
     }
@@ -977,6 +981,9 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
     fn get_template_geometry_info(&self) -> GeometryInfo {
         (**self).get_template_geometry_info()
     }
+    fn random_offset_on_perimeter(&self) -> Option<(Real, Real)> {
+        (**self).random_offset_on_perimeter()
+    }
 
     fn calc_vision_range(&self) -> Real {
         (**self).calc_vision_range()
@@ -1012,6 +1019,10 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_experience_value(&self, level: usize) -> Int {
         (**self).get_experience_value(level)
+    }
+
+    fn get_skill_point_value(&self, level: usize) -> Int {
+        (**self).get_skill_point_value(level)
     }
 
     fn get_experience_required(&self, level: usize) -> Int {

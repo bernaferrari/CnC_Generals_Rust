@@ -55,19 +55,7 @@ impl Default for RebuildHoleExposeDieModuleData {
 
 impl Snapshotable for RebuildHoleExposeDieModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc version: {e:?}"))?;
-        self.base.crc(xfer)?;
-        let mut name = self.hole_name.as_str().to_string();
-        xfer.xfer_ascii_string(&mut name)
-            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc hole_name: {e:?}"))?;
-        let mut health = self.hole_max_health;
-        xfer.xfer_real(&mut health)
-            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc hole_max_health: {e:?}"))?;
-        let mut transfer = self.transfer_attackers;
-        xfer.xfer_bool(&mut transfer)
-            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc transfer_attackers: {e:?}"))?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -340,18 +328,19 @@ impl DieModuleInterface for RebuildHoleExposeDie {
             return;
         }
 
-        if let Some(player) = object.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard.get_player_type() == crate::player::PlayerType::Neutral {
-                    return;
-                }
-                if !player_guard.is_player_active() {
-                    return;
-                }
-            }
-        } else {
+        let Some(player) = object.get_controlling_player() else {
+            return;
+        };
+        let Ok(player_guard) = player.read() else {
+            return;
+        };
+        if player_guard.get_player_type() == crate::player::PlayerType::Neutral {
             return;
         }
+        if !player_guard.is_player_active() {
+            return;
+        }
+        drop(player_guard);
 
         if object
             .get_status_bits()

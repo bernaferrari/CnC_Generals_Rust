@@ -1056,8 +1056,7 @@ impl BuildingBehavior {
             for _ in 0..quantity {
                 if let Some(new_id) = game_logic.create_object(&template_name, team, spawn_pos) {
                     if let Some(rally) = rally_point {
-                        // A refused path must not walk the raw rally. A unit
-                        // that cannot path yet keeps the point for later.
+                        let _ = game_logic.note_move_to_request_path(new_id);
                         if !game_logic.assign_unit_path(new_id, rally, &[]) {
                             if let Some(unit) = game_logic.host_object_mut(new_id) {
                                 if unit.is_alive() && !unit.can_move() {

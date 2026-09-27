@@ -401,26 +401,51 @@ impl WeaponSet {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
-        let mut tt_name = self.thing_template_name.clone();
-        xfer.xfer_ascii_string(&mut tt_name)
-            .map_err(|e| e.to_string())?;
-        self.thing_template_name = tt_name;
+        // C++ WeaponSet.cpp:197-235: name and flags are Save/Load only. CRC starts at the slots.
+        let mode = xfer.get_xfer_mode();
+        if mode == XferMode::Save || mode == XferMode::Load {
+            let mut tt_name = self.thing_template_name.clone();
+            if mode == XferMode::Save && self.current_weapon_template_set.is_none() {
+                tt_name.clear();
+            }
+            xfer.xfer_ascii_string(&mut tt_name)
+                .map_err(|e| e.to_string())?;
+            if mode == XferMode::Load {
+                self.thing_template_name = tt_name;
+            }
 
-        let mut ws_flags_bits = self
-            .current_weapon_template_set
-            .as_ref()
-            .map(|set| set.conditions.bits() as u128)
-            .unwrap_or(0);
-        xfer_named_weapon_set_flags(xfer, &mut ws_flags_bits)?;
-        if xfer.get_xfer_mode() == XferMode::Load {
-            let wanted = WeaponSetFlags::from_bits(ws_flags_bits as u32);
-            if let Some(matched) = self
-                .weapon_template_sets
-                .iter()
-                .find(|set| set.conditions.bits() == wanted.bits())
-                .cloned()
-            {
-                self.current_weapon_template_set = Some(matched);
+            let mut ws_flags_bits = self
+                .current_weapon_template_set
+                .as_ref()
+                .map(|set| set.conditions.bits() as u128)
+                .unwrap_or(0);
+            xfer_named_weapon_set_flags(xfer, &mut ws_flags_bits)?;
+            if mode == XferMode::Load {
+                if self.thing_template_name.is_empty() {
+                    self.current_weapon_template_set = None;
+                } else {
+                    if crate::helpers::TheThingFactory::find_template(&self.thing_template_name)
+                        .is_none()
+                    {
+                        return Err(format!(
+                            "WeaponSet::xfer missing thing template {}",
+                            self.thing_template_name
+                        ));
+                    }
+                    let wanted = WeaponSetFlags::from_bits(ws_flags_bits as u32);
+                    let Some(matched) = self
+                        .weapon_template_sets
+                        .iter()
+                        .find(|set| set.conditions.bits() == wanted.bits())
+                        .cloned()
+                    else {
+                        return Err(format!(
+                            "WeaponSet::xfer missing weapon set flags for {}",
+                            self.thing_template_name
+                        ));
+                    };
+                    self.current_weapon_template_set = Some(matched);
+                }
             }
         }
 
@@ -480,22 +505,20 @@ impl WeaponSet {
             .map_err(|e| e.to_string())?;
         self.has_damage_weapon = has_damage_weapon_a;
 
-        // Intentional duplicate field xfer matches C++ WeaponSet::xfer legacy behavior.
+        // C++ xfers m_hasDamageWeapon twice; the second value overwrites the first.
         let mut has_damage_weapon_b = self.has_damage_weapon;
         xfer.xfer_bool(&mut has_damage_weapon_b)
             .map_err(|e| e.to_string())?;
+        self.has_damage_weapon = has_damage_weapon_b;
 
         let mut damage_bits = self.total_damage_type_mask.bits() as u128;
         xfer_named_damage_type_flags(xfer, &mut damage_bits)?;
         self.total_damage_type_mask =
             crate::damage::DamageTypeFlags::from_bits_retain(damage_bits as u64);
 
-        // Recompute derived fields such as pitch limits after load.
-        if xfer.get_xfer_mode() == XferMode::Load {
-            self.update_weapon_statistics();
-            self.current_weapon = weapon_slot_from_u32(current_weapon);
-            self.current_weapon_locked_status = weapon_lock_type_from_u32(lock_status);
-        }
+        // C++ WeaponSet::xfer does not recompute anti-mask, damage flags, or
+        // m_hasPitchLimit. That flag stays false until the next set rebuild,
+        // so isAnyWithinTargetPitch returns true after load.
 
         Ok(())
     }
@@ -531,42 +554,24 @@ impl WeaponSet {
         &self,
         conditions: &WeaponSetFlags,
     ) -> Option<Arc<WeaponTemplateSet>> {
-        // Find the set with the most specific matching conditions
+        // C++ SparseMatchFinder::findBestInfoSlow: maximize bits the set
+        // requires that the object has, then minimize yes-bits the object lacks.
+        // A set that requires a missing bit can still win on a larger overlap.
+        let object_bits = conditions.bits();
         let mut best_set: Option<Arc<WeaponTemplateSet>> = None;
-        let mut best_match_count = 0;
+        let mut best_yes_match = 0i32;
+        let mut best_extraneous = 999i32;
 
         for template_set in &self.weapon_template_sets {
-            if template_set.matches_conditions(conditions) {
-                // Count how many conditions this set specifies
-                let mut match_count = 0;
-                for weapon_set_type in [
-                    WeaponSetType::Veteran,
-                    WeaponSetType::Elite,
-                    WeaponSetType::Hero,
-                    WeaponSetType::PlayerUpgrade,
-                    WeaponSetType::CrateUpgradeOne,
-                    WeaponSetType::CrateUpgradeTwo,
-                    WeaponSetType::VehicleHijack,
-                    WeaponSetType::CarBomb,
-                    WeaponSetType::MineClearingDetail,
-                    WeaponSetType::WeaponRider1,
-                    WeaponSetType::WeaponRider2,
-                    WeaponSetType::WeaponRider3,
-                    WeaponSetType::WeaponRider4,
-                    WeaponSetType::WeaponRider5,
-                    WeaponSetType::WeaponRider6,
-                    WeaponSetType::WeaponRider7,
-                    WeaponSetType::WeaponRider8,
-                ] {
-                    if template_set.conditions.test(weapon_set_type) {
-                        match_count += 1;
-                    }
-                }
-
-                if best_set.is_none() || match_count > best_match_count {
-                    best_match_count = match_count;
-                    best_set = Some(Arc::clone(template_set));
-                }
+            let yes_bits = template_set.conditions.bits();
+            let yes_match = (object_bits & yes_bits).count_ones() as i32;
+            let extraneous = (yes_bits & !object_bits).count_ones() as i32;
+            if yes_match > best_yes_match
+                || (yes_match >= best_yes_match && extraneous < best_extraneous)
+            {
+                best_yes_match = yes_match;
+                best_extraneous = extraneous;
+                best_set = Some(Arc::clone(template_set));
             }
         }
 
@@ -587,7 +592,6 @@ impl WeaponSet {
         new_set: Arc<WeaponTemplateSet>,
         object_id: ObjectID,
     ) -> GameLogicResult<()> {
-        self.current_weapon_template_set = Some(Arc::clone(&new_set));
 
         // C++ WeaponSet.cpp:281-286: If weapon lock is NOT shared across sets,
         // release ALL locks and reset curWeapon to PRIMARY.
@@ -601,11 +605,11 @@ impl WeaponSet {
             self.current_weapon = WeaponSlotType::Primary;
         }
 
-        // Create new weapons based on template set
+        self.filled_weapon_slot_mask = 0;
         for slot in [
-            WeaponSlotType::Primary,
-            WeaponSlotType::Secondary,
             WeaponSlotType::Tertiary,
+            WeaponSlotType::Secondary,
+            WeaponSlotType::Primary,
         ] {
             let slot_index = slot as usize;
 
@@ -624,6 +628,7 @@ impl WeaponSet {
             }
         }
 
+        self.current_weapon_template_set = Some(new_set);
         Ok(())
     }
 
@@ -654,6 +659,12 @@ impl WeaponSet {
                 if weapon.is_damage_weapon() {
                     self.has_damage_weapon = true;
                 }
+            }
+        }
+        let shared = self.is_shared_reload_time();
+        for weapon_opt in &mut self.weapons {
+            if let Some(weapon) = weapon_opt {
+                weapon.shares_reload_time = shared;
             }
         }
     }
@@ -720,8 +731,11 @@ impl WeaponSet {
                 let ok_srcs = template_set.get_auto_choose_mask(slot);
                 let source_bit = 1u32 << (command_source as i32);
                 if (ok_srcs & source_bit) == 0 {
-                    // Check if CMD_DEFAULT_SWITCH_WEAPON is set
-                    const CMD_DEFAULT_SWITCH_WEAPON: u32 = 0x80000000;
+                    // C++ WeaponSet.cpp:819 tests `okSrcs & CMD_DEFAULT_SWITCH_WEAPON`.
+                    // That enum value is 4, not 1<<4 and not the high bit. The parsed
+                    // DEFAULT_SWITCH_WEAPON name is bit 4, but the live check is the
+                    // enum constant, which is the FROM_AI bit.
+                    const CMD_DEFAULT_SWITCH_WEAPON: u32 = 4;
                     if (ok_srcs & CMD_DEFAULT_SWITCH_WEAPON) == 0 {
                         continue;
                     }
@@ -783,10 +797,14 @@ impl WeaponSet {
             if let Some(template_set) = &self.current_weapon_template_set {
                 let preferred_mask = template_set.get_preferred_against_mask(slot);
                 if !preferred_mask.is_empty() {
-                    // C++ line 870: victim->isKindOfMulti(preferredAgainst, KINDOFMASK_NONE)
+                    // C++ isKindOfMulti(preferred, KINDOFMASK_NONE): every preferred bit
+                    // must be set. Any-bit would pick the Comanche cannon against a
+                    // target that only shares one KindOf with the mask.
                     if crate::object::registry::OBJECT_REGISTRY
                         .with_object(target_obj, |target_guard| {
-                            target_guard.is_kind_of_mask(preferred_mask.bits() as u32)
+                            let kinds = target_guard.get_kind_of();
+                            let required = preferred_mask.bits();
+                            (kinds & required) == required
                         })
                         .unwrap_or(false)
                     {
@@ -946,14 +964,13 @@ impl WeaponSet {
             self.current_weapon_locked_status = lock_type;
             true
         } else if lock_type == WeaponLockType::LockedTemporarily {
-            // Temporary lock only if not permanently locked (C++ line 1053-1055)
+            // Temporary lock only if not permanently locked (C++ line 1053-1055).
+            // The slot exists, so C++ still returns true when the permanent lock wins.
             if self.current_weapon_locked_status != WeaponLockType::LockedPermanently {
                 self.current_weapon = weapon_slot;
                 self.current_weapon_locked_status = lock_type;
-                true
-            } else {
-                false
             }
+            true
         } else {
             false
         }
@@ -1009,6 +1026,16 @@ impl WeaponSet {
         self.weapons.get_mut(slot as usize)?.as_mut()
     }
 
+    pub fn take_weapon(&mut self, slot: WeaponSlotType) -> Option<Weapon> {
+        self.weapons.get_mut(slot as usize)?.take()
+    }
+
+    pub fn restore_weapon(&mut self, slot: WeaponSlotType, weapon: Weapon) {
+        if let Some(entry) = self.weapons.get_mut(slot as usize) {
+            *entry = Some(weapon);
+        }
+    }
+
     /// Get current weapon
     pub fn get_current_weapon(&self) -> Option<(&Weapon, WeaponSlotType)> {
         self.get_weapon_in_slot(self.current_weapon)
@@ -1062,38 +1089,44 @@ impl WeaponSet {
         true
     }
 
-    /// Reload all weapons
-    pub fn reload_all_ammo(
+    /// Reload every slot. Callers must pass the bonus flags they already hold.
+    /// An empty mask reloads at the unbonused rate and drops garrison or horde ROF.
+    pub fn reload_all_ammo_with_flags(
         &mut self,
         source_obj: ObjectID,
+        flags: crate::common::types::WeaponBonusConditionFlags,
         reload_now: bool,
     ) -> GameLogicResult<()> {
+        let mapped = super::helpers::map_common_bonus_flags(flags);
+        let shared = self.is_shared_reload_time();
         for weapon_opt in &mut self.weapons {
             if let Some(weapon) = weapon_opt {
-                if reload_now {
-                    weapon.load_ammo_now(source_obj)?;
-                } else {
-                    weapon.reload_ammo(source_obj)?;
-                }
+                weapon.shares_reload_time = shared;
+                let bonus = weapon.bonus_from_flags(mapped);
+                weapon.reload_with_bonus(source_obj, &bonus, reload_now)?;
             }
         }
+        self.apply_pending_shared_fire();
         Ok(())
     }
 
-    /// Get most ready weapon percentage
-    pub fn get_most_percent_ready_to_fire_any_weapon(&self) -> f32 {
-        let mut max_ready = 0.0;
+    /// C++ WeaponSet.cpp:1011-1029: unsigned percent 0..100, truncated, stop at 100.
+    pub fn get_most_percent_ready_to_fire_any_weapon(&self) -> u32 {
+        let mut most_ready = 0u32;
 
         for weapon_opt in &self.weapons {
             if let Some(weapon) = weapon_opt {
-                let ready_percent = weapon.get_percent_ready_to_fire();
-                if ready_percent > max_ready {
-                    max_ready = ready_percent;
+                let percentage = (weapon.get_percent_ready_to_fire() * 100.0) as u32;
+                if percentage > most_ready {
+                    most_ready = percentage;
+                }
+                if most_ready >= 100 {
+                    return most_ready;
                 }
             }
         }
 
-        max_ready
+        most_ready
     }
 
     /// Find weapon capable of following waypoints
@@ -1133,13 +1166,95 @@ impl WeaponSet {
     }
 
     /// Update all weapons when weapon bonus changes
-    pub fn weapon_set_on_weapon_bonus_change(&mut self, source: ObjectID) -> GameLogicResult<()> {
-        for weapon_opt in &mut self.weapons {
-            if let Some(weapon) = weapon_opt {
-                weapon.on_weapon_bonus_change(source)?;
+    pub fn weapon_set_on_weapon_bonus_change(
+        &mut self,
+        flags: crate::common::types::WeaponBonusConditionFlags,
+    ) -> GameLogicResult<()> {
+        let mapped = super::helpers::map_common_bonus_flags(flags);
+        let shared = self.is_shared_reload_time();
+        for index in 0..self.weapons.len() {
+            let when = {
+                let Some(weapon) = self.weapons[index].as_mut() else {
+                    continue;
+                };
+                weapon.on_weapon_bonus_change(mapped)?
+            };
+            // C++ Weapon.cpp:1961-1970 runs before the next slot is examined,
+            // so a later slot is already RELOADING_CLIP and uses clip time.
+            if shared {
+                if let Some(when) = when {
+                    for weapon_opt in &mut self.weapons {
+                        if let Some(weapon) = weapon_opt {
+                            weapon.set_possible_next_shot_frame(when);
+                            weapon.set_status(crate::weapon::WeaponStatus::ReloadingClip);
+                        }
+                    }
+                }
             }
         }
         Ok(())
+    }
+
+    /// Copy a post-fire or reload share onto every filled slot.
+    /// The status is whatever the firing weapon stored (`BETWEEN_FIRING_SHOTS`
+    /// or `RELOADING_CLIP`). No object lock.
+    pub fn apply_pending_shared_fire(&mut self) {
+        if !self.is_shared_reload_time() {
+            for weapon_opt in &mut self.weapons {
+                if let Some(weapon) = weapon_opt {
+                    weapon.shared_fire_sync = None;
+                }
+            }
+            return;
+        }
+        let pending = self.weapons.iter().rev().find_map(|weapon_opt| {
+            weapon_opt
+                .as_ref()
+                .and_then(|weapon| weapon.shared_fire_sync)
+        });
+        let Some((when, status)) = pending else {
+            return;
+        };
+        for weapon_opt in &mut self.weapons {
+            if let Some(weapon) = weapon_opt {
+                weapon.set_possible_next_shot_frame(when);
+                weapon.set_status(status);
+                weapon.shared_fire_sync = None;
+            }
+        }
+    }
+
+    pub fn take_pending_assaults(&mut self) -> Vec<Option<crate::common::ObjectID>> {
+        let mut pending = Vec::new();
+        for weapon_opt in &mut self.weapons {
+            if let Some(weapon) = weapon_opt {
+                if let Some(target) = weapon.take_pending_assault() {
+                    pending.push(target.map(|id| id as crate::common::ObjectID));
+                }
+            }
+        }
+        pending
+    }
+
+    pub fn take_pending_mine_cleared(&mut self) -> bool {
+        let mut pending = false;
+        for weapon_opt in &mut self.weapons {
+            if let Some(weapon) = weapon_opt {
+                pending |= weapon.take_pending_mine_cleared();
+            }
+        }
+        pending
+    }
+
+    pub fn take_pending_self_damage(&mut self) -> Option<crate::damage::DamageInfo> {
+        for weapon_opt in &mut self.weapons {
+            if let Some(weapon) = weapon_opt {
+                if let Some(info) = weapon.take_pending_self_damage() {
+                    return Some(info);
+                }
+            }
+        }
+        None
     }
 
     /// Clear leech range mode for all weapons
@@ -1172,6 +1287,11 @@ impl WeaponSet {
     ///
     /// Matches C++ WeaponSet::isAnyWithinTargetPitch() from WeaponSet.h line 187
     fn is_any_within_target_pitch(&self, source_obj: ObjectID, target_obj: ObjectID) -> bool {
+        // C++ WeaponSet.cpp:408-409: no pitch-limited weapon means every aim is legal,
+        // including an empty set. Do not ask the slots.
+        if !self.has_pitch_limit {
+            return true;
+        }
         for weapon_opt in &self.weapons {
             if let Some(weapon) = weapon_opt {
                 if weapon.is_within_target_pitch(source_obj, target_obj) {

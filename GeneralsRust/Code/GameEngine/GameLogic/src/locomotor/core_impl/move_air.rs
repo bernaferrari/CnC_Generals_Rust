@@ -81,6 +81,7 @@ impl Locomotor {
                     desired_speed,
                     current_speed,
                     condition,
+                    0.0,
                 );
             }
         }
@@ -94,6 +95,7 @@ impl Locomotor {
             desired_speed,
             current_speed,
             condition,
+            0.0,
         )
     }
 
@@ -161,9 +163,8 @@ impl Locomotor {
         }
         self.set_flag(FLAG_MOVING_BACKWARDS, move_backwards);
 
-        // Orient toward goal - C++ Locomotor.cpp:1746-1757
-        let mut desired_angle =
-            self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, false);
+        // C++ Locomotor.cpp:1749 atan2 from the position, not the turn pivot.
+        let mut desired_angle = (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
         if move_backwards {
             desired_angle = Self::normalize_angle(desired_angle + std::f32::consts::PI);
         }
@@ -185,7 +186,7 @@ impl Locomotor {
 
         // Slow down approaching destination - C++ Locomotor.cpp:1776-1780
         let slow_down_dist =
-            Self::calc_slow_down_dist(actual_speed.abs(), self.template.min_speed, braking);
+            Self::calc_slow_down_dist(actual_speed, self.template.min_speed, braking);
         if on_path_dist_to_goal < slow_down_dist && !self.no_slow_down_approaching_dest() {
             goal_speed = self.template.min_speed;
         }

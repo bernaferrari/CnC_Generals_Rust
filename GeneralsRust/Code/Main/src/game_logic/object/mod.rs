@@ -134,6 +134,10 @@ fn default_one_f32() -> f32 {
     1.0
 }
 
+fn default_fast_as_possible() -> f32 {
+    999_999.0
+}
+
 fn default_terrain_decal_none() -> u8 {
     8
 }
@@ -358,8 +362,16 @@ impl LocomotorAppearance {
         }
     }
 }
+fn default_unset_pathfind_cell() -> (i32, i32) {
+    (-1, -1)
+}
+
 
 /// Game Object - the main entity class for all game units, buildings, etc.
+fn default_adjust_destinations() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     /// Base Thing functionality
@@ -659,14 +671,20 @@ pub struct Object {
     /// C++ AIUpdate m_isBlockedAndStuck residual.
     #[serde(default)]
     pub is_blocked_and_stuck: bool,
+    /// C++ `AIUpdateInterface::m_retryPath`. Set when `findClosestPath` supplied the route.
+    #[serde(default)]
+    pub retry_path: bool,
+    /// C++ `AIInternalMoveToState::m_tryOneMoreRepath`.
+    #[serde(default)]
+    pub try_one_more_repath: bool,
     /// C++ AIUpdate m_curMaxBlockedSpeed residual (world units / frame).
-    #[serde(default = "default_max_f32")]
+    #[serde(default)]
     pub cur_max_blocked_speed: f32,
     /// C++ AIUpdate getNumFramesBlocked residual.
     #[serde(default)]
     pub num_frames_blocked: u32,
-    /// C++ AIUpdate m_bumpSpeedLimit residual (host dist/sec, FAST_AS_POSSIBLE = MAX).
-    #[serde(default = "default_max_f32")]
+    /// C++ AIUpdate m_bumpSpeedLimit residual (FAST_AS_POSSIBLE = 999999).
+    #[serde(default = "default_fast_as_possible")]
     pub bump_speed_limit: f32,
     /// C++ LocomotorSet member names for the current SET_* (surface-switched).
     #[serde(default)]
@@ -707,6 +725,9 @@ pub struct Object {
     /// C++ m_moveOutOfWay1 residual (object id we're yielding for).
     #[serde(default)]
     pub move_away_from: Option<ObjectId>,
+    /// C++ m_moveOutOfWay2 residual (previous yield id).
+    #[serde(default)]
+    pub move_away_from_2: Option<ObjectId>,
     /// C++ AI_MOVE_OUT_OF_THE_WAY temporary state frames remaining.
     #[serde(default)]
     pub move_away_frames: u32,
@@ -716,6 +737,12 @@ pub struct Object {
     /// When set by processCollision, GameLogic should call ai_move_away on this id.
     #[serde(default)]
     pub request_other_move_away: Option<ObjectId>,
+    /// Deadlock yield: this unit leaves using the named unit's path.
+    #[serde(default)]
+    pub request_self_yield_from: Option<ObjectId>,
+    /// Stopped overlap: physics tick separates this unit from the partner.
+    #[serde(default)]
+    pub unstack_partner: Option<ObjectId>,
     /// C++ PhysicsBehaviorModuleData m_forwardFriction residual (per frame).
     #[serde(default = "default_forward_friction")]
     pub forward_friction: f32,
@@ -749,9 +776,15 @@ pub struct Object {
     /// C++ ALLOW_TO_FALL flag residual.
     #[serde(default)]
     pub allow_to_fall: bool,
+    /// C++ PhysicsBehavior `IS_IN_FREEFALL` (`setIsInFreeFall`). Not parachuting.
+    #[serde(default)]
+    pub is_in_freefall: bool,
     /// C++ WAS_AIRBORNE_LAST_FRAME residual (general physics, not only shock).
     #[serde(default)]
     pub was_airborne_last_frame: bool,
+    /// March stamp already applied this frame's landing splat.
+    #[serde(default)]
+    pub landing_splat_done: bool,
     /// C++ PhysicsBehaviorModuleData m_centerOfMassOffset residual.
     #[serde(default)]
     pub center_of_mass_offset: f32,
@@ -839,9 +872,19 @@ pub struct Object {
     /// C++ MOVING_BACKWARDS residual.
     #[serde(default)]
     pub moving_backwards: bool,
+    /// C++ `Locomotor::DOING_THREE_POINT_TURN` (`Locomotor.h:405`).
+    #[serde(default)]
+    pub doing_three_point_turn: bool,
     /// C++ NO_SLOW_DOWN_AS_APPROACHING_DEST residual.
     #[serde(default)]
     pub no_slow_down_as_approaching_dest: bool,
+    /// C++ `AIUpdateInterface::m_pathExtraDistance`. Contact approach adds
+    /// 10 cells so the locomotor does not brake before the hit.
+    #[serde(default)]
+    pub path_extra_distance: f32,
+    /// C++ `AIUpdateInterface::m_pathfindGoalCell`. (-1, -1) means unset.
+    #[serde(default = "default_unset_pathfind_cell")]
+    pub pathfind_goal_cell: (i32, i32),
     /// C++ OVER_WATER model condition residual (hover).
     #[serde(default)]
     pub over_water: bool,
@@ -898,6 +941,9 @@ pub struct Object {
     /// C++ group move speed factor residual (1.0 = full).
     #[serde(default = "default_one_f32")]
     pub group_speed_factor: f32,
+    /// C++ `AIUpdate::m_desiredSpeed`. `999999` is `FAST_AS_POSSIBLE`.
+    #[serde(default = "default_fast_as_possible")]
+    pub desired_speed: f32,
     /// C++ AIUpdate m_isAttackPath residual.
     #[serde(default)]
     pub is_attack_path: bool,
@@ -909,6 +955,10 @@ pub struct Object {
     /// C++ m_isSafePath residual.
     #[serde(default)]
     pub is_safe_path: bool,
+    /// C++ `m_isFinalGoal`. Ctor false. `requestPath` writes it;
+    /// `requestApproachPath` forces true; `requestSafePath` forces false.
+    #[serde(default)]
+    pub is_final_goal: bool,
     /// C++ m_requestedVictimID residual.
     #[serde(default)]
     pub requested_victim_id: Option<ObjectId>,
@@ -919,6 +969,18 @@ pub struct Object {
     /// C++ m_requestedDestination residual.
     #[serde(default)]
     pub requested_destination: Option<glam::Vec3>,
+    /// C++ `AIInternalMoveToState::m_pathGoalPosition`. Goal used for the last path.
+    #[serde(default)]
+    pub path_goal_position: Option<glam::Vec3>,
+    /// C++ `AIInternalMoveToState::m_adjustDestinations`. Defaults true.
+    #[serde(default = "default_adjust_destinations")]
+    pub adjust_destinations: bool,
+    /// Parent `requested_destination` while a 20s AI `setTemporaryState` move
+    /// owns the live goal.
+    #[serde(default)]
+    pub temporary_move_saved_dest: Option<glam::Vec3>,
+    #[serde(default)]
+    pub temporary_move_saved_path_goal: Option<glam::Vec3>,
     /// Move order kept while the unit cannot path (stun, deploy, EMP).
     /// Not `target_position`: that empty-path click is walked as soon as
     /// the unit can move. Reissued through `assign_unit_path`.
@@ -957,6 +1019,12 @@ pub struct Object {
     /// C++ temporary move-to frames remaining (AI_MOVE_TO temporary state).
     #[serde(default)]
     pub temporary_move_frames: u32,
+    /// Set when a temporary move times out on the object. The logic tick snaps.
+    #[serde(default)]
+    pub overlay_arrival_snap: bool,
+    /// True when the template's AI behavior is WorkerAIUpdate, not DozerAIUpdate.
+    #[serde(default)]
+    pub worker_ai_update: bool,
     /// C++ BodyDamageType residual (drives DAMAGED/REALLYDAMAGED/RUBBLE bits).
     #[serde(default)]
     pub body_damage_state: crate::game_logic::host_enum_table_residual::HostBodyDamageType,
@@ -2542,6 +2610,10 @@ pub struct Object {
     /// CommandButtonHuntUpdate quits unless this is CMD_FROM_AI.
     #[serde(default = "crate::game_logic::host_command_button_hunt::default_last_command_source")]
     pub last_command_source: u32,
+    /// C++ `AIAttackMoveToState::m_commandSrc`. Saved on engage, restored
+    /// when the nested attack goes idle.
+    #[serde(default)]
+    pub attack_move_command_src: Option<u32>,
 
 
     /// Host residual: Overlord / Helix portable GattlingCannon addon installed
@@ -2708,6 +2780,12 @@ pub struct Object {
     /// C++ AIUpdateInterface::m_nextMoodCheckTime residual.
     #[serde(default)]
     pub next_mood_check_time: u32,
+    /// C++ `m_randomlyOffsetMoodCheck`. The next AI mood check jitters once.
+    #[serde(default)]
+    pub randomly_offset_mood_check: bool,
+    /// Set on the transition into Idle. The idle tick applies `resetNextMoodCheckTime`.
+    #[serde(default)]
+    pub idle_mood_reset_pending: bool,
     /// C++ m_moodAttackCheckRate residual (logic frames between mood checks).
     #[serde(default = "default_mood_attack_check_rate")]
     pub mood_attack_check_rate: u32,
@@ -3021,9 +3099,6 @@ fn default_true() -> bool {
     true
 }
 
-fn default_max_f32() -> f32 {
-    f32::MAX
-}
 
 fn default_physics_mass() -> f32 {
     1.0
@@ -3097,7 +3172,9 @@ mod attack;
 mod barrels;
 mod bonuses;
 mod construct;
+pub(crate) use construct::template_has_worker_ai_update;
 mod damage;
+pub(crate) use damage::record_neutral_vehicle_sniped;
 mod death;
 #[cfg(test)]
 mod entity_inventory_audit;

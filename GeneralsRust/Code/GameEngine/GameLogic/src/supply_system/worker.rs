@@ -413,6 +413,49 @@ impl WorkerAIUpdate {
         )
     }
 
+    fn bridge_scaffold_blocks_heal(tower_id: ObjectID) -> bool {
+        let Some(tower_obj) = TheGameLogic::find_object_by_id(tower_id) else {
+            return false;
+        };
+        let bridge_id = {
+            let Ok(tower_guard) = tower_obj.read() else {
+                return false;
+            };
+            let mut id = INVALID_ID;
+            for behavior in tower_guard.get_behavior_modules() {
+                let Ok(mut behavior) = behavior.lock() else {
+                    continue;
+                };
+                if let Some(tower) = behavior.get_bridge_tower_behavior_interface() {
+                    id = tower.get_bridge_id();
+                    break;
+                }
+            }
+            id
+        };
+        if bridge_id == INVALID_ID {
+            return false;
+        }
+        let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
+            return false;
+        };
+        let Ok(bridge_guard) = bridge_obj.read() else {
+            return false;
+        };
+        let behaviors = bridge_guard.get_behavior_modules();
+        drop(bridge_guard);
+        for behavior in behaviors {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            if let Some(bridge) = behavior.get_bridge_behavior_interface() {
+                bridge.create_scaffolding();
+                return bridge.is_scaffold_in_motion();
+            }
+        }
+        false
+    }
+
     fn remove_bridge_scaffolding(bridge_tower_id: ObjectID) {
         let Some(tower_obj) = TheGameLogic::find_object_by_id(bridge_tower_id) else {
             return;
@@ -442,7 +485,9 @@ impl WorkerAIUpdate {
         let Ok(bridge_guard) = bridge_obj.read() else {
             return;
         };
-        for behavior in bridge_guard.get_behavior_modules() {
+        let behaviors = bridge_guard.get_behavior_modules();
+        drop(bridge_guard);
+        for behavior in behaviors {
             let Ok(mut behavior) = behavior.lock() else {
                 continue;
             };
@@ -452,8 +497,7 @@ impl WorkerAIUpdate {
             if let Err(err) = bridge.try_remove_scaffolding() {
                 log::debug!(
                     "WorkerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
-                    bridge_id,
-                    err
+                    bridge_id, err
                 );
             }
             break;
@@ -798,6 +842,25 @@ impl WorkerAIUpdate {
                         return;
                     }
                     drop(target_guard);
+                    let already_full = target
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_body_module())
+                        .map(|body| body.get_health() == body.get_max_health())
+                        .unwrap_or(false);
+                    if already_full {
+                        let message = crate::helpers::TheGameText::fetch("DOZER:RepairComplete");
+                        crate::helpers::TheInGameUI::display_message(&message);
+                        if target_is_bridge_tower {
+                            Self::remove_bridge_scaffolding(task.target_id);
+                        }
+                        self.dozer_task = None;
+                        self.clear_task(WorkerDozerTaskSlot::Repair);
+                        return;
+                    }
+                    let can_heal = !target_is_bridge_tower
+                        || !Self::bridge_scaffold_blocks_heal(task.target_id);
+                    if can_heal {
                     let health = {
                         let max_health = if let Ok(tg) = target.read() {
                             tg.get_body_module()
@@ -809,9 +872,9 @@ impl WorkerAIUpdate {
                         max_health * repair_rate * SECONDS_PER_LOGICFRAME_REAL
                     };
                     let healed = if let Ok(mut tw) = target.write() {
-                        match tw.attempt_healing_from_sole_benefactor(
+                        match tw.attempt_healing_from_sole_benefactor_id(
                             health,
-                            Some(&*owner_guard),
+                            self.object_id,
                             2,
                         ) {
                             Ok(ok) => ok,
@@ -825,18 +888,6 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let full = target
-                        .read()
-                        .ok()
-                        .and_then(|g| g.get_body_module())
-                        .map(|b| b.get_max_health() > 0.0 && b.get_health() >= b.get_max_health() - 0.01)
-                        .unwrap_or(false);
-                    if full {
-                        if target_is_bridge_tower {
-                            Self::remove_bridge_scaffolding(task.target_id);
-                        }
-                        self.dozer_task = None;
-                        self.clear_task(WorkerDozerTaskSlot::Repair);
                     }
                 }
                 WorkerDozerTaskType::ResumeConstruction => {

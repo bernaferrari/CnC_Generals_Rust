@@ -24,7 +24,9 @@ impl Object {
         {
             return;
         }
-        if self.move_away_from == Some(threat_id) && self.move_away_frames > 0 {
+        if self.move_away_frames > 0
+            && (self.move_away_from == Some(threat_id) || self.move_away_from_2 == Some(threat_id))
+        {
             if self.is_blocked {
                 self.ignore_collisions_until_frame = self.ignore_collisions_until_frame.max(60);
                 self.ignore_collisions_with = Some(threat_id);
@@ -45,50 +47,100 @@ impl Object {
         }
         let step = PATHFIND_CELL_SIZE_F_RESIDUAL * 2.0;
         let dest = glam::Vec3::new(us.x + dx * step, us.y, us.z + dz * step);
+        self.move_away_from_2 = self.move_away_from;
         self.move_away_from = Some(threat_id);
         self.move_away_destination = Some(dest);
         self.move_away_frames = 10 * 30;
     }
 
     /// C++ privateMoveAwayFromUnit after getMoveAwayFromPath succeeds.
-    pub fn apply_move_away_path(&mut self, threat_id: ObjectId, path: &[glam::Vec3]) {
+    pub fn apply_move_away_path(&mut self, threat_id: ObjectId, path: &[glam::Vec3]) -> bool {
         if self.status.destroyed || !self.is_alive() || !self.can_move() {
-            return;
+            return false;
         }
         if self.is_kind_of(crate::game_logic::KindOf::Immobile)
             || self.is_kind_of(crate::game_logic::KindOf::Structure)
         {
-            return;
+            return false;
         }
-        if self.move_away_from == Some(threat_id) && self.move_away_frames > 0 {
+        if self.move_away_frames > 0
+            && (self.move_away_from == Some(threat_id) || self.move_away_from_2 == Some(threat_id))
+        {
             if self.is_blocked {
                 self.ignore_collisions_until_frame = self.ignore_collisions_until_frame.max(60);
                 self.ignore_collisions_with = Some(threat_id);
             }
-            return;
+            return false;
         }
         if path.len() < 2 {
-            return;
+            return false;
         }
+        // C++ AIMoveOutOfTheWayState::onEnter forces adjust true only when
+        // getPath() is already non-null (AIStates.cpp:2127-2133).
+        self.adjust_destinations = true;
         self.movement.path = path.to_vec();
         self.movement.current_path_index = 1;
         self.movement.target_position = path.last().copied();
+        self.is_attack_path = false;
+        self.is_exact_path = false;
+        self.refresh_follow_path_extra_distance();
         self.start_move();
         self.set_status_moving(true);
+        self.num_frames_blocked = 0;
+        self.is_blocked_and_stuck = false;
+        self.try_one_more_repath = true;
+        self.locomotor_goal_type = super::LocoGoalType::PositionOnPath;
+        if self.ultra_accurate {
+            self.adjust_destinations = false;
+        }
+        self.move_away_from_2 = self.move_away_from;
         self.move_away_from = Some(threat_id);
         self.move_away_destination = path.last().copied();
         self.move_away_frames = 10 * 30;
         self.record_host_movement();
+        true
     }
 
     /// Tick move-away temporary state residual.
     pub fn tick_move_away_state(&mut self) {
+        if !self.is_alive() && self.move_away_frames > 0 {
+            self.move_away_frames = 1;
+        }
         if self.move_away_frames > 0 {
             self.move_away_frames -= 1;
             if self.move_away_frames == 0 {
+                let still_on_yield = self.move_away_destination.is_some()
+                    && (self.movement.target_position == self.move_away_destination
+                        || self.movement.path.last().copied() == self.move_away_destination);
+                if self.ultra_accurate {
+                    if let Some(goal) = self.move_away_destination {
+                        if crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(
+                            self,
+                        ) {
+                            let us = self.get_position();
+                            let dx = goal.x - us.x;
+                            let dz = goal.z - us.z;
+                            let cell = PATHFIND_CELL_SIZE_F_RESIDUAL;
+                            if dx * dx + dz * dz < cell * cell {
+                                self.final_position = goal;
+                                self.do_final_position = true;
+                            }
+                        }
+                    }
+                }
                 self.move_away_from = None;
+                self.move_away_from_2 = None;
                 self.move_away_destination = None;
-                // C++ AIMoveAwayFromRepulsorsState::onExit clears PANICKING.
+                self.can_path_through_units = false;
+                if still_on_yield {
+                    self.movement.path.clear();
+                    self.movement.target_position = None;
+                    self.movement.current_path_index = 0;
+                    self.waiting_for_path = false;
+                    self.is_attack_path = false;
+                    self.locomotor_goal_type = super::LocoGoalType::None;
+                    self.set_status_moving(false);
+                }
                 if self.is_panicking {
                     crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
                         self,
@@ -131,8 +183,9 @@ impl Object {
     /// Collision pass reset. Frame counters increment in doLocomotor (update_movement).
     pub fn clear_blocked_frame_state(&mut self) {
         self.is_blocked = false;
-        self.cur_max_blocked_speed = f32::MAX;
+        self.cur_max_blocked_speed = 999_999.0;
         self.request_other_move_away = None;
+        self.request_self_yield_from = None;
     }
     pub fn set_ignore_collisions_with(&mut self, id: Option<ObjectId>) {
         self.ignore_collisions_with = id;
@@ -391,6 +444,7 @@ impl Object {
         if desired_velocity < 0.001 {
             self.movement.velocity.x = 0.0;
             self.movement.velocity.z = 0.0;
+            self.invalidate_velocity_magnitude();
             return;
         }
         let vx = self.movement.velocity.x;
@@ -402,20 +456,23 @@ impl Object {
         let s = desired_velocity / cur;
         self.movement.velocity.x = vx * s;
         self.movement.velocity.z = vz * s;
+        self.invalidate_velocity_magnitude();
     }
 
     /// C++ PhysicsBehavior::scrubVelocityZ residual (host Y-up vertical).
     pub fn scrub_velocity_vertical(&mut self, desired_velocity: f32) {
         if desired_velocity.abs() < 0.001 {
             self.movement.velocity.y = 0.0;
-            return;
+        } else {
+            let vy = self.movement.velocity.y;
+            if (desired_velocity < 0.0 && vy < desired_velocity)
+                || (desired_velocity > 0.0 && vy > desired_velocity)
+            {
+                self.movement.velocity.y = desired_velocity;
+            }
         }
-        let vy = self.movement.velocity.y;
-        if (desired_velocity < 0.0 && vy < desired_velocity)
-            || (desired_velocity > 0.0 && vy > desired_velocity)
-        {
-            self.movement.velocity.y = desired_velocity;
-        }
+        // C++ PhysicsUpdate.cpp:1008 always invalidates, even with no write.
+        self.invalidate_velocity_magnitude();
     }
 
     /// C++ parachute vs building jam residual: push out + scrub lateral.
@@ -453,10 +510,21 @@ impl Object {
         mass: f32,
     ) -> glam::Vec3 {
         use crate::game_logic::host_partition_collision_physics_residual::structure_immobile_bounce_factor;
+        let g = &self.thing.template.geometry_info;
+        let lift = match g.geom_type {
+            crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
+            crate::game_logic::thing::HostGeometryType::Box
+            | crate::game_logic::thing::HostGeometryType::Cylinder => g.height * 0.5,
+        };
         let us = self.get_position();
+        let us_y = us.y + lift;
         let dx = other_center.x - us.x;
-        let dy = other_center.y - us.y;
+        let mut dy = other_center.y - us_y;
         let dz = other_center.z - us.z;
+        // C++ grounded branch sets delta.z = 0 (PhysicsUpdate.cpp:1292).
+        if !self.is_above_terrain() {
+            dy = 0.0;
+        }
         let mut dist = (dx * dx + dy * dy + dz * dz).sqrt();
         if dist < 1.0 {
             dist = 1.0;
@@ -465,14 +533,18 @@ impl Object {
         let stiffness = leftover_structure_stiffness();
         let factor = structure_immobile_bounce_factor(mag, mass, stiffness);
         let dir = glam::Vec3::new(dx / dist, dy / dist, dz / dist);
-        // C++: force = factor * (delta/dist) with factor negative → away from other.
         let force = dir * factor;
-        // C++ PhysicsUpdate.cpp:1377-1384 — nuke vel first so the graze
-        // becomes a rebound instead of slide-through (hq-yunv0).
+        let mut applied = force;
+        if self.is_motive() {
+            let facing = self.unit_direction_vector_2d();
+            let lateral_dot = applied.x * (-facing.y) + applied.z * facing.x;
+            applied.x = lateral_dot * (-facing.y);
+            applied.z = lateral_dot * facing.x;
+        }
         self.movement.velocity = glam::Vec3::ZERO;
+        let mass_inv = if mass.abs() > 1.0e-6 { 1.0 / mass } else { 0.0 };
+        self.movement.velocity += applied * mass_inv;
         self.invalidate_velocity_magnitude();
-        // mass≈1 → velocity += force (host residual, no separate accel integrate).
-        self.movement.velocity += force;
         self.record_host_movement();
         force
     }
@@ -489,8 +561,17 @@ impl Object {
         let other_structure = other.is_kind_of(KindOf::Structure);
         // C++ otherImmobile = isKindOf(KINDOF_IMMOBILE); crash is inside that gate.
         let other_immobile = other.is_kind_of(KindOf::Immobile);
-        // C++ delta.z < 0 → host Y-up falling.
-        let falling = self.movement.velocity.y < 0.0;
+        let center_y = |obj: &Object| {
+            let g = &obj.thing.template.geometry_info;
+            let lift = match g.geom_type {
+                crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
+                crate::game_logic::thing::HostGeometryType::Box
+                | crate::game_logic::thing::HostGeometryType::Cylinder => g.height * 0.5,
+            };
+            obj.get_position().y + lift
+        };
+        let above = self.is_above_terrain();
+        let falling = above && (center_y(other) - center_y(self)) < 0.0;
         vehicle_crash_into_immobile_outcome(
             is_vehicle,
             other_structure,
@@ -619,9 +700,13 @@ impl Object {
         if self.status.destroyed {
             return false;
         }
-        let max_h = self.health.maximum.max(self.max_health).max(1.0);
+        // C++ m_kill replaces the amount with current health after the
+        // indestructible and effectively-dead returns. It does not skip them.
+        // onDie requires m_prevHealth > 0 after internalChangeHealth stores
+        // the pre-subtract value, so a kill at 0 HP does not die again.
+        let amount = self.health.current.max(0.0);
         self.take_damage_from_typed_death(
-            max_h,
+            amount,
             None,
             crate::game_logic::combat::DamageType::Unresistable,
             crate::game_logic::host_usa_pilot::HostDeathType::Normal,
@@ -835,12 +920,7 @@ impl Object {
             if self.stick_to_ground && !self.allow_to_fall {
                 new_pos.y = ground_y;
             }
-            // C++ getIsDownhillOnly: refuse uphill motive (Locomotor.cpp:1596-1598).
-            if self.downhill_only && new_pos.y > old_pos.y + 0.05 {
-                new_pos.y = old_pos.y;
-                self.movement.velocity.y = 0.0;
-                self.invalidate_velocity_magnitude();
-            }
+            // Uphill refusal is moveTowardsPositionLegs, not PhysicsBehavior.
             // Climber slope: while FLAG_CLIMBING, scale leftover XY when slope>1
             // (Locomotor.cpp:1734-1739 desiredSpeed /= groundSlope*4).
             if self.is_climbing && matches!(self.loco_appearance, LocomotorAppearance::Climber) {
@@ -887,8 +967,13 @@ impl Object {
         }
 
         let airborne_end = new_pos.y > ground_y + 0.05;
-        // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd && !IMMUNE
-        if self.was_airborne_last_frame && !airborne_end && !self.immune_to_falling_damage {
+        // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd && !IMMUNE.
+        // Skip when the march stamp already recorded this landing.
+        if self.was_airborne_last_frame
+            && !airborne_end
+            && !self.immune_to_falling_damage
+            && !self.landing_splat_done
+        {
             self.record_bounce_land(old_y);
             self.pending_ground_collide = true;
             let impact_vy = v.y;
@@ -908,7 +993,11 @@ impl Object {
     /// C++ landing peel that still runs when HELD skips Euler.
     fn finish_physics_landing_bookkeeping(&mut self, old_y: f32, ground_y: f32, impact_vy: f32) {
         let airborne_end = self.get_position().y > ground_y + 0.05;
-        if self.was_airborne_last_frame && !airborne_end && !self.immune_to_falling_damage {
+        if self.was_airborne_last_frame
+            && !airborne_end
+            && !self.immune_to_falling_damage
+            && !self.landing_splat_done
+        {
             self.record_bounce_land(old_y);
             self.pending_ground_collide = true;
             let _ = self.apply_shock_fall_damage(impact_vy);
@@ -1135,10 +1224,9 @@ impl Object {
                     self.shock_grounded_once = true;
                 }
                 // C++ WAS_AIRBORNE_LAST_FRAME && !airborneAtEnd → bounce sound + fall damage.
-                if was_air {
-                    if self.bounce_audio_pending == 0 {
-                        self.record_bounce_land(old_y);
-                    }
+                // One owner per frame: the march stamp may have recorded it already.
+                if was_air && !self.landing_splat_done {
+                    self.record_bounce_land(old_y);
                     self.pending_ground_collide = true;
                     let _ = self.apply_shock_fall_damage(impact_vy);
                 }
@@ -1424,9 +1512,6 @@ impl Object {
         target: glam::Vec3,
         dt: f32,
     ) -> glam::Vec3 {
-        if !self.is_braking {
-            return current;
-        }
         let projectile =
             self.is_kind_of(KindOf::Projectile) || self.object_type == ObjectType::Projectile;
         let dx = target.x - current.x;
@@ -1444,8 +1529,16 @@ impl Object {
                 glam::Vec3::new(target.x, current.y, target.z)
             };
         }
+        // C++ getForwardSpeed2D is distance per logic frame. Rust velocity is
+        // per second, so one cheat step is speed * dt. MIN_VEL stays one cell
+        // per logic frame (PATHFIND_CELL_SIZE / 30).
         let min_vel = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL / 30.0;
-        let mut vel = self.movement.velocity.length() * dt.max(1.0e-6);
+        let per_second = if projectile {
+            self.movement.velocity.length()
+        } else {
+            self.forward_speed_2d().abs()
+        };
+        let mut vel = per_second * dt.max(0.0);
         if vel < min_vel {
             vel = min_vel;
         }

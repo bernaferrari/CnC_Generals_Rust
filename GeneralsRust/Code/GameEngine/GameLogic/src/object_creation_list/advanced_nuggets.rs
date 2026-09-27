@@ -244,6 +244,17 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
     fn as_any(&self) -> &dyn Any {
         self
     }
+    fn create_without_secondary(
+        &self,
+        _ctx: &CreationContext<'_>,
+        _primary_obj: Option<&Object>,
+        _primary: &Coord3D,
+        _angle: Real,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        None
+    }
+
 
     fn create_with_angle(
         &self,
@@ -407,29 +418,29 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
 
                     if let (Some(physics), Some(ai), Some(body)) = (physics, ai, body) {
                         if let Ok(body_guard) = body.lock() {
-                            if let Some(locomotor) = ai.get_cur_locomotor() {
-                                if let Ok(locomotor_guard) = locomotor.lock() {
-                                    let max_speed = locomotor_guard.get_max_speed_for_condition(
-                                        match body_guard.get_damage_state() {
-                                            crate::common::BodyDamageType::Pristine => {
-                                                crate::locomotor::BodyDamageType::Pristine
-                                            }
-                                            crate::common::BodyDamageType::Damaged => {
-                                                crate::locomotor::BodyDamageType::Damaged
-                                            }
-                                            crate::common::BodyDamageType::ReallyDamaged => {
-                                                crate::locomotor::BodyDamageType::ReallyDamaged
-                                            }
-                                            crate::common::BodyDamageType::Rubble => {
-                                                crate::locomotor::BodyDamageType::Rubble
-                                            }
-                                        },
-                                    );
-                                    let mut starting_force = Vec3D::new(dir_x, dir_y, 0.0);
-                                    let factor = max_speed * physics.get_mass();
-                                    starting_force *= factor;
-                                    physics.apply_motive_force(&starting_force);
+                            let damage = match body_guard.get_damage_state() {
+                                crate::common::BodyDamageType::Pristine => {
+                                    crate::locomotor::BodyDamageType::Pristine
                                 }
+                                crate::common::BodyDamageType::Damaged => {
+                                    crate::locomotor::BodyDamageType::Damaged
+                                }
+                                crate::common::BodyDamageType::ReallyDamaged => {
+                                    crate::locomotor::BodyDamageType::ReallyDamaged
+                                }
+                                crate::common::BodyDamageType::Rubble => {
+                                    crate::locomotor::BodyDamageType::Rubble
+                                }
+                            };
+                            let mut max_speed = None;
+                            ai.with_cur_locomotor(&mut |loco| {
+                                max_speed = Some(loco.get_max_speed_for_condition(damage));
+                            });
+                            if let Some(max_speed) = max_speed {
+                                let mut starting_force = Vec3D::new(dir_x, dir_y, 0.0);
+                                let factor = max_speed * physics.get_mass();
+                                starting_force *= factor;
+                                physics.apply_motive_force(&starting_force);
                             }
                         }
                     }
@@ -623,6 +634,17 @@ impl ObjectCreationNugget for FireWeaponNugget {
 
         None // FireWeapon doesn't create objects, returns None
     }
+    fn create_without_secondary(
+        &self,
+        _ctx: &CreationContext<'_>,
+        _primary_obj: Option<&Object>,
+        _primary: &Coord3D,
+        _angle: Real,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        None
+    }
+
 }
 
 /// AttackNugget - makes object attack a position
@@ -699,6 +721,17 @@ impl ObjectCreationNugget for AttackNugget {
 
         None // Attack doesn't create objects, returns None
     }
+    fn create_without_secondary(
+        &self,
+        _ctx: &CreationContext<'_>,
+        _primary_obj: Option<&Object>,
+        _primary: &Coord3D,
+        _angle: Real,
+        _lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        None
+    }
+
 }
 
 /// ApplyRandomForceNugget - applies random forces to an object

@@ -219,6 +219,25 @@ impl Drawable {
         self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
     }
 
+    /// C++ `Drawable::getBarrelCount`. Walks draw modules; at least 1.
+    pub fn get_barrel_count(&self, slot: crate::weapon::WeaponSlotType) -> i32 {
+        let index = match slot {
+            crate::weapon::WeaponSlotType::Primary => 0,
+            crate::weapon::WeaponSlotType::Secondary => 1,
+            crate::weapon::WeaponSlotType::Tertiary => 2,
+        };
+        let mut count = 0;
+        for module in self.draw_modules() {
+            if let Some(n) = module.with_object_draw_interface(|draw| draw.get_barrel_count(index))
+            {
+                if n > count {
+                    count = n;
+                }
+            }
+        }
+        count.max(1)
+    }
+
     /// Iterate every registered DRAW module, matching C++ `getDrawModules()` walks.
     pub fn for_each_draw_module_mut<F>(&self, mut func: F)
     where
@@ -322,6 +341,13 @@ impl Drawable {
         self.color_tint_envelope = other.color_tint_envelope.clone();
         self.color_tint = other.color_tint;
         self.tint_status = other.tint_status;
+    }
+
+    /// C++ overlord aircraft copies only when `getColorTintEnvelope()` is non-null.
+    pub fn copy_color_tint_envelope_if_present(&mut self, other: &Drawable) {
+        if other.color_tint_envelope.is_some() {
+            self.copy_color_tint_envelope_from(other);
+        }
     }
 
     /// C++ `Drawable::getShouldAnimate(considerPower)`.

@@ -6,7 +6,7 @@ impl W3DModelDraw {
         }
         let extra_public_bones = self.data.extra_public_bones.clone();
         let scale = self
-            .with_owner_drawable(|drawable| drawable.get_world_scale().x)
+            .with_owner_drawable(|drawable| drawable.get_instance_scale())
             .filter(|s| s.is_finite() && *s > 0.0)
             .unwrap_or(1.0);
         self.data.condition_states[state_index]
@@ -65,8 +65,9 @@ impl W3DModelDraw {
             })
             .unwrap_or(true);
         self.stop_client_particle_systems();
-        // C++ hideAllMuzzleFlashes(newState) before swap so leftover flashes die.
-        self.hide_all_muzzle_flashes();
+        // C++ calls `hideAllMuzzleFlashes(newState)` once, after the transition
+        // decision and before the render-object swap. The second call below
+        // runs once `cur_state` is the state that will actually show.
         // C++ does NOT replace m_subObjectVec with the state's HideShowVec.
         // Apply authored hide/show via dirty compose; runtime show_sub_object
         // overrides stay in sub_object_vec and win in updateSubObjects.
@@ -106,7 +107,9 @@ impl W3DModelDraw {
 
         if num_anims == 1 {
             self.which_anim_in_cur_state = 0;
-        } else if prev_state == Some(cur_state_ref) {
+        } else if prev_state == Some(cur_state_ref)
+            && (0..num_anims as i32).contains(&self.which_anim_in_cur_state)
+        {
             let anim_to_avoid = self.which_anim_in_cur_state;
             while self.which_anim_in_cur_state == anim_to_avoid {
                 self.which_anim_in_cur_state = game_client_random_value(0, num_anims as i32 - 1);
@@ -155,8 +158,9 @@ impl W3DModelDraw {
                 .unwrap_or(false)
             && prev_anim_fraction >= 0.0
         {
-            let target = prev_anim_fraction * (total_frames - 1) as Real;
-            start_frame = target.round() as i32;
+            // C++ REAL_TO_INT truncates toward zero after `fraction * numFrames - 1`.
+            let target = prev_anim_fraction * total_frames as Real - 1.0;
+            start_frame = target.trunc() as i32;
         }
 
         self.current_anim_num_frames = total_frames.max(1);
@@ -187,6 +191,9 @@ impl W3DModelDraw {
         let Some(state) = self.current_state() else {
             return;
         };
+        if !state.turrets_are_valid() {
+            return;
+        }
 
         // Process each turret slot (up to MAX_TURRETS)
         for (index, turret) in state.turrets.iter().enumerate() {
@@ -243,7 +250,7 @@ impl W3DModelDraw {
 
                 // Create rotation matrix around Y axis
                 // Reference: W3DModelDraw.cpp:2427-2432
-                let pitch_transform = Matrix3D::from_rotation_y(turret_pitch);
+                let pitch_transform = Matrix3D::from_rotation_y(-turret_pitch);
 
                 // When render object system is implemented:
                 // Reference: C++ W3DModelDraw.cpp:2427-2432
@@ -255,9 +262,16 @@ impl W3DModelDraw {
     }
     fn handle_client_recoil(&mut self) {
         const TINY_RECOIL: Real = 0.01;
-        let Some(state) = self.current_state().cloned() else {
+        let Some(state) = self.current_state() else {
+            self.muzzle_flash_hides.clear();
             return;
         };
+        if !state.barrels_are_valid() {
+            self.muzzle_flash_hides.clear();
+            return;
+        }
+        let state = state.clone();
+        self.muzzle_flash_hides.clear();
 
         for wslot in 0..WEAPONSLOT_COUNT {
             let barrels = &state.weapon_barrels[wslot];
@@ -282,8 +296,9 @@ impl W3DModelDraw {
                 let Some(recoils) = self.weapon_recoil_info.get_mut(wslot) else {
                     continue;
                 };
+                // C++ only integrates shift when the recoil bone exists. A flash-only
+                // barrel stays RECOIL_START, so the flash remains visible.
                 if barrels[i].recoil_bone == 0 {
-                    recoils[i].state = RecoilState::Idle;
                     continue;
                 }
 
@@ -379,7 +394,7 @@ impl W3DModelDraw {
                 let t1 = cur_state.animations[0].natural_duration_ms.max(1.0);
                 let t2 = next_state.animations[0].natural_duration_ms.max(1.0);
                 let numerator = num_frames as Real * t1;
-                let trans_time = (numerator / (t1 + t2)).floor().max(1.0) as u32;
+                let trans_time = (numerator / (t1 + t2)).floor() as u32;
                 self.set_animation_loop_duration(trans_time);
                 self.next_state_anim_loop_duration = num_frames.saturating_sub(trans_time);
                 return;
@@ -478,7 +493,7 @@ impl W3DModelDraw {
             }
         });
 
-        let anim_mode = self
+        let mut anim_mode = self
             .current_state()
             .map(|s| match s.anim_mode {
                 AnimMode::Manual => 0,
@@ -489,8 +504,19 @@ impl W3DModelDraw {
                 AnimMode::OnceBackwards => 5,
             })
             .unwrap_or(0);
+        // C++ `setPauseAnimation` switches the HLod to `ANIM_MODE_MANUAL`
+        // and restores the previous mode on resume.
+        if self.pause_animation {
+            self.animation_mode = anim_mode;
+            anim_mode = 0;
+        }
 
-        let anim_time = self.get_current_anim_fraction().clamp(0.0, 1.0);
+        let frames = self.current_anim_num_frames.max(1);
+        let anim_time = if frames <= 1 {
+            0.0
+        } else {
+            (self.current_anim_frame.clamp(0, frames - 1) as Real) / ((frames - 1) as Real)
+        };
 
         // Phase 3: Collect bone overrides (turret + recoil).
         //
@@ -546,24 +572,14 @@ impl W3DModelDraw {
             })
             .unwrap_or_default();
 
-        // Phase 5: Apply instance scaling to the world transform.
-        //
-        // C++ parity: doDrawModule() applies getDrawable()->getInstanceScale()
-        // before setting the render object transform.
-        let world_transform = self.apply_instance_scale(transform_mtx);
-
-        // Keep the two render-object properties separate from the presentation
-        // Drawable state.  A missing owner Drawable is not equivalent to the
-        // C++ default scale: the ghost adapter must reject that source rather
-        // than manufacture a value.  `hex_color` is the live W3DModelDraw
-        // field (the same value passed to Create_Render_Obj in C++), so the
-        // adapter can preserve its bit pattern without deriving a tint.
-        let render_object_scale = self
-            .with_owner_drawable(|drawable| {
-                let scale = drawable.get_world_scale().x;
-                scale.is_finite().then_some(scale)
-            })
-            .flatten();
+        // Instance scale is applied once in `do_draw_module`, on the basis
+        // only. `Drawable::draw` does not scale, and a second multiply here
+        // would scale the translation as well.
+        let world_transform = *transform_mtx;
+        let render_object_scale = self.with_owner_drawable(|drawable| {
+            let scale = drawable.get_instance_scale();
+            (scale != 1.0).then_some(scale)
+        }).flatten();
         let render_object_color = (!model_name.is_empty()).then_some(self.hex_color as u32);
 
         // Phase 6: Build the model draw state with all collected data.
@@ -605,23 +621,6 @@ impl W3DModelDraw {
         Vec::new()
     }
 
-    /// Apply instance scaling to the world transform.
-    ///
-    /// C++ parity: doDrawModule() checks getDrawable()->getInstanceScale()
-    /// and scales the transform matrix if != 1.0. Also calls
-    /// m_renderObject->Set_ObjectScale() for proper LOD calculations.
-    fn apply_instance_scale(&self, transform_mtx: &Matrix3D) -> Matrix3D {
-        let instance_scale = self
-            .with_owner_drawable(|drawable| drawable.get_world_scale().x)
-            .unwrap_or(1.0);
-
-        if (instance_scale - 1.0).abs() < f32::EPSILON {
-            *transform_mtx
-        } else {
-            let scale_mtx = Matrix3D::from_scale(Coord3D::splat(instance_scale));
-            *transform_mtx * scale_mtx
-        }
-    }
 
     fn collect_bone_overrides(&self) -> Vec<BoneOverrideState> {
         let mut overrides = Vec::new();
@@ -629,6 +628,7 @@ impl W3DModelDraw {
             return overrides;
         };
 
+        if state.turrets_are_valid() {
         for (index, turret) in state.turrets.iter().enumerate() {
             let (turret_angle, turret_pitch) = self.get_turret_angles(index);
 
@@ -648,7 +648,9 @@ impl W3DModelDraw {
                 });
             }
         }
+        }
 
+        if state.barrels_are_valid() {
         for wslot in 0..WEAPONSLOT_COUNT {
             let barrels = &state.weapon_barrels[wslot];
             let Some(recoils) = self.weapon_recoil_info.get(wslot) else {
@@ -657,13 +659,14 @@ impl W3DModelDraw {
             let count = barrels.len().min(recoils.len());
             for i in 0..count {
                 let shift = recoils[i].shift;
-                if barrels[i].recoil_bone != 0 && shift.abs() > 0.001 {
+                if barrels[i].recoil_bone != 0 {
                     overrides.push(BoneOverrideState {
                         bone_index: barrels[i].recoil_bone,
                         transform: Matrix3D::from_translation(glam::Vec3::new(-shift, 0.0, 0.0)),
                     });
                 }
             }
+        }
         }
 
         overrides

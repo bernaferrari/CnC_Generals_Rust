@@ -115,7 +115,7 @@ fn test_weapon_reload_sets_ammo_before_reload_delay() {
 
     weapon.reload_ammo(1).unwrap();
 
-    assert_eq!(weapon.status, WeaponStatus::ReloadingClip);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip);
     assert_eq!(weapon.ammo_in_clip, EFFECTIVELY_UNLIMITED_CLIP_AMMO);
     assert_eq!(weapon.get_remaining_ammo(), 0);
 }
@@ -314,7 +314,7 @@ fn test_check_can_fire_no_ammo() {
     let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
 
     // Set weapon to out of ammo
-    weapon.status = WeaponStatus::OutOfAmmo;
+    weapon.store_status(WeaponStatus::OutOfAmmo);
     weapon.ammo_in_clip = 0;
 
     let result = weapon.check_can_fire(1, Some(2), None, 0);
@@ -328,14 +328,14 @@ fn test_weapon_update_cooldown_expired() {
     let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
 
     // Set weapon to between firing shots with cooldown at frame 100
-    weapon.status = WeaponStatus::BetweenFiringShots;
+    weapon.store_status(WeaponStatus::BetweenFiringShots);
     weapon.when_we_can_fire_again = 100;
     weapon.ammo_in_clip = 5;
 
     // Update at frame 100 - cooldown should expire
     weapon.update(0.0, 100).unwrap();
 
-    assert_eq!(weapon.status, WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
 }
 
 #[test]
@@ -347,14 +347,14 @@ fn test_weapon_update_reload_complete() {
     let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
 
     // Set weapon to reloading with cooldown at frame 50
-    weapon.status = WeaponStatus::ReloadingClip;
+    weapon.store_status(WeaponStatus::ReloadingClip);
     weapon.when_we_can_fire_again = 50;
     weapon.ammo_in_clip = 0;
 
     // Update at frame 50 - reload should complete
     weapon.update(0.0, 50).unwrap();
 
-    assert_eq!(weapon.status, WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
     assert_eq!(weapon.ammo_in_clip, 10); // Clip should be refilled
 }
 
@@ -407,7 +407,7 @@ fn test_projectileless_weapon_queues_delayed_damage() {
     template.min_weapon_speed = 0.0;
     template.projectile_name.clear();
 
-    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     let source_pos = Coord3D::new(0.0, 0.0, 0.0);
     let target_pos = Coord3D::new(100.0, 0.0, 0.0);
     let source_id = 42;
@@ -459,7 +459,7 @@ fn test_projectileless_weapon_skips_queue_when_damage_disabled() {
     template.min_weapon_speed = 0.0;
     template.projectile_name.clear();
 
-    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     let source_pos = Coord3D::new(0.0, 0.0, 0.0);
     let target_pos = Coord3D::new(100.0, 0.0, 0.0);
 
@@ -510,11 +510,11 @@ fn test_weapon_status_transitions() {
     let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
 
     // Initial state
-    assert_eq!(weapon.status, WeaponStatus::OutOfAmmo);
+    assert_eq!(weapon.load_status(), WeaponStatus::OutOfAmmo);
 
     // Load ammo
     weapon.load_ammo_now(1).unwrap();
-    assert_eq!(weapon.status, WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
     assert_eq!(weapon.ammo_in_clip, 1);
 }
 
@@ -1617,7 +1617,7 @@ fn cpp_parity_continuous_beam_inflicts_damage_when_requested() {
     // Non-empty projectile_name makes deal_damage_internal return a distinct
     // error so the test can observe that the inflict path actually ran.
     template.projectile_name = "UnusedByLaserMode".to_string();
-    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     assert!(matches!(
         weapon.determine_fire_mode(),
         FireMode::ContinuousBeam { .. }
@@ -1666,7 +1666,7 @@ fn cpp_parity_apply_post_fire_state_cycles_barrels_and_max_shot_count() {
     assert_eq!(weapon.max_shot_count, 2);
     assert_eq!(weapon.current_barrel, 0);
     assert_eq!(weapon.num_shots_for_current_barrel, 1);
-    assert_eq!(weapon.status, WeaponStatus::BetweenFiringShots);
+    assert_eq!(weapon.load_status(), WeaponStatus::BetweenFiringShots);
 
     let emptied = weapon.apply_post_fire_state(1, 0, &bonus);
     assert!(!emptied);
@@ -1684,7 +1684,7 @@ fn cpp_parity_reload_with_bonus_full_clip_guard_and_refill() {
     template.clip_reload_time = 30;
     let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     weapon.ammo_in_clip = 6;
-    weapon.status = WeaponStatus::ReadyToFire;
+    weapon.store_status(WeaponStatus::ReadyToFire);
     weapon.when_we_can_fire_again = 123;
     weapon.when_last_reload_started = 7;
 
@@ -1692,7 +1692,7 @@ fn cpp_parity_reload_with_bonus_full_clip_guard_and_refill() {
         .reload_with_bonus(0, &WeaponBonus::new(), false)
         .unwrap();
     assert_eq!(weapon.ammo_in_clip, 6);
-    assert_eq!(weapon.status, WeaponStatus::ReadyToFire);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
     assert_eq!(weapon.when_we_can_fire_again, 123);
     assert_eq!(weapon.when_last_reload_started, 7);
 
@@ -1701,7 +1701,7 @@ fn cpp_parity_reload_with_bonus_full_clip_guard_and_refill() {
         .reload_with_bonus(0, &WeaponBonus::new(), false)
         .unwrap();
     assert_eq!(weapon.ammo_in_clip, 6);
-    assert_eq!(weapon.status, WeaponStatus::ReloadingClip);
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip);
     assert_eq!(weapon.get_remaining_ammo(), 0);
 }
 
@@ -1723,7 +1723,7 @@ fn cpp_parity_reload_with_bonus_propagates_shared_reload() {
         .reload_with_bonus(0, &WeaponBonus::new(), false)
         .unwrap();
     assert_eq!(firing.ammo_in_clip, 4);
-    assert_eq!(firing.status, WeaponStatus::ReloadingClip);
+    assert_eq!(firing.load_status(), WeaponStatus::ReloadingClip);
     assert_eq!(firing.scatter_targets_unused, vec![0, 1]);
 }
 #[test]
@@ -1765,7 +1765,7 @@ fn cpp_parity_get_status_pre_attack_is_pure_frame_test() {
     // (transferNextShotStatsFrom copies the frame, not the stored flag).
     let template = Arc::new(WeaponTemplate::new("ParityPreAttack".to_string()));
     let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
-    weapon.status = WeaponStatus::ReadyToFire;
+    weapon.store_status(WeaponStatus::ReadyToFire);
     weapon.ammo_in_clip = 4;
     weapon.when_we_can_fire_again = 0;
     weapon.when_pre_attack_finished = 10;
@@ -1881,7 +1881,7 @@ fn deal_damage_internal_dispatches_historic_bonus_weapon() {
     template.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
     template.historic_bonus_weapon_name = bonus.name.clone();
 
-    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     let pos = Coord3D::new(5.0, 5.0, 0.0);
     let bonus_flags = WeaponBonus::default();
 
@@ -1909,7 +1909,7 @@ fn projectile_detonation_dispatches_historic_bonus_weapon() {
     template.historic_bonus_radius = 20.0;
     template.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
 
-    let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+    let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     let pos = Coord3D::new(1.0, 2.0, 0.0);
     let bonus_flags = WeaponBonus::default();
 
@@ -1954,11 +1954,11 @@ fn cpp_parity_empty_no_auto_reload_clip_does_not_report_reloaded() {
     template.reload_type = WeaponReloadType::NoReload;
     let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     weapon.ammo_in_clip = 1;
-    weapon.status = WeaponStatus::ReadyToFire;
+    weapon.store_status(WeaponStatus::ReadyToFire);
     let reloaded = weapon.apply_post_fire_state(1, 0, &WeaponBonus::new());
     assert!(!reloaded);
     assert_eq!(weapon.ammo_in_clip, 0);
-    assert_eq!(weapon.status, WeaponStatus::OutOfAmmo);
+    assert_eq!(weapon.load_status(), WeaponStatus::OutOfAmmo);
     assert_eq!(weapon.when_we_can_fire_again, 0x7fffffff);
 }
 

@@ -135,9 +135,15 @@ pub fn flush_pending_team_script_events() {
     // C++ Team::updateState: TheScriptEngine->runScript(scriptName, this).
     let script_engine = get_script_engine();
     let Ok(mut engine_guard) = script_engine.write() else {
+        if let Ok(mut queue) = pending_team_script_events().lock() {
+            queue.splice(0..0, pending);
+        }
         return;
     };
     let Some(engine) = engine_guard.as_mut() else {
+        if let Ok(mut queue) = pending_team_script_events().lock() {
+            queue.splice(0..0, pending);
+        }
         return;
     };
 

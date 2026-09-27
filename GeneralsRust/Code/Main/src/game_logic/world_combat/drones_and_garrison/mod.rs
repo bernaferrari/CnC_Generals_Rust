@@ -6,6 +6,8 @@
 
 mod defector;
 mod firepoints;
+pub(crate) use firepoints::open_contain_exit_path;
+pub(crate) use firepoints::apply_leftover_open_contain_door_pulse;
 mod garrison;
 mod neutron;
 mod production_and_power;

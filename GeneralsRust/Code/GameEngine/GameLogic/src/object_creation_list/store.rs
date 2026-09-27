@@ -89,6 +89,32 @@ impl ObjectCreationList {
             lifetime_frames,
         )
     }
+    /// C++ create with a null secondary position.
+    pub fn create_without_secondary(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary_obj: Option<&Object>,
+        primary: &Coord3D,
+        angle: Real,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        for nugget in &self.nuggets {
+            if let Some(obj) = nugget.create_without_secondary(
+                ctx,
+                primary_obj,
+                primary,
+                angle,
+                lifetime_frames,
+            ) {
+                if first_object.is_none() {
+                    first_object = Some(obj);
+                }
+            }
+        }
+        first_object
+    }
+
 
     /// Create objects with object parameters
     /// Matches C++ static ObjectCreationList::create with objects (ObjectCreationList.h:136-141)

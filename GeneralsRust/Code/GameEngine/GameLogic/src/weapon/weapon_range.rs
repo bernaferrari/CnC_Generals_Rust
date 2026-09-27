@@ -4,9 +4,10 @@ use crate::common::{Coord3D, KindOf};
 use crate::helpers::ThePartitionManager;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::terrain::BridgeAttackInfo;
+use crate::common::GeometryInfo;
 
 use super::helpers::{ObjectId, dual_world_registry_unavailable};
-use super::masks_enums::WeaponBonusConditionFlags;
+use super::masks_enums::{WeaponBonus, WeaponBonusConditionFlags};
 use super::weapon_instance::Weapon;
 
 impl Weapon {
@@ -25,14 +26,32 @@ impl Weapon {
                 (
                     *guard.get_position(),
                     guard.get_geometry_info().get_bounding_circle_radius(),
-                    guard.get_geometry_info().clone(),
+                    *guard.get_geometry_info(),
                 )
             })
         else {
             return false;
         };
-
         let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
+        self.is_within_attack_range_from_source(
+            &source_pos,
+            source_radius,
+            &source_geom,
+            &bonus,
+            target_obj,
+            target_pos,
+        )
+    }
+
+    pub fn is_within_attack_range_from_source(
+        &self,
+        source_pos: &Coord3D,
+        source_radius: f32,
+        source_geom: &GeometryInfo,
+        bonus: &WeaponBonus,
+        target_obj: Option<ObjectId>,
+        target_pos: Option<&Coord3D>,
+    ) -> bool {
         let max_range = self.template.get_attack_range(&bonus);
         let min_range = self.template.get_minimum_attack_range();
         let attack_range_sqr = max_range * max_range;

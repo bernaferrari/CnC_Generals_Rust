@@ -233,7 +233,9 @@ impl GameLogic {
                 if let Some(obj) = self.objects.get_mut(&object_id) {
                     obj.stop_moving();
                     obj.stop_attack();
+                    if obj.ai_state != AIState::Idle {
                     obj.set_ai_state(AIState::Idle);
+                    }
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
                         crate::game_logic::host_ai_decision_log::record_stop_attack(object_id);
@@ -273,7 +275,12 @@ impl GameLogic {
                     .map(|obj| (obj.is_mobile(), obj.can_attack() || obj.weapon.is_some()))
                     .unwrap_or((false, false));
                 if is_mobile {
-                    self.move_object_with_pathfinding(
+                    if can_attack {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.stop_attack();
+                        }
+                    }
+                    let installed = self.move_object_with_pathfinding(
                         object_id,
                         target_position,
                         Some(if can_attack {
@@ -282,11 +289,20 @@ impl GameLogic {
                             AIState::Moving
                         }),
                     );
-                    if let Some(obj) = self.objects.get_mut(&object_id) {
-                        if can_attack {
-                            obj.is_attack_path = true;
+                    if can_attack && installed {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.auto_acquire_when_idle = true;
                             obj.set_max_shots_to_fire(-1);
+                            obj.requested_destination = Some(target_position);
+                            obj.set_ai_state(AIState::AttackMoving);
+                        }
+                    } else if can_attack {
+                        if let Some(obj) = self.objects.get_mut(&object_id) {
+                            obj.requested_destination = None;
+                            obj.retry_path = false;
+                            if obj.ai_state != AIState::Idle {
+                                obj.set_ai_state(AIState::Idle);
+                            }
                         }
                     }
                 }
@@ -1296,7 +1312,9 @@ impl GameLogic {
                         obj.ai_state,
                         AIState::Moving | AIState::Constructing | AIState::Repairing
                     ) {
+                        if obj.ai_state != AIState::Idle {
                         obj.set_ai_state(AIState::Idle);
+                        }
                     }
                 }
                 if matches!(

@@ -641,8 +641,13 @@ impl GameLogic {
                     obj.set_ai_state(AIState::Patrolling);
                 }
             }
+            // C++ AIIdleState::onEnter → resetNextMoodCheckTime, before the scan.
+            self.apply_pending_idle_mood_reset(object_id);
             // C++ AIIdleState::update: mood scan / attack only — never AI_HUNT wander.
             if let Some(obj) = self.objects.get(&object_id) {
+                if obj.temporary_move_frames > 0 {
+                    continue;
+                }
                 let can_attack = obj.can_attack();
                 if dense_world
                     && !can_attack

@@ -779,6 +779,8 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
 
     /// C++ ParticleSystem::setSystemLifetime.
     fn set_particle_system_lifetime(&self, _system_id: ParticleSystemId, _frames: UnsignedInt) {}
+    /// C++ ParticleSystem::setLifetimeRange. Both ends are the same real.
+    fn set_particle_lifetime_range(&self, _system_id: ParticleSystemId, _min: f32, _max: f32) {}
 
     /// C++ ParticleSystem::setInitialDelay.
     fn set_particle_system_initial_delay(&self, _system_id: ParticleSystemId, _frames: UnsignedInt) {

@@ -57,8 +57,18 @@ impl FiringTrackerBehavior {
         Self {
             object_id,
             tracker: FiringTracker::new(object_id),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
         }
+    }
+
+    pub fn shot_fired_with_owner(
+        &mut self,
+        owner: &mut crate::object::Object,
+        weapon: &crate::weapon::Weapon,
+        victim_id: ObjectID,
+    ) {
+        self.tracker
+            .shot_fired_with_owner(owner, weapon, victim_id);
     }
 
     pub fn shot_fired(&mut self, weapon: &crate::weapon::Weapon, victim_id: ObjectID) {
@@ -128,6 +138,10 @@ pub struct FiringTrackerBehaviorModule {
 }
 
 impl FiringTrackerBehaviorModule {
+    pub fn initial_wake_frame(&self) -> u32 {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: FiringTrackerBehavior,
         module_name: &AsciiString,
@@ -178,8 +192,20 @@ impl Module for FiringTrackerBehaviorModule {
     }
 
     fn on_object_created(&mut self) {
+        self.behavior.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
         if self.object_id() != 0 {
-            TheGameLogic::set_wake_frame(self.object_id(), UpdateSleepTime::Forever);
+            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id())
+                .or_else(|| {
+                    crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id())
+                })
+            {
+                if let Ok(guard) = obj.read() {
+                    guard.reschedule_named_update(
+                        "FiringTracker",
+                        self.behavior.next_call_frame_and_phase,
+                    );
+                }
+            }
         }
     }
 }

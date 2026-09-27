@@ -266,6 +266,78 @@ fn resume_construction_paths_distant_dozer_without_constructing_anim() {
 }
 
 #[test]
+fn resume_construction_crosses_the_scaffold_obstacle() {
+    use crate::game_logic::pathfinding::GridPos;
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::USA, "USA", true));
+    let mut st = ThingTemplate::new("AmericaPowerPlant");
+    st.add_kind_of(KindOf::Structure).set_health(500.0);
+    logic.templates.insert("AmericaPowerPlant".into(), st);
+    let mut dozer_t = ThingTemplate::new("AmericaVehicleDozer");
+    dozer_t
+        .add_kind_of(KindOf::Vehicle)
+        .add_kind_of(KindOf::Dozer)
+        .set_health(200.0);
+    logic
+        .templates
+        .insert("AmericaVehicleDozer".into(), dozer_t);
+    let from = glam::Vec3::new(10.0, 0.0, 10.0);
+    let to = glam::Vec3::new(160.0, 0.0, 10.0);
+    let sid = logic
+        .create_object("AmericaPowerPlant", Team::USA, to)
+        .expect("pp");
+    if let Some(o) = logic.host_object_mut(sid) {
+        o.set_status_under_construction(true);
+        o.construction_percent = 0.1;
+    }
+    let did = logic
+        .create_object("AmericaVehicleDozer", Team::USA, from)
+        .expect("dozer");
+    let wall_x = {
+        let grid = &logic.pathfinding_system.grid;
+        let start_cell = grid.world_to_grid(from);
+        let goal_cell = grid.world_to_grid(to);
+        (start_cell.x + goal_cell.x) / 2
+    };
+    let height = logic.pathfinding_system.grid.height();
+    for y in 0..height {
+        logic.pathfinding_system.grid.set_cell_obstacle_owned(
+            GridPos::new(wall_x, y),
+            false,
+            false,
+            sid.0,
+            None,
+            None,
+        );
+    }
+    logic.force_map_loaded_for_path_test(true);
+    assert!(logic.resume_construction(&[did], sid));
+    logic.process_pathfind_queue();
+    let d = logic.host_object(did).expect("d");
+    assert_eq!(d.ai_state, AIState::Constructing);
+    assert_eq!(d.ignored_obstacle_id, Some(sid));
+    let xs: Vec<i32> = d
+        .movement
+        .path
+        .iter()
+        .map(|wp| logic.pathfinding_system.grid.world_to_grid(*wp).x)
+        .collect();
+    let crosses = xs.windows(2).any(|w| {
+        let lo = w[0].min(w[1]);
+        let hi = w[0].max(w[1]);
+        lo <= wall_x && wall_x <= hi
+    });
+    assert!(
+        crosses,
+        "resume must ignore the scaffold and cross its obstacle, xs={xs:?} wall={wall_x}"
+    );
+}
+
+
+#[test]
 fn resume_construction_allows_dead_or_retasked_builder() {
     // C++ ActionManager.cpp:458-485 — stale exclusive builder must not freeze resume.
     use crate::game_logic::{KindOf, ObjectId, Team, ThingTemplate};

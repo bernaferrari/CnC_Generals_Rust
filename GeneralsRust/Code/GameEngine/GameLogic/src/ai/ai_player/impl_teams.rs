@@ -137,8 +137,9 @@ impl AIPlayer {
         (Coord3D::new(0.0, 0.0, 0.0), false)
     }
 
-    /// C++ onUnitProduced supply assignment: first build-list supply building with
-    /// desiredGatherers > currentGatherers; bump current and return object id.
+    /// C++ onUnitProduced supply assignment: every build-list supply building
+    /// with desiredGatherers > currentGatherers and a live object is incremented.
+    /// There is no `break`. The last dock command wins, so return that object id.
     pub(super) fn take_supply_gatherer_slot(&mut self) -> Option<ObjectID> {
         // Wave 255: empty dual-world → None.
         if dual_world_registry_unavailable() {
@@ -152,6 +153,7 @@ impl AIPlayer {
         let Some(info_head) = pg.get_build_list_mut() else {
             return None;
         };
+        let mut last_dock = None;
         let mut node = Some(&mut *info_head);
         while let Some(info) = node {
             if info.is_supply_building()
@@ -161,12 +163,12 @@ impl AIPlayer {
                 let oid = info.get_object_id();
                 if oid != INVALID_ID && OBJECT_REGISTRY.with_object(oid, |_| ()).is_some() {
                     info.set_current_gatherers(info.get_current_gatherers() + 1);
-                    return Some(oid);
+                    last_dock = Some(oid);
                 }
             }
             node = info.get_next_mut();
         }
-        None
+        last_dock
     }
 
     /// C++ `AIPlayer::checkForSupplyCenter` (AIPlayer.cpp).
@@ -284,8 +286,9 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::isSupplySourceAttacked` (AIPlayer.cpp).
     ///
-    /// Rate-limited (10s): if player was recently attacked, scan cash generators /
-    /// dozers / harvesters for recent damage and latch attacked_supply_center.
+    /// Rate-limited to 10 logic frames (C++ comment says 10 seconds; `SCAN_RATE` is 10).
+    /// If the player was attacked inside that window, scan cash generators, dozers,
+    /// and harvesters for recent damage and latch `attacked_supply_center`.
     pub fn is_supply_source_attacked(&mut self) -> bool {
         // Wave 255: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {

@@ -403,6 +403,86 @@ impl GameLogic {
         }
     }
 
+    /// C++ `AIUpdateInterface::resetNextMoodCheckTime` (AIUpdate.cpp:4443).
+    pub(crate) fn apply_pending_idle_mood_reset(&mut self, unit_id: ObjectId) {
+        let pending = self.objects.get(&unit_id).is_some_and(|obj| {
+            obj.idle_mood_reset_pending && matches!(obj.ai_state, AIState::Idle)
+        });
+        if !pending {
+            return;
+        }
+        // C++ AIIdleState::doInitIdleState: updateGoal(current), then
+        // goalPosition from the stored cell. Only frame <= 1 calls setPosition.
+        // NO_STOP_AND_SLIDE leaves the later-frame arm empty. The second
+        // updateGoal sees the same cell and does not stamp again.
+        let prep = self.objects.get(&unit_id).map(|obj| {
+            let pos = obj.get_position();
+            (
+                crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj),
+                pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0,
+                obj.ultra_accurate,
+                pos,
+                obj.selection_radius,
+                obj.pathfind_goal_cell,
+                obj.is_kind_of(crate::game_logic::KindOf::Immobile),
+                obj.id.0,
+                obj.owner_player_id.unwrap_or(obj.team as u32),
+            )
+        });
+        if let Some((true, true, ultra, pos, radius, old, immobile, uid, player)) = prep {
+            let new_cell = self.pathfinding_system.grid.update_ground_goal_cell(
+                uid, player, radius, immobile, old, pos,
+            );
+            let goal = if !ultra && new_cell.0 >= 0 && new_cell.1 >= 0 && self.frame <= 1 {
+                let grid = &self.pathfinding_system.grid;
+                let (_, center) =
+                    crate::game_logic::PathfindingGrid::radius_and_center(radius, grid.grid_size());
+                Some(grid.adjust_coord_to_ground_cell(
+                    crate::game_logic::pathfinding::GridPos::new(new_cell.0, new_cell.1),
+                    center,
+                ))
+            } else {
+                None
+            };
+            let mut snapped = None;
+            if let Some(obj) = self.objects.get_mut(&unit_id) {
+                obj.pathfind_goal_cell = new_cell;
+                if let Some(goal) = goal {
+                    obj.set_position(goal);
+                    snapped = Some((
+                        obj.get_position(),
+                        obj.selection_radius,
+                        obj.pathfind_goal_cell,
+                        obj.is_kind_of(crate::game_logic::KindOf::Immobile),
+                        obj.id.0,
+                        obj.owner_player_id.unwrap_or(obj.team as u32),
+                    ));
+                }
+            }
+            if let Some((pos2, radius, old, immobile, uid, player)) = snapped {
+                let cell2 = self.pathfinding_system.grid.update_ground_goal_cell(
+                    uid, player, radius, immobile, old, pos2,
+                );
+                if let Some(obj) = self.objects.get_mut(&unit_id) {
+                    obj.pathfind_goal_cell = cell2;
+                }
+            }
+        }
+        // setCurrentVictim(NULL) clears m_currentVictimID (`target`), not the
+        // path-request id.
+        self.remove_self_as_jet_targeter_from_current_victim(unit_id);
+        let Some(obj) = self.objects.get_mut(&unit_id) else {
+            return;
+        };
+        obj.target = None;
+        obj.set_locomotor_goal_none();
+        let delay =
+            crate::game_logic::host_ai_path_combat_residual_wave105::FORCE_IDLE_FRAMES_RESIDUAL;
+        obj.next_mood_check_time = self.frame.saturating_add(delay);
+        obj.randomly_offset_mood_check = true;
+        obj.idle_mood_reset_pending = false;
+    }
+
     pub fn get_next_mood_target(
         &mut self,
         unit_id: ObjectId,
@@ -511,7 +591,15 @@ impl GameLogic {
             }
             // Schedule next check.
             if let Some(o) = self.objects.get_mut(&unit_id) {
-                o.next_mood_check_time = now.saturating_add(rate);
+                let mut next = now.saturating_add(rate);
+                // C++ AIUpdate.cpp:4548-4552. One draw, then the flag clears.
+                if o.randomly_offset_mood_check {
+                    let half = (rate >> 1) as i32;
+                    let jitter = gamelogic::helpers::get_game_logic_random_value(-half, half);
+                    next = (next as i32).wrapping_add(jitter) as u32;
+                    o.randomly_offset_mood_check = false;
+                }
+                o.next_mood_check_time = next;
             }
         }
 
@@ -1722,6 +1810,263 @@ mod common_target_parity {
             "undetected defector hunter must not auto-acquire"
         );
     }
+
+    #[test]
+    fn idle_enter_delays_the_mood_check_then_jitters_once() {
+        use gamelogic::object::update::ai_update_interface::AUTO_ACQUIRE_IDLE;
+        let mut logic = GameLogic::new();
+        logic.frame = 50;
+        let id = logic
+            .create_object("Ranger", Team::USA, glam::Vec3::ZERO)
+            .expect("ranger");
+        if let Some(o) = logic.host_object_mut(id) {
+            assert!(
+                o.idle_mood_reset_pending,
+                "spawn starts in Idle and must arm resetNextMoodCheckTime"
+            );
+            o.set_ai_state(crate::game_logic::AIState::Moving);
+            o.set_ai_state(crate::game_logic::AIState::Idle);
+            assert!(o.idle_mood_reset_pending);
+            o.auto_acquire_idle_bits = AUTO_ACQUIRE_IDLE;
+            o.mood_attack_check_rate = 30;
+            o.requested_victim_id = Some(ObjectId(4));
+            o.target = Some(ObjectId(9));
+            o.locomotor_goal_type = crate::game_logic::object::LocoGoalType::PositionOnPath;
+        }
+        let jet_id = ObjectId(9);
+        logic.objects.insert(
+            jet_id,
+            Object::new(
+                ThingTemplate::new("TestStealthFighter"),
+                jet_id,
+                Team::GLA,
+            ),
+        );
+        logic
+            .host_object_mut(jet_id)
+            .expect("jet")
+            .jet_ai
+            .targeted_by
+            .push(id);
+        logic.apply_pending_idle_mood_reset(id);
+        let o = logic.host_object(id).expect("ranger");
+        assert_eq!(o.next_mood_check_time, 53);
+        assert!(o.randomly_offset_mood_check);
+        assert!(!o.idle_mood_reset_pending);
+        assert_eq!(o.requested_victim_id, Some(ObjectId(4)));
+        assert!(o.target.is_none());
+        assert!(
+            logic
+                .host_object(jet_id)
+                .expect("jet")
+                .jet_ai
+                .targeted_by
+                .is_empty()
+        );
+        assert_eq!(
+            o.locomotor_goal_type,
+            crate::game_logic::object::LocoGoalType::None
+        );
+        assert!(logic.get_next_mood_target(id, true, true, false).is_none());
+        assert!(logic.host_object(id).unwrap().randomly_offset_mood_check);
+
+        if let Some(o) = logic.host_object_mut(id) {
+            o.set_ai_state(crate::game_logic::AIState::Idle);
+            assert!(!o.idle_mood_reset_pending, "already idle must not rearm");
+        }
+
+        logic.frame = 53;
+        game_engine::common::random_value::init_random_with_seed(0xC0FFEE);
+        let jitter = gamelogic::helpers::get_game_logic_random_value(-15, 15);
+        game_engine::common::random_value::init_random_with_seed(0xC0FFEE);
+        assert!(logic.get_next_mood_target(id, true, true, false).is_none());
+        let o = logic.host_object(id).expect("ranger");
+        assert!(!o.randomly_offset_mood_check);
+        assert_eq!(
+            o.next_mood_check_time,
+            (53i32 + 30).wrapping_add(jitter) as u32
+        );
+    }
+
+    #[test]
+    fn idle_frame_one_snaps_onto_the_stored_goal_cell() {
+        let mut logic = GameLogic::new();
+        logic.frame = 1;
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), tmpl);
+        let start = glam::Vec3::new(3.0, 0.0, 3.0);
+        let id = logic
+            .create_object("Ranger", Team::USA, start)
+            .expect("ranger");
+        let radius = logic.host_object(id).expect("ranger").selection_radius;
+        let cell_size = logic.pathfinding_system.grid.grid_size();
+        let (_, center) =
+            crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
+        let cell = logic
+            .pathfinding_system
+            .grid
+            .cell_for_unit_position(start, center);
+        let expected = logic
+            .pathfinding_system
+            .grid
+            .adjust_coord_to_ground_cell(cell, center);
+        assert!(
+            (expected.x - start.x).abs() > 0.1,
+            "the fixture must not already sit on the cell point"
+        );
+        logic.apply_pending_idle_mood_reset(id);
+        let (stored, snapped_pos) = {
+            let o = logic.host_object(id).expect("ranger");
+            (o.pathfind_goal_cell, o.get_position())
+        };
+        assert_eq!(stored, (cell.x, cell.y));
+        assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), id.0);
+        let mask = logic.pathfinding_system.grid.ground_goal_mask(cell);
+        assert_ne!(mask, 0, "setGoalUnit must set the player bit path cost reads");
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&logic.objects);
+        assert_eq!(
+            logic.pathfinding_system.grid.ground_goal_unit(cell),
+            id.0,
+            "the occupancy rebuild must keep the stored idle cell"
+        );
+        assert_eq!(logic.pathfinding_system.grid.ground_goal_mask(cell), mask);
+        assert!(
+            (snapped_pos.x - expected.x).abs() < 0.01 && (snapped_pos.z - expected.z).abs() < 0.01,
+            "frame <= 1 must setPosition to the stored goal cell"
+        );
+
+
+        if let Some(o) = logic.host_object_mut(id) {
+            o.set_ai_state(crate::game_logic::AIState::Moving);
+            o.set_ai_state(crate::game_logic::AIState::Idle);
+            o.set_position(start);
+        }
+        logic.frame = 2;
+        logic.apply_pending_idle_mood_reset(id);
+        let o = logic.host_object(id).expect("ranger");
+        assert_eq!(o.get_position(), start, "later frames must not slide");
+        assert_eq!(o.pathfind_goal_cell, (cell.x, cell.y));
+        let far = glam::Vec3::new(80.0, 0.0, 80.0);
+        if let Some(o) = logic.host_object_mut(id) {
+            o.set_ai_state(crate::game_logic::AIState::Moving);
+            o.set_ai_state(crate::game_logic::AIState::Idle);
+            o.set_position(far);
+        }
+        logic.frame = 5;
+        logic.apply_pending_idle_mood_reset(id);
+        assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), 0);
+        assert_eq!(
+            logic.pathfinding_system.grid.ground_goal_mask(cell),
+            0,
+            "leaving the cell must clear this unit's goal bit"
+        );
+        let o = logic.host_object(id).expect("ranger");
+        assert_ne!(o.pathfind_goal_cell, (cell.x, cell.y));
+        let moved = crate::game_logic::pathfinding::GridPos::new(
+            o.pathfind_goal_cell.0,
+            o.pathfind_goal_cell.1,
+        );
+        assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(moved), id.0);
+    }
+
+    #[test]
+    fn finished_move_does_not_keep_the_old_idle_goal() {
+        let mut logic = GameLogic::new();
+        logic.frame = 1;
+        let mut tmpl = ThingTemplate::new("Ranger");
+        tmpl.add_kind_of(KindOf::Infantry);
+        logic.templates.insert("Ranger".into(), tmpl);
+        let start = glam::Vec3::new(3.0, 0.0, 3.0);
+        let id = logic
+            .create_object("Ranger", Team::USA, start)
+            .expect("ranger");
+        logic.apply_pending_idle_mood_reset(id);
+        let idle_cell = {
+            let o = logic.host_object(id).expect("ranger");
+            crate::game_logic::pathfinding::GridPos::new(
+                o.pathfind_goal_cell.0,
+                o.pathfind_goal_cell.1,
+            )
+        };
+        let far = glam::Vec3::new(80.0, 0.0, 80.0);
+        if let Some(o) = logic.host_object_mut(id) {
+            o.movement.path = vec![start, far];
+            o.movement.target_position = Some(far);
+        }
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&logic.objects);
+        assert_eq!(
+            logic.pathfinding_system.grid.ground_goal_unit(idle_cell),
+            0,
+            "a live path must reserve its goal, not the old idle cell"
+        );
+        if let Some(o) = logic.host_object_mut(id) {
+            o.movement.path.clear();
+            o.movement.target_position = None;
+            o.set_position(far);
+        }
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&logic.objects);
+        assert_eq!(
+            logic.pathfinding_system.grid.ground_goal_unit(idle_cell),
+            0,
+            "after the move, the pre-move idle cell must not be reserved"
+        );
+        let o = logic.host_object(id).expect("ranger");
+        assert_eq!(
+            (o.pathfind_goal_cell.0, o.pathfind_goal_cell.1),
+            (idle_cell.x, idle_cell.y),
+            "the stale field is what the rebuild must ignore"
+        );
+    }
+
+
+    #[test]
+    fn ground_movement_keeps_the_cpp_exceptions() {
+        use crate::game_logic::PathfindingGrid;
+        let mut heli = Object::new(
+            ThingTemplate::new("AmericaVehicleComanche"),
+            ObjectId(1),
+            Team::USA,
+        );
+        heli.loco_appearance = crate::game_logic::object::LocomotorAppearance::Thrust;
+        assert!(
+            !PathfindingGrid::is_doing_ground_movement(&heli),
+            "the occupancy helper stays the air early-out"
+        );
+        heli.status.disabled_unmanned = true;
+        assert!(!PathfindingGrid::is_doing_ground_movement(&heli));
+        assert!(PathfindingGrid::is_doing_ground_movement_full(&heli));
+
+        let mut tank = Object::new(ThingTemplate::new("Tank"), ObjectId(2), Team::USA);
+        tank.locomotor_set_names = vec!["Basic".into()];
+        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
+        assert!(
+            !PathfindingGrid::is_doing_ground_movement_full(&tank),
+            "a set with no current locomotor is not ground movement"
+        );
+        tank.cur_locomotor_name = Some("Basic".into());
+        tank.status.disabled_held = true;
+        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
+        assert!(!PathfindingGrid::is_doing_ground_movement_full(&tank));
+        tank.status.disabled_held = false;
+        tank.set_position(glam::Vec3::new(0.0, 5.0, 0.0));
+        tank.ground_height = 0.0;
+        tank.allow_to_fall = true;
+        assert!(PathfindingGrid::is_doing_ground_movement(&tank));
+        assert!(!PathfindingGrid::is_doing_ground_movement_full(&tank));
+        tank.allow_to_fall = false;
+        assert!(PathfindingGrid::is_doing_ground_movement_full(&tank));
+    }
+
 }
 
 #[cfg(test)]

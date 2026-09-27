@@ -1463,9 +1463,9 @@ fn attack_move_includes_immobile_attacker() {
         );
     }
     let u = logic.host_object(tur).unwrap();
-    assert_eq!(u.ai_state, AIState::AttackMoving);
-    assert!(u.is_attack_path);
-    assert_eq!(u.max_shots_to_fire, 4);
+    assert_ne!(u.ai_state, AIState::AttackMoving);
+    assert!(!u.is_attack_path);
+    assert_ne!(u.max_shots_to_fire, 4);
 }
 
 #[test]

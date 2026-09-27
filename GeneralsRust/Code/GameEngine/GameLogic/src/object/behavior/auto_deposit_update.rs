@@ -132,43 +132,40 @@ impl AutoDepositUpdate {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
 
-        // Check conditions. Matches C++ lines 99-100
+        let Some(player_arc) = player else {
+            return;
+        };
         if !self.award_initial_capture_bonus || self.module_data.initial_capture_bonus <= 0 {
             return;
         }
 
-        if let Some(player_arc) = player {
-            if let Ok(mut player_guard) = player_arc.write() {
-                // Deposit money (with standard sound/academy bookkeeping). Matches C++ line 102
-                let _ = player_guard
-                    .get_money_mut()
-                    .deposit(self.module_data.initial_capture_bonus as u32);
+        let Ok(mut player_guard) = player_arc.write() else {
+            return;
+        };
+        let _ = player_guard
+            .get_money_mut()
+            .deposit(self.module_data.initial_capture_bonus as u32);
+        player_guard
+            .get_score_keeper_mut()
+            .add_money_earned(self.module_data.initial_capture_bonus as u32);
 
-                // Add to score keeper. Matches C++ line 103
-                player_guard
-                    .get_score_keeper_mut()
-                    .add_money_earned(self.module_data.initial_capture_bonus as u32);
+        let text = format_add_cash(self.module_data.initial_capture_bonus);
+        let mut pos = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
+                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            })
+        })
+        .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
+        .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+        pos.z += 10.0;
 
-                // Display floating text. Matches C++ lines 105-115
-                let text = format_add_cash(self.module_data.initial_capture_bonus);
-                let mut pos = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                })
-                .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
-                .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
-                pos.z += 10.0;
+        let mut color = player_guard.get_player_color();
+        color.a = 230;
+        drop(player_guard);
+        let _ = TheInGameUI::add_floating_text(&text, &pos, color);
 
-                let mut color = player_guard.get_player_color();
-                color.a = 230;
-                let _ = TheInGameUI::add_floating_text(&text, &pos, color);
-            }
-        }
-
-        // Clear the flag. Matches C++ line 117
         self.award_initial_capture_bonus = false;
     }
 
@@ -210,7 +207,9 @@ impl AutoDepositUpdate {
             return 0;
         };
 
-        for upgrade_pair in &self.module_data.upgrade_boost {
+        // C++ caches the first findUpgrade in a function-local static, so later pairs
+        // never resolve their own template. Only the first pair can grant a boost.
+        if let Some(upgrade_pair) = self.module_data.upgrade_boost.first() {
             if let Some(template) = center_guard.find_upgrade(upgrade_pair.upgrade_type.as_str()) {
                 if player_guard.has_upgrade_complete(&template) {
                     return upgrade_pair.boost_amount;
@@ -278,6 +277,10 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                     if let Ok(mut player_guard) = player.write() {
                         if money_amount > 0 {
                             let _ = player_guard.get_money_mut().deposit(money_amount as u32);
+                        } else if money_amount < 0 {
+                            let _ = player_guard
+                                .get_money_mut()
+                                .withdraw((-money_amount) as u32);
                         }
                         if self.module_data.deposit_amount > 0 {
                             player_guard
@@ -305,8 +308,8 @@ impl UpdateModuleInterface for AutoDepositUpdate {
 
                 if obj_read.is_kind_of(KindOf::Structure) {
                     let geom = obj_read.get_geometry_info();
-                    let width = geom.get_major_radius() * 0.3;
-                    let depth = geom.get_minor_radius() * 0.3;
+                    let width = ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5) * 0.3;
+                    let depth = ((geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5) * 0.3;
                     pos.x += game_client_random_value_real(-width, width);
                     pos.y += game_client_random_value_real(-depth, depth);
                 }
@@ -314,7 +317,7 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                 if let Some(player) = obj_read.get_controlling_player() {
                     if let Ok(player_guard) = player.read() {
                         let mut color = player_guard.get_player_color();
-                        color.a = 230;
+                        color.a |= 230;
                         let _ = TheInGameUI::add_floating_text(&text, &pos, color);
                     }
                 }
@@ -349,9 +352,7 @@ impl AutoDepositUpdateFactory {
 
 impl Snapshotable for AutoDepositUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

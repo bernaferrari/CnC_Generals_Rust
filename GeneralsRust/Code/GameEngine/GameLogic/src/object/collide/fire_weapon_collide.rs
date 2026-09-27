@@ -7,6 +7,7 @@
 use super::*;
 use crate::common::types::WeaponBonusConditionFlags;
 use crate::helpers::TheGameLogic;
+use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
 use crate::weapon::{Weapon, WeaponSlotType, WeaponTemplate, with_weapon_store};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -280,13 +281,17 @@ impl Snapshotable for FireWeaponCollide {
             .map_err(|e| e.to_string())?;
         self.version = version as u32;
 
+        // CollideModule::xfer is its own version, then BehaviorModule versions.
+        let mut collide_version: u8 = 1;
+        xfer.xfer_version(&mut collide_version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer_behavior_module_base_versions(xfer)?;
         let mut collide_weapon_present = true;
         xfer.xfer_bool(&mut collide_weapon_present)
             .map_err(|e| e.to_string())?;
-        if !collide_weapon_present {
-            return Err("FireWeaponCollide::xfer missing collide weapon".to_string());
+        if collide_weapon_present {
+            self.collide_weapon.xfer(xfer)?;
         }
-        self.collide_weapon.xfer(xfer)?;
 
         xfer.xfer_bool(&mut self.ever_fired)
             .map_err(|e| e.to_string())?;
@@ -394,23 +399,21 @@ impl CollideModule for FireWeaponCollide {
         // colliding and we want to hurt them all. Another solution would be to keep
         // a map of object IDs and delays for each individually.
         if self.should_fire_weapon(&owner) {
-            let (source_id, source_bonus_flags, container_bonus_flags) =
-                if let Ok(owner_guard) = owner.read() {
-                    let source_id = owner_guard.get_id();
-                    let source_bonus_flags = owner_guard.get_weapon_bonus_condition();
-                    let container_bonus_flags = owner_guard
-                        .get_contained_by()
-                        .and_then(TheGameLogic::find_object_by_id)
-                        .and_then(|container| {
-                            container
-                                .read()
-                                .ok()
-                                .map(|g| g.get_weapon_bonus_condition())
-                        });
-                    (source_id, source_bonus_flags, container_bonus_flags)
-                } else {
-                    (owner.get_id(), WeaponBonusConditionFlags::empty(), None)
-                };
+            let Ok(owner_guard) = owner.read() else {
+                return Ok(());
+            };
+            let source_id = owner_guard.get_id();
+            let source_bonus_flags = owner_guard.get_weapon_bonus_condition();
+            let container_bonus_flags = owner_guard
+                .get_contained_by()
+                .and_then(TheGameLogic::find_object_by_id)
+                .and_then(|container| {
+                    container
+                        .read()
+                        .ok()
+                        .map(|g| g.get_weapon_bonus_condition())
+                });
+            drop(owner_guard);
             self.collide_weapon.load_ammo_now(source_id).map_err(|e| {
                 CollisionError::InvalidObject(format!("Failed to load ammo: {}", e))
             })?;

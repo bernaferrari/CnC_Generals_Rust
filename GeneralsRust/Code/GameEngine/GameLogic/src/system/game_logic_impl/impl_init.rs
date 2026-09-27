@@ -1,3 +1,32 @@
+use std::sync::atomic::{AtomicI32, Ordering};
+
+pub static RANK_LEVEL_LIMIT_ATOMIC: AtomicI32 = AtomicI32::new(1000);
+
+pub fn rank_level_limit_now() -> i32 {
+    RANK_LEVEL_LIMIT_ATOMIC.load(Ordering::Relaxed)
+}
+
+pub fn publish_rank_level_limit(level: i32) {
+    RANK_LEVEL_LIMIT_ATOMIC.store(level, Ordering::Relaxed);
+}
+
+/// Publish only for the process singleton. `try_lock` success is a stack copy
+/// unless the pointer matches. `WouldBlock` means the caller already holds the
+/// singleton mutex (single-threaded sim).
+pub fn publish_rank_cap_if_live(logic: &GameLogic) {
+    match crate::system::game_logic::get_game_logic().try_lock() {
+        Ok(guard) => {
+            if std::ptr::eq(&*guard, logic) {
+                publish_rank_level_limit(logic.rank_level_limit);
+            }
+        }
+        Err(std::sync::TryLockError::WouldBlock) => {
+            publish_rank_level_limit(logic.rank_level_limit);
+        }
+        Err(_) => {}
+    }
+}
+
 impl GameLogic {
     /// Create a new GameLogic instance
     pub fn new() -> Self {
@@ -73,6 +102,7 @@ impl GameLogic {
             level = 1;
         }
         self.rank_level_limit = level;
+        publish_rank_cap_if_live(self);
     }
 
     /// Initialize the GameLogic system
@@ -142,6 +172,7 @@ impl GameLogic {
         self.draw_icon_ui = true;
         self.show_dynamic_lod = true;
         self.rank_level_limit = 1000;
+        publish_rank_cap_if_live(self);
         self.buildable_status_overrides.clear();
         self.partition_manager = PartitionManager::new();
         self.physics_world = PhysicsWorld::new();

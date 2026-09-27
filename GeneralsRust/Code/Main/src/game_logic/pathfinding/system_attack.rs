@@ -106,6 +106,7 @@ impl PathfindingSystem {
             .map(|p| self.grid.ally_mask_for(p))
             .unwrap_or(0);
         let seeker_inf = self.seeker_is_infantry;
+        let ignore_owner = self.ignore_obstacle_id.map(|id| id.0);
 
         // Quick check: step toward victim (C++ i=1..10, delta * i * 0.5 * cell).
         {
@@ -117,18 +118,32 @@ impl PathfindingSystem {
                     let test = from + delta * (i as f32 * 0.5);
                     let cell = self.grid.world_to_grid(test);
                     if !self.grid.is_valid_pos(cell)
-                        || !self.grid.cell_passable_for(cell, surfaces, is_crusher)
+                        || !self.grid.cell_passable_for_ignoring(
+                            cell,
+                            surfaces,
+                            is_crusher,
+                            ignore_owner,
+                        )
                     {
                         break;
                     }
-                    if !self.grid.destination_cell_ok(
-                        cell,
-                        surfaces,
-                        is_crusher,
-                        seeker_player,
-                        crusher_level,
-                        layer,
-                    ) {
+                    let ignored_cell = ignore_owner.is_some_and(|id| {
+                        self.grid.cell_type(cell) == PathfindCellType::Obstacle
+                            && self
+                                .grid
+                                .obstacle_owner(cell)
+                                .is_some_and(|(owner, _, _)| owner == id)
+                    });
+                    if !ignored_cell
+                        && !self.grid.destination_cell_ok(
+                            cell,
+                            surfaces,
+                            is_crusher,
+                            seeker_player,
+                            crusher_level,
+                            layer,
+                        )
+                    {
                         break;
                     }
                     if !self.grid.human_extent_allows(cell, is_human) {
@@ -256,7 +271,7 @@ impl PathfindingSystem {
                         break;
                     }
                 }
-                if self.grid.cell_passable_for(cell, surfaces, is_crusher) {
+                if self.grid.cell_passable_for_ignoring(cell, surfaces, is_crusher, ignore_owner) {
                     let ddx = (victim_cell.x - cx).abs() as f32;
                     let ddy = (victim_cell.y - cy).abs() as f32;
                     let d2 = ddx * ddx + ddy * ddy;
@@ -296,7 +311,7 @@ impl PathfindingSystem {
                 if PathfindingGrid::skip_diagonal_if_squeezed(i, &neighbor_flags) {
                     continue;
                 }
-                if !self.grid.cell_passable_for(nc, surfaces, is_crusher)
+                if !self.grid.cell_passable_for_ignoring(nc, surfaces, is_crusher, ignore_owner)
                     && !(self.grid.is_obstacle_fence(nc) && is_crusher)
                 {
                     continue;
@@ -396,7 +411,9 @@ impl PathfindingSystem {
                 if unit_idle {
                     blocked_by_allies = false;
                 }
-                let move_ok = self.grid.cell_passable_for(*c, surfaces, is_crusher)
+                let move_ok = self
+                    .grid
+                    .cell_passable_for_ignoring(*c, surfaces, is_crusher, ignore_owner)
                     || (self.grid.is_obstacle_fence(*c) && is_crusher);
                 if !move_ok || enemy_fixed || blocked_by_allies {
                     last_blocked = Some(*c);
@@ -776,11 +793,10 @@ impl PathfindingSystem {
         }
         let from = self.grid.world_to_grid(start);
         let to = self.grid.world_to_grid(dest);
-        // C++ computePath gate (AIUpdate.cpp:1691-1694) calls isLinePassable
-        // with allowPinched=false — a straight quick path must not cross
-        // pinched cells.
+        // C++ computePath (AIUpdate.cpp:1692) calls isLinePassable
+        // with allowPinched true.
         self.grid
-            .leftover_is_line_passable_for_surfaces(from, to, surfaces, false)
+            .leftover_is_line_passable_for_surfaces(from, to, surfaces, true)
     }
 
     /// C++ `computeQuickPath` two-node start+dest leftover-installed on host Y-up.

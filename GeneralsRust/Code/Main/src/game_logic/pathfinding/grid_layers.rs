@@ -972,6 +972,24 @@ impl PathfindingGrid {
         self.cell_type(pos)
     }
 
+    /// C++ `Pathfinder::getCell(layer, x, y)` for locomotor selection.
+    /// Off the map is Clear. A missing layer cell or layer `IMPASSABLE`
+    /// falls through to the ground map. `BRIDGE_IMPASSABLE` stays on the layer.
+    pub fn locomotor_cell_type(&self, pos: Vec3, layer: u8) -> PathfindCellType {
+        let cell = self.world_to_grid(pos);
+        if !self.is_valid_pos(cell) {
+            return PathfindCellType::Clear;
+        }
+        if layer > 1 {
+            if let Some(ty) = self.layer_cell_type(layer, cell) {
+                if ty != PathfindCellType::Impassable {
+                    return ty;
+                }
+            }
+        }
+        self.cell_type(cell)
+    }
+
     pub(super) fn type_passable_for(ty: PathfindCellType, surfaces: u32, is_crusher: bool) -> bool {
         let cell_surfaces = match ty {
             PathfindCellType::Obstacle

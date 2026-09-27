@@ -324,12 +324,19 @@ impl GameLogic {
                 // Non-mood fire residual: ensure flag stays clear.
                 attacker.turret_mood_target = false;
             }
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            attacker.note_attack_target(target_id);
+            let entered_attack = !matches!(
+                attacker.ai_state,
+                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+            );
+            if entered_attack {
+                attacker.set_ai_state(AIState::Attacking);
+            }
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(center_id, target_id);
-                crate::game_logic::host_ai_decision_log::record_set_state(center_id, 2);
+                if entered_attack {
+                    crate::game_logic::host_ai_decision_log::record_set_state(center_id, 2);
+                }
             }
             // Turret already aligned by tick_turret_aim (no snap).
             attacker.turret_idle_scanning = false;
@@ -698,12 +705,19 @@ impl GameLogic {
             }
             // Track engagement for UI / subsequent frames without requiring
             // a player AttackObject. Structures stay immobile (no chase).
-            attacker.set_target(Some(target_id));
-            attacker.set_ai_state(AIState::Attacking);
-            attacker.set_status_attacking(true);
+            attacker.note_attack_target(target_id);
+            let entered_attack = !matches!(
+                attacker.ai_state,
+                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+            );
+            if entered_attack {
+                attacker.set_ai_state(AIState::Attacking);
+            }
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_attack(defense_id, target_id);
-                crate::game_logic::host_ai_decision_log::record_set_state(defense_id, 2);
+                if entered_attack {
+                    crate::game_logic::host_ai_decision_log::record_set_state(defense_id, 2);
+                }
             }
             if destroyed {
                 self.stop_attack_decision_aware(defense_id);
@@ -1165,15 +1179,22 @@ impl GameLogic {
                     );
                     asst.fire_intent_count = next_count;
                 }
-                asst.set_target(Some(clip.victim_id));
-                asst.set_ai_state(AIState::Attacking);
-                asst.set_status_attacking(true);
+                asst.note_attack_target(clip.victim_id);
+                let entered_attack = !matches!(
+                    asst.ai_state,
+                    AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                );
+                if entered_attack {
+                    asst.set_ai_state(AIState::Attacking);
+                }
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_attack(
                         clip.assistant_id,
                         clip.victim_id,
                     );
-                    crate::game_logic::host_ai_decision_log::record_set_state(clip.assistant_id, 2);
+                    if entered_attack {
+                        crate::game_logic::host_ai_decision_log::record_set_state(clip.assistant_id, 2);
+                    }
                 }
                 // Kill XP awarded after this borrow via award_experience.
             }

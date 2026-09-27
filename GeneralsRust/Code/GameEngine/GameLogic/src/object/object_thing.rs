@@ -390,19 +390,25 @@ impl game_engine::common::rts::score_keeper::ScoreableObject for Object {
 
 impl game_engine::common::rts::player::BountyObject for Object {
     fn calc_cost_to_build(&self) -> i32 {
-        // C++ victim->getTemplate()->calcCostToBuild(victim->getControllingPlayer()).
-        let Some(player) = self.get_controlling_player() else {
-            return 0;
+        let player = self.get_controlling_player();
+        let Ok(guard) = player.as_ref().map(|player| player.read()).transpose() else {
+            return self.thing_template.calc_cost_to_build(None);
         };
-        let Ok(guard) = player.read() else {
-            return 0;
-        };
-        self.thing_template
-            .calc_cost_to_build(Some(&*guard as &dyn std::any::Any))
+        match guard.as_ref() {
+            Some(guard) => self
+                .thing_template
+                .calc_cost_to_build(Some(&**guard as &dyn std::any::Any)),
+            None => self.thing_template.calc_cost_to_build(None),
+        }
     }
 
     fn is_under_construction(&self) -> bool {
         self.test_status(ObjectStatusTypes::UnderConstruction)
+    }
+
+    fn bounty_anchor(&self) -> (f32, f32, f32) {
+        let pos = self.get_position();
+        (pos.x, pos.y, pos.z)
     }
 }
 
@@ -411,17 +417,8 @@ impl game_engine::common::rts::player::SkillPointObject for Object {
         &self,
         _killer: &dyn game_engine::common::rts::player::SkillPointObject,
     ) -> i32 {
-        // Get experience value from experience tracker if available
-        // Use object cost as a basis for skill point value
-        if let Some(tracker) = &self.experience_tracker {
-            if let Ok(tracker_guard) = tracker.lock() {
-                // Get the build cost as a basis for skill points
-                let cost = self.thing_template.calc_cost_to_build(None);
-                // killer is never an ally for skill point calculation in this context
-                return tracker_guard.get_experience_value(cost, false);
-            }
-        }
-        0
+        let level = self.get_veterancy_level() as usize;
+        self.thing_template.get_skill_point_value(level)
     }
 
     fn get_veterancy_level(&self) -> i32 {
@@ -432,5 +429,9 @@ impl game_engine::common::rts::player::SkillPointObject for Object {
             }
         }
         0
+    }
+
+    fn is_under_construction(&self) -> bool {
+        self.test_status(crate::common::ObjectStatusTypes::UnderConstruction)
     }
 }

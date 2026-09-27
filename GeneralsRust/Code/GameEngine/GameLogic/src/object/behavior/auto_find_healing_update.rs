@@ -126,6 +126,13 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
         let Some(ai) = obj.get_ai_update_interface() else {
             return UpdateSleepTime::None;
         };
+        let Ok(ai_guard) = ai.lock() else {
+            return UpdateSleepTime::None;
+        };
+        if !ai_guard.is_idle() {
+            return UpdateSleepTime::None;
+        }
+        drop(ai_guard);
 
         let Some(body) = obj.get_body_module() else {
             return UpdateSleepTime::None;
@@ -138,19 +145,12 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
             return UpdateSleepTime::None;
         }
 
-        let Ok(mut ai_guard) = ai.lock() else {
-            return UpdateSleepTime::None;
-        };
-        if !ai_guard.is_idle() {
-            return UpdateSleepTime::None;
-        }
-
         let target = self.scan_closest_target(&*obj);
+        drop(obj);
         if let Some(target) = target {
-            let mut params =
-                AiCommandParams::new(AiCommandType::GetHealed, CommandSourceType::FromAi);
-            params.obj = Some(target);
-            let _ = ai_guard.execute_command(&params);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner| {
+                owner.ai_pending_heal = Some(target);
+            });
         }
 
         UpdateSleepTime::None
@@ -219,9 +219,7 @@ impl AutoFindHealingUpdateFactory {
 
 impl Snapshotable for AutoFindHealingUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

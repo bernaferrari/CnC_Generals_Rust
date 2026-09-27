@@ -249,9 +249,11 @@ impl HealCrateCollide {
             return Ok(false);
         };
 
-        if let Ok(mut player_guard) = player.write() {
-            player_guard.heal_all_objects();
-        }
+        let Ok(mut player_guard) = player.write() else {
+            return Ok(false);
+        };
+        player_guard.heal_all_objects();
+        drop(player_guard);
 
         self.play_heal_audio(&other.get_position());
         Ok(true)

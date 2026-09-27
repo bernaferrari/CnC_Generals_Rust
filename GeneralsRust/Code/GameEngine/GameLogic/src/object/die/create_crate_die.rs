@@ -333,8 +333,13 @@ impl DieModuleInterface for CreateCrateDie {
             return;
         }
 
-        let killer = crate::helpers::TheGameLogic::find_object_by_id(damage_info.input.source_id);
-        if let Some(killer_arc) = killer.as_ref() {
+        if damage_info.input.source_id == object.get_id() {
+            if matches!(object.relationship_to(object), Relationship::Allies) {
+                return;
+            }
+        } else if let Some(killer_arc) =
+            crate::helpers::TheGameLogic::find_object_by_id(damage_info.input.source_id)
+        {
             if let Ok(killer_guard) = killer_arc.read() {
                 if matches!(killer_guard.relationship_to(object), Relationship::Allies) {
                     return;
@@ -360,35 +365,42 @@ impl DieModuleInterface for CreateCrateDie {
                 continue;
             }
 
-            let killer_ref = killer.as_ref().and_then(|k| k.read().ok());
-            if !self.test_killer_type(template, killer_ref.as_deref()) {
+            let killer_is_self = damage_info.input.source_id == object.get_id();
+            let killer_arc = if killer_is_self {
+                None
+            } else {
+                crate::helpers::TheGameLogic::find_object_by_id(damage_info.input.source_id)
+            };
+            let killer_guard = killer_arc.as_ref().and_then(|killer| killer.read().ok());
+            let killer_obj = if killer_is_self {
+                Some(&*object)
+            } else {
+                killer_guard.as_deref()
+            };
+            if !self.test_killer_type(template, killer_obj) {
                 continue;
             }
-            drop(killer_ref);
-
-            let killer_ref = killer.as_ref().and_then(|k| k.read().ok());
-            if !self.test_killer_science(template, killer_ref.as_deref()) {
+            if !self.test_killer_science(template, killer_obj) {
                 continue;
             }
-            drop(killer_ref);
 
             if let Some(crate_id) = self.create_crate(template, object) {
                 if template.is_owned_by_maker {
                     self.set_crate_team(crate_id, object);
                 }
 
-                if let Some(killer_arc) = killer.as_ref() {
-                    if let Ok(killer_guard) = killer_arc.read() {
-                        if let Some(player_arc) = killer_guard.get_controlling_player() {
-                            if let Ok(player_guard) = player_arc.read() {
-                                if player_guard.get_player_type() == PlayerType::Computer {
-                                    if let Some(ai) = killer_guard.get_ai_update_interface() {
-                                        if let Ok(mut ai_guard) = ai.lock() {
-                                            ai_guard.notify_crate(crate_id);
-                                        }
-                                    }
-                                }
-                            }
+                let computer = killer_obj.and_then(|killer| killer.get_controlling_player()).and_then(
+                    |player| {
+                        player
+                            .read()
+                            .ok()
+                            .map(|guard| guard.get_player_type() == PlayerType::Computer)
+                    },
+                );
+                if computer == Some(true) {
+                    if let Some(ai) = killer_obj.and_then(|killer| killer.get_ai_update_interface()) {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.notify_crate(crate_id);
                         }
                     }
                 }

@@ -75,6 +75,21 @@ impl BaseRegenerateUpdate {
             next_call_frame_and_phase: 0,
         })
     }
+    fn reschedule(&mut self, wake_frame: UnsignedInt) {
+        self.next_call_frame_and_phase = wake_frame;
+        if self.object_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return;
+        };
+        if let Ok(guard) = object.read() {
+            guard.reschedule_named_update("BaseRegenerateUpdate", wake_frame);
+        }
+    }
+
 }
 
 impl UpdateModuleInterface for BaseRegenerateUpdate {
@@ -88,10 +103,6 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
             return UpdateSleepTime::Forever;
         };
 
-        if global_data.get_base_regen_health_percent_per_second() <= 0.0 {
-            return UpdateSleepTime::Forever;
-        }
-
         let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -102,7 +113,7 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
         };
         let obj = match object_arc.write() {
             Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::Forever,
+            Err(_) => return UpdateSleepTime::None,
         };
 
         if obj.test_status(crate::common::ObjectStatusTypes::UnderConstruction) {
@@ -119,7 +130,7 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
         };
         let body_guard = match body.lock() {
             Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::Forever,
+            Err(_) => return UpdateSleepTime::None,
         };
 
         if body_guard.get_max_health() == body_guard.get_health() {
@@ -132,8 +143,9 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
                 * global_data.get_base_regen_health_percent_per_second())
             / LOGICFRAMES_PER_SECOND as Real;
         drop(body_guard);
-
         let source_id = obj.get_id();
+        drop(obj);
+
         let mut healing_info = DamageInfo {
             input: DamageInfoInput {
                 damage_type: DamageType::Healing,
@@ -145,9 +157,12 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
             ..Default::default()
         };
         healing_info.sync_from_input();
-
         if let Ok(mut body_guard) = body.lock() {
             let _ = body_guard.attempt_healing(&mut healing_info);
+        }
+        if let Ok(mut obj) = object_arc.write() {
+            obj.sync_effectively_dead_from_body();
+            obj.apply_structure_rubble_pose();
         }
         UpdateSleepTime::Frames(HEAL_RATE)
     }
@@ -175,27 +190,20 @@ impl BehaviorModuleInterface for BaseRegenerateUpdate {
             return Ok(());
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return Ok(());
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(());
-        };
-        let sleep = TheGlobalData::get()
+        }
+        let now = TheGameLogic::get_frame();
+        let wake = TheGlobalData::get()
             .map(|g| {
                 if g.get_base_regen_health_percent_per_second() == 0.0 {
-                    UpdateSleepTime::Forever
+                    UpdateSleepTime::Forever.to_u32()
                 } else {
-                    UpdateSleepTime::None
+                    now.saturating_add(1)
                 }
             })
-            .unwrap_or(UpdateSleepTime::Forever);
-        TheGameLogic::set_wake_frame(obj.get_id(), sleep);
+            .unwrap_or(UpdateSleepTime::Forever.to_u32());
+        self.reschedule(wake);
         Ok(())
     }
 }
@@ -224,39 +232,20 @@ impl DamageModuleInterface for BaseRegenerateUpdate {
         if global_data.get_base_regen_health_percent_per_second() <= 0.0
             || damage_info.input.damage_type == crate::damage::DamageType::Healing
         {
-            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(obj) = obj_arc.read() {
-                    TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
-                }
-            }
+            self.reschedule(UpdateSleepTime::Forever.to_u32());
             return Ok(());
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
-                let delay = global_data.get_base_regen_delay();
-                TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::from_u32(delay));
-            }
-        }
+        let now = TheGameLogic::get_frame();
+        let delay = global_data.get_base_regen_delay();
+        self.reschedule(now.saturating_add(delay));
         Ok(())
     }
 }
 
 impl Snapshotable for BaseRegenerateUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

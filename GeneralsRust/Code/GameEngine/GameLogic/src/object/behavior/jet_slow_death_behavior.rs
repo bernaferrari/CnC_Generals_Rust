@@ -444,15 +444,18 @@ impl JetSlowDeathBehavior {
         let Some(ai) = ai else {
             return;
         };
-        let locomotor = ai.lock().ok().and_then(|ai| ai.get_cur_locomotor());
-        let Some(locomotor) = locomotor else {
+        let mut has_loco = false;
+        if let Ok(ai_guard) = ai.lock() {
+            ai_guard.with_cur_locomotor(&mut |loco| {
+                has_loco = true;
+                let gravity = -1.0;
+                loco.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));
+                loco.set_max_turn_rate(0.0);
+            });
+        }
+        if !has_loco {
             return;
-        };
-        if let Ok(mut locomotor) = locomotor.lock() {
-            let gravity = -1.0;
-            locomotor.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));
-            locomotor.set_max_turn_rate(0.0);
-        };
+        }
     }
 }
 

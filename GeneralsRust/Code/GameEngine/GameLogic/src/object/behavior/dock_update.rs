@@ -13,6 +13,7 @@ use crate::common::{
 };
 use crate::helpers::{FindPositionOptions, TheGameLogic, ThePartitionManager};
 use crate::object::Object;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
@@ -610,9 +611,8 @@ impl DockUpdate {
 
 impl Snapshotable for DockUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
         Ok(())
     }
 
@@ -621,6 +621,7 @@ impl Snapshotable for DockUpdate {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| format!("DockUpdate::xfer version failed: {e}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_coord3d(&mut self.enter_position);
         xfer.xfer_coord3d(&mut self.dock_position);

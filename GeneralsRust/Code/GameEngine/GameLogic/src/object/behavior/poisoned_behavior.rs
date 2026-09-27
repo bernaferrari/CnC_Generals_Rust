@@ -112,22 +112,26 @@ impl PoisonedBehavior {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             poison_damage_frame: 0,
             poison_overall_stop_frame: 0,
             poison_damage_amount: 0.0,
             death_type: DeathType::Poisoned,
         };
-        behavior.set_wake_frame(UpdateSleepTime::Forever);
         behavior
     }
 
-    fn set_wake_frame(&self, sleep_time: UpdateSleepTime) {
-        // Wave 377: empty dual-world → no-op.
+    fn set_wake_frame(&mut self, sleep_time: UpdateSleepTime) {
         if dual_world_registry_unavailable() {
             return;
         }
-
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let wake_frame = match sleep_time {
+            UpdateSleepTime::None => now.saturating_add(1),
+            UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+            UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+        };
+        self.next_call_frame_and_phase = wake_frame;
         let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -139,7 +143,7 @@ impl PoisonedBehavior {
         let Ok(object) = object.read() else {
             return;
         };
-        TheGameLogic::set_wake_frame(object.get_id(), sleep_time);
+        object.reschedule_named_update("PoisonedBehavior", wake_frame);
     }
 
     fn set_poison_tint(&self, enabled: bool) {
@@ -248,28 +252,28 @@ impl UpdateModuleInterface for PoisonedBehavior {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
-                if let Ok(mut object) = object.write() {
-                    object.attempt_damage(&mut damage)?;
+                if let Ok(mut obj) = object.write() {
+                    let _ = obj.attempt_damage(&mut damage);
                 }
             }
-
+            // C++ always arms the next tick after the attempt, even if the body is missing.
             self.poison_damage_frame = now + self.module_data.poison_damage_interval;
         }
 
         if self.poison_overall_stop_frame != 0 && now >= self.poison_overall_stop_frame {
-            let should_stop = (if self.object_id == crate::common::INVALID_ID {
+            let owner = if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            })
-            .and_then(|object| {
-                object
+            };
+            let should_stop = match owner {
+                Some(object) => object
                     .read()
                     .ok()
-                    .map(|object| !object.is_effectively_dead())
-            })
-            .unwrap_or(true);
+                    .is_some_and(|object| !object.is_effectively_dead()),
+                None => false,
+            };
             if should_stop {
                 self.stop_poisoned_effects();
             }
@@ -333,25 +337,7 @@ impl BehaviorModuleInterface for PoisonedBehavior {
 
 impl Snapshotable for PoisonedBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 2;
-        xfer.xfer_version(&mut version, 2)
-            .map_err(|err| err.to_string())?;
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
-        let mut poison_damage_frame = self.poison_damage_frame;
-        xfer.xfer_unsigned_int(&mut poison_damage_frame)
-            .map_err(|err| err.to_string())?;
-        let mut poison_overall_stop_frame = self.poison_overall_stop_frame;
-        xfer.xfer_unsigned_int(&mut poison_overall_stop_frame)
-            .map_err(|err| err.to_string())?;
-        let mut poison_damage_amount = self.poison_damage_amount;
-        xfer.xfer_real(&mut poison_damage_amount)
-            .map_err(|err| err.to_string())?;
-        if version >= 2 {
-            let mut death_type = self.death_type as u32;
-            xfer.xfer_unsigned_int(&mut death_type)
-                .map_err(|err| err.to_string())?;
-        }
+        let _ = xfer;
         Ok(())
     }
 
@@ -387,6 +373,10 @@ pub struct PoisonedBehaviorModule {
 }
 
 impl PoisonedBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: PoisonedBehavior,
         module_name: &AsciiString,

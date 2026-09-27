@@ -35,7 +35,70 @@ impl Object {
         });
     }
 
-    /// Remove all queued body particle system requests for this object.
+    /// C++ ActiveBody::setCorrectDamageState rubble effects. Used when the
+    /// body cannot `try_write` this object because the caller already holds it.
+    pub fn apply_structure_rubble_pose(&mut self) {
+        if !self.is_kind_of(KindOf::Structure) {
+            return;
+        }
+        let is_rubble = self
+            .body
+            .as_ref()
+            .and_then(|body| {
+                body.lock().ok().map(|guard| {
+                    guard.get_damage_state() == crate::common::BodyDamageType::Rubble
+                })
+            })
+            .unwrap_or(false);
+        if !is_rubble {
+            return;
+        }
+        let authored = self.get_template().structure_rubble_height().unwrap_or(0);
+        let rubble_height = if authored > 0 {
+            authored as f32
+        } else {
+            game_engine::common::global_data::read_safe()
+                .map(|g| g.default_structure_rubble_height)
+                .unwrap_or(1.0)
+        };
+        self.set_geometry_info_z(rubble_height);
+        let object_id = self.get_id();
+        let ai_store = crate::ai::the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
+            if let Some(pathfinder) = ai_guard.pathfinder() {
+                if let Ok(mut pf_guard) = pathfinder.write() {
+                    pf_guard.remove_object_from_map(object_id, &[]);
+                    pf_guard.add_object_to_map(object_id, &[], false);
+                }
+            }
+        }
+        self.set_status(crate::common::ObjectStatusMaskType::NO_COLLISIONS, true);
+    }
+
+    /// C++ ActiveBody.cpp:655-701 after doDamageFX. The body cannot lock this object.
+    fn apply_post_damage_object_effects(&mut self, damage_info: &crate::damage::DamageInfo) {
+        let enable_repulsors = crate::ai::the_ai()
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|data| data.enable_repulsors)
+            })
+            .unwrap_or(false);
+        if enable_repulsors && self.is_kind_of(KindOf::CanBeRepulsed) {
+            self.set_status(ObjectStatusTypes::Repulsor.into(), true);
+        }
+        let source_id = damage_info.input.source_id;
+        // with_object would read-lock this object while attempt_damage holds the write.
+        if source_id != crate::common::INVALID_ID && source_id != self.id {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(source_id, |damager| {
+                crate::object::body::active_body::retaliate_nearby_friends(self, damager);
+            });
+        }
+    }
+
     pub fn remove_body_particle_systems(&mut self) {
         PARTICLE_MANAGER.lock().retain(|p| p.object_id != self.id);
     }
@@ -59,9 +122,7 @@ impl Object {
         amount: Real,
         source: Option<&Object>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if amount <= 0.0 {
-            return Ok(());
-        }
+
 
         let source_id = source.map(|obj| obj.get_id()).unwrap_or(INVALID_ID);
         let mut healing_info = DamageInfo {
@@ -81,9 +142,55 @@ impl Object {
                 body_guard.attempt_healing(&mut healing_info)?;
             }
         }
+        self.sync_effectively_dead_from_body();
+        self.apply_structure_rubble_pose();
 
         Ok(())
     }
+    pub fn attempt_healing_from_source_id(
+        &mut self,
+        amount: Real,
+        source_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut healing_info = DamageInfo {
+            input: DamageInfoInput {
+                damage_type: DamageType::Healing,
+                death_type: DeathType::None,
+                source_id,
+                amount,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        healing_info.sync_from_input();
+        if let Some(body) = &self.body {
+            if let Ok(mut body_guard) = body.lock() {
+                body_guard.attempt_healing(&mut healing_info)?;
+            }
+        }
+        self.sync_effectively_dead_from_body();
+        self.apply_structure_rubble_pose();
+        Ok(())
+    }
+
+    pub fn attempt_healing_from_sole_benefactor_id(
+        &mut self,
+        amount: Real,
+        source_id: ObjectID,
+        duration: UnsignedInt,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let now = TheGameLogic::get_frame();
+        if now > self.sole_healing_benefactor_expiration_frame
+            || self.sole_healing_benefactor_id == source_id
+        {
+            self.sole_healing_benefactor_id = source_id;
+            self.sole_healing_benefactor_expiration_frame = now + duration;
+            self.attempt_healing_from_source_id(amount, source_id)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
 
     pub fn attempt_healing_from_sole_benefactor(
         &mut self,
@@ -121,6 +228,7 @@ impl Object {
                     body_guard.attempt_healing(&mut healing_info)?;
                 }
             }
+            self.apply_structure_rubble_pose();
 
             return Ok(true);
         }
@@ -151,31 +259,20 @@ impl Object {
         let _ = self.kill_with_type(damage_type, death_type);
     }
 
-    pub fn notify_subdual_damage(&mut self, _amount: Real) {
-        let Some(body) = self.get_body_module() else {
-            return;
-        };
-        let Ok(body_guard) = body.lock() else {
-            return;
-        };
-        let heal_rate = body_guard.get_subdual_damage_heal_rate();
-
-        if _amount > 0.0 && self.subdual_damage_helper.is_none() {
-            self.subdual_damage_helper = Some(Arc::new(Mutex::new(SubdualDamageHelper::new(
-                self.id,
-                crate::object::helper::SubdualDamageHelperModuleData::new(),
-            ))));
-        }
-
+    pub fn notify_subdual_damage(&mut self, amount: Real) {
         if let Some(helper) = &self.subdual_damage_helper {
+            let heal_rate = self
+                .get_body_module()
+                .and_then(|body| body.lock().ok().map(|guard| guard.get_subdual_damage_heal_rate()))
+                .unwrap_or(0);
             if let Ok(mut helper_guard) = helper.lock() {
-                helper_guard.notify_subdual_damage(_amount, heal_rate);
+                helper_guard.notify_subdual_damage(amount, heal_rate);
             }
         }
 
         if let Some(drawable) = self.get_drawable() {
             if let Ok(mut draw_guard) = drawable.write() {
-                if _amount > 0.0 {
+                if amount > 0.0 {
                     draw_guard.set_tint_status(
                         crate::object::drawable::TintStatus::GAINING_SUBDUAL_DAMAGE,
                     );
@@ -188,20 +285,13 @@ impl Object {
         }
     }
 
-    pub fn do_status_damage(&mut self, _status: ObjectStatusTypes, _duration: Real) {
-        use crate::object::helper::{StatusDamageHelper, StatusDamageHelperModuleData};
 
-        if self.status_damage_helper.is_none() {
-            self.status_damage_helper = Some(Arc::new(Mutex::new(StatusDamageHelper::new(
-                self.id,
-                StatusDamageHelperModuleData::new(),
-            ))));
-        }
-
-        if let Some(helper) = &self.status_damage_helper {
-            if let Ok(mut helper_guard) = helper.lock() {
-                helper_guard.do_status_damage(_status, _duration);
-            }
+    pub fn do_status_damage(&mut self, status: ObjectStatusTypes, duration: Real) {
+        let Some(helper) = &self.status_damage_helper else {
+            return;
+        };
+        if let Ok(mut helper_guard) = helper.lock() {
+            helper_guard.do_status_damage(status, duration);
         }
     }
 
@@ -210,25 +300,14 @@ impl Object {
         status: WeaponBonusConditionType,
         duration: UnsignedInt,
     ) {
-        use crate::object::helper::{TempWeaponBonusHelper, TempWeaponBonusHelperModuleData};
-
+        let Some(helper) = &self.temp_weapon_bonus_helper else {
+            return;
+        };
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-
-        if self.temp_weapon_bonus_helper.is_none() {
-            self.temp_weapon_bonus_helper = Some(Arc::new(Mutex::new(TempWeaponBonusHelper::new(
-                self.id,
-                TempWeaponBonusHelperModuleData::new(),
-            ))));
-        }
-
-        if let Some(helper) = &self.temp_weapon_bonus_helper {
-            if let Ok(mut helper_guard) = helper.lock() {
-                let _ = helper_guard.do_temp_weapon_bonus(status, duration, current_frame);
-            }
+        if let Ok(mut helper_guard) = helper.lock() {
+            let _ = helper_guard.do_temp_weapon_bonus(status, duration, current_frame);
         }
     }
-
-    /// Get the weapon bonus condition flags for this object
     ///
     /// Matches C++ Object::getWeaponBonusCondition() from Object.h line 541
     pub fn get_weapon_bonus_condition(&self) -> WeaponBonusConditionFlags {
@@ -241,7 +320,9 @@ impl Object {
         let old = self.weapon_bonus_condition;
         self.weapon_bonus_condition.set_condition(condition);
         if old != self.weapon_bonus_condition {
-            let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(self.id);
+            let flags = self.weapon_bonus_condition
+                | crate::weapon::weapon_bonus::container_passenger_bonus_flags(self.get_contained_by());
+            let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(flags);
         }
     }
 
@@ -250,7 +331,9 @@ impl Object {
         let old = self.weapon_bonus_condition;
         self.weapon_bonus_condition.clear(condition);
         if old != self.weapon_bonus_condition {
-            let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(self.id);
+            let flags = self.weapon_bonus_condition
+                | crate::weapon::weapon_bonus::container_passenger_bonus_flags(self.get_contained_by());
+            let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(flags);
         }
     }
 
@@ -301,14 +384,15 @@ impl Object {
 
         // if the other player is not a playable side (i.e. they are civilian, observer, whatever)
         // we shouldn't count the kill.
-        if let Some(ref victim_player) = victim_controller {
-            if !victim_player
-                .read()
-                .map(|g| g.is_playable_side())
-                .unwrap_or(false)
-            {
-                return;
-            }
+        let Some(ref victim_player) = victim_controller else {
+            return;
+        };
+        if !victim_player
+            .read()
+            .map(|g| g.is_playable_side())
+            .unwrap_or(false)
+        {
+            return;
         }
 
         // Ignore kills on GUI-ignored objects
@@ -352,28 +436,40 @@ impl Object {
         }
 
         // Now handle experience, if we can gain any
+        let template_trainable = self.get_template().is_trainable();
         let promotion = if let Some(tracker) = &self.experience_tracker {
             if let Ok(mut tracker_guard) = tracker.lock() {
-                if tracker_guard.is_accepting_experience_points() {
+                let accepting =
+                    template_trainable || tracker_guard.has_experience_sink();
+                if accepting {
                     // srj sez: per dustin, no experience (et al) for killing things under construction.
                     if !victim.test_status(ObjectStatusTypes::UnderConstruction) {
-                        if let Some(victim_tracker) = &victim.experience_tracker {
-                            if let Ok(victim_guard) = victim_tracker.lock() {
-                                let victim_cost = victim.get_build_cost();
-                                let killer_is_ally = relationship != Relationship::Enemies;
-                                let experience_value =
-                                    victim_guard.get_experience_value(victim_cost, killer_is_ally);
-                                tracker_guard
-                                    .add_experience_points(experience_value, true, &[])
-                                    .map(|old_level| {
-                                        (old_level, tracker_guard.get_veterancy_level())
-                                    })
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
+                        let level = victim
+                            .experience_tracker
+                            .as_ref()
+                            .and_then(|tracker| tracker.lock().ok())
+                            .map(|guard| guard.get_veterancy_level() as usize)
+                            .unwrap_or(0);
+                        // C++ ExperienceTracker::getExperienceValue: ally → 0,
+                        // else template table at the victim's current level.
+                        // score_the_kill has already required Enemies.
+                        let experience_value =
+                            victim.get_template().get_experience_value(level);
+                        let required = [
+                            self.get_template().get_experience_required(0),
+                            self.get_template().get_experience_required(1),
+                            self.get_template().get_experience_required(2),
+                            self.get_template().get_experience_required(3),
+                        ];
+                        tracker_guard
+                            .add_experience_points_already_accepted(
+                                experience_value,
+                                true,
+                                &required,
+                            )
+                            .map(|old_level| {
+                                (old_level, tracker_guard.get_veterancy_level())
+                            })
                     } else {
                         None
                     }
@@ -415,6 +511,39 @@ impl Object {
             }
         }
 
+        if new_level > old_level && provide_feedback {
+            let mut sound = match new_level {
+                VeterancyLevel::Veteran => self.get_template().get_sound_promoted_veteran(),
+                VeterancyLevel::Elite => self.get_template().get_sound_promoted_elite(),
+                VeterancyLevel::Heroic => self.get_template().get_sound_promoted_hero(),
+                _ => crate::common::audio::AudioEventRts::default(),
+            };
+            sound.set_object_id(self.id as u32);
+            if let Some(audio) = crate::helpers::TheAudio::get() {
+                audio.add_audio_event(&sound);
+            }
+            let selected = crate::player::player_list()
+                .read()
+                .ok()
+                .and_then(|list| {
+                    let index = list.get_local_player_index();
+                    if index < 0 {
+                        return None;
+                    }
+                    let manager = crate::commands::selection::get_selection_manager();
+                    let manager = manager.read().ok()?;
+                    let selection = manager.get_player_selection_ref(index)?;
+                    Some(selection.get_selected_objects())
+                })
+                .unwrap_or_default();
+            let container = self.get_contained_by();
+            if selected.contains(&self.id)
+                || (selected.len() == 1 && container.is_some_and(|id| selected.contains(&id)))
+            {
+                crate::control_bar::mark_ui_dirty();
+            }
+        }
+
         // Notify body module (C++ lines 3018-3020)
         if let Some(body) = &self.body {
             if let Ok(mut body_guard) = body.lock() {
@@ -422,6 +551,7 @@ impl Object {
                     body_guard.on_veterancy_level_changed(old_level, new_level, provide_feedback);
             }
         }
+        self.sync_effectively_dead_from_body();
 
         // Determine if we should hide animation for stealth (C++ lines 3022-3029)
         let hide_animation_for_stealth = !self.is_locally_controlled()
@@ -481,12 +611,17 @@ impl Object {
                 pos.z + self.health_box_offset.z,
             );
 
-            if let Some(tracker) = &self.experience_tracker {
-                if let Ok(mut _tracker_guard) = tracker.lock() {
-                    let _ = crate::experience::PromotionEffectSpawner::spawn_effect(
-                        &crate::experience::PromotionEffect::for_level(new_level),
-                        pos_with_offset,
-                        self.id,
+            if let Some(data) = game_engine::common::ini::get_global_data() {
+                let data = data.read();
+                if !data.level_gain_animation_name.is_empty()
+                    && game_engine::common::ini::get_anim2d_collection().is_some()
+                {
+                    crate::helpers::TheInGameUI::add_world_animation(
+                        &data.level_gain_animation_name,
+                        &pos_with_offset,
+                        true,
+                        data.level_gain_animation_display_time_in_seconds,
+                        data.level_gain_animation_z_rise_per_second,
                     );
                 }
             }
@@ -509,6 +644,19 @@ impl Object {
             old_level,
             new_level
         );
+    }
+
+    pub(crate) fn sync_effectively_dead_from_body(&mut self) {
+        let dead = self
+            .body
+            .as_ref()
+            .and_then(|body| body.lock().ok())
+            .map(|guard| guard.get_health() <= 0.0);
+        if let Some(dead) = dead {
+            if self.is_effectively_dead() != dead {
+                self.set_effectively_dead(dead);
+            }
+        }
     }
 
     pub fn get_experience_tracker(&self) -> Option<Arc<Mutex<ExperienceTracker>>> {
@@ -590,12 +738,24 @@ impl Object {
         let Some(tracker) = &self.experience_tracker else {
             return false;
         };
+        let template_trainable = self.get_template().is_trainable();
+        let required = [
+            self.get_template().get_experience_required(0),
+            self.get_template().get_experience_required(1),
+            self.get_template().get_experience_required(2),
+            self.get_template().get_experience_required(3),
+        ];
         let old_level = match tracker.lock() {
-            Ok(mut tracker_guard) => tracker_guard.add_experience_points(
-                experience_gain,
-                can_scale_for_bonus,
-                &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-            ),
+            Ok(mut tracker_guard) => {
+                if !template_trainable && !tracker_guard.has_experience_sink() {
+                    return false;
+                }
+                tracker_guard.add_experience_points_already_accepted(
+                    experience_gain,
+                    can_scale_for_bonus,
+                    &required,
+                )
+            }
             Err(_) => return false,
         };
         let Some(old_level) = old_level else {
@@ -666,14 +826,29 @@ impl Object {
                     return Err(ObjectError::WeaponNotReady);
                 }
 
-                let reloaded = weapon
-                    .fire_weapon_at_position_with_bonus_and_reload_flag(
-                        self.id,
-                        pos,
-                        source_bonus_flags,
-                        container_bonus_flags,
-                    )
-                    .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
+                let source_pos = *self.get_position();
+                weapon.set_caller_held_source(self.id, source_pos);
+                weapon.set_caller_veterancy(self.get_veterancy_level());
+                weapon.set_caller_team(self.get_team());
+                if let Some(player) = self.get_controlling_player() {
+                    weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
+                    if let Ok(guard) = player.try_read() {
+                        weapon.set_caller_player_mask(guard.get_player_mask());
+                    }
+                }
+                if let Some(drawable) = self.get_drawable() {
+                    if let Ok(draw) = drawable.try_read() {
+                        weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
+                    }
+                }
+                let reloaded = weapon.fire_weapon_at_position_with_bonus_and_reload_flag(
+                    self.id,
+                    pos,
+                    source_bonus_flags,
+                    container_bonus_flags,
+                );
+                weapon.clear_caller_held_source();
+                let reloaded = reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
                 // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
                 // that is done in AIUpdate, not in fireCurrentWeapon.
@@ -687,7 +862,9 @@ impl Object {
 
             Ok(name)
         })();
+        weapon_set.apply_pending_shared_fire();
         self.weapon_set = weapon_set;
+        self.record_pending_mine_cleared();
         let weapon_name = weapon_result?;
 
         self.friend_set_undetected_defector(false);
@@ -731,21 +908,38 @@ impl Object {
                 return Err(ObjectError::WeaponNotReady);
             }
 
-            let reloaded = weapon
-                .fire_weapon_at_position_with_bonus_and_reload_flag(
-                    self.id,
-                    pos,
-                    source_bonus_flags,
-                    container_bonus_flags,
-                )
-                .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
+            let source_pos = *self.get_position();
+            weapon.set_caller_held_source(self.id, source_pos);
+            weapon.set_caller_veterancy(self.get_veterancy_level());
+            weapon.set_caller_team(self.get_team());
+            if let Some(player) = self.get_controlling_player() {
+                weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
+                if let Ok(guard) = player.try_read() {
+                    weapon.set_caller_player_mask(guard.get_player_mask());
+                }
+            }
+            if let Some(drawable) = self.get_drawable() {
+                if let Ok(draw) = drawable.try_read() {
+                    weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
+                }
+            }
+            let reloaded = weapon.fire_weapon_at_position_with_bonus_and_reload_flag(
+                self.id,
+                pos,
+                source_bonus_flags,
+                container_bonus_flags,
+            );
+            weapon.clear_caller_held_source();
+            let reloaded = reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
             self.notify_firing_tracker_shot_fired(weapon, INVALID_ID);
 
             let name = weapon.get_name().to_string();
             Ok((name, reloaded))
         })();
+        weapon_set.apply_pending_shared_fire();
         self.weapon_set = weapon_set;
+        self.record_pending_mine_cleared();
         let (weapon_name, reloaded) = weapon_result?;
 
         if reloaded {
@@ -757,14 +951,108 @@ impl Object {
         self.fire_weapon_fired_event(&weapon_name, None);
         Ok(())
     }
+    /// C++ linked turrets call `Weapon::fireWeapon` directly. That is not
+    /// `fireCurrentWeapon`: no defector clear, no fired-event, and the tracker
+    /// runs even when the shot is refused after leech/assist.
+    pub fn fire_linked_turret_slot_at_position(&mut self, slot: WeaponSlotType, pos: &Coord3D) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
+        let mut weapon_set = std::mem::take(&mut self.weapon_set);
+        let reloaded = if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(slot) {
+            let source_pos = *self.get_position();
+            let mut flags = crate::weapon::helpers::map_common_bonus_flags(
+                self.get_weapon_bonus_condition(),
+            );
+            let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+                self.get_contained_by(),
+            );
+            flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
+            weapon.set_caller_held_source(self.id, source_pos);
+            weapon.set_caller_veterancy(self.get_veterancy_level());
+            weapon.set_caller_team(self.get_team());
+            if let Some(player) = self.get_controlling_player() {
+                weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
+                if let Ok(guard) = player.try_read() {
+                    weapon.set_caller_player_mask(guard.get_player_mask());
+                }
+            }
+            if let Some(drawable) = self.get_drawable() {
+                if let Ok(draw) = drawable.try_read() {
+                    weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
+                }
+            }
+            match weapon.fire_weapon_at_position_no_range_check(self.id, pos, flags) {
+                Ok(reloaded) => {
+                    weapon.clear_caller_held_source();
+                    self.notify_firing_tracker_shot_fired(weapon, INVALID_ID);
+                    reloaded
+                }
+                Err(_) => {
+                    weapon.clear_caller_held_source();
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        weapon_set.apply_pending_shared_fire();
+        self.weapon_set = weapon_set;
+        self.record_pending_mine_cleared();
+        if reloaded {
+            self.weapon_set
+                .release_weapon_lock(WeaponLockType::LockedTemporarily);
+        }
+    }
+
+
+    fn record_pending_mine_cleared(&mut self) {
+        if let Some(mut info) = self.weapon_set.take_pending_self_damage() {
+            let _ = self.attempt_damage(&mut info);
+        }
+        if !self.weapon_set.take_pending_mine_cleared() {
+            return;
+        }
+        let Some(player) = self.get_controlling_player() else {
+            return;
+        };
+        if let Ok(mut player_guard) = player.write() {
+            player_guard.get_academy_stats_mut().record_mine_cleared();
+        }
+    }
 
     pub fn pre_fire_current_weapon(&mut self, victim: Option<ObjectID>) {
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
-        if let Some(weapon) = weapon_set.get_current_weapon_mut() {
-            let victim_id = victim.unwrap_or(INVALID_ID);
-            let _ = weapon.pre_fire_weapon(self.id, victim_id);
-        }
+        let started = if let Some(weapon) = weapon_set.get_current_weapon_mut() {
+            let next_frame = TheGameLogic::get_frame().saturating_add(1);
+            if next_frame >= weapon.get_possible_next_shot_frame() {
+                let victim_id = victim.unwrap_or(INVALID_ID);
+                let consecutive = self.get_num_consecutive_shots_fired_at_target(victim_id);
+                let mut flags = crate::weapon::helpers::map_common_bonus_flags(
+                    self.get_weapon_bonus_condition(),
+                );
+                let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+                    self.get_contained_by(),
+                );
+                flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
+                let _ = weapon.pre_fire_weapon_with_consecutive(
+                    self.id,
+                    victim_id,
+                    Some(consecutive),
+                    Some(flags),
+                );
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
         self.weapon_set = weapon_set;
+        if started {
+            self.friend_set_undetected_defector(false);
+        }
     }
 
     pub fn set_firing_condition_for_current_weapon(&mut self) {
@@ -782,32 +1070,49 @@ impl Object {
         self.weapon_set = weapon_set;
     }
 
+
     pub(super) fn notify_firing_tracker_shot_fired(
         &mut self,
         weapon: &crate::weapon::Weapon,
         victim_id: ObjectID,
     ) {
         let mut handled = false;
-        for entry in &self.update_module_handles {
+        let handles = self.update_module_handles.clone();
+        for entry in handles {
+            let mut used = false;
             entry.with_module(|module| {
                 if let Some(tracker_module) = module_behavior_utility_kind(module)
                     .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
                 {
-                    tracker_module.behavior_mut().shot_fired(weapon, victim_id);
-                    handled = true;
+                    tracker_module
+                        .behavior_mut()
+                        .shot_fired_with_owner(self, weapon, victim_id);
+                    used = true;
                 }
             });
-            if handled {
+            if used {
+                handled = true;
                 break;
             }
         }
 
         if !handled {
-            if let Some(tracker) = &self.firing_tracker {
+            if let Some(tracker) = self.firing_tracker.clone() {
                 if let Ok(mut tracker_guard) = tracker.lock() {
-                    tracker_guard.shot_fired(weapon, victim_id);
+                    tracker_guard.shot_fired_with_owner(self, weapon, victim_id);
                 }
             }
+        }
+    }
+
+    /// C++ `AIAttackFireWeaponState` linked-turret position shot (`AIStates.cpp:5268-5280`).
+    pub fn fire_linked_turrets_at_position(&mut self, position: &Coord3D) {
+        for slot in [
+            crate::weapon::WeaponSlotType::Primary,
+            crate::weapon::WeaponSlotType::Secondary,
+            crate::weapon::WeaponSlotType::Tertiary,
+        ] {
+            self.fire_linked_turret_slot_at_position(slot, position);
         }
     }
 
@@ -1026,7 +1331,10 @@ impl Object {
     }
 
     pub fn reload_all_ammo(&mut self, now: bool) -> GameLogicResult<()> {
-        self.weapon_set.reload_all_ammo(self.id, now)
+        let flags = self.weapon_bonus_condition
+            | crate::weapon::weapon_bonus::container_passenger_bonus_flags(self.get_contained_by());
+        self.weapon_set
+            .reload_all_ammo_with_flags(self.id, flags, now)
     }
 
     pub fn release_weapon_lock(&mut self, lock_type: WeaponLockType) {
@@ -1204,7 +1512,11 @@ impl Object {
 
     /// Set weapon lock state for a specific weapon slot
     /// C++ Reference: Object.cpp - weapon locking mechanism
-    pub fn set_weapon_lock(&mut self, weapon_slot: WeaponSlotType, lock_type: WeaponLockType) {
+    pub fn set_weapon_lock(
+        &mut self,
+        weapon_slot: WeaponSlotType,
+        lock_type: WeaponLockType,
+    ) -> bool {
         let locked = self.weapon_set.set_weapon_lock(weapon_slot, lock_type);
         if !locked {
             log::debug!(
@@ -1214,6 +1526,7 @@ impl Object {
                 weapon_slot
             );
         }
+        locked
     }
     //=========================================================================
     // CRITICAL OBJECT SYSTEM METHODS
@@ -1326,18 +1639,15 @@ impl Object {
     ///
     /// # Returns
     /// * `Ok(())` - Healed successfully
-    /// * `Err(ObjectError::AlreadyDead)` - Cannot heal dead objects
     /// * `Err(ObjectError::NoBodyModule)` - Object has no body module
     ///
     /// # Behavior
     /// - Sets health to max_health
     /// - Fires healing event
-    /// - Returns error if object is already dead
+    /// - Dead non-bridges are ignored by the body; dead bridges still heal
     pub fn heal_completely(&mut self) -> Result<(), ObjectError> {
-        // Cannot heal dead objects
-        if self.is_effectively_dead() {
-            return Err(ObjectError::AlreadyDead);
-        }
+        // C++ Object::healCompletely is attemptHealing(HUGE_DAMAGE_AMOUNT, NULL).
+        // The body returns for a dead non-bridge and still heals a dead bridge.
 
         // Use attemptHealing with huge amount (legacy approach)
         let _max_health = self.get_max_health();
@@ -1361,6 +1671,7 @@ impl Object {
         } else {
             return Err(ObjectError::NoBodyModule);
         }
+        self.apply_structure_rubble_pose();
 
         // Fire healing event (if health changed)
         if healing_info.output.actual_damage_dealt > 0.0 {
@@ -1408,10 +1719,8 @@ impl Object {
             return Err(ObjectError::AlreadyDead);
         }
 
-        // Validate damage amount
-        if damage_info.input.amount < 0.0 && damage_info.input.damage_type != DamageType::Healing {
-            return Err(ObjectError::InvalidDamage(damage_info.input.amount));
-        }
+        // C++ does not reject a negative non-healing amount here. Armor clamps
+        // it to 0, except unresistable, and doDamageFX still runs.
 
         // Delegate to body module for damage processing
         if let Some(body) = &self.body {
@@ -1420,7 +1729,15 @@ impl Object {
             body_guard
                 .attempt_damage(damage_info)
                 .map_err(|e| ObjectError::BodyModuleError(e.to_string()))?;
+            drop(body_guard);
         }
+        self.apply_structure_rubble_pose();
+        // C++ onDie runs before the repulsor. FX already ran inside the body
+        // because direct body callers never reach this function.
+        if self.get_health() <= 0.0 {
+            self.handle_death(Some(damage_info));
+        }
+        self.apply_post_damage_object_effects(damage_info);
 
         if let Some(contain) = &self.contain {
             if let Ok(mut contain_guard) = contain.lock() {
@@ -1430,45 +1747,42 @@ impl Object {
             }
         }
 
-        // Process shockwave forces (C++ lines 1824-1860)
+        // Process shockwave forces (C++ Object.cpp:1800-1835).
+        // The impulse depends only on DamageInfo input. Copy it out while no
+        // body guard is live, then lock physics. Physics update holds this
+        // mutex and can lock the body; holding body across this lock deadlocks.
         if damage_info.input.shock_wave_amount > 0.0 && damage_info.input.shock_wave_radius > 0.0 {
             // Check if object is eligible for shockwave (not airborne, not projectile)
             if self.shockwave_applies() {
-                if let Some(physics) = &self.physics {
-                    let mut physics_guard =
-                        physics.lock().map_err(|_| ObjectError::LockPoisoned)?;
-                    let mut stunned = false;
+                let shock_wave_length = damage_info.input.shock_wave_vector.length();
+                let distance_from_center =
+                    (shock_wave_length / damage_info.input.shock_wave_radius).min(1.0);
+                let distance_taper =
+                    distance_from_center * (1.0 - damage_info.input.shock_wave_taper_off);
+                let shock_taper_mult = 1.0 - distance_taper;
 
-                    // Calculate shockwave taper based on distance
-                    let shock_wave_length = damage_info.input.shock_wave_vector.length();
-                    if shock_wave_length > 0.0 {
-                        let distance_from_center =
-                            (shock_wave_length / damage_info.input.shock_wave_radius).min(1.0);
-                        let distance_taper =
-                            distance_from_center * (1.0 - damage_info.input.shock_wave_taper_off);
-                        let shock_taper_mult = 1.0 - distance_taper;
+                let mut shock_wave_force = damage_info.input.shock_wave_vector;
+                let _ = shock_wave_force.normalize();
+                shock_wave_force *= damage_info.input.shock_wave_amount * shock_taper_mult;
+                shock_wave_force.z = shock_wave_force.length();
 
-                        // Calculate shockwave force vector
-                        let mut shock_wave_force = damage_info.input.shock_wave_vector;
-                        let _ = shock_wave_force.normalize();
-                        shock_wave_force *= damage_info.input.shock_wave_amount * shock_taper_mult;
-
-                        // Apply upward force equal to lateral force for dramatic effect
-                        shock_wave_force.z = shock_wave_force.length();
-
-                        // Apply shock through physics behavior
+                // Clone the Arc so the physics lock ends before the model-condition
+                // write. Do not borrow self.physics across set_shockwave_stunned_flailing.
+                let physics = self.physics.clone();
+                let shocked = if let Some(physics) = physics {
+                    if let Ok(mut physics_guard) = physics.lock() {
                         physics_guard.apply_shock(&shock_wave_force);
                         physics_guard.apply_random_rotation();
                         physics_guard.set_stunned(true);
-                        stunned = true;
+                        true
+                    } else {
+                        false
                     }
-
-                    drop(physics_guard);
-
-                    // Set stunned model condition
-                    if stunned {
-                        self.set_shockwave_stunned_flailing();
-                    }
+                } else {
+                    false
+                };
+                if shocked {
+                    self.set_shockwave_stunned_flailing();
                 }
             }
         }
@@ -1615,13 +1929,22 @@ impl Object {
     /// - Notifies firing tracker for statistics
     /// - Releases temporary weapon locks if reloaded
     pub fn fire_current_weapon_at_target(&mut self, target: &Object) -> Result<(), ObjectError> {
+        self.fire_current_weapon_at_target_id(target.get_id())
+    }
+
+    pub fn fire_current_weapon_at_target_id(
+        &mut self,
+        target_id: ObjectID,
+    ) -> Result<(), ObjectError> {
         // Wave 264: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
-        // Check if target is valid
-        if target.is_destroyed() {
+        let destroyed = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            .and_then(|arc| arc.read().ok().map(|guard| guard.is_destroyed()))
+            .unwrap_or(true);
+        if destroyed {
             return Err(ObjectError::TargetInvalid);
         }
 
@@ -1655,29 +1978,39 @@ impl Object {
                 let weapon = weapon_set
                     .get_current_weapon_mut()
                     .ok_or(ObjectError::NoWeapon)?;
-
-                // Check if weapon is ready
                 if weapon.get_status() != WeaponStatus::ReadyToFire {
                     return Err(ObjectError::WeaponNotReady);
                 }
-
-                // Fire the weapon with full bonus integration (matches C++ Object.cpp fireCurrentWeapon)
-                // This passes source object's bonus flags (veterancy, horde, nationalism, etc.)
-                // and container bonus flags if in transport
-                let reloaded = weapon
-                    .fire_weapon_with_bonus_and_reload_flag(
-                        self.id,
-                        target.get_id(),
-                        current_frame,
-                        source_bonus_flags,
-                        container_bonus_flags,
-                    )
-                    .map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
+                let source_pos = *self.get_position();
+                weapon.set_caller_held_source(self.id, source_pos);
+                weapon.set_caller_veterancy(self.get_veterancy_level());
+                weapon.set_caller_team(self.get_team());
+                if let Some(player) = self.get_controlling_player() {
+                    weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
+                    if let Ok(guard) = player.try_read() {
+                        weapon.set_caller_player_mask(guard.get_player_mask());
+                    }
+                }
+                if let Some(drawable) = self.get_drawable() {
+                    if let Ok(draw) = drawable.try_read() {
+                        weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
+                    }
+                }
+                let reloaded = weapon.fire_weapon_with_bonus_and_reload_flag(
+                    self.id,
+                    target_id,
+                    current_frame,
+                    source_bonus_flags,
+                    container_bonus_flags,
+                );
+                weapon.clear_caller_held_source();
+                let reloaded =
+                    reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
                 // Notify firing tracker for statistics
                 // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
                 // that is done in AIUpdate, not in fireCurrentWeapon.
-                self.notify_firing_tracker_shot_fired(weapon, target.get_id());
+                self.notify_firing_tracker_shot_fired(weapon, target_id);
                 (weapon.get_name().to_string(), reloaded)
             };
 
@@ -1688,19 +2021,21 @@ impl Object {
             Ok(name)
         })();
         // Restore the weapon set before propagating results.
+        weapon_set.apply_pending_shared_fire();
         self.weapon_set = weapon_set;
+        self.record_pending_mine_cleared();
         let weapon_name = weapon_result?;
 
         // Clear undetected defector flag - firing reveals us
         self.friend_set_undetected_defector(false);
 
         // Fire weapon fired event
-        self.fire_weapon_fired_event(&weapon_name, Some(target.get_id()));
+        self.fire_weapon_fired_event(&weapon_name, Some(target_id));
 
         log::trace!(
             "Object {} fired weapon at object {}",
             self.id,
-            target.get_id()
+            target_id
         );
 
         Ok(())
@@ -1899,7 +2234,7 @@ impl Object {
     // C++ Reference: Object.cpp getMostPercentReadyToFireAnyWeapon, etc.
     // ========================================================================
 
-    pub fn get_most_percent_ready_to_fire_any_weapon(&self) -> f32 {
+    pub fn get_most_percent_ready_to_fire_any_weapon(&self) -> u32 {
         self.weapon_set.get_most_percent_ready_to_fire_any_weapon()
     }
 
@@ -1969,6 +2304,23 @@ impl Object {
     }
 
     pub fn get_num_consecutive_shots_fired_at_target(&self, victim_id: ObjectID) -> i32 {
+        for entry in &self.update_module_handles {
+            let mut count: Option<i32> = None;
+            entry.with_module(|module| {
+                if let Some(tracker_module) = module_behavior_utility_kind(module)
+                    .and_then(BehaviorUtilityModuleKindMut::into_firing_tracker)
+                {
+                    count = Some(
+                        tracker_module
+                            .behavior()
+                            .get_num_consecutive_shots_at_victim(victim_id),
+                    );
+                }
+            });
+            if let Some(count) = count {
+                return count;
+            }
+        }
         self.firing_tracker
             .as_ref()
             .and_then(|t| t.lock().ok())

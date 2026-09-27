@@ -32,6 +32,8 @@ pub struct Player {
 
     // Experience and ranking
     pub(super) rank_level: Int,
+    pub(super) level_up: Int,
+    pub(super) level_down: Int,
     pub(super) skill_points: Int,
     pub(super) science_purchase_points: Int,
     pub(super) skill_points_modifier: Real,
@@ -117,7 +119,7 @@ pub struct Player {
 impl Player {
     /// Create a new player with the given index
     pub fn new(player_index: PlayerIndex) -> Self {
-        Self {
+        let mut player = Self {
             player_index,
             player_name_key: 0,
             player_display_name: String::new(),
@@ -141,7 +143,9 @@ impl Player {
             upgrades_in_progress: UpgradeMaskType::none(),
             upgrades_completed: UpgradeMaskType::none(),
 
-            rank_level: 1,
+            rank_level: 0,
+            level_up: Int::MAX,
+            level_down: 0,
             skill_points: 0,
             science_purchase_points: 0,
             skill_points_modifier: 1.0,
@@ -182,7 +186,7 @@ impl Player {
 
             cash_bounty_percent: 0.0,
 
-            squads: Default::default(),
+            squads: std::array::from_fn(|_| Some(Squad::new())),
             current_selection: None,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
@@ -204,7 +208,9 @@ impl Player {
 
             is_skirmish_ai: false,
             current_enemy_player_index: None,
-        }
+        };
+        player.reset_rank_impl();
+        player
     }
 
     /// Get the player ID (player index)
@@ -773,13 +779,6 @@ impl Player {
             }
         }
 
-        if self.player_team_prototypes.is_empty() {
-            if let Some(team) = &self.default_team {
-                if let Ok(mut team_guard) = team.write() {
-                    team_guard.heal_all_objects();
-                }
-            }
-        }
     }
 
     // Getters for core properties

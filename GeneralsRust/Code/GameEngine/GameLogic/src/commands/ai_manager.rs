@@ -115,8 +115,17 @@ impl Default for AIManagerImpl {
     }
 }
 
+fn release_temporary_weapon_locks(objects: &[ObjectID]) {
+    for &object_id in objects {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            obj.release_weapon_lock(crate::weapon::WeaponLockType::LockedTemporarily);
+        });
+    }
+}
+
 impl AIManager for AIManagerImpl {
     fn issue_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        release_temporary_weapon_locks(objects);
         let mut any_ok = false;
         let mut manager = get_unit_queue_manager();
 
@@ -140,6 +149,7 @@ impl AIManager for AIManagerImpl {
     }
 
     fn issue_waypoint_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        release_temporary_weapon_locks(objects);
         let mut any_ok = false;
         let mut manager = get_unit_queue_manager();
 
@@ -167,6 +177,8 @@ impl AIManager for AIManagerImpl {
         let mut any_ok = false;
         let mut manager = get_unit_queue_manager();
 
+        release_temporary_weapon_locks(objects);
+
         for &object_id in objects {
             let cmd = UnitCommand::attack_move_to_position(destination, self.cmd_source);
             if manager
@@ -186,6 +198,7 @@ impl AIManager for AIManagerImpl {
     }
 
     fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool {
+        release_temporary_weapon_locks(attackers);
         let mut any_ok = false;
         let mut manager = get_unit_queue_manager();
 

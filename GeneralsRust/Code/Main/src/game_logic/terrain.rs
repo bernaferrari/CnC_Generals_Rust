@@ -160,6 +160,32 @@ impl TerrainData {
         }
     }
 
+    /// Flat dry map. Tests attach a water polygon without a retail heightmap.
+    pub fn flat(world_min: Vec3, world_max: Vec3) -> Self {
+        #[cfg(feature = "game_client")]
+        {
+            let heightmap = HeightMap::new(2, 2, 0.0, 10.0);
+            return Self::from_heightmap(heightmap, world_min, world_max, 0);
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            Self {
+                world_min,
+                world_max,
+                scale_x: 10.0,
+                scale_z: 10.0,
+                border_size: 0,
+                water_plane_y: None,
+                water_polygons: Vec::new(),
+            }
+        }
+    }
+
+    pub fn add_water_polygon(&mut self, points: Vec<(i32, i32)>, height: f32) {
+        self.water_polygons
+            .push(HostWaterPolygon { points, height });
+    }
+
     pub fn world_bounds(&self) -> (Vec3, Vec3) {
         (self.world_min, self.world_max)
     }

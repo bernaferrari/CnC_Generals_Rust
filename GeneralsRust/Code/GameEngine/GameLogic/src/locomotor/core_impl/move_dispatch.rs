@@ -18,6 +18,9 @@ impl Locomotor {
         mut object: Option<&mut crate::object::Object>,
     ) -> (Coord3D, Real, Real) {
         self.set_flag(FLAG_MAINTAIN_POS_VALID, false);
+        // No object: stand in for last frame's OBJECT_STATUS_BRAKING.
+        // Later IS_BRAKING writes in this call must not move the cheat gate.
+        let locomotor_was_braking = self.is_braking();
         self.wheeled_turn_factor = 1.0;
 
 
@@ -143,7 +146,7 @@ impl Locomotor {
         let was_braking = object
             .as_ref()
             .map(|obj| obj.test_status(crate::common::ObjectStatusTypes::Braking))
-            .unwrap_or(self.is_braking());
+            .unwrap_or(locomotor_was_braking);
 
         if let Some(physics) = physics.as_mut() {
             physics.set_turning(0);
@@ -156,6 +159,10 @@ impl Locomotor {
             .unwrap_or(false);
         let allow_2d = self.template.allow_motive_force_while_airborne || !treat_as_airborne;
 
+        let pivot_radius = object
+            .as_ref()
+            .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
+            .unwrap_or(0.0);
         let (mut pos, mut angle, mut speed) = if allow_2d {
             self.dispatch_appearance_move(
                 current,
@@ -166,6 +173,8 @@ impl Locomotor {
                 desired_speed,
                 condition,
                 delta_time,
+                object_layer,
+                pivot_radius,
             )
         } else {
             (current, current_angle, current_speed)
@@ -213,10 +222,38 @@ impl Locomotor {
         }
 
         if was_braking {
-            let cheat_speed = physics
+            let projectile = object
                 .as_ref()
-                .map(|p| p.get_forward_speed_2d())
-                .unwrap_or(speed);
+                .map(|obj| obj.is_kind_of(crate::common::KindOf::Projectile))
+                .unwrap_or(false);
+            if projectile {
+                if let Some(object) = object.as_mut() {
+                    object.set_status(
+                        crate::common::ObjectStatusMaskType::from_status(
+                            crate::common::ObjectStatusTypes::Braking,
+                        ),
+                        true,
+                    );
+                }
+            }
+            // Projectiles: getVelocityMagnitude (Locomotor.cpp:1103).
+            // Ground: |getForwardSpeed2D|. Physics vel is per frame.
+            // No physics: integrate_motive speed is per second.
+            let fallback = speed * delta_time.max(0.0);
+            let cheat_speed = if projectile {
+                physics
+                    .as_ref()
+                    .map(|p| {
+                        let v = p.get_velocity();
+                        (v.x * v.x + v.y * v.y + v.z * v.z).sqrt()
+                    })
+                    .unwrap_or(fallback)
+            } else {
+                physics
+                    .as_ref()
+                    .map(|p| p.get_forward_speed_2d().abs())
+                    .unwrap_or(fallback)
+            };
             let cheat = self.braking_cheat_step(
                 current,
                 target,
@@ -225,10 +262,7 @@ impl Locomotor {
                 dz,
                 dist_2d,
                 cheat_speed,
-                object
-                    .as_ref()
-                    .map(|obj| obj.is_kind_of(crate::common::KindOf::Projectile))
-                    .unwrap_or(false),
+                projectile,
             );
             pos = cheat;
         }
@@ -246,6 +280,8 @@ impl Locomotor {
         desired_speed: Real,
         condition: BodyDamageType,
         delta_time: Real,
+        layer: crate::common::PathfindLayerEnum,
+        pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
         self.last_motive_accel = Coord3D::new(0.0, 0.0, 0.0);
         let current_frame = TheGameLogic::get_frame();
@@ -259,6 +295,7 @@ impl Locomotor {
                     desired_speed,
                     current_speed,
                     condition,
+                    pivot_radius,
                 );
                 (ang, acc, false)
             }
@@ -273,6 +310,8 @@ impl Locomotor {
                     condition,
                     self.close_enough_dist,
                     current_frame,
+                    layer,
+                    pivot_radius,
                 );
                 (ang, acc, back)
             }
@@ -285,6 +324,7 @@ impl Locomotor {
                     desired_speed,
                     current_speed,
                     condition,
+                    pivot_radius,
                 );
                 (ang, acc, false)
             }
@@ -297,6 +337,7 @@ impl Locomotor {
                     desired_speed,
                     current_speed,
                     condition,
+                    pivot_radius,
                 );
                 (ang, acc, false)
             }
@@ -345,6 +386,7 @@ impl Locomotor {
                     desired_speed,
                     current_speed,
                     condition,
+                    pivot_radius,
                 );
                 (ang, acc, false)
             }

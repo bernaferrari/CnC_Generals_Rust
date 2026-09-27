@@ -758,34 +758,31 @@ impl JetStateMachine {
                 jet_ai.set_allow_air_loco(true);
                 let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 if self.needs_runway {
-                    if let Some(loco) = ai.get_cur_locomotor() {
-                        if let Ok(mut loco_guard) = loco.lock() {
-                            loco_guard.set_max_lift(99999.0);
-                            let max_speed = loco_guard.get_max_speed_for_condition(
-                                crate::locomotor::core::BodyDamageType::Pristine,
-                            );
-                            self.takeoff_max_lift = loco_guard
-                                .get_max_lift(crate::locomotor::core::BodyDamageType::Pristine);
-                            self.takeoff_max_speed = max_speed;
-                            if landing {
-                                let min_speed = loco_guard.template.min_speed;
-                                loco_guard.set_max_speed(min_speed);
-                            } else {
-                                loco_guard.set_max_lift(0.0);
-                            }
-                            loco_guard.set_precise_z_pos(true);
-                            loco_guard.set_ultra_accurate(true);
+                    ai.with_cur_locomotor(&mut |loco| {
+                        loco.set_max_lift(99999.0);
+                        let max_speed = loco.get_max_speed_for_condition(
+                            crate::locomotor::core::BodyDamageType::Pristine,
+                        );
+                        self.takeoff_max_lift =
+                            loco.get_max_lift(crate::locomotor::core::BodyDamageType::Pristine);
+                        self.takeoff_max_speed = max_speed;
+                        if landing {
+                            let min_speed = loco.template.min_speed;
+                            loco.set_max_speed(min_speed);
+                        } else {
+                            loco.set_max_lift(0.0);
                         }
-                    }
+                        loco.set_precise_z_pos(true);
+                        loco.set_ultra_accurate(true);
+                    });
                     self.issue_jet_flight_path(ai, jet_ai, landing);
                 } else {
                     // C++ HeliTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:961-1024)
-                    if let Some(loco) = ai.get_cur_locomotor() {
-                        if let Ok(mut loco_guard) = loco.lock() {
-                            loco_guard.set_precise_z_pos(true);
-                            loco_guard.set_ultra_accurate(true);
-                        }
-                    }
+                    ai.with_cur_locomotor(&mut |loco| {
+                        loco.set_precise_z_pos(true);
+                        loco.set_ultra_accurate(true);
+                    });
+
                     self.enter_heli_takeoff_or_landing(ai, jet_ai, landing);
                 }
                 let producer = jet_ai.producer_object();
@@ -889,13 +886,11 @@ impl JetStateMachine {
             | JetAIStateType::TaxiFromLanding
             | JetAIStateType::TaxiFromHangar => {
                 unregister_taxi_to_takeoff(jet_ai.object_id);
-                if let Some(loco) = ai.get_cur_locomotor() {
-                    if let Ok(mut guard) = loco.lock() {
-                        guard.set_precise_z_pos(false);
-                        guard.set_ultra_accurate(false);
-                        guard.set_allow_invalid_position(false);
-                    }
-                }
+                ai.with_cur_locomotor(&mut |loco| {
+                    loco.set_precise_z_pos(false);
+                    loco.set_ultra_accurate(false);
+                    loco.set_allow_invalid_position(false);
+                });
                 jet_ai.set_takeoff_in_progress(false);
                 jet_ai.set_landing_in_progress(false);
                 jet_ai.set_taxi_in_progress(false);
@@ -913,22 +908,25 @@ impl JetStateMachine {
                         if self.needs_runway {
                             jet_ai.friend_enable_afterburners(&mut guard, false);
                         }
-                        if let Some(loco) = ai.get_cur_locomotor() {
-                            if let Ok(mut loco_guard) = loco.lock() {
-                                loco_guard.set_precise_z_pos(false);
-                                loco_guard.set_ultra_accurate(false);
-                                if !guard.is_effectively_dead() {
-                                    if self.needs_runway && self.takeoff_max_lift > 0.0 {
-                                        loco_guard.set_max_lift(self.takeoff_max_lift);
-                                    } else if !self.needs_runway {
-                                        loco_guard.set_max_lift(99999.0);
-                                    }
-                                }
-                                if self.needs_runway && self.takeoff_max_speed > 0.0 {
-                                    loco_guard.set_max_speed(self.takeoff_max_speed);
+                        let dead = guard.is_effectively_dead();
+                        drop(guard);
+                        let needs_runway = self.needs_runway;
+                        let takeoff_max_lift = self.takeoff_max_lift;
+                        let takeoff_max_speed = self.takeoff_max_speed;
+                        ai.with_cur_locomotor(&mut |loco| {
+                            loco.set_precise_z_pos(false);
+                            loco.set_ultra_accurate(false);
+                            if !dead {
+                                if needs_runway && takeoff_max_lift > 0.0 {
+                                    loco.set_max_lift(takeoff_max_lift);
+                                } else if !needs_runway {
+                                    loco.set_max_lift(99999.0);
                                 }
                             }
-                        }
+                            if needs_runway && takeoff_max_speed > 0.0 {
+                                loco.set_max_speed(takeoff_max_speed);
+                            }
+                        });
                     }
                 }
                 let _ = ai.ignore_obstacle(None);
@@ -1028,9 +1026,11 @@ impl JetStateMachine {
                     jet_ai.set_taxi_in_progress(true);
                     jet_ai.set_allow_air_loco(false);
                     let _ = ai.choose_locomotor_set(LocomotorSetType::Taxiing);
-                    let _ = ai.set_allow_invalid_position(true);
-                    let _ = ai.set_ultra_accurate(true);
-                    let _ = ai.set_precise_z_pos(true);
+                    ai.with_cur_locomotor(&mut |loco| {
+                        loco.set_allow_invalid_position(true);
+                        loco.set_ultra_accurate(true);
+                        loco.set_precise_z_pos(true);
+                    });
                     let producer = jet_ai.producer_object();
                     let _ = ai.ignore_obstacle(
                         producer
@@ -1157,11 +1157,7 @@ impl JetStateMachine {
                             }
                         }
                     }
-                    if let Some(loco) = ai.get_cur_locomotor() {
-                        if let Ok(mut loco_guard) = loco.lock() {
-                            loco_guard.set_max_lift(99999.0);
-                        }
-                    }
+                    ai.with_cur_locomotor(&mut |loco| loco.set_max_lift(99999.0));
                 } else {
                     let _ = jet_ai.with_producer_parking_place(|pp| {
                         pp.transfer_runway_reservation_to_next_in_line_for_takeoff(
@@ -1171,25 +1167,20 @@ impl JetStateMachine {
                         pp.calc_pp_info(jet_ai.object_id, &mut info);
                         if info.runway_takeoff_dist > 0.0 {
                             if let Some(obj) = jet_ai.get_object() {
-                                if let Ok(guard) = obj.read() {
+                                let ratio = obj.read().ok().map(|guard| {
                                     let vector = info.runway_end - *guard.get_position();
                                     let dist = vector.length();
                                     let mut ratio = 1.0 - (dist / info.runway_takeoff_dist);
                                     ratio *= ratio;
-                                    if ratio < 0.0 {
-                                        ratio = 0.0;
-                                    }
-                                    if ratio > 1.0 {
-                                        ratio = 1.0;
-                                    }
-                                    if let Some(loco) = ai.get_cur_locomotor() {
-                                        if let Ok(mut loco_guard) = loco.lock() {
-                                            if self.takeoff_max_lift > 0.0 {
-                                                loco_guard
-                                                    .set_max_lift(self.takeoff_max_lift * ratio);
-                                            }
+                                    ratio.clamp(0.0, 1.0)
+                                });
+                                if let Some(ratio) = ratio {
+                                    let takeoff_max_lift = self.takeoff_max_lift;
+                                    ai.with_cur_locomotor(&mut |loco| {
+                                        if takeoff_max_lift > 0.0 {
+                                            loco.set_max_lift(takeoff_max_lift * ratio);
                                         }
-                                    }
+                                    });
                                 }
                             }
                         }
@@ -1468,9 +1459,11 @@ impl JetStateMachine {
                 }
                 _ => {}
             }
-            let _ = ai.set_allow_invalid_position(true);
-            let _ = ai.set_ultra_accurate(true);
-            let _ = ai.set_precise_z_pos(true);
+            ai.with_cur_locomotor(&mut |loco| {
+                loco.set_allow_invalid_position(true);
+                loco.set_ultra_accurate(true);
+                loco.set_precise_z_pos(true);
+            });
             let producer = jet_ai.producer_object();
             let _ = ai.ignore_obstacle(
                 producer

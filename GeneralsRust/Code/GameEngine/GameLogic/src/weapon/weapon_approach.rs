@@ -156,24 +156,24 @@ struct ApproachSnap {
 }
 
 fn object_approach_snap(id: ObjectId) -> Option<ApproachSnap> {
-    crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
-        let adjusts = guard
-            .get_ai()
-            .and_then(|ai| {
-                ai.lock()
-                    .ok()
-                    .map(|ai_guard| ai_guard.is_aircraft_that_adjusts_destination())
-            })
-            .unwrap_or(false);
-        ApproachSnap {
-            pos: *guard.get_position(),
-            radius: guard.get_geometry_info().get_bounding_circle_radius(),
-            orientation: guard.get_orientation(),
-            above_terrain: guard.is_above_terrain(),
-            airborne: guard.is_airborne_target() || guard.is_kind_of(KindOf::Aircraft),
-            adjusts_destination: adjusts,
-            is_crusher: guard.get_crusher_level() > 0,
-        }
+    let arc = crate::helpers::TheGameLogic::find_object_by_id(id)?;
+    let guard = arc.read().ok()?;
+    let adjusts = guard
+        .get_ai()
+        .and_then(|ai| {
+            ai.lock()
+                .ok()
+                .map(|ai_guard| ai_guard.is_aircraft_that_adjusts_destination())
+        })
+        .unwrap_or(false);
+    Some(ApproachSnap {
+        pos: *guard.get_position(),
+        radius: guard.get_geometry_info().get_bounding_circle_radius(),
+        orientation: guard.get_orientation(),
+        above_terrain: guard.is_above_terrain(),
+        airborne: guard.is_airborne_target() || guard.is_kind_of(KindOf::Aircraft),
+        adjusts_destination: adjusts,
+        is_crusher: guard.get_crusher_level() > 0,
     })
 }
 

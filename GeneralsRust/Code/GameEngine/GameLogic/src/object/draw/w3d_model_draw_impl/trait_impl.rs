@@ -22,16 +22,12 @@ impl Module for W3DModelDraw {
     }
 
     fn preload_assets(&mut self, _time_of_day: TimeOfDay) {
-        for state in self
-            .data
-            .condition_states
-            .iter()
-            .chain(self.data.transition_states.iter())
-        {
+        // C++ `ModelConditionInfo::preloadAssets` only calls
+        // `preloadModelAssets(m_modelName)` for `m_conditionStates`.
+        // `timeOfDay` and the drawable scale are unused. Transition states
+        // and animation names are not preloaded.
+        for state in &self.data.condition_states {
             preload_draw_asset(state.model_name.as_str());
-            for anim in &state.animations {
-                preload_draw_asset(anim.name.as_str());
-            }
         }
     }
 
@@ -94,7 +90,17 @@ impl DrawModule for W3DModelDraw {
 
         self.handle_client_recoil();
 
-        let adjusted = self.adjust_transform_mtx(transform_mtx);
+        let mut source = *transform_mtx;
+        let instance_scale = self
+            .with_owner_drawable(|drawable| drawable.get_instance_scale())
+            .unwrap_or(1.0);
+        if instance_scale != 1.0 {
+            // C++ `doDrawModule` scales the matrix and calls `Set_ObjectScale`.
+            source.x_axis *= instance_scale;
+            source.y_axis *= instance_scale;
+            source.z_axis *= instance_scale;
+        }
+        let adjusted = self.adjust_transform_mtx(&source);
         self.submit_draw_to_bridge(&adjusted);
         self.sync_terrain_decal_pose();
     }
@@ -116,7 +122,12 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn set_terrain_decal_size(&mut self, x: Real, y: Real) {
-        self.terrain_decal_size = Some((x, y));
+        // C++ `setTerrainDecalSize` / `setTerrainDecalOpacity` no-op when
+        // `m_terrainDecal` is null. A released or never-created decal must not
+        // receive a size or opacity that a later `setTerrainDecal` would replay.
+        if self.terrain_decal == TerrainDecalType::None {
+            return;
+        }
         if let Some(owner_id) = self.owner_id {
             if let Some(client) = terrain_decal_client() {
                 client.set_size(owner_id, x, y);
@@ -125,7 +136,9 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn set_terrain_decal_opacity(&mut self, opacity: Real) {
-        self.terrain_decal_opacity = Some(opacity);
+        if self.terrain_decal == TerrainDecalType::None {
+            return;
+        }
         if let Some(owner_id) = self.owner_id {
             if let Some(client) = terrain_decal_client() {
                 client.set_opacity(owner_id, opacity);
@@ -154,7 +167,13 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn is_visible(&self) -> bool {
-        !self.fully_obscured_by_shroud && !self.hidden
+        // C++ `m_renderObject && Is_Really_Visible()`. Shroud does not hide
+        // the render object. No current model stands in for a null render object.
+        if self.hidden {
+            return false;
+        }
+        self.current_state()
+            .is_some_and(|state| !state.model_name.as_str().is_empty())
     }
 
     fn react_to_transform_change(
@@ -187,9 +206,8 @@ impl ObjectDrawInterface for W3DModelDraw {
         bounding_sphere_radius: &mut Real,
         transform: &mut Matrix3D,
     ) -> bool {
-        let Some((position, radius, world_transform)) = self.with_owner_drawable(|drawable| {
+        let Some((radius, world_transform)) = self.with_owner_drawable(|drawable| {
             (
-                drawable.get_position(),
                 drawable.get_bounding_sphere_radius(),
                 drawable.get_transform_matrix(),
             )
@@ -197,9 +215,19 @@ impl ObjectDrawInterface for W3DModelDraw {
             return false;
         };
 
-        *pos = position;
+        let mut source = world_transform;
+        let instance_scale = self
+            .with_owner_drawable(|drawable| drawable.get_instance_scale())
+            .unwrap_or(1.0);
+        if instance_scale != 1.0 {
+            source.x_axis *= instance_scale;
+            source.y_axis *= instance_scale;
+            source.z_axis *= instance_scale;
+        }
+        let adjusted = self.adjust_transform_mtx(&source);
+        *pos = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
         *bounding_sphere_radius = radius;
-        *transform = world_transform;
+        *transform = adjusted;
         true
     }
 
@@ -317,7 +345,7 @@ impl ObjectDrawInterface for W3DModelDraw {
         let end_index = if start == 0 { 0 } else { 99 };
         let scale = self
             .with_owner_drawable(|drawable| {
-                let scale = drawable.get_world_scale().x;
+                let scale = drawable.get_instance_scale();
                 if scale.is_finite() && scale > 0.0 {
                     scale
                 } else {
@@ -508,16 +536,24 @@ impl ObjectDrawInterface for W3DModelDraw {
         &mut self,
         weapon_slot: usize,
         barrel_index: i32,
+        fx: Option<&crate::effects::FXList>,
         victim_pos: &Coord3D,
+        weapon_speed: f32,
+        damage_radius: f32,
+        live_bone: Option<&Matrix3D>,
     ) -> bool {
         if weapon_slot >= WEAPONSLOT_COUNT {
             return false;
         }
 
-        let (selected_barrel, barrel_info, fx_bone_name, muzzle_name) = {
+        let (selected_barrel, barrel_info, fx_bone_name) = {
             let Some(state) = self.current_state() else {
                 return false;
             };
+            // C++ returns false before recoil when m_validStuff lacks BARRELS_VALID.
+            if !state.barrels_are_valid() {
+                return false;
+            }
             let barrels = &state.weapon_barrels[weapon_slot];
             if barrels.is_empty() {
                 return false;
@@ -532,62 +568,62 @@ impl ObjectDrawInterface for W3DModelDraw {
                 selected_barrel as usize,
                 barrels[selected_barrel as usize].clone(),
                 state.weapon_fire_fx_bone[weapon_slot].to_string(),
-                state.weapon_muzzle_flash[weapon_slot].to_string(),
             )
         };
 
-        if selected_barrel < self.weapon_recoil_info[weapon_slot].len() {
+        if (barrel_info.recoil_bone != 0 || barrel_info.muzzle_flash_bone != 0)
+            && selected_barrel < self.weapon_recoil_info[weapon_slot].len()
+        {
             self.weapon_recoil_info[weapon_slot][selected_barrel].state = RecoilState::RecoilStart;
             self.weapon_recoil_info[weapon_slot][selected_barrel].recoil_rate =
                 self.data.initial_recoil;
         }
 
-        if barrel_info.muzzle_flash_bone != 0 && !muzzle_name.is_empty() {
-            let index = selected_barrel + 1;
-            let named = format!("{muzzle_name}{index:02}");
-            self.show_sub_object(&named, true);
-            self.show_sub_object(&muzzle_name, true);
-        }
 
         let mut handled = false;
         if barrel_info.fx_bone != 0 {
-            let (pos, mtx) = if !self.hidden {
-                let bone_name = if fx_bone_name.is_empty() {
-                    None
-                } else {
-                    let index = selected_barrel + 1;
-                    Some(format!("{fx_bone_name}{index:02}"))
-                };
-                let world = bone_name.and_then(|name| {
-                    self.with_owner_drawable(|drawable| drawable.get_bone_transform(&name))
-                        .flatten()
-                        .or_else(|| {
-                            self.with_owner_drawable(|drawable| {
-                                drawable.get_current_worldspace_client_bone_positions(
-                                    &fx_bone_name,
-                                )
-                            })
-                            .flatten()
-                        })
-                });
-                if let Some(world) = world {
+            // C++: hidden drawable with a logic object uses that object's pose.
+            if self.hidden && self.owner_id.is_some() {
+                let (obj_pos, obj_mtx) = self.logic_fire_fx_fallback();
+                handled = self.fire_owner_weapon_fx(
+                    fx,
+                    &obj_pos,
+                    Some(&obj_mtx),
+                    Some(victim_pos),
+                    weapon_speed,
+                    damage_radius,
+                );
+            } else if let Some(world) = live_bone {
+                let pos = Coord3D::new(world.w_axis.x, world.w_axis.y, world.w_axis.z);
+                handled = self.fire_owner_weapon_fx(
+                    fx,
+                    &pos,
+                    Some(world),
+                    Some(victim_pos),
+                    weapon_speed,
+                    damage_radius,
+                );
+            } else if !self.hidden && !fx_bone_name.is_empty() {
+                let (_obj_pos, obj_mtx) = self.logic_fire_fx_fallback();
+                let index = selected_barrel + 1;
+                let name = format!("{fx_bone_name}{index:02}");
+                let key = NameKeyGenerator::name_to_key(&name);
+                if let Some(local) = self
+                    .current_state()
+                    .and_then(|state| state.pristine_bones.get(&key))
+                {
+                    let world = obj_mtx * local.transform;
                     let pos = Coord3D::new(world.w_axis.x, world.w_axis.y, world.w_axis.z);
-                    (pos, world)
-                } else {
-                    self.logic_fire_fx_fallback()
+                    handled = self.fire_owner_weapon_fx(
+                        fx,
+                        &pos,
+                        Some(&world),
+                        Some(victim_pos),
+                        weapon_speed,
+                        damage_radius,
+                    );
                 }
-            } else {
-                self.logic_fire_fx_fallback()
-            };
-            let (weapon_speed, damage_radius) = self.owner_weapon_fx_params(weapon_slot);
-            handled = self.fire_owner_weapon_fx(
-                weapon_slot,
-                &pos,
-                Some(&mtx),
-                Some(victim_pos),
-                weapon_speed,
-                damage_radius,
-            );
+            }
         }
 
         handled
@@ -599,6 +635,9 @@ impl ObjectDrawInterface for W3DModelDraw {
         }
 
         if let Some(state) = self.current_state() {
+            if !state.barrels_are_valid() {
+                return 0;
+            }
             return state.weapon_barrels[weapon_slot].len() as i32;
         }
 

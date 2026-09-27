@@ -1118,9 +1118,21 @@ impl GameLogic {
                     .unwrap_or(false);
                 if !already {
                     let dest = Vec3::new(goal[0], goal[1], goal[2]);
+                    if let Some(c) = self.objects.get_mut(&crawler_id) {
+                        let landed_chinook = c.chinook_ai.as_ref().is_some_and(|ai| {
+                            ai.flight_status
+                                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                        });
+                        c.is_final_goal = !c.is_parachuting()
+                            && !landed_chinook
+                            && !(c.chinook_ai.is_some() && c.allow_invalid_position)
+                            && c.adjust_destinations;
+                        c.num_frames_blocked = 0;
+                        c.is_blocked_and_stuck = false;
+                        c.set_status_moving(true);
+                    }
                     let _ = self.assign_unit_path(crawler_id, dest, &[]);
                     if let Some(c) = self.objects.get_mut(&crawler_id) {
-                        c.is_attack_path = true;
                         c.auto_acquire_when_idle = true;
                         c.requested_destination = Some(dest);
                         c.set_ai_state(AIState::AttackMoving);
@@ -1242,16 +1254,26 @@ impl GameLogic {
                         unit.last_command_source = HUNT_CMD_FROM_PLAYER;
                         if !engaged {
                             unit.set_target(Some(target_id));
-                            unit.set_ai_state(AIState::Attacking);
-                            unit.set_status_attacking(true);
                         }
                     }
                 }
             } else if is_attack_move {
                 let dest = Vec3::new(goal[0], goal[1], goal[2]);
+                if let Some(unit) = self.objects.get_mut(&mid) {
+                    let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
+                        ai.flight_status
+                            == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                    });
+                    unit.is_final_goal = !unit.is_parachuting()
+                        && !landed_chinook
+                        && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
+                        && unit.adjust_destinations;
+                    unit.num_frames_blocked = 0;
+                    unit.is_blocked_and_stuck = false;
+                    unit.set_status_moving(true);
+                }
                 let _ = self.assign_unit_path(mid, dest, &[]);
                 if let Some(unit) = self.objects.get_mut(&mid) {
-                    unit.is_attack_path = true;
                     unit.auto_acquire_when_idle = true;
                     unit.requested_destination = Some(dest);
                     unit.set_ai_state(AIState::AttackMoving);
@@ -1311,10 +1333,9 @@ impl GameLogic {
         use crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
 
         let crawler_pos = self.objects.get(&crawler_id).map(|c| c.get_position());
-        let _ = self.unit_command_order_enter(member_id, crawler_id);
         if let Some(unit) = self.objects.get_mut(&member_id) {
-            unit.target = Some(crawler_id);
-            unit.set_status_attacking(false);
+            unit.set_order_target(Some(crawler_id));
+            unit.ignored_obstacle_id = Some(crawler_id);
             unit.last_command_source = HUNT_CMD_FROM_AI;
         }
         if let Some(pos) = crawler_pos {
@@ -1324,6 +1345,9 @@ impl GameLogic {
                 AIState::Entering,
                 Some(crawler_id),
             );
+        } else if let Some(unit) = self.objects.get_mut(&member_id) {
+            unit.set_ai_state(AIState::Entering);
+            unit.ignored_obstacle_id = Some(crawler_id);
         }
     }
 
@@ -2039,15 +2063,18 @@ impl GameLogic {
             Some(r) => r.get_position(),
             None => return false,
         };
+        self.apply_host_locomotor_set_at_cell(
+            unit_id,
+            crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
+            true,
+        );
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            // C++ AIMoveAwayFromRepulsorsState::onEnter (AIStates.cpp:2272-2276):
-            // chooseLocomotorSet(LOCOMOTORSET_PANIC) + MODELCONDITION_PANICKING.
-            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
-                u,
-                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
-                true,
-            );
             u.ai_move_away_from_unit(rep_id, rep_pos);
+            if u.ignore_collisions_until_frame > 0 && u.ignore_collisions_until_frame < 100_000 {
+                u.ignore_collisions_until_frame = self.frame.saturating_add(60);
+            }
+            // C++ AIMoveAwayFromRepulsorsState::onEnter (AIStates.cpp:2265).
+            u.adjust_destinations = false;
             let _ = u.begin_request_safe_path(
                 rep_id,
                 u.move_away_destination.unwrap_or(rep_pos),

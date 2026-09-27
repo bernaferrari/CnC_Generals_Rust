@@ -15,6 +15,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn can_contain(&self, object_id: ObjectID) -> bool;
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String>;
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String>;
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let _ = expose_stealth;
+        self.release_object(object_id).map_err(|e| e.into())
+    }
     fn get_contained_objects(&self) -> &[ObjectID];
     fn get_contained_count(&self) -> usize;
     fn get_max_capacity(&self) -> usize;
@@ -22,6 +30,22 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// C++ `ContainModuleInterface::isSpecialZeroSlotContainer` — parachute-style
     /// containers whose riders do not consume the holder's transport slots.
     fn is_special_zero_slot_container(&self) -> bool {
+        false
+    }
+
+    /// Parachute: drawable stays hidden until opened. None means no change.
+    fn drawable_hidden_after_transform(&self) -> Option<bool> {
+        None
+    }
+
+    fn redeploy_riders_at(
+        &mut self,
+        _owner_pos: &crate::common::Coord3D,
+        _fire_points: &[crate::common::Matrix3D],
+    ) {
+    }
+
+    fn passengers_in_turret(&self) -> bool {
         false
     }
 
@@ -61,6 +85,24 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn on_die(
         &mut self,
         _damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    /// Same as [`Self::on_die`] with the dying object, so DieMux does not
+    /// `read()` a write lock this thread already holds.
+    fn on_die_with_owner(
+        &mut self,
+        _owner: &crate::object::Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.on_die(damage_info)
+    }
+
+    /// C++ `OpenContain::onCollide` when the other unit's enter target is us.
+    fn on_collide_enter(
+        &mut self,
+        _other_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
@@ -302,14 +344,16 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
             let Some(obj) = TheGameLogic::find_object_by_id(*object_id) else {
                 continue;
             };
-            let Ok(obj_guard) = obj.read() else {
+            let Ok(obj_guard) = obj.try_read() else {
                 continue;
             };
             if !obj_guard.is_kind_of(KindOf::StealthGarrison) {
                 continue;
             }
-            if let Some(stealth) = obj_guard.get_stealth() {
-                if let Ok(mut stealth_guard) = stealth.lock() {
+            let stealth = obj_guard.get_stealth();
+            drop(obj_guard);
+            if let Some(stealth) = stealth {
+                if let Ok(mut stealth_guard) = stealth.try_lock() {
                     stealth_guard.mark_as_detected();
                 }
             }
@@ -328,26 +372,19 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
             return Ok(());
         }
 
-        self.mark_all_passengers_detected();
 
-        let cmd = if instantly {
-            AiCommandType::ExitInstantly
-        } else {
-            AiCommandType::Exit
-        };
 
         for object_id in self.get_contained_objects() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
-                let container_id = obj.read().ok().and_then(|guard| guard.get_contained_by());
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(ai) = obj_guard.get_ai() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            let mut params = AiCommandParams::new(cmd, command_source);
-                            params.obj = container_id;
-                            let _ = ai_guard.execute_command(&params);
-                        }
-                    }
+                let Ok(mut obj_guard) = obj.try_write() else {
+                    continue;
+                };
+                if obj_guard.get_ai().is_none() {
+                    continue;
                 }
+                obj_guard.ai_pending_exit = Some(instantly);
+                obj_guard.ai_pending_exit_source = command_source;
+                obj_guard.ai_pending_exit_obj = obj_guard.get_contained_by();
             }
         }
 
@@ -366,14 +403,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
 
         for object_id in self.get_contained_objects() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
-                if let Ok(obj_guard) = obj.read() {
-                    if let Some(ai) = obj_guard.get_ai() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            let params = AiCommandParams::new(AiCommandType::Idle, command_source);
-                            let _ = ai_guard.execute_command(&params);
-                        }
-                    }
+                let Ok(mut obj_guard) = obj.try_write() else {
+                    continue;
+                };
+                if obj_guard.get_ai().is_none() {
+                    continue;
                 }
+                obj_guard.ai_pending_idle = true;
+                obj_guard.ai_pending_idle_source = command_source;
             }
         }
 
@@ -392,18 +429,17 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
 
         for object_id in self.get_contained_objects() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
-                if let Ok(obj_guard) = obj.read() {
-                    if !obj_guard.is_kind_of(KindOf::Hacker) {
-                        continue;
-                    }
-                    if let Some(ai) = obj_guard.get_ai() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            let params =
-                                AiCommandParams::new(AiCommandType::HackInternet, command_source);
-                            let _ = ai_guard.execute_command(&params);
-                        }
-                    }
+                let Ok(mut obj_guard) = obj.try_write() else {
+                    continue;
+                };
+                if !obj_guard.is_kind_of(KindOf::MoneyHacker) {
+                    continue;
                 }
+                if obj_guard.get_ai().is_none() {
+                    continue;
+                }
+                obj_guard.ai_pending_hack = true;
+                obj_guard.ai_pending_hack_source = command_source;
             }
         }
 
@@ -779,11 +815,10 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
     }
 
     fn on_selling(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(mut guard) = self.lock() {
-            guard.on_selling()
-        } else {
-            Ok(())
-        }
+        let Ok(mut guard) = self.try_lock() else {
+            return Err("contain on_selling lock busy".into());
+        };
+        guard.on_selling()
     }
 
     fn mark_all_passengers_detected(&self) {

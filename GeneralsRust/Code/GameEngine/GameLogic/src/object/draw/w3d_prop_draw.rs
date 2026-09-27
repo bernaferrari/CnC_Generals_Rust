@@ -194,7 +194,7 @@ impl W3DPropDraw {
         let orientation = owner_guard.get_orientation();
         let scale = owner_guard
             .get_drawable()
-            .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_world_scale().x))
+            .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_instance_scale()))
             .unwrap_or(1.0);
         Some((position, orientation, scale))
     }
@@ -293,17 +293,24 @@ impl DrawModule for W3DPropDraw {
 }
 impl Snapshotable for W3DPropDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: XferVersion = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())

@@ -240,6 +240,7 @@ mod tests {
             turret_art_pitch: 0.25,
             ..TurretInfo::new()
         });
+        state.valid_stuff |= MODEL_CONDITION_TURRETS_VALID | MODEL_CONDITION_BARRELS_VALID;
         state.weapon_barrels[0].push(WeaponBarrelInfo {
             recoil_bone: 12,
             ..WeaponBarrelInfo::new()
@@ -265,7 +266,7 @@ mod tests {
             .expect("recoil override");
 
         let pitch_cols = pitch.transform.to_cols_array();
-        assert!(pitch_cols[2] < 0.0);
+        assert!(pitch_cols[8] < 0.0);
         assert_eq!(recoil.transform.w_axis.x, -0.5);
     }
 
@@ -280,6 +281,7 @@ mod tests {
             muzzle_flash_bone: 13,
             ..WeaponBarrelInfo::new()
         });
+        state.mark_barrels_validated();
         data.condition_states.push(state);
         data.initial_recoil = 1.75;
 
@@ -291,7 +293,11 @@ mod tests {
             &mut draw,
             0,
             0,
+            None,
             &Coord3D::new(1.0, 2.0, 3.0),
+            0.0,
+            0.0,
+            None,
         );
 
         assert!(!handled);
@@ -508,7 +514,7 @@ mod tests {
             * Matrix3D::from_translation(Coord3D::new(10.0, 20.0, 30.0));
         let out = draw.adjust_transform_mtx(&mtx);
 
-        // Rotate_Vector((4,0,2)) about +Z 90° → (0,4,2), then add to translation.
+        // No drawable yet: cache stays unset. Rotate_Vector((4,0,2)) about +Z 90°.
         let expected = mtx.transform_vector3(Coord3D::new(4.0, 0.0, 2.0));
         assert!((out.w_axis.x - (mtx.w_axis.x + expected.x)).abs() < 1e-4);
         assert!((out.w_axis.y - (mtx.w_axis.y + expected.y)).abs() < 1e-4);

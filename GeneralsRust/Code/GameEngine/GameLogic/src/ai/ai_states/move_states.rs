@@ -75,10 +75,8 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
     let Ok(mut ai_guard) = ai.lock() else {
         return;
     };
-    let ultra_accurate = ai_guard
-        .get_cur_locomotor()
-        .and_then(|loco| loco.lock().ok().map(|l| l.is_ultra_accurate()))
-        .unwrap_or(false);
+    let mut ultra_accurate = false;
+    ai_guard.with_cur_locomotor(&mut |loco| ultra_accurate = loco.is_ultra_accurate());
     let pos = *owner.get_position();
     let plan = crate::ai::states::idle_pathfinder_restake_plan(
         ai_guard.is_idle(),

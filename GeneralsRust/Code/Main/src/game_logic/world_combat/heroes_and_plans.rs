@@ -469,9 +469,11 @@ impl GameLogic {
                 );
                 r.record_host_movement();
             }
-            // Chute destroyed → freefall residual (chute closed, still parachuting sink).
+            // C++ ParachuteContain::onDie: chute gone, rider setAllowToFall + setIsInFreeFall.
             r.set_status_parachute_open(false);
-            r.set_status_parachuting(true);
+            r.set_status_parachuting(false);
+            r.allow_to_fall = true;
+            r.is_in_freefall = true;
             r.status.airborne_target = true;
             r.set_status_masked(false);
             r.set_status_unselectable(false);
@@ -483,10 +485,9 @@ impl GameLogic {
                 crate::game_logic::combat::DamageType::Unresistable,
                 HostDeathType::Splatted,
             );
-            // Ensure freefall continues even if take_damage cleared parachuting on death.
             if !killed {
-                r.set_status_parachuting(true);
-                r.set_status_parachute_open(false);
+                r.allow_to_fall = true;
+                r.is_in_freefall = true;
                 r.status.airborne_target = true;
             }
             killed

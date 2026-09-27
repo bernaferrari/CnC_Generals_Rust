@@ -10,6 +10,7 @@ impl Locomotor {
         desired_speed: Real,
         current_speed: Real,
         condition: BodyDamageType,
+        pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
@@ -19,7 +20,13 @@ impl Locomotor {
         // Calculate relative angle to goal (with turn pivot offset)
         // C++ uses rotateTowardsPosition which also sets physics->setTurning
         let desired_angle =
-            self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, self.is_braking());
+            self.desired_angle_with_pivot(
+                current_pos,
+                current_angle,
+                goal_pos,
+                self.is_braking(),
+                pivot_radius,
+            );
         let rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
         // Modulate speed according to turning
@@ -122,6 +129,8 @@ impl Locomotor {
         condition: BodyDamageType,
         major_radius: Real,
         current_frame: u32,
+        layer: crate::common::PathfindLayerEnum,
+        pivot_radius: Real,
     ) -> (Coord3D, Real, Real, bool) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let max_acceleration = self.get_max_acceleration(condition);
@@ -129,8 +138,10 @@ impl Locomotor {
         desired_speed = self.apply_downhill_only(desired_speed, current_pos, goal_pos);
 
         let mut turn_speed = self.template.min_turn_speed;
+        // C++ Locomotor.cpp:1277 center atan2. Pivot aim is applied at the
+        // return so it cannot decide the > π/2 reverse test.
         let mut desired_angle =
-            self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, false);
+            (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
         let mut rel_angle = Self::std_angle_diff(desired_angle, current_angle);
 
         let mut move_backwards = false;
@@ -201,7 +212,6 @@ impl Locomotor {
         const FIFTEEN_DEGREES: Real = std::f32::consts::PI / 12.0;
         if rel_angle.abs() > FIFTEEN_DEGREES {
             let max_turn_rate = self.get_max_turn_rate(condition);
-            let layer = crate::common::PathfindLayerEnum::Ground;
             if Self::wheels_look_ahead_blocked(
                 current_pos,
                 current_angle,
@@ -212,8 +222,16 @@ impl Locomotor {
                 max_turn_rate,
                 |pos| self.valid_movement_terrain_at(layer, *pos),
             ) {
-                // Rotate only; zero motive force (C++ applyMotiveForce(0) + return).
-                return (current_pos, desired_angle, 0.0, move_backwards);
+                // C++ rotateTowardsPosition(goal) at full maxTurnRate, then return.
+                self.wheeled_turn_factor = 1.0;
+                let yaw = self.desired_angle_with_pivot(
+                    current_pos,
+                    current_angle,
+                    goal_pos,
+                    self.is_braking(),
+                    pivot_radius,
+                );
+                return (current_pos, yaw, 0.0, move_backwards);
             }
         }
 
@@ -237,7 +255,7 @@ impl Locomotor {
         if on_path_dist_to_goal > DONUT_DISTANCE {
             self.donut_timer =
                 current_frame + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
-        } else if current_frame >= self.donut_timer {
+        } else if current_frame > self.donut_timer {
             self.set_flag(FLAG_IS_BRAKING, true);
         }
 
@@ -300,6 +318,22 @@ impl Locomotor {
             }
         };
 
+        let aim = if move_backwards && !_do3point_turn {
+            Coord3D::new(
+                current_pos.x - (goal_pos.x - current_pos.x),
+                current_pos.y - (goal_pos.y - current_pos.y),
+                current_pos.z,
+            )
+        } else {
+            goal_pos
+        };
+        desired_angle = self.desired_angle_with_pivot(
+            current_pos,
+            current_angle,
+            aim,
+            self.is_braking(),
+            pivot_radius,
+        );
         (current_pos, desired_angle, acceleration, move_backwards)
     }
 
@@ -358,6 +392,7 @@ impl Locomotor {
         desired_speed: Real,
         current_speed: Real,
         condition: BodyDamageType,
+        pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
         // C++ Locomotor.cpp:1596-1598 - downhill only check for legs
         if self.template.downhill_only && current_pos.z < goal_pos.z {
@@ -369,7 +404,13 @@ impl Locomotor {
         let max_acceleration = self.get_max_acceleration(condition);
 
         let mut desired_angle =
-            self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, false);
+            self.desired_angle_with_pivot(
+                current_pos,
+                current_angle,
+                goal_pos,
+                self.is_braking(),
+                pivot_radius,
+            );
 
         // Wander logic for infantry - C++ Locomotor.cpp:1618-1633
         if self.template.wander_width_factor != 0.0 {
@@ -431,6 +472,7 @@ impl Locomotor {
         desired_speed: Real,
         current_speed: Real,
         condition: BodyDamageType,
+        pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
         let result = self.move_towards_position_other_physics(
             current_pos,
@@ -440,6 +482,7 @@ impl Locomotor {
             desired_speed,
             current_speed,
             condition,
+            pivot_radius,
         );
         self.update_hover_over_water(current_pos);
         result
@@ -483,6 +526,7 @@ impl Locomotor {
         desired_speed: Real,
         current_speed: Real,
         condition: BodyDamageType,
+        pivot_radius: Real,
     ) -> (Coord3D, Real, Real) {
         let max_speed = self.get_max_speed_for_condition(condition);
         let mut desired_speed = desired_speed.min(max_speed);
@@ -505,7 +549,13 @@ impl Locomotor {
                 ),
             )
         } else {
-            self.desired_angle_with_pivot(current_pos, current_angle, goal_pos, self.is_braking())
+            self.desired_angle_with_pivot(
+                current_pos,
+                current_angle,
+                goal_pos,
+                self.is_braking(),
+                pivot_radius,
+            )
         };
 
         let mut sliding_into_place = false;

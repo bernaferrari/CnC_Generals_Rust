@@ -6,7 +6,7 @@
 /// Matches C++ LocomotorSet.h
 #[derive(Debug, Clone)]
 pub struct LocomotorSet {
-    locomotors: HashMap<String, Arc<Mutex<Locomotor>>>,
+    locomotors: HashMap<String, Locomotor>,
     locomotor_order: Vec<String>,
     active_locomotor: Option<String>,
     /// Bitmask of valid surfaces across all added locomotors
@@ -45,13 +45,10 @@ impl LocomotorSet {
     }
 
     /// Add a locomotor from a template - matches C++ LocomotorSet::addLocomotor()
-    pub fn add_locomotor(&mut self, name: String, locomotor: Arc<Mutex<Locomotor>>) {
-        // Accumulate valid surfaces - matches C++ addLocomotor
-        if let Ok(loco) = locomotor.lock() {
-            self.valid_surfaces |= loco.get_legal_surfaces();
-            if loco.template.downhill_only {
-                self.downhill_only = true;
-            }
+    pub fn add_locomotor(&mut self, name: String, locomotor: Locomotor) {
+        self.valid_surfaces |= locomotor.get_legal_surfaces();
+        if locomotor.template.downhill_only {
+            self.downhill_only = true;
         }
         if self.active_locomotor.is_none() {
             self.active_locomotor = Some(name.clone());
@@ -62,20 +59,11 @@ impl LocomotorSet {
         self.locomotors.insert(name, locomotor);
     }
 
-    /// Find a locomotor that supports the given surface type mask
-    /// Matches C++ LocomotorSet::findLocomotor(LocomotorSurfaceTypeMask t)
-    pub fn find_locomotor(
-        &self,
-        surface_mask: LocomotorSurfaceTypeMask,
-    ) -> Option<Arc<Mutex<Locomotor>>> {
-        // C++ iterates m_locomotors and returns the first one whose template
-        // surfaces overlap with the requested mask
+    pub fn find_locomotor(&self, surface_mask: LocomotorSurfaceTypeMask) -> Option<&Locomotor> {
         for name in &self.locomotor_order {
             if let Some(loco) = self.locomotors.get(name) {
-                if let Ok(l) = loco.lock() {
-                    if (l.get_legal_surfaces() & surface_mask) != 0 {
-                        return Some(loco.clone());
-                    }
+                if (loco.get_legal_surfaces() & surface_mask) != 0 {
+                    return Some(loco);
                 }
             }
         }
@@ -91,15 +79,25 @@ impl LocomotorSet {
         }
     }
 
-    pub fn get_active(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        self.active_locomotor
-            .as_ref()
-            .and_then(|name| self.locomotors.get(name).cloned())
+    pub fn get_active_mut(&mut self) -> Option<&mut Locomotor> {
+        let name = self.active_locomotor.clone()?;
+        self.locomotors.get_mut(&name)
     }
 
-    pub fn get_locomotor(&self, name: &str) -> Option<Arc<Mutex<Locomotor>>> {
-        self.locomotors.get(name).cloned()
+    pub fn get_active(&self) -> Option<&Locomotor> {
+        self.active_locomotor
+            .as_ref()
+            .and_then(|name| self.locomotors.get(name))
     }
+
+    pub fn get_locomotor(&self, name: &str) -> Option<&Locomotor> {
+        self.locomotors.get(name)
+    }
+
+    pub fn active_name(&self) -> Option<&str> {
+        self.active_locomotor.as_deref()
+    }
+
 
     /// Get the valid surface mask across all locomotors
     /// Matches C++ LocomotorSet::getValidSurfaces()
@@ -114,27 +112,24 @@ impl LocomotorSet {
     }
 
     /// Returns the currently active locomotor (or the first entry) matching the C++ default logic.
-    pub fn get_default_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
+    pub fn get_default_locomotor(&self) -> Option<&Locomotor> {
         if let Some(active) = self.get_active() {
             return Some(active);
         }
         self.locomotor_order
             .first()
-            .and_then(|name| self.locomotors.get(name).cloned())
+            .and_then(|name| self.locomotors.get(name))
     }
 
-    /// Get number of locomotors in set
     pub fn len(&self) -> usize {
         self.locomotors.len()
     }
 
-    /// Check if set is empty
     pub fn is_empty(&self) -> bool {
         self.locomotors.is_empty()
     }
 
-    /// Iterate over all locomotors
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Arc<Mutex<Locomotor>>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Locomotor)> {
         self.locomotors.iter()
     }
 
@@ -143,7 +138,7 @@ impl LocomotorSet {
     pub fn xfer_self_and_cur_loco_ptr(
         &mut self,
         xfer: &mut dyn game_engine::system::Xfer,
-        current_locomotor: &mut Option<Arc<Mutex<Locomotor>>>,
+        current_name_slot: &mut Option<String>,
     ) -> Result<(), String> {
         const CURRENT_VERSION: u8 = 1;
         let mut version = CURRENT_VERSION;
@@ -171,21 +166,18 @@ impl LocomotorSet {
                     .ok_or_else(|| format!("LocomotorSet xfer unknown template {name}"))?;
                 let mut loco = Locomotor::new(template);
                 loco.loco_xfer(xfer)?;
-                self.add_locomotor(name, Arc::new(Mutex::new(loco)));
+                self.add_locomotor(name, loco);
             }
         } else {
             for name in self.locomotor_order.clone() {
                 let loco = self
                     .locomotors
-                    .get(&name)
+                    .get_mut(&name)
                     .ok_or_else(|| format!("LocomotorSet missing ordered locomotor {name}"))?;
                 let mut xfer_name = name;
                 xfer.xfer_ascii_string(&mut xfer_name)
                     .map_err(|e| format!("LocomotorSet xfer template name: {:?}", e))?;
-                let mut guard = loco
-                    .lock()
-                    .map_err(|_| "LocomotorSet locomotor lock poisoned".to_string())?;
-                guard.loco_xfer(xfer)?;
+                loco.loco_xfer(xfer)?;
             }
         }
 
@@ -201,28 +193,21 @@ impl LocomotorSet {
         let mut current_name = if xfer.is_loading() {
             String::new()
         } else {
-            current_locomotor
-                .as_ref()
-                .and_then(|loco| {
-                    loco.lock()
-                        .ok()
-                        .map(|guard| guard.get_template_name().to_string())
-                })
-                .unwrap_or_default()
+            self.active_name().unwrap_or("").to_string()
         };
         xfer.xfer_ascii_string(&mut current_name)
             .map_err(|e| format!("LocomotorSet xfer current locomotor: {:?}", e))?;
 
         if xfer.is_loading() {
             if current_name.is_empty() {
-                *current_locomotor = None;
+                *current_name_slot = None;
                 self.active_locomotor = None;
+            } else if self.set_active(&current_name) {
+                *current_name_slot = Some(current_name);
             } else {
-                let loco = self.get_locomotor(&current_name).ok_or_else(|| {
-                    format!("LocomotorSet xfer current template {current_name} not found")
-                })?;
-                self.active_locomotor = Some(current_name);
-                *current_locomotor = Some(loco);
+                return Err(format!(
+                    "LocomotorSet xfer current template {current_name} not found"
+                ));
             }
         }
 

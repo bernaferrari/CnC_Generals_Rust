@@ -81,6 +81,7 @@ pub struct DeletionUpdate {
     module_data: Arc<DeletionUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     delete_frame: UnsignedInt,
+    update_proxy: Option<crate::object::UpdateModulePtr>,
 }
 
 impl DeletionUpdate {
@@ -107,6 +108,7 @@ impl DeletionUpdate {
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: current_frame + lifetime,
             delete_frame: current_frame + lifetime,
+            update_proxy: None,
         })
     }
 
@@ -115,19 +117,17 @@ impl DeletionUpdate {
         let delay = Self::calc_sleep_delay_static(min_lifetime, max_lifetime);
         self.delete_frame = current_frame + delay;
         self.next_call_frame_and_phase = self.delete_frame;
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(object) = object.read() {
-                crate::helpers::TheGameLogic::set_wake_frame(
-                    object.get_id(),
-                    UpdateSleepTime::from_u32(delay),
-                );
-            }
+        if let Some(proxy) = self.update_proxy.clone() {
+            let _ = crate::helpers::TheGameLogic::register_update_module(
+                self.object_id,
+                proxy,
+                self.delete_frame,
+            );
         }
+    }
+
+    pub(crate) fn bind_update_proxy(&mut self, proxy: crate::object::UpdateModulePtr) {
+        self.update_proxy = Some(proxy);
     }
 
     pub fn initial_wake_frame(&self) -> UnsignedInt {
@@ -157,9 +157,14 @@ impl UpdateModuleInterface for DeletionUpdate {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
-            if let Ok(guard) = object.read() {
-                let _ = TheGameLogic::destroy_object(&guard);
+            if object.read().is_err() {
+                return UpdateSleepTime::None;
             }
+            let id = object
+                .read()
+                .map(|guard| guard.get_id())
+                .unwrap_or(self.object_id);
+            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(id);
         }
         UpdateSleepTime::Forever
     }
@@ -186,9 +191,7 @@ impl DeletionLifetimeInterface for DeletionUpdate {
 
 impl Snapshotable for DeletionUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -229,6 +232,7 @@ mod tests {
             module_data: Arc::new(DeletionUpdateModuleData::default()),
             next_call_frame_and_phase: 0,
             delete_frame: 0,
+            update_proxy: None,
         }
     }
 

@@ -271,10 +271,6 @@ impl ToppleUpdate {
             .downcast_ref::<ToppleUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        if let Ok(obj) = object.read() {
-            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
-        }
-
         Ok(Self {
             object_id: object
                 .read()
@@ -282,7 +278,7 @@ impl ToppleUpdate {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             angular_velocity: 0.0,
             angular_acceleration: 0.0,
             topple_direction: Coord3D::ZERO,
@@ -427,10 +423,13 @@ impl ToppleUpdate {
             return;
         }
 
-        TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::None);
+        let now = crate::helpers::TheGameLogic::get_frame();
+        self.next_call_frame_and_phase = now.saturating_add(1);
+        obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
 
         if self.module_data.kill_when_start_toppled {
-            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
+            self.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
+            obj.reschedule_named_update("ToppleUpdate", self.next_call_frame_and_phase);
             obj.kill(None, None);
             return;
         }
@@ -543,10 +542,10 @@ impl UpdateModuleInterface for ToppleUpdate {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
-            return UpdateSleepTime::Forever;
+            return UpdateSleepTime::None;
         };
         let Ok(mut obj) = object_arc.write() else {
-            return UpdateSleepTime::Forever;
+            return UpdateSleepTime::None;
         };
 
         if self.num_angle_delta_x > 0 {
@@ -595,11 +594,20 @@ impl UpdateModuleInterface for ToppleUpdate {
                 }
 
                 if self.module_data.kill_stump_when_toppled {
-                    if let Some(stump_arc) = TheGameLogic::find_object_by_id(self.stump_id) {
+                    let stump_id = self.stump_id;
+                    drop(obj);
+                    if let Some(stump_arc) = TheGameLogic::find_object_by_id(stump_id) {
                         if let Ok(mut stump) = stump_arc.write() {
                             Self::death_by_toppling(&mut stump);
                         }
                     }
+                    let Ok(obj) = object_arc.write() else {
+                        return UpdateSleepTime::None;
+                    };
+                    if let Some(draw) = obj.get_drawable() {
+                        draw.set_shadows_enabled(false);
+                    }
+                    return UpdateSleepTime::None;
                 }
             } else if self.angular_velocity.abs() >= VELOCITY_BOUNCE_SOUND_LIMIT {
                 let no_fx = (self.options & TOPPLE_OPTIONS_NO_FX) != 0;
@@ -731,6 +739,10 @@ pub struct ToppleUpdateModule {
 }
 
 impl ToppleUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: ToppleUpdate,
         module_name: &AsciiString,
@@ -843,9 +855,7 @@ pub fn topple_update_module_factory(
 
 impl Snapshotable for ToppleUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

@@ -164,10 +164,14 @@ impl GameLogic {
             if max_hps >= 0 {
                 if let Some(created) = self.objects.get_mut(&id) {
                     let new_max = max_hps as f32;
-                    let old_max = created.health.maximum.max(created.max_health).max(1.0);
+                    let old_max = if created.health.maximum > 0.0 {
+                        created.health.maximum
+                    } else {
+                        created.max_health.max(1.0)
+                    };
                     let ratio = created.health.current / old_max;
                     created.set_body_max_health(new_max);
-                    created.health.current = (new_max * ratio).clamp(0.0, new_max);
+                    created.health.current = (new_max * ratio).clamp(0.0, new_max.max(0.0));
                     created.record_host_max_health();
                 }
             }

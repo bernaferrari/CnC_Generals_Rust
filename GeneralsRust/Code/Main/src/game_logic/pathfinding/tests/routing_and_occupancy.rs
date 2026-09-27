@@ -516,6 +516,8 @@ fn queue_overflow_refuses_newest() {
         surfaces: SURFACE_GROUND,
         is_crusher: false,
         ignore_obstacle: None,
+        adjust_destinations: true,
+        restore_adjust_on_install: false,
     };
     for i in 1..=PATHFIND_QUEUE_LEN as u32 {
         assert!(sys.queue_path(mk(i)), "slot {i} must enqueue");
@@ -1154,6 +1156,42 @@ fn downhill_only_reaches_live_astar() {
     );
 }
 
+#[test]
+fn downhill_only_will_not_step_up_a_sampled_ridge() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut sys = PathfindingSystem::new(80.0, 40.0);
+    let w = sys.grid.width();
+    let h = sys.grid.height();
+    let mut heights = vec![0.0f32; (w * h) as usize];
+    for y in 0..h {
+        let idx = (y * w + 3) as usize;
+        if let Some(slot) = heights.get_mut(idx) {
+            *slot = 20.0;
+        }
+    }
+    sys.set_terrain_height_samples(w, h, heights);
+    let mut objects = HashMap::new();
+    let mut tmpl = ThingTemplate::new("Ski");
+    tmpl.add_kind_of(KindOf::Infantry);
+    let mut unit = Object::new(tmpl, ObjectId(3), Team::USA);
+    unit.downhill_only = true;
+    unit.loco_appearance = crate::game_logic::LocomotorAppearance::LegsTwo;
+    objects.insert(unit.id, unit);
+    let from = sys.grid.grid_to_world(GridPos::new(1, 1));
+    let to = sys.grid.grid_to_world(GridPos::new(5, 1));
+    assert!(
+        sys.find_path_ex(from, to, &objects, false, Some(ObjectId(3)))
+            .is_none(),
+        "downhill-only must not cross a 20-high ridge"
+    );
+    objects.get_mut(&ObjectId(3)).unwrap().downhill_only = false;
+    assert!(
+        sys.find_path_ex(from, to, &objects, false, Some(ObjectId(3)))
+            .is_some(),
+        "the same ridge is walkable when downhill-only is off"
+    );
+}
+
 /// hq-9za5p: findClosestPath walks to a valid neighbor when the goal is blocked.
 #[test]
 fn find_closest_path_walks_to_valid_cell_when_goal_impassable() {
@@ -1163,7 +1201,7 @@ fn find_closest_path_walks_to_valid_cell_when_goal_impassable() {
     let from = Vec3::new(20.0, 0.0, 50.0);
     let to = sys.grid.grid_to_world(goal);
     let path = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true)
+        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
         .expect("closest path");
     let end = *path.last().expect("end");
     let end_cell = sys.grid.world_to_grid(end);
@@ -1325,4 +1363,77 @@ fn seed_line_aborts_allied_fixed_and_crushable_enemies() {
         g.seed_line_occupancy_ok(GridPos::new(4, 4), Some(0), masks[0], false, layer),
         "empty cell must seed"
     );
+}
+
+#[test]
+fn final_position_stamps_only_after_the_path_is_cleared() {
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+    let mut g = open_grid(24, 24);
+    let mut objects = HashMap::new();
+    let mut tmpl = ThingTemplate::new("Ranger");
+    tmpl.add_kind_of(KindOf::Infantry);
+    let mut inf = Object::new(tmpl, ObjectId(7), Team::USA);
+    let stand = g.grid_to_world(GridPos::new(4, 4));
+    let path_end = g.grid_to_world(GridPos::new(12, 4));
+    let planted = g.grid_to_world(GridPos::new(18, 4));
+    inf.set_position(stand);
+    inf.owner_player_id = Some(0);
+    inf.selection_radius = 5.0;
+    inf.movement.path = vec![stand, path_end];
+    inf.movement.current_path_index = 1;
+    inf.do_final_position = true;
+    inf.final_position = planted;
+    objects.insert(inf.id, inf);
+    g.update_dynamic_obstacles(&objects);
+    let path_cell = g.cell_for_unit_position(path_end, true);
+    let final_cell = g.cell_for_unit_position(planted, true);
+    assert_eq!(
+        g.occupancy_bits(path_cell, PathfindLayerEnum::Ground).goal_unit,
+        7,
+        "a live path stamps the path node"
+    );
+    assert_eq!(
+        g.occupancy_bits(final_cell, PathfindLayerEnum::Ground).goal_unit,
+        0
+    );
+    objects.get_mut(&ObjectId(7)).unwrap().movement.path.clear();
+    g.update_dynamic_obstacles(&objects);
+    assert_eq!(
+        g.occupancy_bits(final_cell, PathfindLayerEnum::Ground).goal_unit,
+        7,
+        "an empty path stamps the snapped final cell"
+    );
+    assert_eq!(
+        g.occupancy_bits(path_cell, PathfindLayerEnum::Ground).goal_unit,
+        0
+    );
+}
+
+#[test]
+fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
+    use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
+    let mut g = open_grid(24, 24);
+    let mut objects = HashMap::new();
+    let mut tmpl = ThingTemplate::new("Raptor");
+    tmpl.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(tmpl, ObjectId(8), Team::USA);
+    let stand = g.grid_to_world(GridPos::new(4, 6));
+    let path_end = g.grid_to_world(GridPos::new(12, 6));
+    let planted = g.grid_to_world(GridPos::new(18, 6));
+    jet.set_position(stand);
+    jet.loco_appearance = LocomotorAppearance::Wings;
+    jet.selection_radius = 5.0;
+    jet.movement.path = vec![stand, path_end];
+    jet.do_final_position = true;
+    jet.final_position = planted;
+    objects.insert(jet.id, jet);
+    g.update_dynamic_obstacles(&objects);
+    let path_cell = g.cell_for_unit_position(path_end, true);
+    let final_cell = g.cell_for_unit_position(planted, true);
+    assert_eq!(g.goal_aircraft(path_cell), 8);
+    assert_eq!(g.goal_aircraft(final_cell), 0);
+    objects.get_mut(&ObjectId(8)).unwrap().movement.path.clear();
+    g.update_dynamic_obstacles(&objects);
+    assert_eq!(g.goal_aircraft(final_cell), 8);
+    assert_eq!(g.goal_aircraft(path_cell), 0);
 }

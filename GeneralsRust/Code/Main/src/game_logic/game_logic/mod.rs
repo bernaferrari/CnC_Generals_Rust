@@ -73,6 +73,7 @@ mod world_save;
 mod world_scripts;
 #[path = "../world_tick/mod.rs"]
 mod world_tick;
+pub(in super) use world_tick::host_object_footprint;
 
 impl GameLogic {
     fn update_player_alive_state(&mut self) {

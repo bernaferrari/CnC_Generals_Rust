@@ -383,7 +383,19 @@ impl Unit {
             return false;
         }
 
-        self.last_target_scan_frame = current_frame;
+        let offset = self.base_arc().try_read().ok().and_then(|obj| {
+            let ai = obj.get_ai()?;
+            drop(obj);
+            let mut ai_guard = ai.try_lock().ok()?;
+            Some(ai_guard.take_random_mood_offset())
+        });
+        if offset == Some(true) {
+            let half = (interval / 2) as i32;
+            let jitter = crate::helpers::get_game_logic_random_value(-half, half);
+            self.last_target_scan_frame = (current_frame as i32).saturating_add(jitter).max(0) as u32;
+        } else {
+            self.last_target_scan_frame = current_frame;
+        }
         true
     }
     pub(super) fn find_closest_enemy(

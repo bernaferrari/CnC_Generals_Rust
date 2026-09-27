@@ -1101,8 +1101,7 @@ impl BoneFXUpdate {
         for i in 0..BONE_FX_MAX_BONES {
             if self.next_fx_frame[state_idx][i] != -1 && self.next_fx_frame[state_idx][i] <= now {
                 if let Some(fx) = self.module_data.fx_list[state_idx][i].fx {
-                    let bone_pos = self.fx_bone_positions[state_idx][i];
-                    self.do_fx_list_at_bone(fx, &bone_pos);
+                    self.do_fx_list_at_bone(fx, i);
                 }
                 let base_info = &self.module_data.fx_list[state_idx][i].base;
                 let mut next_frame = self.next_fx_frame[state_idx][i];
@@ -1112,8 +1111,7 @@ impl BoneFXUpdate {
 
             if self.next_ocl_frame[state_idx][i] != -1 && self.next_ocl_frame[state_idx][i] <= now {
                 if let Some(ocl) = self.module_data.ocl[state_idx][i].ocl {
-                    let bone_pos = self.ocl_bone_positions[state_idx][i];
-                    self.do_ocl_at_bone(ocl, &bone_pos);
+                    self.do_ocl_at_bone(ocl, i);
                 }
                 let base_info = &self.module_data.ocl[state_idx][i].base;
                 let mut next_frame = self.next_ocl_frame[state_idx][i];
@@ -1127,8 +1125,7 @@ impl BoneFXUpdate {
                 if let Some(ps) =
                     self.module_data.particle_system[state_idx][i].particle_sys_template
                 {
-                    let bone_pos = self.ps_bone_positions[state_idx][i];
-                    self.do_particle_system_at_bone(ps, &bone_pos);
+                    self.do_particle_system_at_bone(ps, i);
                 }
                 let base_info = &self.module_data.particle_system[state_idx][i].base;
                 let mut next_frame = self.next_particle_system_frame[state_idx][i];
@@ -1267,7 +1264,7 @@ impl BoneFXUpdate {
 
     /// Execute FX list at a bone position.
     /// Matches C++ BoneFXUpdate.cpp:360-383
-    fn do_fx_list_at_bone(&mut self, fx_list: FXListId, bone_position: &Coord3D) {
+    fn do_fx_list_at_bone(&mut self, fx_list: FXListId, bone_index: usize) {
         // Wave 404: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -1277,6 +1274,7 @@ impl BoneFXUpdate {
         if !self.bones_resolved[state_idx] {
             self.resolve_bone_locations();
         }
+        let bone_position = self.fx_bone_positions[state_idx][bone_index];
 
         let Some(new_pos) = OBJECT_REGISTRY
             .with_object(self.object_id, |object_guard| {
@@ -1293,7 +1291,7 @@ impl BoneFXUpdate {
                 }
 
                 let world_transform =
-                    object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
+                    object_guard.convert_bone_pos_to_world_pos(Some(&bone_position), None);
                 let translation = world_transform.w_axis;
                 Some(Coord3D {
                     x: translation.x,
@@ -1313,7 +1311,7 @@ impl BoneFXUpdate {
 
     /// Execute OCL at a bone position.
     /// Matches C++ BoneFXUpdate.cpp:387-408
-    fn do_ocl_at_bone(&mut self, ocl: ObjectCreationListId, bone_position: &Coord3D) {
+    fn do_ocl_at_bone(&mut self, ocl: ObjectCreationListId, bone_index: usize) {
         // Wave 404: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -1323,6 +1321,7 @@ impl BoneFXUpdate {
         if !self.bones_resolved[state_idx] {
             self.resolve_bone_locations();
         }
+        let bone_position = self.ocl_bone_positions[state_idx][bone_index];
 
         let Some(ocl_name) = NameKeyGenerator::key_to_name(ocl as NameKeyType) else {
             return;
@@ -1347,17 +1346,16 @@ impl BoneFXUpdate {
             }
 
             let world_transform =
-                object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
+                object_guard.convert_bone_pos_to_world_pos(Some(&bone_position), None);
             let translation = world_transform.w_axis;
             let new_pos = Coord3D {
                 x: translation.x,
                 y: translation.y,
                 z: translation.z,
             };
-            let _ = ocl_handle.create_with_angle(
+            let _ = ocl_handle.create_without_secondary(
                 &ctx,
                 Some(object_guard),
-                &new_pos,
                 &new_pos,
                 INVALID_ANGLE,
                 0,
@@ -1370,7 +1368,7 @@ impl BoneFXUpdate {
     fn do_particle_system_at_bone(
         &mut self,
         particle_system_template: ParticleSystemTemplateId,
-        bone_position: &Coord3D,
+        bone_index: usize,
     ) {
         // Wave 404: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -1381,6 +1379,7 @@ impl BoneFXUpdate {
         if !self.bones_resolved[state_idx] {
             self.resolve_bone_locations();
         }
+        let bone_position = self.ps_bone_positions[state_idx][bone_index];
 
         let Some(template_name) =
             NameKeyGenerator::key_to_name(particle_system_template as NameKeyType)
@@ -1391,57 +1390,45 @@ impl BoneFXUpdate {
             return;
         };
 
-        let Some((new_pos, hidden)) = OBJECT_REGISTRY
+        let damage_rejected = OBJECT_REGISTRY
             .with_object(self.object_id, |object_guard| {
-                if let Some(body_module) = object_guard.get_body_module() {
-                    if let Some(last_damage_info) = body_module.get_last_damage_info() {
-                        if !self
+                object_guard
+                    .get_body_module()
+                    .and_then(|body_module| body_module.get_last_damage_info())
+                    .is_some_and(|last_damage_info| {
+                        !self
                             .module_data
                             .damage_particle_types
                             .contains_damage_type(last_damage_info.input.damage_type)
-                        {
-                            return None;
-                        }
-                    }
-                }
-
-                let world_transform =
-                    object_guard.convert_bone_pos_to_world_pos(Some(bone_position), None);
-                let translation = world_transform.w_axis;
-                let new_pos = Coord3D {
-                    x: translation.x,
-                    y: translation.y,
-                    z: translation.z,
-                };
-                let hidden = if let Some(drawable) = object_guard.get_drawable() {
-                    drawable
-                        .read()
-                        .ok()
-                        .map(|draw_guard| draw_guard.is_drawable_effectively_hidden())
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-                Some((new_pos, hidden))
+                    })
             })
-            .flatten()
-        else {
+            .unwrap_or(false);
+        if damage_rejected {
             return;
-        };
+        }
 
         let Some(psys_id) = ps_manager.create_particle_system(Some(template_name.as_str())) else {
             return;
         };
 
-        if hidden {
-            // Best-effort replacement for C++ ParticleSystem::stop().
-            ps_manager.destroy_particle_system(psys_id);
-            return;
-        }
-
         self.particle_system_ids.push(psys_id);
-        ps_manager.set_particle_system_position(psys_id, &new_pos);
+        ps_manager.set_particle_system_position(psys_id, &bone_position);
         ps_manager.attach_particle_system_to_object(psys_id, self.object_id);
+
+        let hidden = OBJECT_REGISTRY
+            .with_object(self.object_id, |object_guard| {
+                object_guard.get_drawable().and_then(|drawable| {
+                    drawable
+                        .read()
+                        .ok()
+                        .map(|draw_guard| draw_guard.is_drawable_effectively_hidden())
+                })
+            })
+            .flatten()
+            .unwrap_or(false);
+        if hidden {
+            ps_manager.stop_particle_system(psys_id);
+        }
     }
 
     /// Compute next client FX time.

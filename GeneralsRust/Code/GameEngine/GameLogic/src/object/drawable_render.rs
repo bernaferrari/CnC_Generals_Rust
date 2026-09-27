@@ -51,11 +51,6 @@ impl crate::drawable::Drawable for Drawable {
         if let Some(instance_mtx) = self.instance_matrix {
             transform_mtx = transform_mtx * instance_mtx;
         }
-        if (self.instance_scale - 1.0).abs() > f32::EPSILON {
-            // C++ Drawable draw: instance scale is applied after the instance matrix.
-            transform_mtx =
-                transform_mtx * Matrix3D::from_scale(glam::Vec3::splat(self.instance_scale));
-        }
         // C++ Drawable.cpp:2649 — applyPhysicsXform after instance, before modules.
         // Calc lives in GameClient (crate cycle). Nested Overlord rider draws
         // re-enter this function with the parent-corrected matrix when the

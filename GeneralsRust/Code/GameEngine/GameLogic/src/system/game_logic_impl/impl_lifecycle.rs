@@ -958,6 +958,7 @@ impl GameLogic {
         clear_campaign_victorious_for_new_game();
 
         self.rank_level_limit = 1000;
+        publish_rank_cap_if_live(self);
         self.set_defaults(loading_save_game);
         self.show_behind_building_markers = true;
         self.draw_icon_ui = true;

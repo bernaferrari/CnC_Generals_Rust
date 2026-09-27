@@ -654,6 +654,18 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
             collide.on_collision(object_id, other_id);
         }
     }
+    if other_id != INVALID_ID {
+        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        {
+            let contain = obj.try_read().ok().and_then(|guard| guard.get_contain());
+            if let Some(contain) = contain {
+                if let Ok(mut contain_guard) = contain.try_lock() {
+                    let _ = contain_guard.on_collide_enter(other_id);
+                }
+            }
+        }
+    }
 }
 
 // Global collision manager instance

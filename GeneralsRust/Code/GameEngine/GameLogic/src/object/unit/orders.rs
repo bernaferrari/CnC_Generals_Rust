@@ -32,11 +32,14 @@ impl Unit {
         self.update_animation_state()?;
 
         // Update per-unit AI module (matches C++ AIUpdateInterface::update call per frame).
-        if let Ok(base_guard) = self.base_arc().read() {
-            if let Some(ai) = base_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.update();
-                }
+        let ai = self
+            .base_arc()
+            .read()
+            .ok()
+            .and_then(|base_guard| base_guard.get_ai_update_interface());
+        if let Some(ai) = ai {
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.update();
             }
         }
 
@@ -255,7 +258,7 @@ impl Unit {
         !self.is_stunned
             && !self.is_pinned
             && !self.is_garrisoned
-            && self.current_locomotor.is_some()
+            && self.locomotor_set.get_active().is_some()
     }
     /// Check if unit can attack
     pub fn can_attack(&self) -> bool {

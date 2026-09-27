@@ -57,7 +57,7 @@ pub struct ParsedCrateTemplate {
     /// Empty string means "no restriction" (equivalent to C++ LEVEL_INVALID).
     pub veterancy_level: String,
     /// KindOf bitmask value (parsed from hex or name).
-    pub killed_by_type_kindof: u64,
+    pub killed_by_type_kindof: u128,
     /// Killer science name as string.
     pub killer_science: String,
     /// List of possible crates with weighted chances.
@@ -284,7 +284,7 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
 /// Parse a KindOf bitmask from string.
 /// C++ uses `KindOfMaskType::parseFromINI` which processes space-separated
 /// KindOf flag names into a bitmask.
-fn parse_kind_of_mask(token: &str) -> u64 {
+fn parse_kind_of_mask(token: &str) -> u128 {
     let trimmed = token.trim();
     if trimmed.is_empty() {
         return 0;
@@ -294,18 +294,18 @@ fn parse_kind_of_mask(token: &str) -> u64 {
         .strip_prefix("0x")
         .or_else(|| trimmed.strip_prefix("0X"))
     {
-        return u64::from_str_radix(hex, 16).unwrap_or(0);
+        return u128::from_str_radix(hex, 16).unwrap_or(0);
     }
 
-    let mut mask = 0u64;
+    let mut mask = 0u128;
     for part in trimmed.split(|ch: char| ch.is_whitespace() || ch == '|') {
         let name = part.trim().to_ascii_uppercase();
         if let Some(index) = KIND_OF_BIT_NAMES
             .iter()
             .position(|bit_name| *bit_name == name.as_str())
         {
-            if index < u64::BITS as usize {
-                mask |= 1u64 << index;
+            if index < u128::BITS as usize {
+                mask |= 1u128 << index;
             }
         }
     }
@@ -356,9 +356,9 @@ mod tests {
 
     #[test]
     fn test_parse_kind_of_mask_hex() {
-        assert_eq!(parse_kind_of_mask("0x1"), 1);
-        assert_eq!(parse_kind_of_mask("0xFF"), 255);
-        assert_eq!(parse_kind_of_mask("0"), 0);
+        assert_eq!(parse_kind_of_mask("0x1"), 1u128);
+        assert_eq!(parse_kind_of_mask("0xFF"), 255u128);
+        assert_eq!(parse_kind_of_mask("0"), 0u128);
     }
 
     #[test]

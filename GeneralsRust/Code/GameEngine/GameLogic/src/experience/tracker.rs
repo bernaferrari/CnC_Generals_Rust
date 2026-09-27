@@ -173,8 +173,11 @@ impl ExperienceTracker {
         }
 
         let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
-        let owner_guard = owner.read().ok()?;
-        Some(owner_guard.get_template().is_trainable())
+        match owner.try_read() {
+            Ok(owner_guard) => Some(owner_guard.get_template().is_trainable()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+            Err(_) => None,
+        }
     }
 
     /// Fail-closed degraded threshold lookup: prefer the caller-supplied
@@ -193,8 +196,14 @@ impl ExperienceTracker {
         level_index: usize,
         experience_required: &[i32],
     ) -> i32 {
+        // Caller-supplied template thresholds win. Looking the owner up here
+        // deadlocks: score_the_kill already holds that object's write lock,
+        // and std::sync::RwLock is not reentrant.
+        if let Some(value) = experience_required.get(level_index).copied() {
+            return value;
+        }
         self.get_owner_template_experience_required(level_index)
-            .unwrap_or_else(|| Self::fallback_experience_required(experience_required, level_index))
+            .unwrap_or_else(|| Self::fallback_experience_required(&[], level_index))
     }
 
     /// Set veterancy level explicitly using the degraded threshold table.
@@ -278,35 +287,103 @@ impl ExperienceTracker {
                         if let Ok(mut tracker_guard) = tracker.lock() {
                             let forwarded_experience_gain =
                                 (experience_gain as f32 * self.experience_scalar) as i32;
-                            return tracker_guard.add_experience_points(
+                            let promoted = tracker_guard.add_experience_points(
                                 forwarded_experience_gain,
                                 can_scale_for_bonus,
                                 experience_required,
                             );
+                            let new_level = tracker_guard.get_veterancy_level();
+                            drop(tracker_guard);
+                            drop(sink_guard);
+                            if let Some(old_level) = promoted {
+                                if let Ok(mut sink_mut) = sink.write() {
+                                    sink_mut.on_veterancy_level_changed(
+                                        old_level,
+                                        new_level,
+                                        true,
+                                    );
+                                }
+                            }
+                            return None;
                         }
                     }
                 }
+                return None;
             }
         }
 
         if !self.is_trainable() {
             return None;
         }
+        self.add_experience_points_after_trainable_check(
+            experience_gain,
+            can_scale_for_bonus,
+            experience_required,
+        )
+    }
 
+    /// Caller already checked `get_template().is_trainable()` or a sink.
+    /// Does not call `owner_is_trainable`.
+    pub fn add_experience_points_already_accepted(
+        &mut self,
+        experience_gain: i32,
+        can_scale_for_bonus: bool,
+        experience_required: &[i32],
+    ) -> Option<VeterancyLevel> {
+        if self.experience_sink != Self::INVALID_ID {
+            if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
+                if let Ok(sink_guard) = sink.read() {
+                    if let Some(tracker) = sink_guard.get_experience_tracker() {
+                        if let Ok(mut tracker_guard) = tracker.lock() {
+                            let forwarded =
+                                (experience_gain as f32 * self.experience_scalar) as i32;
+                            let promoted = tracker_guard.add_experience_points(
+                                forwarded,
+                                can_scale_for_bonus,
+                                experience_required,
+                            );
+                            let new_level = tracker_guard.get_veterancy_level();
+                            drop(tracker_guard);
+                            drop(sink_guard);
+                            if let Some(old_level) = promoted {
+                                if let Ok(mut sink_mut) = sink.write() {
+                                    sink_mut.on_veterancy_level_changed(
+                                        old_level,
+                                        new_level,
+                                        true,
+                                    );
+                                }
+                            }
+                            return None;
+                        }
+                    }
+                }
+                return None;
+            }
+            // C++ falls through to isTrainable when the sink object is gone.
+            // The caller already proved this template is trainable.
+        }
+        self.add_experience_points_after_trainable_check(
+            experience_gain,
+            can_scale_for_bonus,
+            experience_required,
+        )
+    }
+
+    fn add_experience_points_after_trainable_check(
+        &mut self,
+        experience_gain: i32,
+        can_scale_for_bonus: bool,
+        experience_required: &[i32],
+    ) -> Option<VeterancyLevel> {
         let old_level = self.current_level;
-
-        // Calculate actual amount to gain
         let amount_to_gain = if can_scale_for_bonus {
             (experience_gain as f32 * self.experience_scalar) as i32
         } else {
             experience_gain
         };
-
         self.current_experience += amount_to_gain;
-
-        // Check for level ups
         self.update_level_from_experience(experience_required);
-
         if old_level != self.current_level {
             Some(old_level)
         } else {
@@ -390,6 +467,7 @@ impl ExperienceTracker {
                         }
                     }
                 }
+                return None;
             }
         }
         if !self.is_trainable() {

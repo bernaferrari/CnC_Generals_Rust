@@ -61,6 +61,27 @@ fn leftover_factory_ai_update_bits(template_name: &str) -> Option<(u32, bool)> {
     }
     None
 }
+/// True only when the template's AI behavior is `WorkerAIUpdate`, not `DozerAIUpdate`.
+pub(crate) fn template_has_worker_ai_update(template_name: &str) -> bool {
+    use gamelogic::object::update::ai_update::WorkerAIUpdateModuleData;
+    let Some(guard) = game_engine::common::thing::thing_factory::try_get_thing_factory() else {
+        return false;
+    };
+    let Some(factory) = guard.as_ref() else {
+        return false;
+    };
+    let Some(tmpl) = factory.find_template(template_name, false) else {
+        return false;
+    };
+    tmpl.get_behavior_module_info().iter().any(|entry| {
+        entry
+            .data
+            .as_any()
+            .downcast_ref::<WorkerAIUpdateModuleData>()
+            .is_some()
+    })
+}
+
 
 /// C++ `ActiveBodyModuleData::m_initialHealth` from leftover factory when loaded.
 /// Never calls `find_template(..., true)` (that lazy-inits Object INI).
@@ -882,9 +903,11 @@ impl Object {
             ignore_collisions_until_frame: 0,
             is_blocked: false,
             is_blocked_and_stuck: false,
-            cur_max_blocked_speed: f32::MAX,
+            retry_path: false,
+            try_one_more_repath: false,
+            cur_max_blocked_speed: 0.0,
             num_frames_blocked: 0,
-            bump_speed_limit: f32::MAX,
+            bump_speed_limit: 999_999.0,
             locomotor_set_names,
             cur_locomotor_name,
             is_panicking: false,
@@ -897,10 +920,14 @@ impl Object {
             do_final_position: false,
             final_position: glam::Vec3::ZERO,
             ignored_obstacle_id: None,
+            pathfind_goal_cell: (-1, -1),
             move_away_from: None,
+            move_away_from_2: None,
             move_away_frames: 0,
             move_away_destination: None,
             request_other_move_away: None,
+            request_self_yield_from: None,
+            unstack_partner: None,
             forward_friction,
             lateral_friction,
             z_friction,
@@ -912,7 +939,9 @@ impl Object {
             original_allow_bounce: allow_bouncing,
             stick_to_ground: false,
             allow_to_fall: false,
+            is_in_freefall: false,
             was_airborne_last_frame: false,
+            landing_splat_done: false,
             center_of_mass_offset,
             pitch_roll_yaw_factor,
             is_braking: false,
@@ -943,7 +972,9 @@ impl Object {
             ultra_accurate: false,
             can_move_backward: false,
             moving_backwards: false,
+            doing_three_point_turn: false,
             no_slow_down_as_approaching_dest: false,
+            path_extra_distance: 0.0,
             over_water: false,
             circling_radius: 0.0,
             precise_z_pos: false,
@@ -963,14 +994,20 @@ impl Object {
             max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
+            desired_speed: 999_999.0,
             is_attack_path: false,
             is_exact_path: false,
             is_approach_path: false,
             is_safe_path: false,
+            is_final_goal: false,
             requested_victim_id: None,
             safe_path_repulsor2: None,
 
             requested_destination: None,
+            path_goal_position: None,
+            adjust_destinations: true,
+            temporary_move_saved_dest: None,
+            temporary_move_saved_path_goal: None,
             pending_move: None,
             attack_move_retry_count: 0,
             attack_move_sleep_until: 0,
@@ -983,6 +1020,8 @@ impl Object {
             approach_timestamp: 0,
             prev_victim_pos: None,
             temporary_move_frames: 0,
+            overlay_arrival_snap: false,
+            worker_ai_update: template_has_worker_ai_update(&template_name),
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             move_loop_audio: None,
@@ -1227,6 +1266,7 @@ impl Object {
             deploy_style: None,
             command_button_hunt: None,
             last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+            attack_move_command_src: None,
             has_overlord_gattling_addon: false,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
@@ -1272,6 +1312,8 @@ impl Object {
             uses_inactive_body: false,
             inactive_body_die_called: false,
             next_mood_check_time: 0,
+            randomly_offset_mood_check: false,
+            idle_mood_reset_pending: true,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range,
             shroud_clearing_range,
@@ -1783,9 +1825,11 @@ impl Object {
             ignore_collisions_until_frame: 0,
             is_blocked: false,
             is_blocked_and_stuck: false,
-            cur_max_blocked_speed: f32::MAX,
+            retry_path: false,
+            try_one_more_repath: false,
+            cur_max_blocked_speed: 0.0,
             num_frames_blocked: 0,
-            bump_speed_limit: f32::MAX,
+            bump_speed_limit: 999_999.0,
             locomotor_set_names,
             cur_locomotor_name: locomotor_name,
             is_panicking: false,
@@ -1798,10 +1842,14 @@ impl Object {
             do_final_position: false,
             final_position: glam::Vec3::ZERO,
             ignored_obstacle_id: None,
+            pathfind_goal_cell: (-1, -1),
             move_away_from: None,
+            move_away_from_2: None,
             move_away_frames: 0,
             move_away_destination: None,
             request_other_move_away: None,
+            request_self_yield_from: None,
+            unstack_partner: None,
             forward_friction,
             lateral_friction,
             z_friction,
@@ -1813,7 +1861,9 @@ impl Object {
             original_allow_bounce: allow_bouncing,
             stick_to_ground: false,
             allow_to_fall: false,
+            is_in_freefall: false,
             was_airborne_last_frame: false,
+            landing_splat_done: false,
             center_of_mass_offset,
             pitch_roll_yaw_factor,
             is_braking: false,
@@ -1844,7 +1894,9 @@ impl Object {
             ultra_accurate: false,
             can_move_backward: false,
             moving_backwards: false,
+            doing_three_point_turn: false,
             no_slow_down_as_approaching_dest: false,
+            path_extra_distance: 0.0,
             over_water: false,
             circling_radius: 0.0,
             precise_z_pos: false,
@@ -1864,14 +1916,20 @@ impl Object {
             max_lift_damaged: 0.0,
             speed_limit_z: 999999.0,
             group_speed_factor: 1.0,
+            desired_speed: 999_999.0,
             is_attack_path: false,
             is_exact_path: false,
             is_approach_path: false,
             is_safe_path: false,
+            is_final_goal: false,
             requested_victim_id: None,
             safe_path_repulsor2: None,
 
             requested_destination: None,
+            path_goal_position: None,
+            adjust_destinations: true,
+            temporary_move_saved_dest: None,
+            temporary_move_saved_path_goal: None,
             pending_move: None,
             attack_move_retry_count: 0,
             attack_move_sleep_until: 0,
@@ -1884,6 +1942,8 @@ impl Object {
             approach_timestamp: 0,
             prev_victim_pos: None,
             temporary_move_frames: 0,
+            overlay_arrival_snap: false,
+            worker_ai_update: template_has_worker_ai_update(&template_name),
             body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             move_loop_audio: None,
@@ -2128,6 +2188,7 @@ impl Object {
             deploy_style: None,
             command_button_hunt: None,
             last_command_source: crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI,
+            attack_move_command_src: None,
             overlord_addon_body_damage_state:
                 crate::game_logic::host_enum_table_residual::HostBodyDamageType::Pristine,
             overlord_portable_occupant: None,
@@ -2173,6 +2234,8 @@ impl Object {
             uses_inactive_body: false,
             inactive_body_die_called: false,
             next_mood_check_time: 0,
+            randomly_offset_mood_check: false,
+            idle_mood_reset_pending: true,
             mood_attack_check_rate: default_mood_attack_check_rate(),
             vision_range: default_vision_range(),
             shroud_clearing_range: default_vision_range(),
@@ -2455,23 +2518,31 @@ impl Object {
         // C++ BodyModule::getHealth() / getMaxHealth() — GW when coupled.
         let current =
             crate::gameworld_shadow::coupled_entity_health(self.id).unwrap_or(self.health.current);
-        if self.health.maximum > 0.0 {
-            current / self.health.maximum
+        let max_h = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health
+        };
+        if max_h > 0.0 {
+            current / max_h
         } else {
             0.0
         }
     }
 
-    /// C++ `BodyModule::getInitialHealth`. Legacy/missing 0 falls back to current max.
+    /// C++ `BodyModule::getInitialHealth`. Legacy/missing 0 falls back to the live max.
     pub fn body_initial_health(&self) -> f32 {
         if self.initial_health > 0.0 {
             self.initial_health
+        } else if self.health.maximum > 0.0 {
+            self.health.maximum
         } else {
-            self.health.maximum.max(self.max_health).max(1.0)
+            self.max_health.max(1.0)
         }
     }
 
     /// C++ `ActiveBody::setMaxHealth`: overwrite max and initial together.
+    /// Callers that then write `health.current` own the clip and the damage-state refresh.
     pub fn set_body_max_health(&mut self, new_max: f32) {
         self.health.maximum = new_max;
         self.max_health = new_max;
@@ -2484,8 +2555,17 @@ impl Object {
     pub fn set_initial_health_percent(&mut self, percent: i32) {
         let initial = self.body_initial_health();
         let new_hp = (percent as f32 / 100.0) * initial;
-        let cap = self.health.maximum.max(self.max_health);
+        let cap = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health
+        };
+        let before = self.health.current;
+        self.previous_health = before;
         self.health.current = new_hp.clamp(0.0, cap);
+        if (self.health.current - before).abs() > 1e-4 {
+            self.refresh_model_condition_bits();
+        }
     }
 
     /// C++ `ScriptConditions::evaluateUnitHealth` integer percent.

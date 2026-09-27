@@ -213,7 +213,11 @@ pub(super) fn on_collide(
                     tmp.x -= bounce_out * delta.x / dist;
                     tmp.y -= bounce_out * delta.y / dist;
                     let _ = bounce.set_position(&tmp);
-                    if let Some(phys) = bounce.get_physics() {
+                    if bounce_id == object_id {
+                        // `handle` already is this object's physics mutex.
+                        // PhysicsBehaviorExt would lock that same Arc again.
+                        crate::modules::PhysicsBehavior::scrub_velocity_2d(handle, 0.0);
+                    } else if let Some(phys) = bounce.get_physics() {
                         phys.scrub_velocity_2d(0.0);
                     }
                 }

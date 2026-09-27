@@ -94,19 +94,13 @@ impl DrawModuleData for W3DDependencyModelDrawModuleData {
 }
 impl Snapshotable for W3DDependencyModelDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.crc(xfer)
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -401,10 +395,21 @@ impl ObjectDrawInterface for W3DDependencyModelDraw {
         &mut self,
         weapon_slot: usize,
         barrel_index: i32,
+        fx: Option<&crate::effects::FXList>,
         victim_pos: &Coord3D,
+        weapon_speed: f32,
+        damage_radius: f32,
+        live_bone: Option<&crate::common::Matrix3D>,
     ) -> bool {
-        self.base
-            .handle_weapon_fire_fx(weapon_slot, barrel_index, victim_pos)
+        self.base.handle_weapon_fire_fx(
+            weapon_slot,
+            barrel_index,
+            fx,
+            victim_pos,
+            weapon_speed,
+            damage_radius,
+            live_bone,
+        )
     }
     fn get_barrel_count(&self, weapon_slot: usize) -> i32 {
         self.base.get_barrel_count(weapon_slot)

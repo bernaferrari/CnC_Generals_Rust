@@ -120,7 +120,7 @@ impl FollowWaypointPathCore {
         let next_id = current.get_link(which)?;
         self.prior_waypoint = self.current_waypoint.clone();
         if let Ok(machine) = state.get_machine() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(mut guard) = machine.try_lock() {
                 guard.set_goal_position(current.position);
             }
         }
@@ -221,18 +221,14 @@ impl FollowWaypointPathCore {
         } else {
             ai.set_adjusts_destination(true);
             if owner.is_kind_of(KindOf::Projectile) {
-                if let Some(locomotor) = ai.get_cur_locomotor() {
-                    if let Ok(mut guard) = locomotor.lock() {
-                        guard.set_precise_z_pos(true);
-                    }
-                }
+                ai.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(true));
             }
         }
 
         ai.set_path_extra_distance(self.calc_extra_path_distance())
             .map_err(|e| e.to_string())?;
         if let Ok(machine) = state.get_machine() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(mut guard) = machine.try_lock() {
                 guard.set_goal_position(self.goal_position);
             }
         }

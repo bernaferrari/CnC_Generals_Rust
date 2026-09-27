@@ -108,7 +108,7 @@ pub(crate) fn geometry_type_from_u32(value: u32) -> EngineGeometryType {
 }
 
 /// Geometry information (matching C++ GeometryInfo)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct GeometryInfo {
     pub position: Coord3D,
     pub angle: Real,
@@ -163,6 +163,16 @@ impl GeometryInfo {
         ((dx * dx + dy * dy).sqrt() / 2.0).max(0.0)
     }
 
+    /// C++ `GeometryInfo::getZDeltaToCenterPosition`.
+    pub fn get_z_delta_to_center_position(&self) -> Real {
+        match self.geometry_type {
+            EngineGeometryType::Sphere => 0.0,
+            EngineGeometryType::Box | EngineGeometryType::Cylinder => {
+                (self.bounds.max.z - self.bounds.min.z).abs() * 0.5
+            }
+        }
+    }
+
     /// Get the major radius (largest XY half-extent).
     pub fn get_major_radius(&self) -> Real {
         let dx = (self.bounds.max.x - self.bounds.min.x).abs();
@@ -176,6 +186,7 @@ impl GeometryInfo {
         let dy = (self.bounds.max.y - self.bounds.min.y).abs();
         (dx.min(dy) * 0.5).max(0.0)
     }
+
 
     /// C++ `GeometryInfo::getFootprintArea`.
     pub fn get_footprint_area(&self) -> Real {
@@ -306,7 +317,7 @@ impl GeometryInfo {
 }
 
 /// Axis-aligned bounding box
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct AABox {
     pub min: Coord3D,
     pub max: Coord3D,

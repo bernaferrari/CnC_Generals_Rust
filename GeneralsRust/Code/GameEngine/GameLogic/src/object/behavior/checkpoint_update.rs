@@ -95,7 +95,7 @@ impl CheckpointUpdate {
         // Get max bounding radius from object geometry
         let max_bounding_radius = {
             let obj = object.read().map_err(|_| "Failed to read object")?;
-            obj.get_geometry_info().get_minor_radius()
+            Self::y_radius(obj.get_geometry_info())
         };
 
         // Bias with random delay so all checkpoints don't spike at once
@@ -116,22 +116,16 @@ impl CheckpointUpdate {
             enemy_scan_delay: random_delay,
         })
     }
+    fn y_radius(geom: &GeometryInfo) -> Real {
+        (geom.bounds.max.y - geom.bounds.min.y) * 0.5
+    }
 
     fn set_geometry_minor_radius(geom: &mut GeometryInfo, new_radius: Real) {
-        let center_x = (geom.bounds.min.x + geom.bounds.max.x) * 0.5;
         let center_y = (geom.bounds.min.y + geom.bounds.max.y) * 0.5;
-        let half_x = (geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5;
-        let half_y = (geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5;
-        let radius = new_radius.max(0.0);
-
-        if half_x <= half_y {
-            geom.bounds.min.x = center_x - radius;
-            geom.bounds.max.x = center_x + radius;
-        } else {
-            geom.bounds.min.y = center_y - radius;
-            geom.bounds.max.y = center_y + radius;
-        }
+        geom.bounds.min.y = center_y - new_radius;
+        geom.bounds.max.y = center_y + new_radius;
     }
+
 
     /// Check for nearby allies and enemies
     fn check_for_allies_and_enemies(&mut self) {
@@ -165,7 +159,7 @@ impl CheckpointUpdate {
             )
         };
 
-        let restore_radius = geometry.get_minor_radius();
+        let restore_radius = Self::y_radius(&geometry);
         let mut scan_geometry = geometry.clone();
         Self::set_geometry_minor_radius(&mut scan_geometry, self.max_bounding_radius);
 
@@ -245,21 +239,19 @@ impl UpdateModuleInterface for CheckpointUpdate {
 
             // Adjust radius for pathfinding based on door animation state.
             let mut geom = me.get_geometry_info().clone();
-            let radius = geom.get_minor_radius();
+            let radius = Self::y_radius(&geom);
             let mut new_radius = radius;
 
             if open {
                 if radius > 0.0 {
-                    new_radius = (radius - 0.333).max(0.0);
+                    new_radius = radius - 0.333;
                 }
             } else if radius < self.max_bounding_radius {
-                new_radius = (radius + 0.333).min(self.max_bounding_radius);
+                new_radius = radius + 0.333;
             }
 
-            if (new_radius - radius).abs() > f32::EPSILON {
-                Self::set_geometry_minor_radius(&mut geom, new_radius);
-                me.set_geometry_info(geom);
-            }
+            Self::set_geometry_minor_radius(&mut geom, new_radius);
+            me.set_geometry_info(geom);
         }
 
         UPDATE_SLEEP_NONE
@@ -278,9 +270,7 @@ impl BehaviorModuleInterface for CheckpointUpdate {
 
 impl Snapshotable for CheckpointUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

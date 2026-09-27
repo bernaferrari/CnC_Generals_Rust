@@ -455,12 +455,11 @@ impl ProductionUpdate {
         }
 
         // Update first production entry
+        let mut finished = false;
+        let mut no_player = false;
         let mut canceled_production_id = None;
         if let Some(production) = self.production_queue.first_mut() {
-            let Some(player) = object.get_controlling_player() else {
-                self.production_queue.remove(0);
-                return UpdateSleepTime::None;
-            };
+            if let Some(player) = object.get_controlling_player() {
 
             // Check if type is still allowed
             let mut should_cancel = false;
@@ -529,15 +528,49 @@ impl ProductionUpdate {
                     0
                 };
 
-                // Update percent complete
-                production.percent_complete = (production.frames_under_construction as f32
-                    / total_production_frames as f32)
-                    * 100.0;
+                production.percent_complete = if total_production_frames <= 0 {
+                    100.0
+                } else {
+                    (production.frames_under_construction as f32 / total_production_frames as f32)
+                        * 100.0
+                };
 
                 // Check if complete
                 if production.percent_complete >= 100.0 {
-                    self.handle_production_complete(0, ctx);
+                    finished = true;
                 }
+            }
+            } else {
+                no_player = true;
+            }
+        }
+        drop(object);
+        if no_player {
+            self.production_queue.remove(0);
+            return UpdateSleepTime::None;
+        }
+        if finished {
+            // C++ exits every remaining unit in this frame, not one per tick.
+            let tries = self
+                .production_queue
+                .first()
+                .map(|production| {
+                    if production.production_type == ProductionType::Unit {
+                        production.get_production_quantity_remaining()
+                    } else {
+                        1
+                    }
+                })
+                .unwrap_or(1);
+            for _ in 0..tries {
+                let still_done = self
+                    .production_queue
+                    .first()
+                    .is_some_and(|production| production.percent_complete >= 100.0);
+                if !still_done {
+                    break;
+                }
+                self.handle_production_complete(0, ctx);
             }
         }
         if let Some(production_id) = canceled_production_id {
@@ -623,46 +656,40 @@ impl ProductionUpdate {
         };
 
         let now = ctx.game_logic.get_frame();
-        let exit_door = self.production_queue[idx].exit_door;
-        let qty_produced = self.production_queue[idx].production_quantity_produced;
-
-        // No door animation needed — create immediately
-        if exit_door == ExitDoorType::NoneAvailable || exit_door == ExitDoorType::NoneNeeded {
-            self.spawn_unit_from_door(
-                &template,
-                &player,
-                &building,
-                &exit_interface,
-                crate::modules::ExitDoorType::None,
-                idx,
-                ctx,
-            );
+        let mut exit_door = self.production_queue[idx].exit_door;
+        if exit_door == ExitDoorType::NoneAvailable {
+            let name = template.get_name();
+            let modules_door = exit_interface.reserve_door_for_exit(Some(name.as_str()), None);
+            exit_door = ExitDoorType::from_modules_exit_door_type(modules_door);
+            self.production_queue[idx].exit_door = exit_door;
+        }
+        if exit_door == ExitDoorType::NoneAvailable {
             return;
         }
 
-        // Door animation path: check if door is open
-        if self.is_door_open(exit_door, now) {
-            let modules_door = exit_door.to_modules_exit_door_type();
+        if self.construction_complete_frame == 0 {
+            self.set_flags
+                .insert(ModelConditionFlag::ConstructionComplete);
+            self.flags_dirty = true;
+            self.construction_complete_frame = now;
+        }
+
+        if self.module_data.num_door_animations > 0 {
+            self.start_door_opening(exit_door, now);
+        }
+        let door_ready = self.module_data.num_door_animations == 0
+            || exit_door == ExitDoorType::NoneNeeded
+            || self.is_door_open(exit_door, now);
+        if door_ready {
             self.spawn_unit_from_door(
                 &template,
                 &player,
                 &building,
                 &exit_interface,
-                modules_door,
+                exit_door.to_modules_exit_door_type(),
                 idx,
                 ctx,
             );
-        } else {
-            // Start opening the door if not already animating
-            self.start_door_opening(exit_door, now);
-
-            // Set construction complete condition on first time
-            if qty_produced == 0 {
-                self.set_flags
-                    .insert(ModelConditionFlag::ConstructionComplete);
-                self.flags_dirty = true;
-                self.construction_complete_frame = now;
-            }
         }
     }
 
@@ -695,48 +722,44 @@ impl ProductionUpdate {
             }
         };
 
-        // Run on_build_complete for all Create modules on the new object
+        let producer_id = building
+            .read()
+            .ok()
+            .map(|guard| guard.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        if let Ok(mut new_obj_guard) = new_obj.write() {
+            new_obj_guard.set_producer_id(producer_id);
+        }
+
+        if let Ok(mut exit_guard) = exit_interface.lock() {
+            let _ = exit_guard
+                .exit_object_via_door(new_obj.read().map(|g| g.get_id()).unwrap_or(0), door);
+            // A successful exit owns the reservation. Do not unreserve it later.
+            self.production_queue[idx].exit_door = ExitDoorType::NoneAvailable;
+        }
+
+        let unit_id = new_obj
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        let first_of_batch = self.production_queue[idx].production_quantity_total
+            == self.production_queue[idx].get_production_quantity_remaining();
+        if let Some(audio) = crate::helpers::TheAudio::get() {
+            let mut voice = template.get_voice_created();
+            voice.set_object_id(unit_id);
+            audio.add_audio_event(&voice);
+        }
+
+        if let Ok(mut player_guard) = player.write() {
+            player_guard.on_unit_created_id(producer_id, unit_id);
+        }
         if let Ok(mut new_obj_guard) = new_obj.write() {
             new_obj_guard.on_build_complete();
         }
 
-        // Exit the object via the door (positions it at rally point)
-        if let Ok(mut exit_guard) = exit_interface.lock() {
-            let _ = exit_guard
-                .exit_object_via_door(new_obj.read().map(|g| g.get_id()).unwrap_or(0), door);
-        }
-
-        // Notify player that a unit was created
-        if let Ok(mut player_guard) = player.write() {
-            {
-                let producer_id = building
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-                let unit_id = new_obj
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-                player_guard.on_unit_created_id(producer_id, unit_id);
-            }
-        }
-
-        // C++ ProductionUpdate.cpp:809-832 VoiceCreated + first-of-batch VoiceCreate.
-        let first_of_batch = self.production_queue[idx].production_quantity_produced == 0
-            && self.production_queue[idx].production_quantity_total
-                == self.production_queue[idx].get_production_quantity_remaining();
-        if let Some(audio) = crate::helpers::TheAudio::get() {
-            let unit_id = new_obj
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            let mut voice = template.get_voice_created();
-            voice.set_object_id(unit_id);
-            audio.add_audio_event(&voice);
-            if first_of_batch {
+        if first_of_batch {
+            if let Some(audio) = crate::helpers::TheAudio::get() {
                 if let Some(mut sound) = template.get_per_unit_sound("VoiceCreate") {
                     sound.set_object_id(unit_id);
                     audio.add_audio_event(&sound);
@@ -744,14 +767,7 @@ impl ProductionUpdate {
             }
         }
 
-        // Set construction complete on first spawn in this batch
-        if self.production_queue[idx].production_quantity_produced == 0 {
-            let now = ctx.game_logic.get_frame();
-            self.set_flags
-                .insert(ModelConditionFlag::ConstructionComplete);
-            self.flags_dirty = true;
-            self.construction_complete_frame = now;
-        }
+
 
         // Mark one unit as produced
         self.production_queue[idx].one_production_successful();
@@ -785,9 +801,13 @@ impl ProductionUpdate {
             }
         };
 
-        // Run on_build_complete for all Create modules
+        let producer_id = building
+            .read()
+            .ok()
+            .map(|guard| guard.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
         if let Ok(mut new_obj_guard) = new_obj.write() {
-            new_obj_guard.on_build_complete();
+            new_obj_guard.set_producer_id(producer_id);
         }
 
         // Notify player
@@ -805,6 +825,9 @@ impl ProductionUpdate {
                     .unwrap_or(crate::common::INVALID_ID);
                 player_guard.on_unit_created_id(producer_id, unit_id);
             }
+        }
+        if let Ok(mut new_obj_guard) = new_obj.write() {
+            new_obj_guard.on_build_complete();
         }
 
         // Set construction complete on first spawn
@@ -925,37 +948,94 @@ impl ProductionUpdate {
             ExitDoorType::Door(door_idx) if (door_idx as usize) < DOOR_COUNT_MAX => {
                 let door = &self.doors[door_idx as usize];
                 // Door is "open" when it's in the wait_open state (fully opened)
-                door.door_wait_open_frame > 0 || door.hold_open
+                door.door_wait_open_frame > 0
             }
             ExitDoorType::NoneNeeded => true,
             _ => false,
         }
     }
 
-    /// Begin the door opening animation for the given door.
     fn start_door_opening(&mut self, exit_door: ExitDoorType, now: u32) {
-        if let ExitDoorType::Door(door_idx) = exit_door {
-            if (door_idx as usize) < DOOR_COUNT_MAX {
-                let door = &mut self.doors[door_idx as usize];
-                // Only start opening if not already animating
-                if door.door_opened_frame == 0
-                    && door.door_wait_open_frame == 0
-                    && door.door_closed_frame == 0
-                {
-                    door.door_opened_frame = now;
-                    self.flags_dirty = true;
-                }
-            }
+        let ExitDoorType::Door(door_idx) = exit_door else {
+            return;
+        };
+        if (door_idx as usize) >= DOOR_COUNT_MAX {
+            return;
+        }
+        let (opening, closing, waiting) = match door_idx {
+            0 => (
+                ModelConditionFlag::Door1Opening,
+                ModelConditionFlag::Door1Closing,
+                ModelConditionFlag::Door1WaitingOpen,
+            ),
+            1 => (
+                ModelConditionFlag::Door2Opening,
+                ModelConditionFlag::Door2Closing,
+                ModelConditionFlag::Door2WaitingOpen,
+            ),
+            2 => (
+                ModelConditionFlag::Door3Opening,
+                ModelConditionFlag::Door3Closing,
+                ModelConditionFlag::Door3WaitingOpen,
+            ),
+            _ => (
+                ModelConditionFlag::Door4Opening,
+                ModelConditionFlag::Door4Closing,
+                ModelConditionFlag::Door4WaitingOpen,
+            ),
+        };
+        let door = &mut self.doors[door_idx as usize];
+        if door.door_opened_frame == 0
+            && door.door_wait_open_frame == 0
+            && door.door_closed_frame == 0
+        {
+            door.door_opened_frame = now;
+            self.set_flags.insert(opening);
+            self.flags_dirty = true;
+        } else if door.door_wait_open_frame != 0 {
+            door.door_wait_open_frame = now;
+        } else if door.door_closed_frame != 0 {
+            door.door_wait_open_frame = now;
+            self.clear_flags.insert(opening);
+            self.clear_flags.insert(closing);
+            self.set_flags.remove(opening);
+            self.set_flags.remove(closing);
+            self.set_flags.insert(waiting);
+            self.flags_dirty = true;
         }
     }
 
     fn update_doors(&mut self, now: u32, _ctx: &UpdateContext<'_>) {
         for i in 0..DOOR_COUNT_MAX {
+            let (opening, closing, waiting) = match i {
+                0 => (
+                    ModelConditionFlag::Door1Opening,
+                    ModelConditionFlag::Door1Closing,
+                    ModelConditionFlag::Door1WaitingOpen,
+                ),
+                1 => (
+                    ModelConditionFlag::Door2Opening,
+                    ModelConditionFlag::Door2Closing,
+                    ModelConditionFlag::Door2WaitingOpen,
+                ),
+                2 => (
+                    ModelConditionFlag::Door3Opening,
+                    ModelConditionFlag::Door3Closing,
+                    ModelConditionFlag::Door3WaitingOpen,
+                ),
+                _ => (
+                    ModelConditionFlag::Door4Opening,
+                    ModelConditionFlag::Door4Closing,
+                    ModelConditionFlag::Door4WaitingOpen,
+                ),
+            };
             if self.doors[i].door_opened_frame > 0 {
                 if now - self.doors[i].door_opened_frame > self.module_data.door_opening_time {
                     self.doors[i].door_opened_frame = 0;
                     self.doors[i].door_wait_open_frame = now;
-                    // Set flags for door state change
+                    self.clear_flags.insert(opening);
+                    self.set_flags.remove(opening);
+                    self.set_flags.insert(waiting);
                     self.flags_dirty = true;
                 }
             } else if self.doors[i].door_wait_open_frame > 0 {
@@ -964,11 +1044,16 @@ impl ProductionUpdate {
                 {
                     self.doors[i].door_wait_open_frame = 0;
                     self.doors[i].door_closed_frame = now;
+                    self.clear_flags.insert(waiting);
+                    self.set_flags.remove(waiting);
+                    self.set_flags.insert(closing);
                     self.flags_dirty = true;
                 }
             } else if self.doors[i].door_closed_frame > 0 && !self.doors[i].hold_open {
                 if now - self.doors[i].door_closed_frame > self.module_data.door_closing_time {
                     self.doors[i].door_closed_frame = 0;
+                    self.clear_flags.insert(closing);
+                    self.set_flags.remove(closing);
                     self.flags_dirty = true;
                 }
             }
@@ -1093,13 +1178,22 @@ impl ProductionUpdate {
             if (door_idx as usize) < DOOR_COUNT_MAX {
                 let door = &mut self.doors[door_idx as usize];
                 door.hold_open = hold_it;
-
-                if hold_it
+                let start_open = hold_it
                     && door.door_opened_frame == 0
                     && door.door_wait_open_frame == 0
-                    && door.door_closed_frame == 0
-                {
+                    && door.door_closed_frame == 0;
+                if start_open {
                     door.door_opened_frame = ctx.game_logic.get_frame();
+                }
+                drop(door);
+                if start_open {
+                    let opening = match door_idx {
+                        0 => ModelConditionFlag::Door1Opening,
+                        1 => ModelConditionFlag::Door2Opening,
+                        2 => ModelConditionFlag::Door3Opening,
+                        _ => ModelConditionFlag::Door4Opening,
+                    };
+                    self.set_flags.insert(opening);
                     self.flags_dirty = true;
                 }
             }

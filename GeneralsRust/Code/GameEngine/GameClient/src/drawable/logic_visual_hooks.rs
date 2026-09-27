@@ -38,6 +38,8 @@ impl TerrainTrackHeightProvider for TerrainHeight {
 
 struct ProjectedDecalClient {
     handles: Mutex<HashMap<ObjectID, ShadowHandle>>,
+    /// C++ `m_shadow`, not `m_terrainDecal`.
+    blobs: Mutex<HashMap<ObjectID, ShadowHandle>>,
     /// Last decal opacity (0-255) per object; the source of truth for what a
     /// visible decal shows (the drawable fades `decal_opacity` independently).
     opacities: Mutex<HashMap<ObjectID, i32>>,
@@ -45,6 +47,8 @@ struct ProjectedDecalClient {
     shrouded: Mutex<HashSet<ObjectID>>,
     /// Objects with shadow render disabled (C++ `enableShadowRender(false)`).
     shadow_disabled: Mutex<HashSet<ObjectID>>,
+    /// Blob `enableShadowRender(false)`. Independent of the decal set and of shroud.
+    blob_render_off: Mutex<HashSet<ObjectID>>,
 }
 
 impl ProjectedDecalClient {
@@ -65,32 +69,36 @@ impl ProjectedDecalClient {
         };
         handle.set_opacity(opacity);
     }
+
+    fn sync_blob_opacity(&self, object_id: ObjectID) {
+        let blobs = self.blobs.lock();
+        let Some(handle) = blobs.get(&object_id) else {
+            return;
+        };
+        let hidden = self.shrouded.lock().contains(&object_id)
+            || self.blob_render_off.lock().contains(&object_id);
+        handle.set_opacity(if hidden { 0 } else { 255 });
+    }
 }
 
 impl TerrainDecalClient for ProjectedDecalClient {
     fn set_decal(&self, desc: &TerrainDecalDesc) {
-        if desc.hidden || desc.texture_name.is_empty() || desc.size_x <= 0.0 || desc.size_y <= 0.0 {
+        if desc.texture_name.is_empty() || desc.size_x <= 0.0 || desc.size_y <= 0.0 {
             self.release(desc.object_id);
             return;
         }
         let info = ShadowTypeInfo {
             allow_updates: false,
             allow_world_align: true,
-            shadow_type: if desc.is_unit_blob {
-                gamelogic::common::SHADOW_DECAL
-            } else {
-                gamelogic::common::SHADOW_ALPHA_DECAL
-            },
+            shadow_type: gamelogic::common::SHADOW_ALPHA_DECAL,
             shadow_name: gamelogic::common::AsciiString::from(desc.texture_name.as_str()),
             size_x: desc.size_x,
             size_y: desc.size_y,
+            offset_x: desc.offset_x,
+            offset_y: desc.offset_y,
         };
         let mut manager = get_projected_shadow_manager().write();
-        let Some(handle) = (if desc.is_unit_blob {
-            manager.add_shadow(&info)
-        } else {
-            manager.add_decal(&info)
-        }) else {
+        let Some(handle) = manager.add_decal(&info) else {
             return;
         };
         drop(manager);
@@ -100,6 +108,16 @@ impl TerrainDecalClient for ProjectedDecalClient {
         self.opacities
             .lock()
             .insert(desc.object_id, (desc.opacity.clamp(0.0, 1.0) * 255.0) as i32);
+        if desc.shrouded {
+            self.shrouded.lock().insert(desc.object_id);
+        } else {
+            self.shrouded.lock().remove(&desc.object_id);
+        }
+        if desc.shadow_enabled {
+            self.shadow_disabled.lock().remove(&desc.object_id);
+        } else {
+            self.shadow_disabled.lock().insert(desc.object_id);
+        }
         if let Some(prev) = self.handles.lock().insert(desc.object_id, handle) {
             prev.release();
         }
@@ -107,11 +125,9 @@ impl TerrainDecalClient for ProjectedDecalClient {
     }
 
     fn set_size(&self, object_id: ObjectID, x: Real, y: Real) {
-        // ShadowHandle has no set_size; recreate from the last pose if we have a handle.
-        let Some(prev) = self.handles.lock().get(&object_id).cloned() else {
-            return;
-        };
-        let _ = (x, y, prev);
+        if let Some(handle) = self.handles.lock().get(&object_id) {
+            handle.set_size(x, y);
+        }
     }
 
     fn set_opacity(&self, object_id: ObjectID, opacity: Real) {
@@ -126,6 +142,10 @@ impl TerrainDecalClient for ProjectedDecalClient {
             handle.set_position(position.x, position.y, position.z);
             handle.set_angle(angle);
         }
+        if let Some(handle) = self.blobs.lock().get(&object_id) {
+            handle.set_position(position.x, position.y, position.z);
+            handle.set_angle(angle);
+        }
     }
 
     fn set_shrouded(&self, object_id: ObjectID, shrouded: bool) {
@@ -135,6 +155,7 @@ impl TerrainDecalClient for ProjectedDecalClient {
             self.shrouded.lock().remove(&object_id);
         }
         self.sync_opacity(object_id);
+        self.sync_blob_opacity(object_id);
     }
 
     fn set_shadow_enabled(&self, object_id: ObjectID, enabled: bool) {
@@ -144,6 +165,59 @@ impl TerrainDecalClient for ProjectedDecalClient {
             self.shadow_disabled.lock().insert(object_id);
         }
         self.sync_opacity(object_id);
+        self.set_blob_render(object_id, enabled);
+    }
+
+    fn set_blob_render(&self, object_id: ObjectID, enabled: bool) {
+        if enabled {
+            self.blob_render_off.lock().remove(&object_id);
+        } else {
+            self.blob_render_off.lock().insert(object_id);
+        }
+        self.sync_blob_opacity(object_id);
+    }
+
+    fn add_unit_shadow(&self, desc: &TerrainDecalDesc) {
+        // `addShadow`: `shadow.tga` only when the type is `SHADOW_DECAL` and
+        // the name is empty or one character. A zero size is the render-object
+        // box (`Extent * 2`), not `createDecalShadow`'s width of 20. No mesh
+        // box is available, so a zero size is left at zero.
+        const SHADOW_DECAL: u32 = 0x0000_0001;
+        let shadow_name = if desc.shadow_type == SHADOW_DECAL && desc.texture_name.len() <= 1 {
+            "shadow"
+        } else {
+            desc.texture_name.as_str()
+        };
+        let info = ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: desc.shadow_type,
+            shadow_name: gamelogic::common::AsciiString::from(shadow_name),
+            size_x: desc.size_x,
+            size_y: desc.size_y,
+            offset_x: desc.offset_x,
+            offset_y: desc.offset_y,
+        };
+        let mut manager = get_projected_shadow_manager().write();
+        let Some(handle) = manager.add_shadow(&info) else {
+            return;
+        };
+        drop(manager);
+        handle.set_position(desc.position.x, desc.position.y, desc.position.z);
+        handle.set_angle(desc.angle);
+        if let Some(prev) = self.blobs.lock().insert(desc.object_id, handle) {
+            prev.release();
+        }
+        if desc.shrouded {
+            self.shrouded.lock().insert(desc.object_id);
+        }
+        self.set_blob_render(desc.object_id, desc.shadow_enabled && !desc.hidden);
+    }
+
+    fn release_unit_shadow(&self, object_id: ObjectID) {
+        if let Some(handle) = self.blobs.lock().remove(&object_id) {
+            handle.release();
+        }
     }
 
     fn release(&self, object_id: ObjectID) {
@@ -298,9 +372,11 @@ pub fn ensure_logic_draw_hooks() {
     ONCE.call_once(|| {
         register_terrain_decal_client(Arc::new(ProjectedDecalClient {
             handles: Mutex::new(HashMap::new()),
+            blobs: Mutex::new(HashMap::new()),
             opacities: Mutex::new(HashMap::new()),
             shrouded: Mutex::new(HashSet::new()),
             shadow_disabled: Mutex::new(HashSet::new()),
+            blob_render_off: Mutex::new(HashSet::new()),
         }));
         register_terrain_track_client(Arc::new(TrackClient {
             by_object: Mutex::new(HashMap::new()),

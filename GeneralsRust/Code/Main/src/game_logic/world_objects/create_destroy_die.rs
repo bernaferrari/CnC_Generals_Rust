@@ -3975,7 +3975,11 @@ impl GameLogic {
             if (health_factor - 1.0).abs() <= f32::EPSILON {
                 return;
             }
-            let old_max = object.health.maximum.max(object.max_health).max(1.0);
+            let old_max = if object.health.maximum > 0.0 {
+                object.health.maximum
+            } else {
+                object.max_health.max(1.0)
+            };
             let ratio = (object.health.current / old_max).clamp(0.0, 1.0);
             let new_max = if apply {
                 old_max * health_factor
@@ -3984,8 +3988,10 @@ impl GameLogic {
             } else {
                 old_max
             };
+            let before = object.health.current;
             object.set_body_max_health(new_max);
-            object.health.current = new_max * ratio;
+            object.previous_health = before;
+            object.health.current = (new_max * ratio).clamp(0.0, new_max.max(0.0));
             object.record_host_max_health();
         }
     }

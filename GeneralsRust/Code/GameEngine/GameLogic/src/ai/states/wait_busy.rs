@@ -165,15 +165,10 @@ impl ClassicState for AIBusyState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "busy missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
+        let mut owner_guard = owner
+            .write()
             .map_err(|_| "busy owner lock poisoned".to_string())?;
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let params = AiCommandParams::new(AiCommandType::Busy, CommandSourceType::FromAi);
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
+        owner_guard.ai_pending_busy = true;
         Ok(StateReturnType::Continue)
     }
 
@@ -185,11 +180,7 @@ impl ClassicState for AIBusyState {
         let owner_guard = owner
             .read()
             .map_err(|_| "busy owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "busy missing AIUpdateInterface".to_string())?;
-        let ai_guard = ai.lock().map_err(|_| "busy AI lock poisoned".to_string())?;
-        if ai_guard.is_idle() {
+        if owner_guard.ai_fire_is_idle {
             Ok(StateReturnType::Success)
         } else {
             Ok(StateReturnType::Continue)

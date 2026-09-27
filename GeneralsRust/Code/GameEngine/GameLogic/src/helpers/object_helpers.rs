@@ -30,10 +30,6 @@ impl Drop for FiringTracker {
 
 impl FiringTracker {
     pub fn new(object_id: ObjectID) -> Self {
-        if object_id != INVALID_ID {
-            TheGameLogic::set_wake_frame(object_id, crate::modules::UPDATE_SLEEP_FOREVER);
-        }
-
         Self {
             object_id,
             consecutive_shots: 0,
@@ -43,7 +39,7 @@ impl FiringTracker {
             frame_to_stop_looping_sound: 0,
             audio_handle: 0,
             last_shot_frame: 0,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: crate::modules::UpdateSleepTime::Forever.to_u32(),
         }
     }
 
@@ -129,17 +125,23 @@ impl FiringTracker {
     }
 
     pub fn shot_fired(&mut self, weapon: &crate::weapon::Weapon, victim_id: ObjectID) {
-        let now = TheGameLogic::get_frame();
-        self.last_shot_frame = now;
-
         let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
-
-        let mut owner_guard = match owner_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return,
+        let Ok(mut owner_guard) = owner_arc.write() else {
+            return;
         };
+        self.shot_fired_with_owner(&mut owner_guard, weapon, victim_id);
+    }
+
+    pub fn shot_fired_with_owner(
+        &mut self,
+        mut owner_guard: &mut crate::object::Object,
+        weapon: &crate::weapon::Weapon,
+        victim_id: ObjectID,
+    ) {
+        let now = TheGameLogic::get_frame();
+        self.last_shot_frame = now;
 
         let victim_has_faerie_fire = TheGameLogic::find_object_by_id(victim_id)
             .map(|victim| {
@@ -256,7 +258,14 @@ impl FiringTracker {
         }
 
         let sleep_time = self.calc_time_to_sleep(now);
-        TheGameLogic::set_wake_frame(self.object_id, sleep_time);
+        let wake_frame = match sleep_time {
+            crate::modules::UpdateSleepTime::None => now.saturating_add(1),
+            crate::modules::UpdateSleepTime::Forever => {
+                crate::modules::UpdateSleepTime::Forever.to_u32()
+            }
+            crate::modules::UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+        };
+        owner_guard.reschedule_named_update("FiringTracker", wake_frame);
     }
 
     pub fn update(&mut self) -> crate::modules::UpdateSleepTime {

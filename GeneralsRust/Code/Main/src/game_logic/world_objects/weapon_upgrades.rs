@@ -1443,14 +1443,29 @@ impl GameLogic {
             {
                 continue;
             }
+            let live_maximum = obj.health.maximum > 0.0;
             let mut max_h = obj.max_health;
             let mut cur = obj.health.current;
             let mut maximum = obj.health.maximum;
+            let before = cur;
             apply_composite_armor_health(&mut max_h, &mut cur, &mut maximum);
+            if !live_maximum {
+                maximum = max_h;
+            }
             obj.set_body_max_health(max_h);
             obj.record_host_max_health();
+            if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+                obj.previous_health = before;
+            }
             Self::write_object_health_authority_aware(obj, cur);
             obj.health.maximum = maximum;
+            if live_maximum
+                && !crate::gameworld_shadow::gameworld_damage_authority_live()
+                && obj.health.maximum > 0.0
+                && obj.health.current > obj.health.maximum
+            {
+                obj.health.current = obj.health.maximum;
+            }
             crate::game_logic::host_heal_log::record(obj.id, obj.health.current);
             obj.apply_upgrade_tag(upgrade_name);
             obj.apply_upgrade_tag(UPGRADE_AMERICA_COMPOSITE_ARMOR);

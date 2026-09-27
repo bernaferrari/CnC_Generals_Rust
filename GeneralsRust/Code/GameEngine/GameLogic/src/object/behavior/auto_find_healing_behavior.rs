@@ -186,13 +186,10 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
 
         if let Ok(obj_ref) = object.read() {
             if let Some(heal_id) = self.scan_closest_target(&obj_ref) {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let mut params = AiCommandParams::new(AiCommandType::GetHealed, CommandSourceType::FromAi);
-                        params.obj = Some(heal_id);
-                        let _ = ai_guard.execute_command(&params);
-                    }
-                }
+                drop(obj_ref);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner| {
+                    owner.ai_pending_heal = Some(heal_id);
+                });
             }
         }
 
@@ -213,8 +210,7 @@ impl BehaviorModuleInterface for AutoFindHealingUpdate {
 /// Factory for creating AutoFindHealingUpdate behaviors
 impl Snapshotable for AutoFindHealingUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

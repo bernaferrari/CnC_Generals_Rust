@@ -240,6 +240,7 @@ pub struct DemoTrapUpdate {
     next_call_frame_and_phase: UnsignedInt,
     next_scan_frames: i32,
     detonated: bool,
+    weapon_fired: bool,
 }
 
 impl DemoTrapUpdate {
@@ -262,6 +263,7 @@ impl DemoTrapUpdate {
             next_call_frame_and_phase: 0,
             next_scan_frames: 0,
             detonated: false,
+            weapon_fired: false,
         })
     }
 
@@ -283,25 +285,32 @@ impl DemoTrapUpdate {
         }) else {
             return Ok(());
         };
-        let mut me = me_arc.write().unwrap();
+        let (under_construction, sold, me_id, me_pos) = {
+            let Ok(me) = me_arc.read() else {
+                return Ok(());
+            };
+            (
+                me.test_status(ObjectStatusTypes::UnderConstruction),
+                me.test_status(ObjectStatusTypes::Sold),
+                me.get_id(),
+                *me.get_position(),
+            )
+        };
 
-        // Only shoot the weapon if not being built or sold.
-        if !me.test_status(ObjectStatusTypes::UnderConstruction)
-            && !me.test_status(ObjectStatusTypes::Sold)
-        {
-            let weapon_name = &self.module_data.detonation_weapon_name;
-            let me_id = me.get_id();
-            let me_pos = *me.get_position();
-
-            // Use global weapon store to fire the detonation weapon
+        if !under_construction && !sold {
+            let weapon_name = self.module_data.detonation_weapon_name.clone();
             let _ = with_weapon_store(|store| {
-                if let Some(template) = store.find_weapon_template(weapon_name) {
+                if let Some(template) = store.find_weapon_template(&weapon_name) {
                     let _ = store.create_and_fire_temp_weapon(template, me_id, None, Some(&me_pos));
                 }
             });
         }
 
+        let mut me = me_arc
+            .write()
+            .map_err(|_| "demo trap lock poisoned".to_string())?;
         me.kill(None, None);
+        drop(me);
         self.detonated = true;
         Ok(())
     }
@@ -326,7 +335,9 @@ impl UpdateModuleInterface for DemoTrapUpdate {
         }) else {
             return UPDATE_SLEEP_NONE;
         };
-        let me = me_arc.read().unwrap();
+        let Ok(me) = me_arc.read() else {
+            return UPDATE_SLEEP_NONE;
+        };
 
         if me.test_status(ObjectStatusTypes::UnderConstruction)
             || me.test_status(ObjectStatusTypes::Sold)
@@ -343,13 +354,9 @@ impl UpdateModuleInterface for DemoTrapUpdate {
         }
 
         // Get the current weapon slot -- this determines what mode we're in.
-        let weapon_slot = if let Some((_weapon, slot)) = me.get_current_weapon() {
-            slot
-        } else {
-            WeaponSlotType::Primary
-        };
+        let weapon_slot = me.get_current_weapon().map(|(_weapon, slot)| slot);
 
-        if weapon_slot == self.module_data.detonation_weapon_slot {
+        if weapon_slot == Some(self.module_data.detonation_weapon_slot) {
             // We've been externally triggered by the press of a command button.
             drop(me);
             let _ = self.detonate();
@@ -362,7 +369,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        if weapon_slot == self.module_data.manual_mode_weapon_slot {
+        if weapon_slot == Some(self.module_data.manual_mode_weapon_slot) {
             // Don't scan!
             return UPDATE_SLEEP_NONE;
         }
@@ -466,9 +473,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
 
 impl Snapshotable for DemoTrapUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

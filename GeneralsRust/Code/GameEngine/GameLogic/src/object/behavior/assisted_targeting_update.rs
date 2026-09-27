@@ -225,7 +225,9 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
         }) else {
             return false;
         };
-        let me = me_arc.read().unwrap();
+        let Ok(me) = me_arc.read() else {
+            return false;
+        };
 
         if !me.is_able_to_attack() {
             return false;
@@ -252,22 +254,23 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
         }) else {
             return;
         };
-        let mut me = me_arc.write().unwrap();
-
-        if let Some(ai_arc) = me.get_ai() {
-            me.set_weapon_lock(
-                self.module_data.weapon_slot,
-                WeaponLockType::LockedTemporarily,
-            );
-            let mut params =
-                AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromAi);
-            params.obj = Some(victim_object_id);
-            params.int_value = self.module_data.clip_size;
-            let _ = ai_arc.lock().unwrap().execute_command(&params);
-        }
-
+        let Ok(mut me) = me_arc.write() else {
+            return;
+        };
+        let Some(ai_arc) = me.get_ai() else {
+            return;
+        };
+        me.set_weapon_lock(
+            self.module_data.weapon_slot,
+            WeaponLockType::LockedTemporarily,
+        );
         let me_id = me.get_id();
         drop(me);
+        let mut params =
+            AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromAi);
+        params.obj = Some(victim_object_id);
+        params.int_value = self.module_data.clip_size;
+        let _ = ai_arc.lock().ok().map(|mut ai| ai.execute_command(&params));
 
         let laser_from_assisted = self.laser_from_assisted.clone();
         let laser_to_target = self.laser_to_target.clone();
@@ -282,9 +285,7 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
 
 impl Snapshotable for AssistedTargetingUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

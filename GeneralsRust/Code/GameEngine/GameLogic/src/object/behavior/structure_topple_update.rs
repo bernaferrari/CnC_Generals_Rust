@@ -582,8 +582,9 @@ impl StructureToppleUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<StructureToppleUpdateModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(building) = object.read() {
-            TheGameLogic::set_wake_frame(building.get_id(), UpdateSleepTime::Forever);
+            building.reschedule_named_update("StructureToppleUpdate", forever);
         }
 
         let building_height = object
@@ -598,7 +599,7 @@ impl StructureToppleUpdate {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: forever,
             topple_frame: 0,
             topple_direction: Coord2D::ZERO,
             topple_state: StructureToppleStateType::Standing,
@@ -770,7 +771,8 @@ impl StructureToppleUpdate {
         );
         self.next_burst_frame = (now as i32).wrapping_add(burst_delay);
         self.topple_state = StructureToppleStateType::WaitingForToppleStart;
-        TheGameLogic::set_wake_frame(building.get_id(), UpdateSleepTime::None);
+        self.next_call_frame_and_phase = now.saturating_add(1);
+        building.reschedule_named_update("StructureToppleUpdate", self.next_call_frame_and_phase);
     }
 
     fn do_topple_start_fx(&self, building: &GameObject) {
@@ -1307,6 +1309,10 @@ pub struct StructureToppleUpdateModule {
 }
 
 impl StructureToppleUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: StructureToppleUpdate,
         module_name: &AsciiString,

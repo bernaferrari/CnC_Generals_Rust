@@ -71,25 +71,18 @@ const NONE_SPAWNED_YET: UnsignedInt = 0xFFFFFFFF;
 const BIG_DISTANCE: Real = 99999999.9;
 
 /// C++ SpawnBehavior::update first-pass burst queue (SpawnBehavior.cpp:187-208).
-/// Computes `birthFrame += listIndex * SPAWN_DELAY_MIN_FRAMES` for runtime-produced
-/// InitialBurst slots so the hive exits stagger instead of dumping on one frame.
+/// `birthFrame` is computed and discarded. The list stores `runtimeProduced` (0 or 1)
+/// when InitialBurst is set, otherwise the slot index.
 fn initial_burst_replacement_times(
-    now: UnsignedInt,
+    _now: UnsignedInt,
     spawn_number: Int,
     initial_burst: Int,
     runtime_produced: bool,
 ) -> Vec<Int> {
     let mut times = Vec::with_capacity(spawn_number.max(0) as usize);
-    let mut burst_init_count = initial_burst;
     for list_index in 0..spawn_number {
         if initial_burst > 0 {
-            let mut birth_frame = now;
-            if runtime_produced && burst_init_count > 0 {
-                burst_init_count -= 1;
-                birth_frame = birth_frame
-                    .saturating_add((list_index * SPAWN_DELAY_MIN_FRAMES) as UnsignedInt);
-            }
-            times.push(birth_frame as Int);
+            times.push(if runtime_produced { 1 } else { 0 });
         } else {
             times.push(list_index);
         }
@@ -109,6 +102,9 @@ fn should_attempt_orphan_reclaim(can_reclaim_orphans: bool, is_one_shot: bool) -
 fn orphan_template_is_redundant(prev_name: &str, template_name: &str) -> bool {
     prev_name == template_name
 }
+
+
+
 
 /// C++ computeAggregateStates (SpawnBehavior.cpp:982-985):
 /// `setInitialHealth(100.0f * actualHealth)` — `Int` cast truncates toward zero,
@@ -144,10 +140,11 @@ fn may_spawn_self_task_ai_decision(
     if spawn_count == 0 || max_self_taskers_ratio == 0.0 {
         return false;
     }
-    if let Some(src) = parent_last_command_source {
-        if src != CMD_FROM_AI {
-            return false;
-        }
+    let Some(src) = parent_last_command_source else {
+        return false;
+    };
+    if src != CMD_FROM_AI {
+        return false;
     }
     let cur = self_tasking_spawn_count as Real / spawn_count as Real;
     cur < max_self_taskers_ratio
@@ -661,22 +658,11 @@ impl SpawnBehavior {
         let spawned = crate::helpers::TheGameLogic::find_object_by_id(spawned_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(spawned_id))
             .ok_or("spawned object unavailable")?;
-        let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
-        if let Some(result) =
-            spawn_guard.with_slaved_update_interface(|slaved| slaved.on_enslave(master_id))
-        {
-            return result;
-        }
-
-        for behavior in spawn_guard.get_behavior_modules() {
-            let mut behavior_guard = behavior
-                .lock()
-                .map_err(|_| "Failed to lock behavior module")?;
-            if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
-                slaved.on_enslave(master_id)?;
-                break;
-            }
-        }
+        let modules = {
+            let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
+            spawn_guard.copy_module_entries()
+        };
+        Object::enslave_first_in(&modules, master_id)?;
         Ok(())
     }
 
@@ -733,7 +719,7 @@ impl SpawnBehavior {
             exit_guard.reserve_door_for_exit(None, None)
         };
 
-        if exit_door == DOOR_NONE_AVAILABLE {
+        if matches!(exit_door, crate::modules::ExitDoorType::NoneAvailable) {
             return Ok(false);
         }
 
@@ -766,17 +752,15 @@ impl SpawnBehavior {
                 .with_object(|obj_guard| obj_guard.get_controlling_player())
                 .map_err(|_| "Failed to read object")?;
 
+            let producer_id = self.get_object_id();
+            let unit_id = spawn_obj
+                .read()
+                .ok()
+                .map(|guard| guard.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
             if let Some(player) = controlling_player {
                 let mut player_guard = player.write().map_err(|_| "Failed to write player")?;
-                {
-                    let producer_id = self.get_object_id();
-                    let unit_id = spawn_obj
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID);
-                    player_guard.on_unit_created_id(producer_id, unit_id);
-                }
+                player_guard.on_unit_created_id(producer_id, unit_id);
                 drop(player_guard);
             }
 
@@ -816,11 +800,12 @@ impl SpawnBehavior {
         }
 
         // Add to spawn tracking
-        let spawn_id = {
+        let new_spawn_id = {
             let spawn_guard = new_spawn.read().map_err(|_| "Failed to read spawn")?;
             spawn_guard.get_id()
         };
-        self.spawn_ids.push(spawn_id);
+        self.spawn_ids.push(new_spawn_id);
+
 
         // Handle exit behavior
         if !reclaimed_orphan {
@@ -845,19 +830,23 @@ impl SpawnBehavior {
                             drop(barracks_guard);
 
                             if is_structure {
-                                if let Some(barracks_exit) =
-                                    barracks.read().unwrap().get_object_exit_interface()
+                                if let Some(barracks_exit) = barracks
+                                    .read()
+                                    .ok()
+                                    .and_then(|guard| guard.get_object_exit_interface())
                                 {
                                     let mut barracks_exit_guard = barracks_exit
                                         .lock()
                                         .map_err(|_| "Failed to lock barracks exit")?;
                                     let barracks_door =
                                         barracks_exit_guard.reserve_door_for_exit(None, None);
-                                    if barracks_door != DOOR_NONE_AVAILABLE {
-                                        barracks_exit_guard.exit_object_via_door(
-                                            new_spawn.read().map(|g| g.get_id()).unwrap_or(0),
-                                            barracks_door,
-                                        )?;
+                                    let spawn_id = new_spawn
+                                        .read()
+                                        .ok()
+                                        .map(|guard| guard.get_id())
+                                        .unwrap_or(0);
+                                    barracks_exit_guard
+                                        .exit_object_via_door(spawn_id, barracks_door)?;
                                         drop(barracks_exit_guard);
 
                                         // Set producer back to parent
@@ -871,7 +860,6 @@ impl SpawnBehavior {
 
                                         self.initial_burst_countdown -= 1;
                                         barracks_exit_success = true;
-                                    }
                                 }
                             }
                         }
@@ -884,7 +872,7 @@ impl SpawnBehavior {
                     let mut closest_distance = BIG_DISTANCE;
 
                     for &spawn_id in &self.spawn_ids {
-                        if spawn_id == new_spawn.read().unwrap().get_id() {
+                        if spawn_id == new_spawn_id {
                             continue; // Skip the new spawn itself
                         }
 
@@ -908,18 +896,13 @@ impl SpawnBehavior {
                         }
                     }
 
-                    exit_guard.exit_object_by_budding(
-                        new_spawn.read().map(|g| g.get_id()).unwrap_or(0),
-                        bud_host
-                            .as_ref()
-                            .and_then(|h| h.read().ok().map(|g| g.get_id())),
-                    )?;
+                    let host_id = bud_host.as_ref().and_then(|host| {
+                        host.read().ok().map(|guard| guard.get_id())
+                    });
+                    exit_guard.exit_object_by_budding(new_spawn_id, host_id)?;
                 }
             } else {
-                exit_guard.exit_object_via_door(
-                    new_spawn.read().map(|g| g.get_id()).unwrap_or(0),
-                    exit_door,
-                )?;
+                exit_guard.exit_object_via_door(new_spawn_id, exit_door)?;
             }
             drop(exit_guard);
         } else {
@@ -962,11 +945,9 @@ impl SpawnBehavior {
         })?;
         let player = player.ok_or("No controlling player")?;
 
-        // Find closest orphan matching our templates
         let mut closest_orphan = None;
-        let mut closest_distance = BIG_DISTANCE;
 
-        // Check each template type
+        // C++ resets m_closest for every template and returns the last scan.
         let mut prev_template_name = String::new();
         for template_name in &data.spawn_template_name_data {
             if orphan_template_is_redundant(&prev_template_name, template_name.as_str()) {
@@ -974,6 +955,8 @@ impl SpawnBehavior {
             }
             prev_template_name = template_name.as_str().to_string();
 
+            let mut closest = None;
+            let mut closest_distance = BIG_DISTANCE;
             if let Some(template) = TheObjectFactory::find_template(template_name) {
                 let player_object_ids = {
                     let player_guard = player.read().map_err(|_| "Failed to read player")?;
@@ -990,7 +973,10 @@ impl SpawnBehavior {
                         .read()
                         .map_err(|_| "Failed to read player object")?;
 
-                    if obj_guard.get_template_name() != template.get_name().as_str() {
+                    if !obj_guard
+                        .get_template()
+                        .is_equivalent_to(template.as_ref())
+                    {
                         continue;
                     }
 
@@ -1006,10 +992,11 @@ impl SpawnBehavior {
 
                     if distance < closest_distance {
                         closest_distance = distance;
-                        closest_orphan = Some(player_obj.clone());
+                        closest = Some(player_obj.clone());
                     }
                 }
             }
+            closest_orphan = closest;
         }
 
         Ok(closest_orphan)
@@ -1257,7 +1244,7 @@ impl UpdateModuleInterface for SpawnBehavior {
         self.frames_to_wait = SPAWN_UPDATE_RATE;
 
         // Process replacement times
-        if self.should_try_to_spawn()? {
+        if self.should_try_to_spawn().unwrap_or(false) {
             let current_time = TheGameLogic::get_frame() as Int;
             // C++ SpawnBehavior::update: erase a due slot only after createSpawn
             // succeeds. A busy door leaves the replacement time on the queue so
@@ -1265,10 +1252,13 @@ impl UpdateModuleInterface for SpawnBehavior {
             let mut index = 0;
             while index < self.replacement_times.len() {
                 if current_time > self.replacement_times[index] {
-                    if self.create_spawn()? {
-                        self.replacement_times.remove(index);
-                    } else {
-                        index += 1;
+                    match self.create_spawn() {
+                        Ok(true) => {
+                            self.replacement_times.remove(index);
+                        }
+                        Ok(false) | Err(_) => {
+                            index += 1;
+                        }
                     }
                 } else {
                     index += 1;
@@ -1295,13 +1285,16 @@ impl DieModuleInterface for SpawnBehavior {
             return Ok(());
         }
 
-        let data = &self.module_data;
+        let data = Arc::clone(&self.module_data);
+        let spawned_require_spawner = data.spawned_require_spawner;
         if !self.with_object(|obj| data.die_mux_data.is_die_applicable(obj, damage_info))? {
             return Ok(());
         }
 
+        let spawn_ids = self.spawn_ids.clone();
+
         // Notify all spawns that their master has died
-        for &spawn_id in &self.spawn_ids {
+        for &spawn_id in &spawn_ids {
             if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
                 let mut handled = false;
                 {
@@ -1338,8 +1331,8 @@ impl DieModuleInterface for SpawnBehavior {
         }
 
         // Kill spawns that require the spawner
-        if data.spawned_require_spawner {
-            for &spawn_id in &self.spawn_ids {
+        if spawned_require_spawner {
+            for &spawn_id in &spawn_ids {
                 if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
                     let spawn_guard = spawn_obj.read().map_err(|_| "Failed to read spawn")?;
                     let is_dead = spawn_guard.is_effectively_dead();
@@ -1463,10 +1456,12 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             let replacement_time = data.spawn_replace_delay_data + TheGameLogic::get_frame() as Int;
             self.replacement_times.push_back(replacement_time);
 
+            let count_was_zero = self.spawn_count == 0;
             self.spawn_count = self.spawn_count.saturating_sub(1);
 
-            // If aggregate health and no spawns left, destroy parent
-            if self.spawn_count == 0 && self.aggregate_health {
+            // If aggregate health and no spawns left, destroy parent.
+            // C++ --m_spawnCount goes negative, so a count that was already 0 does not match.
+            if !count_was_zero && self.spawn_count == 0 && self.aggregate_health {
                 if let Some(killer) = TheGameLogic::find_object_by_id(damage_info.input.source_id) {
                     let mut killer_guard = killer.write().map_err(|_| "Failed to write killer")?;
                     let _ = self.with_object(|obj_guard| {
@@ -1522,24 +1517,18 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         if dual_world_registry_unavailable() {
             return Ok(());
         }
-
         let target_id = target.get_id();
-        let target_handle = TheGameLogic::find_object_by_id(target_id);
-        if let Some(target_handle) = target_handle {
-            for &spawn_id in &self.spawn_ids {
-                if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                    if let Ok(spawn_guard) = spawn_obj.read() {
-                        if let Some(ai) = spawn_guard.get_ai_update_interface() {
-                            // C++ SpawnBehavior::orderSlavesToAttackTarget
-                            // (SpawnBehavior.cpp:314): aiForceAttackObject.
-                            ai.ai_force_attack_object(
-                                target_handle.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                max_shots_to_fire,
-                                cmd_source,
-                            );
-                        }
-                    }
-                }
+        let ids = self.spawn_ids.clone();
+        for spawn_id in ids {
+            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
+                continue;
+            };
+            let ai = spawn_obj
+                .read()
+                .ok()
+                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
+            if let Some(ai) = ai {
+                ai.ai_force_attack_object(target_id, max_shots_to_fire, cmd_source);
             }
         }
         Ok(())
@@ -1556,13 +1545,17 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             return Ok(());
         }
 
-        for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                if let Ok(spawn_guard) = spawn_obj.read() {
-                    if let Some(ai) = spawn_guard.get_ai_update_interface() {
-                        ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
-                    }
-                }
+        let ids = self.spawn_ids.clone();
+        for spawn_id in ids {
+            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
+                continue;
+            };
+            let ai = spawn_obj
+                .read()
+                .ok()
+                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
+            if let Some(ai) = ai {
+                ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
             }
         }
         Ok(())
@@ -1583,7 +1576,9 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let spawn_guard = spawn_obj.read().unwrap();
+                let Ok(spawn_guard) = spawn_obj.read() else {
+                    continue;
+                };
                 let result =
                     spawn_guard.get_able_to_attack_specific_object(attack_type, target, cmd_source);
                 drop(spawn_guard);
@@ -1619,7 +1614,9 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let spawn_guard = spawn_obj.read().unwrap();
+                let Ok(spawn_guard) = spawn_obj.read() else {
+                    continue;
+                };
                 let result = spawn_guard.get_able_to_use_weapon_against_target(
                     attack_type,
                     victim,
@@ -1651,7 +1648,9 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let spawn_guard = spawn_obj.read().unwrap();
+                let Ok(spawn_guard) = spawn_obj.read() else {
+                    continue;
+                };
                 let can_attack = spawn_guard.is_able_to_attack();
                 drop(spawn_guard);
 
@@ -1672,13 +1671,17 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             return Ok(());
         }
 
-        for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                if let Ok(spawn_guard) = spawn_obj.read() {
-                    if let Some(ai) = spawn_guard.get_ai_update_interface() {
-                        ai.ai_idle(cmd_source);
-                    }
-                }
+        let ids = self.spawn_ids.clone();
+        for spawn_id in ids {
+            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
+                continue;
+            };
+            let ai = spawn_obj
+                .read()
+                .ok()
+                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
+            if let Some(ai) = ai {
+                ai.ai_idle(cmd_source);
             }
         }
         Ok(())
@@ -1694,16 +1697,20 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             return Ok(());
         }
 
-        for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
-                // C++ SpawnBehavior::orderSlavesDisabledUntil (SpawnBehavior.cpp:362-367):
-                // idle slave AI first, then setDisabledUntil.
-                if let Some(ai) = spawn_guard.get_ai_update_interface() {
-                    ai.ai_idle(CMD_FROM_AI);
-                }
+        let ids = self.spawn_ids.clone();
+        for spawn_id in ids {
+            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
+                continue;
+            };
+            let ai = spawn_obj
+                .read()
+                .ok()
+                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
+            if let Some(ai) = ai {
+                ai.ai_idle(CMD_FROM_AI);
+            }
+            if let Ok(mut spawn_guard) = spawn_obj.write() {
                 spawn_guard.set_disabled_until(disabled_type, frame);
-                drop(spawn_guard);
             }
         }
         Ok(())
@@ -1758,9 +1765,13 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let spawn_guard = spawn_obj.read().unwrap();
+                let Ok(spawn_guard) = spawn_obj.read() else {
+                    continue;
+                };
                 if let Some(stealth) = spawn_guard.get_stealth() {
-                    let stealth_guard = stealth.lock().unwrap();
+                    let Ok(stealth_guard) = stealth.lock() else {
+                        return false;
+                    };
                     let allowed = stealth_guard.allowed_to_stealth(&*spawn_guard);
                     drop(stealth_guard);
                     drop(spawn_guard);
@@ -1785,7 +1796,9 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         for &spawn_id in &self.spawn_ids {
             if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let spawn_guard = spawn_obj.read().unwrap();
+                let Ok(spawn_guard) = spawn_obj.read() else {
+                    continue;
+                };
                 if let Some(stealth) = spawn_guard.get_stealth() {
                     let mut stealth_guard = stealth.lock().map_err(|_| "Failed to lock stealth")?;
                     stealth_guard.mark_as_detected();
@@ -2058,17 +2071,17 @@ mod tests {
     }
 
     // C++ SpawnBehavior::update (SpawnBehavior.cpp:196-204):
-    // runtime-produced InitialBurst slots stagger by SPAWN_DELAY_MIN_FRAMES.
+    // C++ pushes runtimeProduced, not the unused birthFrame.
     #[test]
-    fn burst_replacement_times_stagger_runtime_produced() {
+    fn burst_replacement_times_store_runtime_produced_flag() {
         let times = initial_burst_replacement_times(100, 4, 3, true);
-        assert_eq!(times, vec![100, 116, 132, 100]);
+        assert_eq!(times, vec![1, 1, 1, 1]);
     }
 
     #[test]
-    fn burst_replacement_times_no_stagger_without_producer() {
+    fn burst_replacement_times_store_zero_without_producer() {
         let times = initial_burst_replacement_times(100, 4, 3, false);
-        assert_eq!(times, vec![100, 100, 100, 100]);
+        assert_eq!(times, vec![0, 0, 0, 0]);
     }
 
     #[test]
@@ -2104,10 +2117,10 @@ mod tests {
         assert_eq!(aggregate_initial_health_percent(0.0, 0.0, 0, 4), 0);
     }
 
-    // C++ maySpawnSelfTaskAI: parent with no AI still evaluates the ratio.
+    // C++ maySpawnSelfTaskAI returns false when the parent has no AI.
     #[test]
-    fn may_spawn_self_task_ai_allows_when_parent_has_no_ai() {
-        assert!(may_spawn_self_task_ai_decision(4, 0.5, 0, None));
+    fn may_spawn_self_task_ai_refuses_when_parent_has_no_ai() {
+        assert!(!may_spawn_self_task_ai_decision(4, 0.5, 0, None));
         assert!(!may_spawn_self_task_ai_decision(
             4,
             0.5,

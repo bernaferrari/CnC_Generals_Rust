@@ -97,12 +97,58 @@ impl StateImplementation for AIRappelIntoState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: crate::common::ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
+        let speed = ai.get_desired_speed();
+        let result = self.classic_on_enter().unwrap_or(StateReturnType::Failure);
+        let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
+        self.rappel_rate = -speed.min(max_rappel_rate);
+        result
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
 
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        if ai.is_in_rappel_state() {
+            StateReturnType::Continue
+        } else {
+            StateReturnType::Success
+        }
+    }
+
     fn on_exit(&mut self, _status: StateExitType) {
         let _ = self.classic_on_exit(_status);
+    }
+
+    fn on_exit_with_ai(
+        &mut self,
+        status: StateExitType,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) {
+        ai.set_desired_speed(FAST_AS_POSSIBLE);
+        self.on_exit(status);
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_desired_speed = None;
+            }
+        }
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -177,25 +223,11 @@ impl ClassicState for AIRappelIntoState {
             }
         }
 
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "rappel missing AIUpdateInterface".to_string())?;
-        drop(owner_guard);
-
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "rappel AI lock poisoned".to_string())?;
         let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
-        self.rappel_rate = -ai_guard.get_desired_speed().min(max_rappel_rate);
-
-        let mut params = AiCommandParams::new(AiCommandType::RappelInto, CommandSourceType::FromAi);
-        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
-            params.obj = Some(goal_id);
-        }
-        if let Some(goal_pos) = self.base.get_machine_goal_position() {
-            params.pos = goal_pos;
-        }
-        let _ = ai_guard.execute_command(&params);
+        self.rappel_rate = -owner_guard.ai_fire_desired_speed.min(max_rappel_rate);
+        owner_guard.ai_pending_rappel = true;
+        owner_guard.ai_pending_rappel_obj = self.base.get_machine_goal_object_id();
+        owner_guard.ai_pending_rappel_pos = self.base.get_machine_goal_position();
         Ok(StateReturnType::Continue)
     }
 
@@ -207,13 +239,7 @@ impl ClassicState for AIRappelIntoState {
         let owner_guard = owner
             .read()
             .map_err(|_| "rappel owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "rappel missing AIUpdateInterface".to_string())?;
-        let ai_guard = ai
-            .lock()
-            .map_err(|_| "rappel AI lock poisoned".to_string())?;
-        if ai_guard.is_in_rappel_state() {
+        if owner_guard.ai_fire_in_rappel {
             Ok(StateReturnType::Continue)
         } else {
             Ok(StateReturnType::Success)
@@ -229,13 +255,7 @@ impl ClassicState for AIRappelIntoState {
             .write()
             .map_err(|_| "rappel owner lock poisoned".to_string())?;
         owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "rappel missing AIUpdateInterface".to_string())?;
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "rappel AI lock poisoned".to_string())?;
-        ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
+        owner_guard.ai_pending_desired_speed = Some(FAST_AS_POSSIBLE);
         Ok(())
     }
 }
@@ -261,8 +281,27 @@ impl StateImplementation for AICombatDropState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        if ai.is_doing_combat_drop() {
+            StateReturnType::Continue
+        } else {
+            StateReturnType::Success
+        }
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -292,24 +331,12 @@ impl ClassicState for AICombatDropState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "combat drop missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
+        let mut owner_guard = owner
+            .write()
             .map_err(|_| "combat drop owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "combat drop missing AIUpdateInterface".to_string())?;
-        drop(owner_guard);
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "combat drop AI lock poisoned".to_string())?;
-        let mut params = AiCommandParams::new(AiCommandType::CombatDrop, CommandSourceType::FromAi);
-        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
-            params.obj = Some(goal_id);
-        }
-        if let Some(goal_pos) = self.base.get_machine_goal_position() {
-            params.pos = goal_pos;
-        }
-        let _ = ai_guard.execute_command(&params);
+        owner_guard.ai_pending_combat_drop = true;
+        owner_guard.ai_pending_combat_drop_obj = self.base.get_machine_goal_object_id();
+        owner_guard.ai_pending_combat_drop_pos = self.base.get_machine_goal_position();
         self.issued_command = true;
         Ok(StateReturnType::Continue)
     }
@@ -325,13 +352,7 @@ impl ClassicState for AICombatDropState {
         let owner_guard = owner
             .read()
             .map_err(|_| "combat drop owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "combat drop missing AIUpdateInterface".to_string())?;
-        let ai_guard = ai
-            .lock()
-            .map_err(|_| "combat drop AI lock poisoned".to_string())?;
-        if ai_guard.is_doing_combat_drop() {
+        if owner_guard.ai_fire_combat_drop {
             Ok(StateReturnType::Continue)
         } else {
             Ok(StateReturnType::Success)

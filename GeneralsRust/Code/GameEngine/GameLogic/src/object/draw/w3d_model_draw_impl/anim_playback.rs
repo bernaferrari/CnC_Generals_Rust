@@ -1,12 +1,3 @@
-/// C++ `setCurAnimDurationInMsec`: multiplier = natural / desired.
-/// Do not rewrite the clip's native frame count.
-fn anim_duration_multiplier(natural_ms: Real, desired_ms: Real) -> Real {
-    if natural_ms > 0.0 && desired_ms > 0.0 {
-        natural_ms / desired_ms
-    } else {
-        1.0
-    }
-}
 
 /// Advance a discrete AnimMode clip by `speed` frames (HLOD frame-rate multiplier).
 /// `direction` is +1 forward / -1 reverse; only `LoopPingPong` flips it.
@@ -117,8 +108,11 @@ impl W3DModelDraw {
     }
 
     fn apply_animation_frame_once(&mut self, frame: i32) {
-        // C++ setAnimationFrame is a one-shot Set_Animation(handle, frame).
-        // Do not latch a manual_frame that reticks forever.
+        // C++ setAnimationFrame returns without writing when whichAnim < 0.
+        if self.which_anim_in_cur_state < 0 {
+            return;
+        }
+        // One-shot Set_Animation(handle, frame). Do not latch manual_frame.
         self.animation_override.manual_frame = None;
         if self.current_anim_num_frames > 0 {
             self.current_anim_frame = frame.clamp(0, self.current_anim_num_frames - 1);
@@ -131,8 +125,11 @@ impl W3DModelDraw {
 
     fn apply_cur_anim_duration_multiplier(&mut self, desired_ms: Real) {
         let natural = self.current_natural_duration_ms();
-        self.current_anim_speed_factor = anim_duration_multiplier(natural, desired_ms);
-        self.current_anim_complete = false;
+        // C++ returns false and leaves the multiplier alone when either
+        // duration is not positive. It does not clear animation-complete.
+        if natural > 0.0 && desired_ms > 0.0 {
+            self.current_anim_speed_factor = natural / desired_ms;
+        }
     }
 
     fn tick_animation_with_speed(&mut self) {

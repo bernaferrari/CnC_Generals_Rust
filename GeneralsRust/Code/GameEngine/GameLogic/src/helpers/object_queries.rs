@@ -751,6 +751,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.do_shroud_cover(center, radius, player_mask.bits());
+        drop(shroud);
+        crate::object::stamp_partition_cell_covers(center, radius, player_mask.bits(), true);
     }
 
     /// Mirrors C++ ThePartitionManager->undoShroudCover().
@@ -760,6 +762,8 @@ impl ThePartitionManager {
             return;
         };
         shroud.undo_shroud_cover(center, radius, player_mask.bits());
+        drop(shroud);
+        crate::object::stamp_partition_cell_covers(center, radius, player_mask.bits(), false);
     }
 
     /// Mirrors C++ ThePartitionManager->doThreatAffect().
@@ -1083,7 +1087,7 @@ fn partition_filter_allows(
 
     for filter in filters {
         let allowed = match *filter {
-            PartitionFilter::Flammable => candidate.find_update_module("FlammableUpdate").is_some(),
+            PartitionFilter::Flammable => candidate.find_flammable_update_module().is_some(),
             PartitionFilter::Enemy => {
                 matches!(from.relationship_to(candidate), Relationship::Enemies)
             }

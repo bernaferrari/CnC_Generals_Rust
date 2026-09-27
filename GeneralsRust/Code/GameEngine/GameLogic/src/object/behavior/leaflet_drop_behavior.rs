@@ -142,7 +142,7 @@ impl LeafletDropBehavior {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data.clone()),
-            start_frame: now.saturating_add(data.delay_frames),
+            start_frame: now.wrapping_add(data.delay_frames),
             fx_fired: false,
         })
     }
@@ -158,6 +158,9 @@ impl LeafletDropBehavior {
         };
         let now = TheGameLogic::get_frame();
         let radius = self.module_data.radius;
+        if radius <= 0.0 {
+            return;
+        }
         let candidates = partition.get_objects_in_range_boundary_3d(obj.get_position(), radius);
 
         for id in candidates {
@@ -175,7 +178,7 @@ impl LeafletDropBehavior {
                 if target.relationship_to(obj) != Relationship::Enemies {
                     return;
                 }
-                target.set_disabled_until(DisabledType::DisabledEmp, now + duration);
+                target.set_disabled_until(DisabledType::DisabledEmp, now.wrapping_add(duration));
             });
         }
     }
@@ -261,9 +264,7 @@ impl BehaviorModuleInterface for LeafletDropBehavior {
 
 impl Snapshotable for LeafletDropBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

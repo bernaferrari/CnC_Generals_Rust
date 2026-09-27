@@ -230,7 +230,6 @@ impl DamageApplicator {
         core_damage_info.input.source_player_mask = damage_info.input.source_player_mask;
         core_damage_info.input.damage_type = damage_info.input.damage_type;
         core_damage_info.input.damage_status_type = damage_info.input.damage_status_type;
-        core_damage_info.input.damage_fx_override = damage_info.input.damage_type;
         core_damage_info.input.death_type = damage_info.input.death_type;
         core_damage_info.input.amount = damage_info.input.amount;
         core_damage_info.input.kill = false;

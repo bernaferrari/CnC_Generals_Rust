@@ -654,31 +654,9 @@ impl AIPlayer {
         };
 
         if !queued {
-            // Fallback: ProductionUpdateInterface::start_production on behaviors.
-            let Some(started) = OBJECT_REGISTRY.with_object(factory_id, |factory_g| {
-                let mut started = false;
-                for behavior in factory_g.get_behavior_modules() {
-                    let Ok(mut bg) = behavior.lock() else {
-                        continue;
-                    };
-                    let Some(prod) = bg.get_production_update_interface() else {
-                        continue;
-                    };
-                    if prod
-                        .start_production(order.thing_template.clone(), self.player_id)
-                        .is_ok()
-                    {
-                        started = true;
-                        break;
-                    }
-                }
-                started
-            }) else {
-                return Ok(false);
-            };
-            if !started {
-                return Ok(false);
-            }
+            // C++ startTraining returns false when queueCreateUnit fails.
+            // queue_unit already tried ProductionUpdateInterface::start_production.
+            return Ok(false);
         }
 
         order.factory_id = Some(factory_id);
@@ -754,7 +732,8 @@ impl AIPlayer {
                 if !is_busy {
                     return Ok(Some(obj_id));
                 }
-                if busy_ok && busy_factory.is_none() {
+                // C++ overwrites busyFactory on every busy match (last wins).
+                if busy_ok {
                     *busy_factory = Some(obj_id);
                 }
                 return Ok(None);
@@ -776,7 +755,7 @@ impl AIPlayer {
                 if !is_busy {
                     return Ok(Some(obj_id));
                 }
-                if busy_ok && busy_factory.is_none() {
+                if busy_ok {
                     *busy_factory = Some(obj_id);
                 }
                 break;

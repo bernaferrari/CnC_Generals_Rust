@@ -45,7 +45,8 @@ pub mod object_types;
 mod partition_data;
 pub mod partition_manager;
 pub use partition_data::{
-    PartitionData, partition_cell_shroud_status, stamp_partition_cell_lookers,
+    PartitionData, partition_cell_shroud_status, stamp_partition_cell_covers,
+    stamp_partition_cell_lookers,
 };
 
 pub mod registry;
@@ -1623,7 +1624,7 @@ impl ExitInterface for ContainExitInterfaceProxy {
         self.contain
             .lock()
             .map(|mut guard| guard.reserve_door_for_exit(spawner, spawn))
-            .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE)
+            .unwrap_or(crate::modules::ExitDoorType::NoneAvailable)
     }
 
     fn unreserve_door_for_exit(&mut self, door: crate::modules::ExitDoorType) {
@@ -2272,12 +2273,136 @@ fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
                     .map(|module| module.behavior().initial_wake_frame())
             })
             .or_else(|| {
-                // C++ SlowDeathBehavior ctor setWakeFrame(UPDATE_SLEEP_FOREVER)
-                // until beginSlowDeath.
                 module
                     .as_any()
                     .downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
                     .map(|_| UpdateSleepTime::Forever.to_u32())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::structure_collapse_update::StructureCollapseUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::structure_topple_update::StructureToppleUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::grant_stealth_behavior::GrantStealthBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::fire_weapon_when_damaged_behavior_new::FireWeaponWhenDamagedBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::propaganda_tower_behavior::PropagandaTowerBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::flight_deck_behavior::FlightDeckBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::horde_update::HordeUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::poisoned_behavior::PoisonedBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::minefield_behavior::MinefieldBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::tech_building_behavior::TechBuildingBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::supply_warehouse_crippling_behavior::SupplyWarehouseCripplingBehaviorModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::behavior::topple_update::ToppleUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
+            })
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::stealth_update::StealthUpdateModule>()
+                    .map(|module| module.initial_wake_frame())
             })
             .unwrap_or(0)
     })
@@ -2315,6 +2440,10 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
             phase = Self::dispatch_phase(module);
         });
         phase.unwrap_or(SleepyUpdatePhase::Normal)
+    }
+
+    fn module_name(&self) -> &str {
+        self.module_name.as_str()
     }
 }
 
@@ -2369,6 +2498,10 @@ impl BehaviorModuleHandle {
         self.entry
             .with_module(|module| module.get_module_name_key())
     }
+    pub fn module_name(&self) -> &str {
+        self.name().as_str()
+    }
+
 
     pub fn module_tag_key(&self) -> NameKeyType {
         self.entry
@@ -2632,6 +2765,103 @@ pub struct Object {
     // Core identification
     id: ObjectID,
     producer_id: ObjectID,
+    /// Copied from the AI before set_position while that mutex is already held.
+    pub cached_main_turret_yaw: f32,
+    pub cached_main_turret_pitch: f32,
+    pub cached_main_turret_valid: bool,
+    /// Copied from UnitAI before the state machine runs. The machine already holds that mutex.
+    pub(crate) ai_fire_attack_ok: bool,
+    pub(crate) ai_fire_turrets_linked: bool,
+    pub(crate) ai_fire_has_primary: bool,
+    pub(crate) ai_fire_has_secondary: bool,
+    pub(crate) ai_fire_primary_enabled: bool,
+    pub(crate) ai_fire_secondary_enabled: bool,
+    pub(crate) ai_fire_current_victim: Option<ObjectID>,
+    pub(crate) ai_fire_original_victim_pos: Option<Coord3D>,
+    pub(crate) ai_fire_last_command_source: crate::common::CommandSourceType,
+    pub(crate) ai_fire_mood_value: u32,
+    pub(crate) ai_fire_pending_victim: Option<ObjectID>,
+    pub(crate) ai_fire_which_turret: crate::common::TurretType,
+    pub(crate) ai_fire_primary_turn_rate: f32,
+    pub(crate) ai_fire_secondary_turn_rate: f32,
+    pub(crate) ai_pending_desired_speed: Option<f32>,
+    pub(crate) ai_fire_state_id: Option<u32>,
+    pub(crate) ai_fire_mood_target: Option<ObjectID>,
+    pub(crate) ai_fire_ground_movement: bool,
+    pub(crate) ai_fire_can_turn_in_place: bool,
+    pub(crate) ai_fire_is_idle: bool,
+    pub(crate) ai_fire_ultra_accurate: bool,
+    pub(crate) ai_fire_next_mood_check: u32,
+    pub(crate) ai_fire_idle_mood_adjust: u32,
+    pub(crate) ai_fire_crate_id: ObjectID,
+    pub(crate) ai_fire_idle_attack_target: Option<ObjectID>,
+    pub(crate) ai_pending_move_crate: Option<ObjectID>,
+    pub(crate) ai_pending_attack_id: Option<ObjectID>,
+    /// Mood attack-move queued while the state machine is already borrowed.
+    pub(crate) ai_pending_attack_move: Option<Coord3D>,
+    /// Mood attack-follow waypoint, applied after the machine guard drops.
+    pub(crate) ai_pending_attack_follow_waypoint: Option<crate::waypoint::WaypointId>,
+    pub(crate) ai_pending_attack_follow_as_team: bool,
+    /// State to enter after this step drops the machine mutex.
+    pub(crate) ai_pending_state_id: Option<u32>,
+    pub(crate) ai_pending_clear_guard_target: bool,
+    pub(crate) ai_pending_wake_path: bool,
+    pub(crate) ai_pending_clear_move_out: bool,
+    pub(crate) ai_fire_locomotor_speed: f32,
+    pub(crate) ai_fire_blocked_and_stuck: bool,
+    pub(crate) ai_fire_has_path_destination: bool,
+    pub(crate) ai_fire_path_destination: Option<Coord3D>,
+    pub(crate) ai_fire_loco_appearance: Option<crate::locomotor::LocomotorAppearance>,
+    pub(crate) ai_pending_ending_move: bool,
+    pub(crate) ai_fire_is_moving: bool,
+    pub(crate) ai_fire_waypoint_queue_empty: bool,
+    pub(crate) ai_pending_completed_waypoint: Option<crate::waypoint::WaypointId>,
+    pub(crate) ai_pending_precise_z: Option<bool>,
+    pub(crate) ai_pending_goal_path_index: Option<i32>,
+    pub(crate) ai_pending_busy: bool,
+    pub(crate) ai_fire_in_rappel: bool,
+    pub(crate) ai_pending_combat_drop: bool,
+    pub(crate) ai_pending_hack: bool,
+    pub(crate) ai_pending_hack_source: crate::common::CommandSourceType,
+    pub(crate) ai_pending_idle: bool,
+    pub(crate) ai_pending_idle_source: crate::common::CommandSourceType,
+    pub(crate) ai_pending_exit: Option<bool>,
+    pub(crate) ai_pending_exit_source: crate::common::CommandSourceType,
+    pub(crate) ai_pending_exit_obj: Option<crate::object::ObjectId>,
+    pub(crate) ai_fire_hacking: bool,
+    pub(crate) ai_fire_hack_known: bool,
+    pub(crate) ai_fire_combat_drop: bool,
+    pub(crate) ai_fire_desired_speed: f32,
+    pub(crate) ai_pending_rappel: bool,
+    pub(crate) ai_pending_follow_pos: Option<crate::common::Coord3D>,
+    pub(crate) ai_pending_heal: Option<crate::object::ObjectId>,
+    pub(crate) ai_pending_evacuate: bool,
+    pub(crate) ai_pending_rappel_obj: Option<crate::object::ObjectId>,
+    pub(crate) ai_pending_rappel_pos: Option<crate::common::Coord3D>,
+    pub(crate) ai_pending_combat_drop_obj: Option<crate::object::ObjectId>,
+    pub(crate) ai_pending_combat_drop_pos: Option<crate::common::Coord3D>,
+    pub(crate) ai_fire_has_path: bool,
+    pub(crate) ai_fire_waiting_for_path: bool,
+    pub(crate) ai_pending_path_goal: Option<Coord3D>,
+    pub(crate) ai_pending_ignore_id: Option<ObjectID>,
+    pub(crate) ai_pending_path_extra: Option<f32>,
+    pub(crate) ai_pending_attack_path: Option<(ObjectID, Coord3D)>,
+    pub(crate) ai_pending_original_victim_pos: Option<Option<Coord3D>>,
+    pub(crate) ai_pending_clear_victim: bool,
+    pub(crate) ai_pending_clear_goal: bool,
+    pub(crate) ai_pending_set_victim: Option<ObjectID>,
+    pub(crate) ai_pending_path_through_units: Option<bool>,
+    pub(crate) ai_pending_allow_invalid_position: Option<bool>,
+    pub(crate) ai_pending_goal_id: Option<ObjectID>,
+    pub(crate) ai_pending_reset_mood: bool,
+    pub(crate) ai_pending_victim_dead: bool,
+    pub(crate) ai_pending_destroy_path: bool,
+    pub(crate) ai_pending_clear_ignore: bool,
+    pub(crate) ai_pending_goal_orientation: Option<f32>,
+    pub(crate) ai_pending_goal_position: Option<Coord3D>,
+    pub(crate) ai_pending_goal_none: bool,
+    pub(crate) ai_pending_turret_objects: Vec<(crate::common::TurretType, Option<ObjectID>, bool)>,
+    pub(crate) ai_pending_turret_positions: Vec<(crate::common::TurretType, Coord3D)>,
     builder_id: ObjectID,
     name: AsciiString,
     thing_template: Arc<dyn ThingTemplate>,

@@ -84,8 +84,9 @@ pub struct LeftoverLocationSafeCandidate {
     pub detected: bool,
     pub disguised: bool,
     pub is_enemy: bool,
-    pub is_bridge: bool,
-    pub is_bridge_tower: bool,
+    /// C++ PartitionFilterInsignificantBuildings(true, false) rejects non-buildings.
+    pub is_structure: bool,
+
 }
 
 /// C++ `TheAI->getAiData()->m_supplyCenterSafeRadius` + template bounding circle.
@@ -119,8 +120,8 @@ pub fn leftover_is_location_safe_enemy_blocks(c: &LeftoverLocationSafeCandidate)
     if !c.is_enemy {
         return false;
     }
-    // PartitionFilterInsignificantBuildings(true, false)
-    if c.is_bridge || c.is_bridge_tower {
+    // PartitionFilterInsignificantBuildings(true, false): non-buildings do not block.
+    if !c.is_structure {
         return false;
     }
     true

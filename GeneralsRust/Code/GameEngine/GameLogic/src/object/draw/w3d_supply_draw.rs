@@ -89,19 +89,13 @@ impl DrawModuleData for W3DSupplyDrawModuleData {
 }
 impl Snapshotable for W3DSupplyDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.crc(xfer)
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -297,15 +291,11 @@ impl ObjectDrawInterface for W3DSupplyDraw {
         if bones_to_show == self.last_number_shown {
             return;
         }
-        let low = self.last_number_shown.min(bones_to_show);
-        let high = self.last_number_shown.max(bones_to_show);
-        let hide = bones_to_show < self.last_number_shown;
-        for current in (low + 1)..=high {
-            self.base.show_sub_object(
-                &format!("{}{:02}", self.data.supply_bone_prefix.as_str(), current),
-                !hide,
-            );
-        }
+        let prefix = self.data.supply_bone_prefix.as_str();
+        let entries = (1..=self.total_bones.max(0))
+            .map(|index| (format!("{prefix}{index:02}"), index > bones_to_show))
+            .collect();
+        self.base.set_unsaved_subobject_hides(entries);
         self.base.update_sub_objects();
         self.last_number_shown = bones_to_show;
     }
@@ -323,10 +313,21 @@ impl ObjectDrawInterface for W3DSupplyDraw {
         &mut self,
         weapon_slot: usize,
         barrel_index: i32,
+        fx: Option<&crate::effects::FXList>,
         victim_pos: &Coord3D,
+        weapon_speed: f32,
+        damage_radius: f32,
+        live_bone: Option<&crate::common::Matrix3D>,
     ) -> bool {
-        self.base
-            .handle_weapon_fire_fx(weapon_slot, barrel_index, victim_pos)
+        self.base.handle_weapon_fire_fx(
+            weapon_slot,
+            barrel_index,
+            fx,
+            victim_pos,
+            weapon_speed,
+            damage_radius,
+            live_bone,
+        )
     }
     fn get_barrel_count(&self, weapon_slot: usize) -> i32 {
         self.base.get_barrel_count(weapon_slot)

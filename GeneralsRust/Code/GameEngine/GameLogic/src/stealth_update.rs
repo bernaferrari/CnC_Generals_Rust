@@ -484,11 +484,8 @@ impl StealthController {
                 .unwrap_or(false);
             if from_player {
                 let _ = self.receive_grant(false, 0, now);
-                return Ok(());
-            }
-            if self.frames_granted == 0 {
+            } else if self.frames_granted == 0 {
                 let _ = self.receive_grant(false, 0, now);
-                return Ok(());
             }
         }
 
@@ -853,7 +850,14 @@ impl StealthController {
             self.transitioning_to_disguise = true;
             self.disguise_transition_frames = self.data.disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
-            TheGameLogic::set_wake_frame(self.object_id, UPDATE_SLEEP_NONE);
+            let now = TheGameLogic::get_frame();
+            if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+            {
+                if let Ok(guard) = object.read() {
+                    guard.reschedule_named_update("StealthUpdate", now.saturating_add(1));
+                }
+            }
         } else if self.disguised || self.disguise_as_template_name.is_some() {
             self.disguise_as_template_name = None;
             self.disguise_as_player_index = 0;
@@ -871,6 +875,10 @@ impl StealthController {
 
     pub fn get_stealth_delay(&self) -> UnsignedInt {
         self.data.stealth_delay_frames
+    }
+
+    pub fn is_granted_by_special_power(&self) -> bool {
+        self.data.granted_by_special_power
     }
 
     pub fn get_order_idle_enemies_to_attack_me_upon_reveal(&self) -> bool {
@@ -1063,6 +1071,16 @@ impl StealthController {
             self.is_stealthed = true;
             self.frames_granted = frames;
             self.stealth_allowed_frame = current_frame;
+            if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+            {
+                if let Ok(guard) = object.read() {
+                    guard.reschedule_named_update(
+                        "StealthUpdate",
+                        current_frame.saturating_add(1),
+                    );
+                }
+            }
             self.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true)?;
             self.set_status_flag(ObjectStatusMaskType::STEALTHED, true)?;
         } else {
@@ -1082,12 +1100,14 @@ impl StealthController {
                 }
             }
         }
-
         if let Some(rider_id) = OBJECT_REGISTRY
             .with_object(self.object_id, |obj_guard| {
-                obj_guard
-                    .get_contain()
-                    .and_then(|contain| contain.lock().ok().and_then(|cg| cg.friend_get_rider()))
+                let contain = obj_guard.get_contain()?;
+                let guard = contain.lock().ok()?;
+                if !guard.is_rider_change_contain() {
+                    return None;
+                }
+                guard.friend_get_rider()
             })
             .flatten()
         {
@@ -1099,6 +1119,8 @@ impl StealthController {
                 }
             });
         }
+
+
 
         Ok(())
     }
@@ -1420,14 +1442,24 @@ impl StealthUpdateModule {
         object_id: ObjectID,
     ) -> Self {
         let controller = Arc::new(Mutex::new(StealthController::new(data.clone(), object_id)));
+        let now = TheGameLogic::get_frame();
+        let wake = if data.granted_by_special_power {
+            crate::modules::UpdateSleepTime::Forever.to_u32()
+        } else {
+            now.saturating_add(1)
+        };
         Self {
             module_name_key,
             data,
             controller,
             object_id,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: wake,
         }
     }
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.next_call_frame_and_phase
+    }
+
 
     fn register_with_object(&self) {
         // Wave 283: empty dual-world → no factory object walks.

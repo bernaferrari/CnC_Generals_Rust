@@ -410,6 +410,18 @@ impl GameLogic {
             }
             return;
         }
+        let mut goal = goal;
+        let ground = self.objects.get(&object_id).is_some_and(|o| {
+            crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
+        });
+        if ground {
+            self.adjust_guard_goal(object_id, &mut goal);
+        }
+        if let Some(o) = self.objects.get_mut(&object_id) {
+            // C++ sets adjust true, then AIInternalMoveToState::onEnter clears
+            // it for an ultra-accurate locomotor.
+            o.adjust_destinations = !o.ultra_accurate;
+        }
         self.path_approach_with_state(object_id, goal, state);
     }
 
@@ -577,7 +589,7 @@ impl GameLogic {
     }
 
     /// C++ EnterGuard / HijackGuard: board instead of shooting.
-    pub(super) fn try_guard_enter_or_hijack(
+    pub(crate) fn try_guard_enter_or_hijack(
         &mut self,
         object_id: ObjectId,
         target_id: ObjectId,
@@ -604,7 +616,12 @@ impl GameLogic {
                 crate::game_logic::PendingSpecialAbility::Hijack { target_id },
             );
             if let Some(pos) = pos {
-                self.path_approach_with_state(object_id, pos, AIState::SpecialAbility);
+                self.path_approach_with_state_ignoring(
+                    object_id,
+                    pos,
+                    AIState::SpecialAbility,
+                    Some(target_id),
+                );
             }
             true
         } else if self.can_unit_enter_normal_target(object_id, target_id) {
@@ -612,9 +629,16 @@ impl GameLogic {
                 o.target = Some(target_id);
                 o.set_order_target(Some(target_id));
                 o.set_ai_state(AIState::Entering);
+                // C++ AIEnterState::onEnter ignoreObstacle(goalObject).
+                o.ignored_obstacle_id = Some(target_id);
             }
             if let Some(pos) = self.objects.get(&target_id).map(|t| t.get_position()) {
-                self.path_approach_with_state(object_id, pos, AIState::Entering);
+                self.path_approach_with_state_ignoring(
+                    object_id,
+                    pos,
+                    AIState::Entering,
+                    Some(target_id),
+                );
             }
             true
         } else {

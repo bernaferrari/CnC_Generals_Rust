@@ -36,7 +36,7 @@ use super::weapon_instance::Weapon;
 
 impl Weapon {
     pub fn handle_projectileless_flight_damage(
-        &self,
+        &mut self,
         source_obj_id: ObjectId,
         source_pos: &Coord3D,
         target_obj_id: Option<ObjectId>,
@@ -82,15 +82,14 @@ impl Weapon {
         });
 
         if let Err(err) = queue_result {
+            // Weapon.cpp:1057 — a null store skips the hit. Do not apply it now.
             log::warn!(
-                "Failed to queue delayed damage for '{}' (source {}, delay {}): {:?}; applying immediately",
+                "Failed to queue delayed damage for '{}' (source {}, delay {}): {:?}; not applying early",
                 self.template.name,
                 source_obj_id,
                 delay_whole_frames,
                 err
             );
-            let victim = (damage_id != INVALID_OBJECT_ID).then_some(damage_id);
-            self.deal_damage_internal(source_obj_id, victim, &damage_position, bonus, false)?;
         }
 
         Ok(())
@@ -177,7 +176,7 @@ impl Weapon {
         let Some(player_arc) = requesting_guard.get_controlling_player() else {
             return;
         };
-        let template_name = requesting_guard.get_template_name().to_string();
+        let requesting_template = requesting_guard.get_template().clone();
         let range = self.template.get_request_assist_range();
         if range <= 0.0 {
             return;
@@ -189,13 +188,15 @@ impl Weapon {
         let Ok(player_guard) = player_arc.read() else {
             return;
         };
-        for object_id in player_guard.get_all_objects() {
+        let object_ids = player_guard.get_all_objects();
+        drop(player_guard);
+        for object_id in object_ids {
             if object_id == source_obj_id {
                 continue;
             }
             let Some(behaviors) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(object_id, |object_guard| {
-                    if object_guard.get_template_name() != template_name {
+                    if !requesting_template.is_equivalent_to(object_guard.get_template().as_ref()) {
                         return None;
                     }
                     let dx = object_guard.get_position().x - requesting_pos.x;
@@ -247,7 +248,7 @@ impl Weapon {
     /// - Returns total damage applied
 
     pub(crate) fn deal_damage_internal(
-        &self,
+        &mut self,
         source_obj_id: ObjectId,
         target_obj_id: Option<ObjectId>,
         impact_pos: &Coord3D,
@@ -266,11 +267,11 @@ impl Weapon {
             ));
         }
 
-        let source_arc = TheGameLogic::find_object_by_id(source_obj_id);
-        let source_guard = source_arc.as_ref().and_then(|arc| arc.read().ok());
         let damage_source_id = self.projectile_damage_source_id(source_obj_id);
+        let source_arc = TheGameLogic::find_object_by_id(source_obj_id);
+        let source_guard = source_arc.as_ref().and_then(|arc| arc.try_read().ok());
         let damage_source_arc = if damage_source_id == source_obj_id {
-            source_arc.clone()
+            None
         } else {
             TheGameLogic::find_object_by_id(damage_source_id)
         };
@@ -282,7 +283,7 @@ impl Weapon {
         let mut primary_victim_id = None;
         if let Some(target_id) = target_obj_id {
             if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
-                if let Ok(target_guard) = target_arc.read() {
+                if let Ok(target_guard) = target_arc.try_read() {
                     impact_pos = *target_guard.get_position();
                     primary_victim_id = Some(target_id);
                 }
@@ -293,18 +294,22 @@ impl Weapon {
         let mut damage_info = crate::damage::DamageInfo::new();
         damage_info.input.source_id = damage_source_id;
         damage_info.input.damage_type = self.template.damage_type.into();
-        damage_info.input.damage_fx_override = self.template.damage_type.into();
         damage_info.input.damage_status_type = self.template.damage_status_type.into();
         damage_info.input.death_type = self.template.death_type.into();
         damage_info.input.amount = self.template.get_primary_damage(bonus);
         damage_info.input.shock_wave_amount = self.template.shock_wave_amount;
         damage_info.input.shock_wave_radius = self.template.shock_wave_radius;
         damage_info.input.shock_wave_taper_off = self.template.shock_wave_taper_off;
-        if let Some(source) = damage_source_guard.as_ref() {
+        if let Some(source) = damage_source_guard.as_ref().or(source_guard.as_ref()) {
             if let Some(player) = source.get_controlling_player() {
                 if let Ok(player_guard) = player.read() {
                     damage_info.input.source_player_mask = player_guard.get_player_mask();
                 }
+            }
+        }
+        if damage_info.input.source_player_mask.is_empty() {
+            if let Some(mask) = self.caller_player_mask() {
+                damage_info.input.source_player_mask = mask;
             }
         }
         damage_info.sync_from_input();
@@ -317,16 +322,61 @@ impl Weapon {
         // Determine if this is radius damage
         let max_radius = primary_radius.max(secondary_radius);
         if max_radius > 0.0 {
-            // RADIUS DAMAGE - affect multiple targets in area
+            // Drop the firer read before the gather and the victim loop.
+            // A second read of the same RwLock hangs when the blast includes it.
+            drop(source_guard);
+            drop(damage_source_guard);
             let targets = self.find_objects_in_radius(source_obj_id, &impact_pos, max_radius)?;
 
             for (obj_id, obj_pos, _relationship) in targets {
                 let Some(victim_arc) = TheGameLogic::find_object_by_id(obj_id) else {
                     continue;
                 };
-                let Ok(victim_guard) = victim_arc.read() else {
+                let Ok(victim_guard) = victim_arc.try_read() else {
                     continue;
                 };
+                let source_now = if obj_id == source_obj_id {
+                    None
+                } else {
+                    source_arc.as_ref().and_then(|arc| arc.try_read().ok())
+                };
+                let (producer_id, relationship, similar_skip, source_pos, x_axis) =
+                    if obj_id == source_obj_id {
+                        let rel = if victim_guard.is_undetected_defector() {
+                            Relationship::Neutral
+                        } else {
+                            Relationship::Allies
+                        };
+                        (
+                            victim_guard.get_producer_id(),
+                            rel,
+                            matches!(rel, Relationship::Allies),
+                            *victim_guard.get_position(),
+                            victim_guard.get_transform_matrix().x_axis,
+                        )
+                    } else if let Some(source) = source_now.as_ref() {
+                        let rel = source.relationship_to(&victim_guard);
+                        let similar = matches!(rel, Relationship::Allies)
+                            && source
+                                .get_template()
+                                .is_equivalent_to(victim_guard.get_template().as_ref());
+                        (
+                            source.get_producer_id(),
+                            victim_guard.relationship_to(source),
+                            similar,
+                            *source.get_position(),
+                            source.get_transform_matrix().x_axis,
+                        )
+                    } else {
+                        (
+                            INVALID_OBJECT_ID,
+                            Relationship::Neutral,
+                            false,
+                            glam::Vec3::ZERO,
+                            victim_guard.get_transform_matrix().x_axis,
+                        )
+                    };
+                drop(source_now);
 
                 let is_primary_victim = primary_victim_id == Some(obj_id);
                 let mut kill_self = false;
@@ -341,10 +391,6 @@ impl Weapon {
                         kill_self = true;
                     } else {
                         if !self.template.affects_mask.contains(WeaponAffectsMask::SELF) {
-                            let producer_id = source_guard
-                                .as_ref()
-                                .map(|source| source.get_producer_id())
-                                .unwrap_or(INVALID_OBJECT_ID);
                             if obj_id == source_obj_id || producer_id == obj_id {
                                 continue;
                             }
@@ -354,17 +400,9 @@ impl Weapon {
                             .template
                             .affects_mask
                             .contains(WeaponAffectsMask::DOESNT_AFFECT_SIMILAR)
+                            && similar_skip
                         {
-                            if let Some(source) = source_guard.as_ref() {
-                                let rel = source.relationship_to(&victim_guard);
-                                if matches!(rel, Relationship::Allies)
-                                    && source
-                                        .get_template()
-                                        .is_equivalent_to(victim_guard.get_template().as_ref())
-                                {
-                                    continue;
-                                }
-                            }
+                            continue;
                         }
 
                         if self
@@ -376,10 +414,6 @@ impl Weapon {
                             continue;
                         }
 
-                        let relationship = source_guard
-                            .as_ref()
-                            .map(|source| victim_guard.relationship_to(source))
-                            .unwrap_or(Relationship::Neutral);
                         let required_mask = match relationship {
                             Relationship::Allies => WeaponAffectsMask::ALLIES,
                             Relationship::Enemies => WeaponAffectsMask::ENEMIES,
@@ -393,29 +427,48 @@ impl Weapon {
 
                 // Directional radius damage check (cone)
                 if self.template.radius_damage_angle < std::f32::consts::PI {
-                    let Some(source) = source_guard.as_ref() else {
-                        continue;
-                    };
-                    let source_pos = source.get_position();
                     let dx = obj_pos.x - source_pos.x;
                     let dy = obj_pos.y - source_pos.y;
                     let dz = obj_pos.z - source_pos.z;
-                    let len = (dx * dx + dy * dy + dz * dz).sqrt();
-                    if len <= f32::EPSILON {
+                    let dlen = (dx * dx + dy * dy + dz * dz).sqrt();
+                    if dlen <= f32::EPSILON {
                         continue;
                     }
-                    let (fx, fy) = source.get_unit_direction_vector_2d();
-                    let fx = fx;
-                    let fy = fy;
-                    let inv_len = 1.0 / len;
-                    let dot = (fx * dx + fy * dy) * inv_len;
+                    let slen = (x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z)
+                        .sqrt();
+                    if slen <= f32::EPSILON {
+                        continue;
+                    }
+                    let dot = (x_axis.x * dx + x_axis.y * dy + x_axis.z * dz) / (slen * dlen);
                     if dot < self.template.radius_damage_angle.cos() {
                         continue;
                     }
                 }
 
                 // Calculate distance and damage falloff
-                let distance = impact_pos.distance(obj_pos);
+                let stored = crate::object::collide::partition_manager::PARTITION_MANAGER
+                    .try_read()
+                    .ok()
+                    .and_then(|pm| pm.get_object_info(obj_id));
+                let distance = if let Some((pos, geom)) = stored.as_ref() {
+                    crate::object::collide::partition_distance::distance_from_position(
+                        &impact_pos,
+                        pos,
+                        geom,
+                        crate::object::collide::partition_distance::DistanceCalculationType::FromBoundingSphere3D,
+                    )
+                } else {
+                    let splash_geom = crate::object::Object::collision_geometry_from_bounds(
+                        victim_guard.get_geometry_info(),
+                        None,
+                    );
+                    crate::object::collide::partition_distance::distance_from_position(
+                        &impact_pos,
+                        victim_guard.get_position(),
+                        &splash_geom,
+                        crate::object::collide::partition_distance::DistanceCalculationType::FromBoundingSphere3D,
+                    )
+                };
                 let damage_amount = self.calculate_radius_damage_falloff(
                     distance,
                     primary_radius,
@@ -432,10 +485,6 @@ impl Weapon {
                         damage_amount
                     };
                     if self.template.shock_wave_amount > 0.0 {
-                        let Some(source) = source_guard.as_ref() else {
-                            continue;
-                        };
-                        let source_pos = source.get_position();
                         let mut shock_wave_vector = Coord3D::new(
                             obj_pos.x - source_pos.x,
                             obj_pos.y - source_pos.y,
@@ -450,7 +499,7 @@ impl Weapon {
                         target_damage_info.input.shock_wave_vector = shock_wave_vector;
                     }
 
-                    // Apply damage to target
+                    drop(victim_guard);
                     if let Ok(actual_damage) =
                         self.apply_damage_to_object(obj_id, &mut target_damage_info)
                     {
@@ -459,24 +508,29 @@ impl Weapon {
                 }
             }
         } else {
-            // SINGLE TARGET DAMAGE
+            // SINGLE TARGET DAMAGE. Drop the firer read before attempt_damage
+            // write-locks that object.
             if let Some(target_id) = target_obj_id {
                 if self
                     .template
                     .affects_mask
                     .contains(WeaponAffectsMask::KILLS_SELF)
                 {
-                    if let Some(source) = source_guard.as_ref() {
+                    let self_id = source_guard.as_ref().map(|source| source.get_id());
+                    drop(source_guard);
+                    if let Some(self_id) = self_id {
                         let mut self_damage = damage_info.clone();
                         self_damage.input.amount = HUGE_DAMAGE_AMOUNT;
                         if let Ok(actual_damage) =
-                            self.apply_damage_to_object(source.get_id(), &mut self_damage)
+                            self.apply_damage_to_object(self_id, &mut self_damage)
                         {
                             total_damage = actual_damage as u32;
                         }
                         return Ok(total_damage);
                     }
+                    return Ok(total_damage);
                 }
+                drop(source_guard);
                 if let Ok(actual_damage) = self.apply_damage_to_object(target_id, &mut damage_info)
                 {
                     total_damage = actual_damage as u32;
@@ -624,16 +678,13 @@ impl Weapon {
                     source_guard.clear_weapon_bonus_condition(condition);
                 }
 
-                for slot_idx in 0..crate::common::WEAPONSLOT_COUNT {
-                    let slot = match slot_idx {
-                        0 => WeaponSlotType::Primary,
-                        1 => WeaponSlotType::Secondary,
-                        _ => WeaponSlotType::Tertiary,
-                    };
-                    if let Some(weapon) = source_guard.get_weapon_in_slot_mut(slot) {
-                        let _ = weapon.on_weapon_bonus_change(source_id);
-                    }
-                }
+                let flags = source_guard.get_weapon_bonus_condition()
+                    | super::weapon_bonus::container_passenger_bonus_flags(
+                        source_guard.get_contained_by(),
+                    );
+                let _ = source_guard
+                    .weapon_set
+                    .weapon_set_on_weapon_bonus_change(flags);
             });
     }
 
@@ -647,9 +698,9 @@ impl Weapon {
     pub fn update(&mut self, _delta_time: f32, current_frame: u32) -> Result<(), WeaponError> {
         // Check if cooldown has expired
         if current_frame >= self.when_we_can_fire_again {
-            match self.status {
+            match self.load_status() {
                 WeaponStatus::BetweenFiringShots => {
-                    self.status = WeaponStatus::ReadyToFire;
+                    self.store_status(WeaponStatus::ReadyToFire);
                 }
                 WeaponStatus::ReloadingClip => {
                     // C++ refills in reloadWithBonus (Weapon.cpp:1884-1886).
@@ -659,19 +710,19 @@ impl Weapon {
                     if self.ammo_in_clip == 0 {
                         self.ammo_in_clip = ammo_count_for_clip_size(self.template.clip_size);
                     }
-                    self.status = WeaponStatus::ReadyToFire;
+                    self.store_status(WeaponStatus::ReadyToFire);
                 }
                 _ => {}
             }
         }
 
-        if self.status == WeaponStatus::PreAttack && current_frame >= self.when_pre_attack_finished
+        if self.load_status() == WeaponStatus::PreAttack
+            && current_frame >= self.when_pre_attack_finished
         {
-            // C++ Weapon::getStatus (Weapon.cpp:2743-2748): Ready only with ammo.
             if self.ammo_in_clip > 0 {
-                self.status = WeaponStatus::ReadyToFire;
+                self.store_status(WeaponStatus::ReadyToFire);
             } else {
-                self.status = WeaponStatus::OutOfAmmo;
+                self.store_status(WeaponStatus::OutOfAmmo);
             }
         }
 
@@ -682,12 +733,17 @@ impl Weapon {
     ///
     /// Matches C++ Object->getPosition() calls throughout Weapon.cpp
     pub(crate) fn get_object_position(&self, _obj_id: ObjectId) -> Result<Coord3D, WeaponError> {
+        if let Some((id, pos)) = self.caller_held_source {
+            if id == _obj_id {
+                return Ok(pos);
+            }
+        }
         let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
             return Err(WeaponError::InvalidTarget);
         };
-        let obj_guard = obj_arc
-            .read()
-            .map_err(|_| WeaponError::SystemError("Failed to lock object position".to_string()))?;
+        let obj_guard = obj_arc.try_read().map_err(|_| {
+            WeaponError::SystemError("Failed to lock object position".to_string())
+        })?;
         Ok(*obj_guard.get_position())
     }
 
@@ -698,7 +754,7 @@ impl Weapon {
         let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
             return ObjectType::Unknown;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
+        let Ok(obj_guard) = obj_arc.try_read() else {
             return ObjectType::Unknown;
         };
 
@@ -846,23 +902,25 @@ impl Weapon {
 
     /// Determine fire mode based on weapon template
     pub(crate) fn determine_fire_mode(&self) -> FireMode {
-        if self.template.is_contact_weapon() {
-            // Contact weapon - instant impact
+        if !self.template.projectile_name.trim().is_empty() {
+            let speed = self.template.weapon_speed;
+            let lifetime = if speed > 0.0 {
+                (self.template.attack_range / speed).max(0.0)
+            } else {
+                0.0
+            };
+            FireMode::Projectile { speed, lifetime }
+        } else if self.template.is_contact_weapon() {
             FireMode::InstantImpact {
                 splash_radius: self.template.primary_damage_radius,
             }
         } else if !self.template.laser_name.is_empty() {
-            // Laser weapon - continuous beam
             FireMode::ContinuousBeam {
                 duration: 1.0,
                 damage_per_frame: self.template.primary_damage / LOGICFRAMES_PER_SECOND as f32,
             }
         } else {
-            // Projectile weapon
-            let speed = self
-                .template
-                .weapon_speed
-                .max(self.template.min_weapon_speed);
+            let speed = self.template.weapon_speed;
             let lifetime = if speed > 0.0 {
                 (self.template.attack_range / speed).max(0.0)
             } else {
@@ -871,8 +929,6 @@ impl Weapon {
             FireMode::Projectile { speed, lifetime }
         }
     }
-
-    /// Create projectile object
     pub(crate) fn create_projectile(
         &self,
         source_obj_id: ObjectId,
@@ -902,21 +958,25 @@ impl Weapon {
         if let Some(projectile_template) =
             TheObjectFactory::find_template(&self.template.projectile_name)
         {
-            let mut owning_player = None;
-            let mut projectile_team = None;
-            let mut source_veterancy = crate::common::VeterancyLevel::Regular;
+            let mut owning_player = self.caller_player();
+            let mut projectile_team = self.caller_team.clone();
+            let mut source_veterancy = self
+                .caller_veterancy
+                .unwrap_or(crate::common::VeterancyLevel::Regular);
 
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                if let Ok(source_guard) = source_arc.read() {
-                    owning_player = source_guard.get_controlling_player();
-                    source_veterancy = source_guard.get_veterancy_level();
-                    if let Some(player_arc) = &owning_player {
-                        if let Ok(player_guard) = player_arc.read() {
-                            projectile_team = player_guard.get_default_team();
+            if projectile_team.is_none() {
+                if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
+                    if let Ok(source_guard) = source_arc.try_read() {
+                        owning_player = source_guard.get_controlling_player();
+                        source_veterancy = source_guard.get_veterancy_level();
+                        if let Some(player_arc) = &owning_player {
+                            if let Ok(player_guard) = player_arc.read() {
+                                projectile_team = player_guard.get_default_team();
+                            }
                         }
-                    }
-                    if projectile_team.is_none() {
-                        projectile_team = source_guard.get_team();
+                        if projectile_team.is_none() {
+                            projectile_team = source_guard.get_team();
+                        }
                     }
                 }
             }
@@ -939,13 +999,15 @@ impl Weapon {
                 let _ = proj_guard.set_position(source_pos);
 
                 if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                    if let Ok(source_guard) = source_arc.read() {
+                    if let Ok(source_guard) = source_arc.try_read() {
                         proj_guard.set_producer(Some(&source_guard));
                         if source_guard.notify_special_power_completion_die() {
                             proj_guard.set_special_power_completion_creator(INVALID_OBJECT_ID);
                         } else {
                             proj_guard.set_special_power_completion_creator(source_obj_id);
                         }
+                    } else {
+                        proj_guard.set_special_power_completion_creator(source_obj_id);
                     }
                 }
             }
@@ -1189,11 +1251,12 @@ impl Weapon {
         source_pos: &Coord3D,
         impact_pos: &Coord3D,
         is_projectile_detonation: bool,
+        bonus: &WeaponBonus,
     ) -> Result<(), WeaponError> {
         let current_frame = TheGameLogic::get_frame();
         let fx_suspended = current_frame < self.suspend_fx_frame;
 
-        let (veterancy, skip_muzzle_fx, play_sound) = crate::object::registry::OBJECT_REGISTRY
+        let (veterancy, stealthed_hidden, fx_suspended) = crate::object::registry::OBJECT_REGISTRY
             .with_object(source_obj_id, |source| {
                 let stealthed_hidden = !source.is_locally_controlled()
                     && source.test_status(ObjectStatusTypes::Stealthed)
@@ -1201,48 +1264,92 @@ impl Weapon {
                     && !source.test_status(ObjectStatusTypes::Disguised)
                     && !source.is_kind_of(KindOf::Mine)
                     && !self.template.play_fx_when_stealthed;
-                (
-                    source.get_veterancy_level(),
-                    stealthed_hidden || fx_suspended,
-                    !stealthed_hidden,
-                )
+                (source.get_veterancy_level(), stealthed_hidden, fx_suspended)
             })
-            .unwrap_or((crate::common::VeterancyLevel::Regular, fx_suspended, true));
+            .unwrap_or((crate::common::VeterancyLevel::Regular, false, fx_suspended));
+        let skip_muzzle_fx = stealthed_hidden || fx_suspended;
+        // FireSound is FiringTracker::shotFired, not this FX path.
 
-        if play_sound && !self.template.fire_sound.is_empty() {
-            log::debug!("Playing fire sound for weapon '{}'", self.template.name);
-            game_engine::common::audio::dispatch_weapon_fire(
-                self.template.fire_sound.name(),
-                source_pos.x,
-                source_pos.y,
-                source_pos.z,
-            );
-        }
-
-        let fx_pos = if is_projectile_detonation {
-            impact_pos
+        let fx = if skip_muzzle_fx {
+            None
+        } else if is_projectile_detonation {
+            self.template.get_projectile_detonate_fx(veterancy)
         } else {
-            source_pos
+            self.template.get_fire_fx(veterancy)
         };
-
-        if !skip_muzzle_fx {
-            let fx = if is_projectile_detonation {
-                self.template.get_projectile_detonate_fx(veterancy)
-            } else {
-                self.template.get_fire_fx(veterancy)
-            };
-            if let Some(fx_list) = fx {
-                let _ = fx_list.do_fx_at_position(fx_pos);
+        let weapon_speed = self.template.weapon_speed;
+        let damage_radius = self.template.get_primary_damage_radius(bonus);
+        // Drop the object read before the drawable write. Model draw reads
+        // bones and must not re-enter a guard this thread still holds.
+        let mut handled = false;
+        if !stealthed_hidden {
+            let drawable = TheGameLogic::find_object_by_id(source_obj_id).and_then(|source_arc| {
+                source_arc.try_read().ok().and_then(|source| source.get_drawable())
+            });
+            if let Some(drawable) = drawable {
+                if let Ok(mut draw) = drawable.try_write() {
+                    handled = draw.handle_weapon_fire_fx(
+                        crate::common::WeaponSlotType::from(self.weapon_slot),
+                        self.current_barrel,
+                        fx,
+                        impact_pos,
+                        weapon_speed,
+                        damage_radius,
+                    );
+                }
             }
         }
 
+        if !handled {
+            if let Some(fx_list) = fx {
+                let (where_pos, matrix) = if let Some(source_arc) =
+                    TheGameLogic::find_object_by_id(source_obj_id)
+                {
+                    source_arc
+                        .try_read()
+                        .ok()
+                        .and_then(|source| source.get_drawable())
+                        .and_then(|drawable| {
+                            drawable.try_read().ok().map(|draw| {
+                                let pos = if self.template.is_contact_weapon() {
+                                    *impact_pos
+                                } else {
+                                    draw.get_position()
+                                };
+                                (pos, Some(draw.get_transform_matrix()))
+                            })
+                        })
+                        .unwrap_or((*source_pos, None))
+                } else {
+                    (
+                        if self.template.is_contact_weapon() {
+                            *impact_pos
+                        } else {
+                            *source_pos
+                        },
+                        None,
+                    )
+                };
+                let _ = fx_list.do_fx_pos(
+                    &where_pos,
+                    matrix.as_ref(),
+                    weapon_speed,
+                    Some(impact_pos),
+                    damage_radius,
+                );
+            }
+        }
         let ocl = if is_projectile_detonation {
             self.template.get_projectile_detonation_ocl(veterancy)
         } else {
             self.template.get_fire_ocl(veterancy)
         };
         if let Some(ocl) = ocl {
-            let _ = ocl.create_at_position(fx_pos, source_obj_id);
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
+                let _ = ObjectCreationList::create(&ocl, &source_arc, None);
+            } else {
+                let _ = ocl.create_at_position(source_pos, source_obj_id);
+            }
         }
 
         Ok(())
@@ -1288,39 +1395,54 @@ impl Weapon {
             return Ok(Vec::new());
         }
 
+        use crate::object::collide::partition_distance::{
+            DistanceCalculationType, within_radius,
+        };
         use crate::object::registry::OBJECT_REGISTRY;
-        use crate::object_manager::get_object_manager;
 
-        // Get the global object manager
-        let object_manager = get_object_manager();
-        let obj_mgr = object_manager.read().map_err(|e| {
-            WeaponError::SystemError(format!("Failed to access object manager: {}", e))
-        })?;
-
-        // Query spatial partition for objects in radius
-        let object_ids = obj_mgr.find_objects_in_radius(*center, radius);
-        drop(obj_mgr);
-
+        // C++ Weapon.cpp:71 FROM_BOUNDINGSPHERE_3D, not a 2D center test.
+        let object_ids = OBJECT_REGISTRY.get_all_object_ids();
         let mut results = Vec::new();
         for obj_id in object_ids {
-            // Nested borrow-first access keeps neither source nor target Arc at the call site.
-            let Some((pos, relationship_mask)) = OBJECT_REGISTRY
-                .with_object(source_obj_id, |source| {
-                    OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                        let pos = *obj.get_position();
-                        let relationship_mask = match source.relationship_to(obj) {
-                            Relationship::Allies => WeaponAffectsMask::ALLIES,
-                            Relationship::Enemies => WeaponAffectsMask::ENEMIES,
-                            _ => WeaponAffectsMask::NEUTRALS,
-                        };
-                        (pos, relationship_mask)
-                    })
-                })
-                .flatten()
-            else {
+            let stored = crate::object::collide::partition_manager::PARTITION_MANAGER
+                .try_read()
+                .ok()
+                .and_then(|pm| pm.get_object_info(obj_id));
+            let pos = if let Some((pos, geom)) = stored {
+                if within_radius(
+                    center,
+                    &pos,
+                    &geom,
+                    radius,
+                    DistanceCalculationType::FromBoundingSphere3D,
+                ) {
+                    Some(pos)
+                } else {
+                    None
+                }
+            } else {
+                OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                    let pos = *obj.get_position();
+                    let geom = crate::object::Object::collision_geometry_from_bounds(
+                        obj.get_geometry_info(),
+                        None,
+                    );
+                    if !within_radius(
+                        center,
+                        &pos,
+                        &geom,
+                        radius,
+                        DistanceCalculationType::FromBoundingSphere3D,
+                    ) {
+                        return None;
+                    }
+                    Some(pos)
+                }).flatten()
+            };
+            let Some(pos) = pos else {
                 continue;
             };
-            results.push((obj_id, pos, relationship_mask));
+            results.push((obj_id, pos, 0));
         }
 
         Ok(results)
@@ -1329,7 +1451,7 @@ impl Weapon {
     /// Apply damage to a specific object - THE CRITICAL CONNECTION to Object system
     /// Gets object from ObjectManager and calls attempt_damage() to apply actual damage
     pub(crate) fn apply_damage_to_object(
-        &self,
+        &mut self,
         obj_id: ObjectId,
         damage_info: &mut crate::damage::DamageInfo,
     ) -> Result<f32, WeaponError> {
@@ -1347,6 +1469,14 @@ impl Weapon {
         let obj_mgr = object_manager.read().map_err(|e| {
             WeaponError::SystemError(format!("Failed to read object manager: {}", e))
         })?;
+
+        if self
+            .caller_held_source
+            .is_some_and(|(id, _)| id == obj_id)
+        {
+            self.queue_self_damage(self.build_engine_damage_info(damage_info));
+            return Ok(damage_info.input.amount);
+        }
 
         // Borrow-first mutable access (no Arc clone).
         let dealt = obj_mgr

@@ -438,6 +438,16 @@ impl PartitionManager {
         self.updated_since_last_reset = true;
     }
 
+    pub fn do_shroud_cover(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
+        self.shroud.cover_circle(center, radius, player_mask);
+        self.updated_since_last_reset = true;
+    }
+
+    pub fn undo_shroud_cover(&mut self, center: &Coord3D, radius: Real, player_mask: u32) {
+        self.shroud.uncover_circle(center, radius, player_mask);
+        self.updated_since_last_reset = true;
+    }
+
     pub fn updated_since_last_reset(&self) -> bool {
         self.updated_since_last_reset
     }

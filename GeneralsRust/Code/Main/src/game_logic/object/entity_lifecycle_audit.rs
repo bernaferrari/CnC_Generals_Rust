@@ -11,7 +11,7 @@ use gamelogic::world::entities::{
     TemplateRef, Transform,
 };
 
-const EXPECTED_INVENTORY_LEN: usize = 59;
+const EXPECTED_INVENTORY_LEN: usize = 64;
 
 const ENTITY_ONLY_GROUPS: &[&str] = &[
     "health",
@@ -75,8 +75,9 @@ fn envelope_with_every_inventory_tag() -> EntityLifecycleEnvelope {
 fn inventory_len_and_declaration_order_are_locked() {
     assert_eq!(INVENTORY_TAGS.len(), EXPECTED_INVENTORY_LEN);
     assert_eq!(INVENTORY_TAGS[0], "UpgradeDie");
-    assert_eq!(INVENTORY_TAGS[49], "CommandButtonHuntUpdate");
-    assert_eq!(INVENTORY_TAGS[58], "RailroadBehavior");
+    assert_eq!(INVENTORY_TAGS[53], "CommandButtonHuntUpdate");
+    assert_eq!(INVENTORY_TAGS[62], "RailroadBehavior");
+    assert_eq!(INVENTORY_TAGS[63], "PathExtraDistance");
 }
 
 #[test]

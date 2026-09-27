@@ -310,9 +310,9 @@ fn spawn_linked_bridge(logic: &mut GameLogic) -> (ObjectId, ObjectId, ObjectId) 
 
 #[test]
 fn repair_complete_removes_scaffolding() {
-    // C++ WorkerAIUpdate.cpp:830 removeBridgeScaffolding.
+    // C++ WorkerAIUpdate.cpp:830 removeBridgeScaffolding on a bridge tower.
     let mut logic = GameLogic::new();
-    let (span, _, _) = spawn_linked_bridge(&mut logic);
+    let (span, tower, _) = spawn_linked_bridge(&mut logic);
     logic.spawn_bridge_scaffolding(span);
     assert!(logic.bridge_behavior.is_scaffold_present(span));
     let scaffold_ids = logic
@@ -322,13 +322,13 @@ fn repair_complete_removes_scaffolding() {
         .unwrap_or_default();
     assert!(!scaffold_ids.is_empty());
 
-    // TestDozer is registered by spawn_linked_bridge.
     let dozer = logic
         .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 12.0))
         .expect("dozer");
     if let Some(d) = logic.host_object_mut(dozer) {
-        d.dozer_task_repair_target = Some(span);
-        d.set_target(Some(span));
+        d.worker_ai_update = true;
+        d.dozer_task_repair_target = Some(tower);
+        d.set_target(Some(tower));
     }
     logic.dozer_internal_task_complete(dozer, true);
     assert!(
@@ -482,7 +482,10 @@ fn live_tick_drains_bridge_mirrors_and_death_links() {
     );
     let repair = include_str!("../world_objects/support_states/update.rs");
     assert!(
-        repair.contains("repair_target_rubble") && repair.contains("remove_bridge_scaffolding"),
-        "Repairing arm must allow rubble husks and remove scaffolds on complete"
+        repair.contains("KindOf::Bridge")
+            && repair.contains("KindOf::BridgeTower")
+            && repair.contains("worker_ai_update")
+            && repair.contains("remove_bridge_scaffolding"),
+        "a bridge repair is released; only a worker task exit removes scaffolding"
     );
 }

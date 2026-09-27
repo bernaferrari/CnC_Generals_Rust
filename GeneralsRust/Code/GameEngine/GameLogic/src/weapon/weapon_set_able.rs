@@ -193,7 +193,7 @@ impl WeaponSet {
                 if let Some(weapon) = self.get_weapon_in_slot(slot) {
                     let damage =
                         weapon.estimate_weapon_damage(source_obj, target_obj, Some(&resolved_pos));
-                    if damage > 0.0 {
+                    if damage != 0.0 {
                         if weapon.get_damage_type() == DamageType::KillPilot
                             && crate::object::registry::OBJECT_REGISTRY
                                 .with_object(source_obj, |src| src.is_kind_of(KindOf::Hero))
@@ -228,20 +228,18 @@ impl WeaponSet {
             &resolved_pos,
             command_source,
         ) {
-            if crate::object::registry::OBJECT_REGISTRY
-                .with_object(source_obj, |src| {
-                    src.is_kind_of(KindOf::Immobile)
-                        && src.is_kind_of(KindOf::SpawnsAreTheWeapons)
-                        && ok_result == CanAttackResult::PossibleAfterMoving
-                })
-                .unwrap_or(false)
-            {
-                ok_result = CanAttackResult::Possible;
-            }
-            if matches!(
-                slave_result,
-                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-            ) {
+            // C++ WeaponSet.cpp:744 enters only when slaves return POSSIBLE.
+            if slave_result == CanAttackResult::Possible {
+                if crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |src| {
+                        src.is_kind_of(KindOf::Immobile)
+                            && src.is_kind_of(KindOf::SpawnsAreTheWeapons)
+                            && ok_result == CanAttackResult::PossibleAfterMoving
+                    })
+                    .unwrap_or(false)
+                {
+                    ok_result = CanAttackResult::Possible;
+                }
                 return ok_result;
             }
         }

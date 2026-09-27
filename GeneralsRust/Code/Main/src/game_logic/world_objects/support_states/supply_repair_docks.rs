@@ -28,7 +28,7 @@ impl GameLogic {
         }
     }
 
-    pub(super) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+    pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
         let (
             current,
             template_name,
@@ -263,10 +263,43 @@ impl GameLogic {
         if !dock.is_kind_of(KindOf::RepairPad) {
             return;
         }
+        let passthrough =
+            crate::game_logic::host_dock_contain_exit_heal_residual::dock_allows_passthrough(
+                &dock.template_name,
+            );
         let Some(rally) = dock.building_data.as_ref().and_then(|b| b.rally_point) else {
             return;
         };
-        self.path_approach_with_state(docker_id, rally, AIState::Moving);
+        if passthrough {
+            // C++ AIDockMoveToExitState::onEnter (AIDock.cpp:700-703) clears
+            // adjust in the same branch as ignoreObstacle. This rally skips
+            // that state, so both writes happen before the queued path.
+            if let Some(docker) = self.objects.get_mut(&docker_id) {
+                docker.adjust_destinations = false;
+            }
+            self.path_approach_with_state_ignoring(
+                docker_id,
+                rally,
+                AIState::Moving,
+                Some(dock_id),
+            );
+            if let Some(obj) = self.objects.get_mut(&docker_id) {
+                obj.ignored_obstacle_id = Some(dock_id);
+            }
+        } else {
+            self.path_approach_with_state(docker_id, rally, AIState::Moving);
+        }
+        if self
+            .objects
+            .get(&docker_id)
+            .is_some_and(|unit| !unit.movement.path.is_empty())
+        {
+            self.set_ai_state_decision_aware(docker_id, AIState::Moving);
+            if let Some(unit) = self.objects.get_mut(&docker_id) {
+                unit.set_status_moving(true);
+                unit.is_attack_path = false;
+            }
+        }
     }
 
     /// C++ `onEnterReached` / `onDockReached` / `onExitReached` MODELCONDITION_DOCKING*.

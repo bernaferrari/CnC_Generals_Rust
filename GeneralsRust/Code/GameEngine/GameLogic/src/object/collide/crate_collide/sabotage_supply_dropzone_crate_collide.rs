@@ -344,25 +344,19 @@ impl SabotageSupplyDropzoneCrateCollide {
             .base
             .do_sabotage_feedback_fx(&other, SabotageVictimType::DropZone);
 
-        // Reset the timer on the dropzone
-        self.reset_dropzone_timer(other_id)?;
+        let _ = self.reset_dropzone_timer(other_id);
 
-        // Steal cash!
-        let cash_stolen = self.steal_cash(other_id)?;
+        let cash_stolen = self.steal_cash(other_id).unwrap_or(0);
 
         if cash_stolen > 0 {
-            // Play the "cash stolen" EVA event if the local player is the victim!
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
-            if other_lock.is_locally_controlled() {
-                let _ = TheEva::set_should_play(EvaEvent::CashStolen);
+            if let Ok(other_lock) = other.read() {
+                if other_lock.is_locally_controlled() {
+                    let _ = TheEva::set_should_play(EvaEvent::CashStolen);
+                }
             }
-            drop(other_lock);
 
-            // Display floating text for cash changes
             let _ = self.display_cash_floating_text(other.clone(), cash_stolen);
-        } else {
-            // No cash stolen, just play building sabotaged sound
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
+        } else if let Ok(other_lock) = other.read() {
             if other_lock.is_locally_controlled() {
                 let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
             }
@@ -401,9 +395,12 @@ impl SabotageSupplyDropzoneCrateCollide {
             return Ok(0);
         };
 
-        let object = self.base.get_object().map_err(GameError::from)?;
-        let object_lock = object.read().map_err(|_| GameError::LockError)?;
-        let other_lock = other.read().map_err(|_| GameError::LockError)?;
+        let Ok(object) = self.base.get_object() else {
+            return Ok(0);
+        };
+        let (Ok(object_lock), Ok(other_lock)) = (object.read(), other.read()) else {
+            return Ok(0);
+        };
 
         let (Some(target_player), Some(attacker_player)) = (
             other_lock.get_controlling_player(),
@@ -415,30 +412,53 @@ impl SabotageSupplyDropzoneCrateCollide {
         drop(object_lock);
         drop(other_lock);
 
-        let mut target_player_guard = target_player.write().map_err(|_| GameError::LockError)?;
-        let target_money = target_player_guard.get_money_mut();
-        let mut attacker_player_guard =
-            attacker_player.write().map_err(|_| GameError::LockError)?;
-        let attacker_money = attacker_player_guard.get_money_mut();
-
-        let available_cash = target_money.count_money();
-        let module_data = self.module_data.lock().map_err(|_| GameError::LockError)?;
+        let Ok(target_player_guard) = target_player.read() else {
+            return Ok(0);
+        };
+        let available_cash = target_player_guard.get_money().count_money();
+        drop(target_player_guard);
+        let Ok(module_data) = self.module_data.lock() else {
+            return Ok(0);
+        };
         let desired_amount = module_data.steal_cash_amount;
         drop(module_data);
 
-        // Check to see if they have the cash, otherwise, take the remainder!
         let cash_to_steal = cmp::min(desired_amount, available_cash);
-
-        if cash_to_steal > 0 {
-            // Steal the cash
-            target_money.withdraw(cash_to_steal)?;
-            attacker_money.deposit(cash_to_steal)?;
-
-            attacker_player_guard
-                .get_score_keeper_mut()
-                .add_money_earned(cash_to_steal);
+        if cash_to_steal == 0 {
+            return Ok(0);
         }
 
+        {
+            let Ok(mut target_player_guard) = target_player.write() else {
+                return Ok(0);
+            };
+            if target_player_guard
+                .get_money_mut()
+                .withdraw(cash_to_steal)
+                .is_err()
+            {
+                return Ok(0);
+            }
+        }
+        let Ok(mut attacker_player_guard) = attacker_player.write() else {
+            if let Ok(mut target_player_guard) = target_player.write() {
+                let _ = target_player_guard.get_money_mut().deposit(cash_to_steal);
+            }
+            return Ok(0);
+        };
+        if attacker_player_guard
+            .get_money_mut()
+            .deposit(cash_to_steal)
+            .is_err()
+        {
+            if let Ok(mut target_player_guard) = target_player.write() {
+                let _ = target_player_guard.get_money_mut().deposit(cash_to_steal);
+            }
+            return Ok(0);
+        }
+        attacker_player_guard
+            .get_score_keeper_mut()
+            .add_money_earned(cash_to_steal);
         Ok(cash_to_steal)
     }
 

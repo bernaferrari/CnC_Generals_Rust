@@ -248,12 +248,12 @@ impl CaveContain {
             return Ok(());
         };
 
+        let Ok(mut object) = obj.try_write() else {
+            return Err("Cave passenger lock busy".into());
+        };
+        object.set_disabled_held(true)?;
+        drop(object);
         self.base.on_containing(obj_id, was_selected)?;
-
-        // Objects inside a building are held
-        if let Ok(mut object) = obj.write() {
-            object.set_disabled_held(true)?;
-        }
 
         // Recalculate apparent controlling player
         self.recalc_apparent_controlling_player()?;
@@ -277,14 +277,16 @@ impl CaveContain {
         self.base.on_removing(obj_id)?;
 
         // Object is no longer held inside a garrisoned building
-        if let Ok(mut object) = obj.write() {
+        if let Ok(mut object) = obj.try_write() {
             object.set_disabled_held(false)?;
         }
 
         // Register object in partition manager and set position
         let owner_pos = self.with_owner_object(|owner| *owner.get_position());
-        if let Ok(mut contained) = obj.write() {
-            contained.register_in_partition_manager()?;
+        let Ok(mut contained) = obj.try_write() else {
+            return Err("Cave passenger lock busy".into());
+        };
+        contained.register_in_partition_manager()?;
             if let Some(pos) = owner_pos {
                 if let Err(err) = contained.set_position(&pos) {
                     log::warn!(
@@ -300,7 +302,7 @@ impl CaveContain {
                     draw.set_drawable_hidden(false)?;
                 }
             }
-        }
+        drop(contained);
 
         self.do_unload_sound()?;
 
@@ -394,30 +396,32 @@ impl CaveContain {
         }
 
         let was_selected = obj
-            .read()
+            .try_read()
             .ok()
             .and_then(|guard| guard.get_drawable())
-            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
             .unwrap_or(false);
 
         {
-            let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+            let Ok(obj_guard) = obj.try_read() else {
+                return Err(GameError::LockError.into());
+            };
             if !self.is_valid_container_for(&obj_guard, true)? {
                 return Err("Object not valid for this cave container".into());
             }
-            if obj_guard.get_contained_by().is_some() {
+            let already_listed = self.base.get_contained_object_ids().contains(&obj_id)
+                || self.contained_object_ids.contains(&obj_id);
+            let contained_by = obj_guard.get_contained_by();
+            if contained_by.is_some()
+                && (already_listed || contained_by != Some(self.get_object_id()))
+            {
                 return Ok(());
             }
         }
 
-        self.add_to_contain_list(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )?;
+        self.add_to_contain_list(obj_id)?;
         let is_enclosing = obj
-            .read()
+            .try_read()
             .map(|obj_guard| self.base.is_enclosing_container_for(&obj_guard))
             .unwrap_or(false);
         if is_enclosing {
@@ -428,7 +432,36 @@ impl CaveContain {
             let contained_ids = self.base.get_contained_object_ids().to_vec();
             self.base.redeploy_objects(&contained_ids)?;
         }
-        self.on_containing(obj_id, was_selected)?;
+        if let Err(err) = self.on_containing(obj_id, was_selected) {
+            let tracker_removed = if let Some(cave_system) = &self.cave_system {
+                match cave_system.try_lock() {
+                    Ok(system) => match system.get_tunnel_tracker_for_cave_index(self.cave_index) {
+                        Ok(tracker) => match tracker.try_write() {
+                            Ok(mut tunnel) => tunnel.remove_from_contain(obj_id, false).is_ok(),
+                            Err(_) => false,
+                        },
+                        Err(_) => false,
+                    },
+                    Err(_) => false,
+                }
+            } else {
+                true
+            };
+            if !tracker_removed {
+                return Err(err);
+            }
+            if let Ok(mut rider) = obj.try_write() {
+                let _ = rider.set_contained_by(None);
+                let _ = rider.set_disabled_held(false);
+            }
+            self.base.unlink_contained_id(obj_id);
+            self.contained_object_ids.retain(|id| *id != obj_id);
+            if is_enclosing {
+                let _ = self.base.add_or_remove_obj_from_world(obj_id, true);
+            }
+            return Err(err);
+        }
+        self.base.do_load_sound();
         Ok(())
     }
 
@@ -460,12 +493,31 @@ impl CaveContain {
 
             tunnel.remove_from_contain(obj_id, expose_stealth_units)?;
         }
-        if let Ok(guard) = obj.read() {
-            self.contained_object_ids.retain(|id| *id != guard.get_id());
+        let Ok(guard) = obj.try_read() else {
+            if let Ok(mut tunnel) = tracker.write() {
+                let _ = tunnel.add_to_contain_list(obj_id);
+            }
+            return Err("Cave passenger lock busy".into());
+        };
+        self.contained_object_ids.retain(|id| *id != guard.get_id());
+        drop(guard);
+
+        if let Err(err) = self.on_removing(obj_id) {
+            if let Ok(mut tunnel) = tracker.write() {
+                let _ = tunnel.add_to_contain_list(obj_id);
+            }
+            if !self.contained_object_ids.contains(&obj_id) {
+                self.contained_object_ids.push(obj_id);
+            }
+            if let Ok(mut rider) = obj.try_write() {
+                let _ = rider.set_disabled_held(true);
+            }
+            return Err(err);
         }
 
-        self.on_removing(obj_id)?;
-
+        if self.base.note_removed_from(obj_id).is_err() {
+            self.base.note_removed_from(obj_id)?;
+        }
         Ok(())
     }
 
@@ -473,17 +525,22 @@ impl CaveContain {
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         // Extract the full list first before calling remove_from_contain
         let full_list = if let Some(cave_system) = &self.cave_system {
-            let system = cave_system.lock().map_err(|_| GameError::LockError)?;
+            let Ok(system) = cave_system.try_lock() else {
+                return Err(GameError::LockError.into());
+            };
             let tracker = system.get_tunnel_tracker_for_cave_index(self.cave_index)?;
-            let tunnel = tracker.read().map_err(|_| GameError::LockError)?;
+            let Ok(tunnel) = tracker.try_read() else {
+                return Err(GameError::LockError.into());
+            };
             tunnel.get_contained_item_ids().to_vec()
         } else {
             return Ok(());
         };
 
-        // Now that the lock is released, iterate over the list
         for obj_id in full_list {
-            self.remove_from_contain(obj_id, expose_stealth_units)?;
+            if let Err(err) = self.remove_from_contain(obj_id, expose_stealth_units) {
+                log::warn!("CaveContain::remove_all_contained failed for {}: {}", obj_id, err);
+            }
         }
 
         Ok(())
@@ -573,15 +630,25 @@ impl CaveContain {
 
     /// Handle death event
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        self.on_die_for_owner(None, damage_info)
+    }
+
+    pub fn on_die_for_owner(
+        &mut self,
+        owner: Option<&Object>,
+        damage_info: Option<&DamageInfo>,
+    ) -> GameResult<()> {
         let Some(damage_info) = damage_info else {
             return Ok(());
         };
-
-        let skip = self
-            .with_owner_object(|owner| {
+        let skip = if let Some(owner) = owner {
+            !self.base.is_die_applicable(owner, damage_info) || owner.is_under_construction()
+        } else {
+            self.with_owner_object(|owner| {
                 !self.base.is_die_applicable(owner, damage_info) || owner.is_under_construction()
             })
-            .unwrap_or(true);
+            .unwrap_or(true)
+        };
         if skip {
             return Ok(());
         }
@@ -987,18 +1054,16 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = match TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-        self.remove_from_contain(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            true,
-        )
-        .map_err(|e| e.to_string())
+        self.remove_from_contain(object_id, true)
+            .map_err(|e| e.to_string())
+    }
+
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        CaveContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
@@ -1055,6 +1120,14 @@ impl ContainModuleInterface for CaveContain {
         CaveContain::on_die(self, damage_info).map_err(|e| e.into())
     }
 
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        CaveContain::on_die_for_owner(self, Some(owner), damage_info).map_err(|e| e.into())
+    }
+
     fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         CaveContain::on_owner_created(self).map_err(|e| e.into())
     }
@@ -1070,6 +1143,27 @@ impl ContainModuleInterface for CaveContain {
 
     fn should_do_on_build_complete(&self) -> bool {
         CaveContain::should_do_on_build_complete(self)
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.add_to_contain(other_id)?;
+        }
+        Ok(())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {

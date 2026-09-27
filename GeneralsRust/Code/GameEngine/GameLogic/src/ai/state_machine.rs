@@ -53,8 +53,39 @@ fn normalize_relative_angle(mut angle: Real) -> Real {
 }
 
 fn relative_angle_2d(owner_pos: &Coord3D, owner_orientation: Real, target_pos: &Coord3D) -> Real {
-    let angle_to_target = (target_pos.y - owner_pos.y).atan2(target_pos.x - owner_pos.x);
-    normalize_relative_angle(angle_to_target - owner_orientation)
+    let dx = target_pos.x - owner_pos.x;
+    let dy = target_pos.y - owner_pos.y;
+    if dx == 0.0 && dy == 0.0 {
+        return 0.0;
+    }
+    normalize_relative_angle(dy.atan2(dx) - owner_orientation)
+}
+
+/// Copy enemy-scan inputs, then query vision range.
+///
+/// `AI::get_adjusted_vision_range_for_object` read-locks `AiData`. Holding that
+/// guard across the call deadlocks: `std::sync::RwLock` does not reenter.
+fn enemy_scan_setup(owner_id: ObjectID, factors: u32) -> Result<(u32, u32, Real), AiError> {
+    let ai_store = the_ai();
+    let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
+    let (uses_los, ignore_insignificant, scan_rate) = {
+        let data = ai.get_ai_data();
+        let guard = data.read().map_err(|_| AiError::LockFailed)?;
+        (
+            guard.attack_uses_line_of_sight,
+            guard.attack_ignore_insignificant_buildings,
+            guard.guard_enemy_scan_rate,
+        )
+    };
+    let mut qualifiers = search_qualifiers::CAN_ATTACK | search_qualifiers::ATTACK_BUILDINGS;
+    if uses_los {
+        qualifiers |= search_qualifiers::CAN_SEE;
+    }
+    if ignore_insignificant {
+        qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
+    }
+    let range = ai.get_adjusted_vision_range_for_object(owner_id, factors)?;
+    Ok((qualifiers, scan_rate, range))
 }
 
 /// AI State types - converted from C++ enum to Rust enum
@@ -552,32 +583,35 @@ impl AiStateMachine {
                     state.scratch.path_timestamp = TheGameLogic::get_frame();
                 }
 
-                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-                    owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-                    if is_cliff_at(owner_guard.get_position()) {
-                        owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
-                        owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-                    }
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            if owner_guard
-                                .test_status(crate::common::ObjectStatusTypes::Parachuting)
-                                || !ai_guard.is_allowed_to_adjust_destination()
-                            {
+                let mut parachuting = false;
+                let ai = OBJECT_REGISTRY
+                    .with_object_mut(self.owner_id, |owner_guard| {
+                        owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                        if is_cliff_at(owner_guard.get_position()) {
+                            owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
+                            owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                        }
+                        parachuting = owner_guard
+                            .test_status(crate::common::ObjectStatusTypes::Parachuting);
+                        owner_guard.get_ai_update_interface()
+                    })
+                    .flatten();
+                // Object write is dropped before locomotor/unit locks.
+                // `with_cur_locomotor` write-locks the unit.
+                if let Some(ai) = ai {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        if parachuting || !ai_guard.is_allowed_to_adjust_destination() {
+                            state.adjust_destinations = false;
+                        }
+                        ai_guard.with_cur_locomotor(&mut |loco| {
+                            if loco.is_ultra_accurate() {
                                 state.adjust_destinations = false;
                             }
-                            if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                                if let Ok(loco_guard) = locomotor.lock() {
-                                    if loco_guard.is_ultra_accurate() {
-                                        state.adjust_destinations = false;
-                                    }
-                                }
-                            }
-                            ai_guard.set_adjusts_destination(state.adjust_destinations);
-                            let _ = ai_guard.set_path_extra_distance(0.0);
-                        }
+                        });
+                        ai_guard.set_adjusts_destination(state.adjust_destinations);
+                        let _ = ai_guard.set_path_extra_distance(0.0);
                     }
-                });
+                }
                 self.start_move_sound(state);
             }
             AiStateType::AttackObject | AiStateType::AttackPosition => {
@@ -617,18 +651,19 @@ impl AiStateMachine {
             AiStateType::FaceObject | AiStateType::FacePosition => {
                 // C++ AIFaceState::onEnter caches whether this locomotor can turn in place.
                 state.scratch.face_can_turn_in_place = false;
-                let _ = OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                                if let Ok(loco_guard) = locomotor.lock() {
-                                    state.scratch.face_can_turn_in_place =
-                                        loco_guard.template.min_speed == 0.0;
-                                }
-                            }
-                        }
+                let ai = OBJECT_REGISTRY
+                    .with_object(self.owner_id, |owner_guard| {
+                        owner_guard.get_ai_update_interface()
+                    })
+                    .flatten();
+                if let Some(ai) = ai {
+                    if let Ok(ai_guard) = ai.lock() {
+                        ai_guard.with_cur_locomotor(&mut |loco| {
+                            state.scratch.face_can_turn_in_place =
+                                loco.template.min_speed == 0.0;
+                        });
                     }
-                });
+                }
             }
             _ => {} // Most states don't need special enter logic
         }
@@ -663,12 +698,19 @@ impl AiStateMachine {
                         audio.remove_audio_event(state.scratch.move_sound_handle);
                     }
                 }
-                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.destroy_path();
-                        }
+                let ai = OBJECT_REGISTRY
+                    .with_object(self.owner_id, |owner_guard| {
+                        owner_guard.get_ai_update_interface()
+                    })
+                    .flatten();
+                // `destroy_path` can read the owner object (jet goal). Do not
+                // hold that write across the call.
+                if let Some(ai) = ai {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
                     }
+                }
+                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                     owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
                     owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
@@ -725,13 +767,15 @@ impl AiStateMachine {
         const MIN_REPATH_TIME: u32 = 10;
 
         if let Some(goal_obj_id) = state.goal_object {
+            // Owner and goal can be the same object. Nested `with_object` on one
+            // `RwLock` deadlocks, so read the projectile flag first.
+            let is_projectile = OBJECT_REGISTRY
+                .with_object(self.owner_id, |owner_guard| {
+                    owner_guard.is_kind_of(KindOf::Projectile)
+                })
+                .unwrap_or(false);
             if let Some(new_goal) = OBJECT_REGISTRY.with_object(goal_obj_id, |goal_guard| {
                 let mut new_goal = *goal_guard.get_position();
-                let is_projectile = OBJECT_REGISTRY
-                    .with_object(self.owner_id, |owner_guard| {
-                        owner_guard.is_kind_of(KindOf::Projectile)
-                    })
-                    .unwrap_or(false);
                 if is_projectile {
                     let half_height = goal_guard
                         .get_geometry_info()
@@ -783,15 +827,14 @@ impl AiStateMachine {
         }
 
         let blocked = OBJECT_REGISTRY
-            .with_object(self.owner_id, |obj_guard| {
-                obj_guard.get_ai_update_interface().and_then(|ai| {
-                    ai.lock().ok().map(|ai_guard| {
-                        ai_guard.is_blocked_and_stuck()
-                            || ai_guard.get_num_frames_blocked() > 2 * LOGICFRAMES_PER_SECOND
-                    })
+            .with_object(self.owner_id, |obj_guard| obj_guard.get_ai_update_interface())
+            .flatten()
+            .and_then(|ai| {
+                ai.lock().ok().map(|ai_guard| {
+                    ai_guard.is_blocked_and_stuck()
+                        || ai_guard.get_num_frames_blocked() > 2 * LOGICFRAMES_PER_SECOND
                 })
             })
-            .flatten()
             .unwrap_or(false);
         if blocked {
             state.goal_path.clear();
@@ -801,19 +844,21 @@ impl AiStateMachine {
             return Ok(StateReturnType::Continue);
         }
 
-        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |obj_guard| {
-            let mut frames_blocked = 0;
-            let mut moving_backwards = false;
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    frames_blocked = ai_guard.get_num_frames_blocked();
-                    moving_backwards = ai_guard
-                        .get_cur_locomotor()
-                        .and_then(|loc| loc.lock().ok().map(|loco| loco.is_moving_backwards()))
-                        .unwrap_or(false);
-                }
+        let mut frames_blocked = 0;
+        let mut moving_backwards = false;
+        if let Some(ai) = OBJECT_REGISTRY
+            .with_object(self.owner_id, |obj_guard| obj_guard.get_ai_update_interface())
+            .flatten()
+        {
+            if let Ok(ai_guard) = ai.lock() {
+                frames_blocked = ai_guard.get_num_frames_blocked();
+                ai_guard.with_cur_locomotor(&mut |loco| {
+                    moving_backwards = loco.is_moving_backwards();
+                });
             }
+        }
 
+        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |obj_guard| {
             if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
                 obj_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                 obj_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
@@ -941,17 +986,16 @@ impl AiStateMachine {
                 .unwrap_or(10.0);
 
             let mut close_enough = 5.0;
-            let _ = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                            if let Ok(loco_guard) = locomotor.lock() {
-                                close_enough = loco_guard.get_close_enough_dist();
-                            }
-                        }
-                    }
+            let ai = OBJECT_REGISTRY
+                .with_object(self.owner_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .flatten();
+            if let Some(ai) = ai {
+                if let Ok(ai_guard) = ai.lock() {
+                    ai_guard.with_cur_locomotor(&mut |loco| {
+                        close_enough = loco.get_close_enough_dist();
+                    });
                 }
-            });
+            }
 
             if dist_to_waypoint < close_enough {
                 // Reached this waypoint, advance to next
@@ -1126,25 +1170,9 @@ impl AiStateMachine {
         let current_frame = self.current_frame();
         let move_result = self.update_move_to_state(state)?;
 
-        let (scan_rate, qualifiers, range) = {
-            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
-            let ai_data = ai.get_ai_data();
-            let Ok(ai_data_guard) = ai_data.read() else {
-                return Err(AiError::LockFailed);
-            };
-            let mut qualifiers =
-                search_qualifiers::CAN_ATTACK | search_qualifiers::ATTACK_BUILDINGS;
-            if ai_data_guard.attack_uses_line_of_sight {
-                qualifiers |= search_qualifiers::CAN_SEE;
-            }
-            if ai_data_guard.attack_ignore_insignificant_buildings {
-                qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
-            }
-            let factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
-            let range = ai.get_adjusted_vision_range_for_object(self.owner_id, factors)?;
-            let scan_rate = (ai_data_guard.guard_enemy_scan_rate.max(1) / 2).max(1) as i32;
-            (scan_rate, qualifiers, range)
-        };
+        let factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
+        let (qualifiers, raw_scan, range) = enemy_scan_setup(self.owner_id, factors)?;
+        let scan_rate = (raw_scan.max(1) / 2).max(1) as i32;
 
         if (current_frame - state.scratch.last_hunt_scan_frame) >= scan_rate {
             state.scratch.last_hunt_scan_frame = current_frame;
@@ -1325,40 +1353,43 @@ impl AiStateMachine {
         let Some(squad_arc) = state.goal_squad_handle.clone() else {
             return Ok(StateReturnType::StateFailed);
         };
-        let Ok(mut squad_guard) = squad_arc.lock() else {
-            return Ok(StateReturnType::StateFailed);
-        };
-
-        let owner_pos = self.resolve_current_position(state);
-        let mut best_target = None;
-        let mut best_dist = f32::INFINITY;
-
-        for id in squad_guard.get_live_object_ids() {
-            let Some(pos) = OBJECT_REGISTRY
-                .with_object(id, |target| {
-                    if target.is_effectively_dead() {
-                        return None;
-                    }
-                    Some(*target.get_position())
-                })
-                .flatten()
-            else {
-                continue;
+        let best_target = {
+            let Ok(mut squad_guard) = squad_arc.lock() else {
+                return Ok(StateReturnType::StateFailed);
             };
 
-            if let Some(owner_pos) = owner_pos {
-                let dx = pos.x - owner_pos.x;
-                let dy = pos.y - owner_pos.y;
-                let dist = dx * dx + dy * dy;
-                if dist < best_dist {
-                    best_dist = dist;
+            let owner_pos = self.resolve_current_position(state);
+            let mut best_target = None;
+            let mut best_dist = f32::INFINITY;
+
+            for id in squad_guard.get_live_object_ids() {
+                let Some(pos) = OBJECT_REGISTRY
+                    .with_object(id, |target| {
+                        if target.is_effectively_dead() {
+                            return None;
+                        }
+                        Some(*target.get_position())
+                    })
+                    .flatten()
+                else {
+                    continue;
+                };
+
+                if let Some(owner_pos) = owner_pos {
+                    let dx = pos.x - owner_pos.x;
+                    let dy = pos.y - owner_pos.y;
+                    let dist = dx * dx + dy * dy;
+                    if dist < best_dist {
+                        best_dist = dist;
+                        best_target = Some(id);
+                    }
+                } else {
                     best_target = Some(id);
+                    break;
                 }
-            } else {
-                best_target = Some(id);
-                break;
             }
-        }
+            best_target
+        };
 
         let Some(target_id) = best_target else {
             return Ok(StateReturnType::StateComplete);
@@ -1391,27 +1422,9 @@ impl AiStateMachine {
         };
 
         let current_frame = self.current_frame();
-        let (scan_rate, qualifiers, range) = {
-            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
-            let ai_data = ai.get_ai_data();
-            let Ok(ai_data_guard) = ai_data.read() else {
-                return Err(AiError::LockFailed);
-            };
-
-            let mut qualifiers =
-                search_qualifiers::CAN_ATTACK | search_qualifiers::ATTACK_BUILDINGS;
-            if ai_data_guard.attack_uses_line_of_sight {
-                qualifiers |= search_qualifiers::CAN_SEE;
-            }
-            if ai_data_guard.attack_ignore_insignificant_buildings {
-                qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
-            }
-
-            let factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
-            let range = ai.get_adjusted_vision_range_for_object(self.owner_id, factors)?;
-            let scan_rate = (ai_data_guard.guard_enemy_scan_rate.max(1) / 2).max(1) as i32;
-            (scan_rate, qualifiers, range)
-        };
+        let factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
+        let (qualifiers, raw_scan, range) = enemy_scan_setup(self.owner_id, factors)?;
+        let scan_rate = (raw_scan.max(1) / 2).max(1) as i32;
 
         if (current_frame - state.scratch.last_hunt_scan_frame) >= scan_rate {
             state.scratch.last_hunt_scan_frame = current_frame;
@@ -1600,32 +1613,13 @@ impl AiStateMachine {
 
         let current_frame = self.current_frame();
 
-        let (guard_scan_rate, qualifiers, range) = {
-            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
-            let ai_data = ai.get_ai_data();
-            let Ok(ai_data_guard) = ai_data.read() else {
-                return Err(AiError::LockFailed);
-            };
-
-            let mut qualifiers =
-                search_qualifiers::CAN_ATTACK | search_qualifiers::ATTACK_BUILDINGS;
-            if ai_data_guard.attack_uses_line_of_sight {
-                qualifiers |= search_qualifiers::CAN_SEE;
-            }
-            if ai_data_guard.attack_ignore_insignificant_buildings {
-                qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
-            }
-
-            let mut factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
-            if matches!(state.guard_mode, GuardMode::GuardWithoutPursuit) {
-                // Patrol mode limits pursuit to the guard area.
-                factors |= vision_factors::GUARD_INNER;
-            }
-
-            let range = ai.get_adjusted_vision_range_for_object(self.owner_id, factors)?;
-            let scan_rate = ai_data_guard.guard_enemy_scan_rate.max(1) as i32;
-            (scan_rate, qualifiers, range)
-        };
+        let mut factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
+        if matches!(state.guard_mode, GuardMode::GuardWithoutPursuit) {
+            // Patrol mode limits pursuit to the guard area.
+            factors |= vision_factors::GUARD_INNER;
+        }
+        let (qualifiers, raw_scan, range) = enemy_scan_setup(self.owner_id, factors)?;
+        let guard_scan_rate = raw_scan.max(1) as i32;
 
         if (current_frame - last_scan) >= guard_scan_rate {
             state.scratch.last_scan_frame = current_frame;
@@ -1682,27 +1676,9 @@ impl AiStateMachine {
 
         let current_frame = self.current_frame();
 
-        let (hunt_scan_rate, qualifiers, range) = {
-            let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
-            let ai_data = ai.get_ai_data();
-            let Ok(ai_data_guard) = ai_data.read() else {
-                return Err(AiError::LockFailed);
-            };
-
-            let mut qualifiers =
-                search_qualifiers::CAN_ATTACK | search_qualifiers::ATTACK_BUILDINGS;
-            if ai_data_guard.attack_uses_line_of_sight {
-                qualifiers |= search_qualifiers::CAN_SEE;
-            }
-            if ai_data_guard.attack_ignore_insignificant_buildings {
-                qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
-            }
-
-            let factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
-            let range = ai.get_adjusted_vision_range_for_object(self.owner_id, factors)?;
-            let scan_rate = (ai_data_guard.guard_enemy_scan_rate.max(1) / 2).max(1) as i32;
-            (scan_rate, qualifiers, range)
-        };
+        let factors = vision_factors::OWNER_TYPE | vision_factors::MOOD;
+        let (qualifiers, raw_scan, range) = enemy_scan_setup(self.owner_id, factors)?;
+        let hunt_scan_rate = (raw_scan.max(1) / 2).max(1) as i32;
 
         if current_hunt_target == 0 || (current_frame - last_scan) >= hunt_scan_rate {
             state.scratch.last_hunt_scan_frame = current_frame;
@@ -2030,18 +2006,29 @@ impl AiStateMachine {
             panic!("dual-world registry unavailable in test helper");
         }
 
-        if let Some(container_id) = owner.get_container_id() {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-                container_id,
-                |container| {
-                    if let Some(contain) = container.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            let _ = contain_guard.release_object(owner.get_id());
-                        }
-                    }
-                },
-            );
+        let Some(container_id) = owner.get_container_id() else {
+            return;
+        };
+        // ExitInstantly already write-locks `owner`. Re-locking that same object
+        // deadlocks; release through the borrowed owner instead.
+        if container_id == owner.get_id() {
+            if let Some(contain) = owner.get_contain() {
+                if let Ok(mut contain_guard) = contain.lock() {
+                    let _ = contain_guard.release_object(owner.get_id());
+                }
+            }
+            return;
         }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            container_id,
+            |container| {
+                if let Some(contain) = container.get_contain() {
+                    if let Ok(mut contain_guard) = contain.lock() {
+                        let _ = contain_guard.release_object(owner.get_id());
+                    }
+                }
+            },
+        );
     }
 
     fn select_next_waypoint(
@@ -2805,8 +2792,10 @@ mod tests {
             Ok(())
         }
 
-        fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-            Some(self.locomotor.clone())
+        fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+            if let Ok(mut guard) = self.locomotor.lock() {
+                f(&mut guard);
+            }
         }
 
         fn set_locomotor_goal_orientation(&mut self, angle: Real) {

@@ -305,7 +305,14 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
         _ => gamelogic::common::WeaponSlotType::Tertiary,
     };
     let victim = leftover_fire_fx_victim_coord(capture);
-    draw_guard.handle_weapon_fire_fx(slot, i32::from(capture.fired_barrel), &victim)
+    draw_guard.handle_weapon_fire_fx(
+        slot,
+        i32::from(capture.fired_barrel),
+        None,
+        &victim,
+        0.0,
+        0.0,
+    )
 }
 
 /// Host Y-up `(x, height, z_ground)` → leftover/C++ Z-up `(x, y_ground, z_height)`.

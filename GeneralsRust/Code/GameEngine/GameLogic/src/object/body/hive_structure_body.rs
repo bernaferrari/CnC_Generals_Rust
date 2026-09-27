@@ -139,19 +139,7 @@ impl Snapshotable for HiveStructureBodyModuleData {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.base.xfer(xfer)?;
-        let mut propagate_bits = self.damage_types_to_propagate_to_slaves.bits();
-        xfer.xfer_u64(&mut propagate_bits)
-            .map_err(|e| e.to_string())?;
-        let mut swallow_bits = self.damage_types_to_swallow.bits();
-        xfer.xfer_u64(&mut swallow_bits)
-            .map_err(|e| e.to_string())?;
-        if xfer.is_reading() {
-            self.damage_types_to_propagate_to_slaves =
-                DamageTypeFlags::from_bits_truncate(propagate_bits);
-            self.damage_types_to_swallow = DamageTypeFlags::from_bits_truncate(swallow_bits);
-        }
-        Ok(())
+        self.base.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -175,6 +163,12 @@ impl Snapshotable for HiveStructureBody {
     fn load_post_process(&mut self) -> Result<(), String> {
         self.structure_body.load_post_process()
     }
+}
+
+enum HiveRedirect {
+    Propagated,
+    NoTarget,
+    NoInterface,
 }
 
 /// Hive structure body implementation - propagates damage to slaves
@@ -225,42 +219,54 @@ impl HiveStructureBody {
     /// Mirrors the C++ propagation path:
     /// 1. Check SpawnBehaviorInterface and forward to the closest slave.
     /// 2. Otherwise, check ContainModuleInterface for riders.
-    /// Returns true if a slave/rider was found and damaged, false otherwise.
-    fn try_damage_slave(&mut self, damage_info: &mut DamageInfo) -> bool {
+    /// `Propagated` when a slave or rider took the hit.
+    /// `NoTarget` when a spawn or contain interface exists but has nobody to hit.
+    /// `NoInterface` when neither module exists, or the shooter is missing.
+    fn try_damage_slave(&mut self, damage_info: &mut DamageInfo) -> HiveRedirect {
         // Wave 389: empty dual-world → false.
         if dual_world_registry_unavailable() {
-            return false;
+            return HiveRedirect::NoInterface;
         }
 
         let Some(owner) = self.structure_body.owner_handle() else {
-            return false;
+            return HiveRedirect::NoInterface;
         };
 
         let Some(shooter) = TheGameLogic::find_object_by_id(damage_info.input.source_id) else {
-            return false;
+            return HiveRedirect::NoInterface;
         };
         let shooter_pos = shooter.read().ok().map(|guard| *guard.get_position());
         let Some(shooter_pos) = shooter_pos else {
-            return false;
+            return HiveRedirect::NoInterface;
         };
 
-        let (closest_slave, contain) = match owner.read() {
+        let (had_spawn, closest_slave, contain) = match owner.read() {
             Ok(guard) => {
-                let closest = guard
-                    .with_spawn_behavior_full_interface(|spawn| {
-                        spawn.get_closest_slave(&shooter_pos)
-                    })
-                    .flatten();
-                (closest, guard.get_contain())
+                let had_spawn = guard
+                    .with_spawn_behavior_full_interface(|_| ())
+                    .is_some();
+                let closest = if had_spawn {
+                    guard
+                        .with_spawn_behavior_full_interface(|spawn| {
+                            spawn.get_closest_slave(&shooter_pos)
+                        })
+                        .flatten()
+                } else {
+                    None
+                };
+                (had_spawn, closest, guard.get_contain())
             }
-            Err(_) => return false,
+            Err(_) => return HiveRedirect::NoInterface,
         };
 
-        if let Some(slave) = closest_slave {
-            if let Ok(mut slave_guard) = slave.write() {
-                let _ = slave_guard.attempt_damage(damage_info);
+        if had_spawn {
+            if let Some(slave) = closest_slave {
+                if let Ok(mut slave_guard) = slave.write() {
+                    let _ = slave_guard.attempt_damage(damage_info);
+                }
+                return HiveRedirect::Propagated;
             }
-            return true;
+            return HiveRedirect::NoTarget;
         }
 
         if let Some(contain_handle) = contain {
@@ -279,7 +285,9 @@ impl HiveStructureBody {
                     if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
                         if let Ok(rider_guard) = rider.read() {
                             let rider_pos = *rider_guard.get_position();
-                            let dist_sq = shooter_pos.distance_squared_to(&rider_pos);
+                            let dx = rider_pos.x - shooter_pos.x;
+                            let dy = rider_pos.y - shooter_pos.y;
+                            let dist_sq = dx * dx + dy * dy;
                             if dist_sq < closest_dist_sq {
                                 closest_dist_sq = dist_sq;
                                 closest = Some(Arc::clone(&rider));
@@ -292,20 +300,13 @@ impl HiveStructureBody {
                     if let Ok(mut rider_guard) = rider.write() {
                         let _ = rider_guard.attempt_damage(damage_info);
                     }
-                    return true;
+                    return HiveRedirect::Propagated;
                 }
             }
-        } else {
-            log::warn!(
-                "HiveStructureBody missing SpawnBehavior or Contain module for object {}",
-                owner
-                    .read()
-                    .map(|guard| guard.get_id())
-                    .unwrap_or(INVALID_ID)
-            );
+            return HiveRedirect::NoTarget;
         }
 
-        false
+        HiveRedirect::NoInterface
     }
 }
 
@@ -318,25 +319,22 @@ impl BodyModuleInterface for HiveStructureBody {
             return Ok(());
         }
 
-        // Check if this damage type should be propagated to slaves
         if self.should_propagate_to_slaves(damage_info) {
-            // Try to find and damage a slave
-            if self.try_damage_slave(damage_info) {
-                // Successfully propagated to slave, we're done
-                return Ok(());
-            }
-
-            // No slaves available - check if we should swallow the damage
-            if self.should_swallow_if_no_slaves(damage_info)
-                && TheGameLogic::find_object_by_id(damage_info.input.source_id).is_some()
-            {
-                // Swallow the damage - no effect (matches C++ HiveStructureBody.cpp:68-75/92-99)
-                damage_info.output.actual_damage_dealt = 0.0;
-                damage_info.output.actual_damage_clipped = 0.0;
-                damage_info.output.no_effect = true;
-                return Ok(());
+            match self.try_damage_slave(damage_info) {
+                HiveRedirect::Propagated => return Ok(()),
+                HiveRedirect::NoTarget
+                    if self.should_swallow_if_no_slaves(damage_info)
+                        && TheGameLogic::find_object_by_id(damage_info.input.source_id).is_some() =>
+                {
+                    damage_info.output.actual_damage_dealt = 0.0;
+                    damage_info.output.actual_damage_clipped = 0.0;
+                    damage_info.output.no_effect = true;
+                    return Ok(());
+                }
+                HiveRedirect::NoTarget | HiveRedirect::NoInterface => {}
             }
         }
+
 
         // Either not a propagated damage type, or no slaves to propagate to
         // and not a swallowed type, so damage ourselves normally

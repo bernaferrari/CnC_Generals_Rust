@@ -142,6 +142,8 @@ impl GameLogic {
         unit.movement.path = points;
         unit.movement.target_position = unit.movement.path.first().copied();
         unit.is_exact_path = true;
+        unit.is_attack_path = false;
+        unit.path_extra_distance = unit.waypoint_link_extra_distance();
         unit.set_ultra_accurate(true);
         unit.set_ai_state(AIState::Moving);
         unit.set_status_moving(true);

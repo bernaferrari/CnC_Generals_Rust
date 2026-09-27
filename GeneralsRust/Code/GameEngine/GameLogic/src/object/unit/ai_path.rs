@@ -144,9 +144,7 @@ impl UnitAIUpdate {
         get_unit_arc(self.unit_id)
             .and_then(|unit| {
                 unit.read().ok().and_then(|guard| {
-                    guard.current_locomotor.as_ref().and_then(|locomotor| {
-                        locomotor.lock().ok().map(|loc| loc.is_ultra_accurate())
-                    })
+                    guard.locomotor_set.get_active().map(|loco| loco.is_ultra_accurate())
                 })
             })
             .unwrap_or(false)
@@ -662,9 +660,8 @@ impl UnitAIUpdate {
                 .unwrap_or(false);
             if above_terrain {
                 let preferred = guard
-                    .current_locomotor
-                    .as_ref()
-                    .and_then(|loc| loc.lock().ok())
+                    .locomotor_set
+                    .get_active()
                     .map(|loc| loc.preferred_height)
                     .unwrap_or(0.0);
                 if preferred > fudge {

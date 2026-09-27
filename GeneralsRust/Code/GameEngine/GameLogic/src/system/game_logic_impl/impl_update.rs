@@ -1073,10 +1073,12 @@ impl GameLogic {
                     }
                 }
                 let _ = system.process_collisions();
-                cell_changed = system.partition_manager_mut().take_cell_changed_events();
                 Ok::<(), crate::object::collide::CollisionError>(())
             });
         }
+        let _ = with_collision_system_mut(|system| {
+            cell_changed = system.partition_manager_mut().take_cell_changed_events();
+        });
         // C++ `PartitionData::friend_updateCellsTouched` fires
         // `obj->onPartitionCellChange()` inline when the center cell changed
         // (PartitionManager.cpp:2052-2062) — the movement-driven shroud
@@ -1284,6 +1286,9 @@ impl GameLogic {
             if let Some(engine) = engine_guard.as_mut() {
                 if let Err(e) = engine.update() {
                     warn!("ScriptEngine::update failed: {}", e);
+                }
+                if let Some(level) = crate::system::game_logic::take_pending_rank_level_limit() {
+                    self.rank_level_limit = level;
                 }
             }
         }

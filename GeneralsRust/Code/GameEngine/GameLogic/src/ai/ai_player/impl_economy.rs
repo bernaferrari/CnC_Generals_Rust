@@ -642,11 +642,10 @@ impl AIPlayer {
             let mut dozer_id = builder_id;
             let mut builder_ok = false;
             if dozer_id != INVALID_ID {
+                // C++ AIPlayer::processBaseBuilding resumes any live dozer.
+                // The captured-dozer / unmanned check is only in AISkirmishPlayer.
                 if OBJECT_REGISTRY
-                    .with_object(dozer_id, |dg| {
-                        dg.get_controlling_player_id() == Some(player_index)
-                            && dg.get_ai_update_interface().is_some()
-                    })
+                    .with_object(dozer_id, |dg| dg.get_ai_update_interface().is_some())
                     .unwrap_or(false)
                 {
                     builder_ok = true;

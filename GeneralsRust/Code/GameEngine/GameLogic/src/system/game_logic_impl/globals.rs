@@ -14,6 +14,7 @@ fn map_collision_geometry(
         }
         Some(game_engine::system::geometry::GeometryType::Box) => {
             CollisionGeometryInfo::new_box(dx.max(0.01), dy.max(0.01), is_small)
+                .with_z_height(height)
         }
         Some(game_engine::system::geometry::GeometryType::Cylinder) => {
             CollisionGeometryInfo::new_cylinder(radius, height, is_small)
@@ -295,6 +296,10 @@ pub fn get_game_logic() -> &'static Mutex<GameLogic> {
 thread_local! {
     static IN_UPDATE_FRAME: std::cell::Cell<Option<UnsignedInt>> =
         const { std::cell::Cell::new(None) };
+    /// Script `SetRankLevelLimit` while `GameLogic::update` holds `&mut self`.
+    /// Applied onto that instance after `ScriptEngine::update` returns.
+    static PENDING_RANK_LIMIT: std::cell::Cell<Option<i32>> =
+        const { std::cell::Cell::new(None) };
 }
 
 struct InUpdateFrameGuard;
@@ -302,6 +307,7 @@ struct InUpdateFrameGuard;
 impl Drop for InUpdateFrameGuard {
     fn drop(&mut self) {
         IN_UPDATE_FRAME.with(|c| c.set(None));
+        PENDING_RANK_LIMIT.with(|c| c.set(None));
     }
 }
 
@@ -310,6 +316,29 @@ impl Drop for InUpdateFrameGuard {
 pub(crate) fn enter_update_frame(frame: UnsignedInt) -> InUpdateFrameGuard {
     IN_UPDATE_FRAME.with(|c| c.set(Some(frame)));
     InUpdateFrameGuard
+}
+
+/// During `GameLogic::update`, record the clamped cap and publish it.
+/// Returns false outside an update so the caller locks the singleton.
+pub fn note_rank_level_limit_during_update(level: i32) -> bool {
+    if IN_UPDATE_FRAME.with(|c| c.get()).is_none() {
+        return false;
+    }
+    let level = if level < 1 { 1 } else { level };
+    PENDING_RANK_LIMIT.with(|c| c.set(Some(level)));
+    // Only the singleton's update holds the mutex. A stack `logic.update`
+    // try-locks successfully; leave the process cap alone.
+    if matches!(
+        crate::system::game_logic::get_game_logic().try_lock(),
+        Err(std::sync::TryLockError::WouldBlock)
+    ) {
+        publish_rank_level_limit(level);
+    }
+    true
+}
+
+pub fn take_pending_rank_level_limit() -> Option<i32> {
+    PENDING_RANK_LIMIT.with(|c| c.replace(None))
 }
 
 /// Try to fetch the current simulation frame from the global GameLogic instance.

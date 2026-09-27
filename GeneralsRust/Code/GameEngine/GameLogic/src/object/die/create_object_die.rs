@@ -255,12 +255,18 @@ impl CreateObjectDie {
     /// Transfer attackers from old object to new object
     fn transfer_attackers(
         &self,
+        dying_object: &mut Object,
         old_object_id: crate::common::ObjectID,
         new_object_id: crate::common::ObjectID,
     ) {
-        // Wave 452: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
+        }
+
+        if let Some(ai) = dying_object.get_ai_update_interface() {
+            if let Ok(mut ai_guard) = ai.lock() {
+                ai_guard.transfer_attack(old_object_id, new_object_id);
+            }
         }
 
         let Ok(game_logic) = get_game_logic().lock() else {
@@ -268,6 +274,9 @@ impl CreateObjectDie {
         };
 
         for &object_id in game_logic.get_all_object_ids() {
+            if object_id == old_object_id || object_id == new_object_id {
+                continue;
+            }
             let _ = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
@@ -292,23 +301,31 @@ impl DieModuleInterface for CreateObjectDie {
             return;
         }
 
-        // Find the damage dealer (C++: TheGameLogic->findObjectByID(damageInfo->sourceID)).
-        let damage_dealer_arc = TheGameLogic::find_object_by_id(damage_info.input.source_id);
-        let damage_dealer_guard = damage_dealer_arc.as_ref().and_then(|h| h.read().ok());
-
-        // Create the objects
-        let created_objects = self.create_objects(object, damage_dealer_guard.as_deref());
+        let source_id = damage_info.input.source_id;
+        let created_objects = if source_id == object.get_id() {
+            self.create_objects(object, Some(object))
+        } else {
+            let damage_dealer_arc = TheGameLogic::find_object_by_id(source_id);
+            let damage_dealer_guard = damage_dealer_arc.as_ref().and_then(|h| h.read().ok());
+            self.create_objects(object, damage_dealer_guard.as_deref())
+        };
 
         // If we created objects and should transfer health
         if self.base.module_data.transfer_previous_health && !created_objects.is_empty() {
             for created_obj_arc in created_objects.iter() {
-                if let Ok(mut created_obj) = created_obj_arc.write() {
-                    // Transfer health from dying object to new object
+                let new_id = {
+                    let Ok(mut created_obj) = created_obj_arc.write() else {
+                        continue;
+                    };
                     self.transfer_health(object, &mut created_obj);
-
-                    // Transfer attackers to the new object
-                    self.transfer_attackers(object.get_id(), created_obj.get_id());
-                }
+                    if let Some(ai) = created_obj.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.transfer_attack(object.get_id(), created_obj.get_id());
+                        }
+                    }
+                    created_obj.get_id()
+                };
+                self.transfer_attackers(object, object.get_id(), new_id);
             }
         }
     }

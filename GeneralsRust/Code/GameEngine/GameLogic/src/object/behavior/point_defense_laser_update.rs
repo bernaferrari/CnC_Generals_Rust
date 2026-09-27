@@ -288,38 +288,19 @@ impl PointDefenseLaserUpdate {
                     closest_in[index] = dist;
                     best_in_range[index] = Some(obj_id);
                 }
-            } else if best_in_range[index].is_none() {
-                let mut candidate_dist = dist;
-                if self.module_data.velocity_factor != 0.0
-                    && !obj_guard.is_kind_of(KindOf::Immobile)
-                {
-                    if let Some(physics_arc) = obj_guard.get_physics() {
-                        if let Ok(physics_guard) = physics_arc.lock() {
-                            let vel = physics_guard.get_velocity();
-                            let predicted = *obj_guard.get_position()
-                                + crate::common::Coord3D::new(
-                                    vel.x * self.module_data.velocity_factor,
-                                    vel.y * self.module_data.velocity_factor,
-                                    vel.z * self.module_data.velocity_factor,
-                                );
-                            let dx = predicted.x - owner_pos.x;
-                            let dy = predicted.y - owner_pos.y;
-                            candidate_dist = (dx * dx + dy * dy).sqrt();
-                        }
-                    }
-                }
-
-                if candidate_dist < closest_out[index] {
-                    closest_out[index] = candidate_dist;
-                    best_out_range[index] = Some(obj_id);
-                }
+            } else if best_in_range[index].is_none() && dist < closest_out[index] {
+                closest_out[index] = dist;
+                best_out_range[index] = Some(obj_id);
             }
+
         }
 
-        best_in_range[0]
-            .or(best_in_range[1])
-            .or(best_out_range[0])
-            .or(best_out_range[1])
+        if best_in_range[0].is_some() || best_in_range[1].is_some() {
+            self.in_range = true;
+            return best_in_range[0].or(best_in_range[1]);
+        }
+        self.in_range = false;
+        best_out_range[0].or(best_out_range[1])
     }
 
     fn fire_when_ready(&mut self, owner_guard: &GameObject) {
@@ -328,23 +309,16 @@ impl PointDefenseLaserUpdate {
             return;
         }
 
-        if self.next_shot_available_in_frames > 0 {
-            self.next_shot_available_in_frames -= 1;
-            return;
-        }
-
         let Some(target_arc) = TheGameLogic::find_object_by_id(self.best_target_id) else {
+            self.tick_shot_delay();
             return;
         };
         let Ok(target_guard) = target_arc.read() else {
+            self.tick_shot_delay();
             return;
         };
 
-        if target_guard.is_destroyed() {
-            self.best_target_id = crate::common::INVALID_ID;
-            self.in_range = false;
-            return;
-        }
+
 
         let template = crate::weapon::with_weapon_store(|store| {
             store
@@ -355,6 +329,7 @@ impl PointDefenseLaserUpdate {
         .flatten();
 
         let Some(template) = template else {
+            self.tick_shot_delay();
             return;
         };
 
@@ -368,34 +343,9 @@ impl PointDefenseLaserUpdate {
         let dy = target_pos.y - owner_pos.y;
         let dist = (dx * dx + dy * dy).sqrt();
 
-        if dist <= fire_range {
+        if dist < fire_range {
             self.in_range = true;
-        } else {
-            if self.in_range {
-                self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as i32;
-                self.best_target_id = crate::common::INVALID_ID;
-                if self.next_scan_frames == 0 {
-                    if let Some(target_id) = self.scan_closest_target(owner_guard) {
-                        self.best_target_id = target_id;
-                    }
-                    self.next_scan_frames = self.module_data.scan_rate as i32;
-                }
-            }
-            self.in_range = false;
-            return;
-        }
-
-        let _ = crate::weapon::with_weapon_store(|store| {
-            let mut weapon = store.allocate_new_weapon(&template, WeaponSlotType::Tertiary);
-            let _ = weapon.load_ammo_now(owner_guard.get_id());
-            weapon
-                .fire_weapon_at_object(owner_guard.get_id(), target_guard.get_id())
-                .map_err(|err| err.to_string())?;
-            self.next_shot_available_in_frames = template.get_delay_between_shots(&bonus) as i32;
-            Ok::<(), String>(())
-        });
-
-        if target_guard.is_destroyed() {
+        } else if self.in_range {
             self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as i32;
             self.best_target_id = crate::common::INVALID_ID;
             if self.next_scan_frames == 0 {
@@ -404,6 +354,46 @@ impl PointDefenseLaserUpdate {
                 }
                 self.next_scan_frames = self.module_data.scan_rate as i32;
             }
+            self.tick_shot_delay();
+            return;
+        } else {
+            self.in_range = false;
+            self.tick_shot_delay();
+            return;
+        }
+
+        if self.next_shot_available_in_frames > 0 {
+            self.next_shot_available_in_frames -= 1;
+            return;
+        }
+
+        if !target_guard.is_effectively_dead() {
+            let _ = crate::weapon::with_weapon_store(|store| {
+                let mut weapon = store.allocate_new_weapon(&template, WeaponSlotType::Tertiary);
+                let _ = weapon.load_ammo_now(owner_guard.get_id());
+                weapon
+                    .fire_weapon_at_object(owner_guard.get_id(), target_guard.get_id())
+                    .map_err(|err| err.to_string())?;
+                self.next_shot_available_in_frames = template.get_delay_between_shots(&bonus) as i32;
+                Ok::<(), String>(())
+            });
+        }
+
+        if target_guard.is_effectively_dead() {
+            self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as i32;
+            self.best_target_id = crate::common::INVALID_ID;
+            if self.next_scan_frames == 0 {
+                if let Some(target_id) = self.scan_closest_target(owner_guard) {
+                    self.best_target_id = target_id;
+                }
+                self.next_scan_frames = self.module_data.scan_rate as i32;
+            }
+        }
+    }
+
+    fn tick_shot_delay(&mut self) {
+        if self.next_shot_available_in_frames > 0 {
+            self.next_shot_available_in_frames -= 1;
         }
     }
 }
@@ -430,7 +420,7 @@ impl UpdateModuleInterface for PointDefenseLaserUpdate {
         let Ok(owner_guard) = owner_arc.read() else {
             return UpdateSleepTime::Forever;
         };
-        if owner_guard.is_destroyed() {
+        if owner_guard.is_effectively_dead() {
             return UpdateSleepTime::Forever;
         }
 
@@ -491,9 +481,7 @@ impl BehaviorModuleInterface for PointDefenseLaserUpdate {
 
 impl Snapshotable for PointDefenseLaserUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

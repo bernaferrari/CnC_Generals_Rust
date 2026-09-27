@@ -282,12 +282,14 @@ impl Drawable {
         bone_name: &str,
     ) -> Option<Matrix3D> {
         let bone_name_ascii = AsciiString::from(bone_name);
+        let mut saw_draw_interface = false;
         for module_handle in self.modules() {
             let mut world_bone = Matrix3D::IDENTITY;
             let found = module_handle.with_module(|module| {
                 let mut found = false;
                 with_draw_module_mut(module, |draw| {
                     if let Some(interface) = draw.get_object_draw_interface_mut() {
+                        saw_draw_interface = true;
                         found = interface.client_only_get_render_obj_bone_transform(
                             &bone_name_ascii,
                             &mut world_bone,
@@ -302,7 +304,11 @@ impl Drawable {
             }
         }
 
-        // Fallback for partially ported draw modules that expose skeleton data directly.
+        // C++ returns false on bone index 0. The skeleton fallback is only for
+        // drawables that have no object-draw interface yet.
+        if saw_draw_interface {
+            return None;
+        }
         self.get_bone_transform(bone_name)
     }
 
@@ -461,14 +467,50 @@ impl Drawable {
         &mut self,
         weapon_slot: WeaponSlotType,
         barrel_index: i32,
+        fx: Option<&crate::effects::FXList>,
         victim_pos: &Coord3D,
+        weapon_speed: f32,
+        damage_radius: f32,
     ) -> bool {
         let slot_index = weapon_slot as usize;
+        let mut bone_name = None;
+        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+            module_handle.with_module(|module| {
+                let _ = with_draw_module_kind(module, |draw| {
+                    if bone_name.is_some() {
+                        return;
+                    }
+                    bone_name = match draw {
+                        DrawModuleKindMut::Model(model) => {
+                            model.fx_bone_name_for_shot(slot_index, barrel_index)
+                        }
+                        DrawModuleKindMut::Tank(model) => {
+                            model.fx_bone_name_for_shot(slot_index, barrel_index)
+                        }
+                        DrawModuleKindMut::TankTruck(model) => {
+                            model.fx_bone_name_for_shot(slot_index, barrel_index)
+                        }
+                        _ => None,
+                    };
+                });
+            });
+        }
+        let live_bone = bone_name
+            .as_deref()
+            .and_then(|name| self.get_bone_transform(name));
         let mut handled = false;
         for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
             module_handle.with_module(|module| {
                 with_object_draw_interface_mut(module, |draw| {
-                    if draw.handle_weapon_fire_fx(slot_index, barrel_index, victim_pos) {
+                    if draw.handle_weapon_fire_fx(
+                        slot_index,
+                        barrel_index,
+                        fx,
+                        victim_pos,
+                        weapon_speed,
+                        damage_radius,
+                        live_bone.as_ref(),
+                    ) {
                         handled = true;
                     }
                 });

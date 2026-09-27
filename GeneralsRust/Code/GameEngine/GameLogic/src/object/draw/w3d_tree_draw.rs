@@ -471,14 +471,19 @@ impl Module for W3DTreeDraw {
 
 impl DrawModule for W3DTreeDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        // C++ `W3DTreeDraw::doDrawModule` returns immediately (W3DTreeDraw.cpp:133-137).
-        // Keep a fallback so a tree that never received react still registers when drawn.
+        // C++ `doDrawModule` returns immediately. If react never ran, register
+        // from the drawable pose (`getScale` == instance scale). Do not use the
+        // matrix basis scale; instance scale is no longer in that matrix.
         if self.tree_added {
             return;
         }
-        let (scale, rotation, translation) = transform_mtx.to_scale_rotation_translation();
+        self.register_from_current_drawable();
+        if self.tree_added {
+            return;
+        }
+        let (_, rotation, translation) = transform_mtx.to_scale_rotation_translation();
         let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
-        self.register_tree_at(translation, scale.x, angle);
+        self.register_tree_at(translation, 1.0, angle);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -507,6 +512,12 @@ impl DrawModule for W3DTreeDraw {
 
 impl Snapshotable for W3DTreeDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let _ = xfer;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ W3DTreeDraw::xfer: version 1, DrawModule::xfer, no module payload.
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
@@ -522,15 +533,6 @@ impl Snapshotable for W3DTreeDraw {
         xfer.xfer_version(&mut module_version, 1)
             .map_err(|e| e.to_string())?;
 
-        Ok(())
-    }
-
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ parity: W3DTreeDraw::xfer writes version only and has no module payload.
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

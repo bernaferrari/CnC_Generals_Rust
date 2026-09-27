@@ -238,13 +238,10 @@ impl DynamicGeometryInfoUpdateLogic {
         // Check if transition is complete
         if self.time_active > self.transition_time {
             if self.reverse_at_transition_time {
-                // Reverse direction
                 self.switched_directions = true;
                 self.time_active = 0;
                 self.reverse_at_transition_time = false;
-                self.direction = DynamicGeometryDirection::Backward;
 
-                // Swap initial and final values
                 std::mem::swap(&mut self.initial_height, &mut self.final_height);
                 std::mem::swap(&mut self.initial_major_radius, &mut self.final_major_radius);
                 std::mem::swap(&mut self.initial_minor_radius, &mut self.final_minor_radius);
@@ -264,11 +261,12 @@ fn geometry_with_dimensions(
     minor_radius: Real,
 ) -> GeometryInfo {
     let mut geometry = old_geometry.clone();
-    let major_radius = major_radius.max(0.0);
-    let minor_radius = minor_radius.max(0.0);
+    let major_radius = major_radius.abs();
+    let minor_radius = minor_radius.abs();
+    let height = height.abs();
     geometry.bounds = AABox {
         min: Coord3D::new(-major_radius, -minor_radius, 0.0),
-        max: Coord3D::new(major_radius, minor_radius, height.max(0.0)),
+        max: Coord3D::new(major_radius, minor_radius, height),
     };
     geometry
 }
@@ -373,9 +371,7 @@ impl BehaviorModuleInterface for DynamicGeometryInfoUpdate {
 
 impl Snapshotable for DynamicGeometryInfoUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

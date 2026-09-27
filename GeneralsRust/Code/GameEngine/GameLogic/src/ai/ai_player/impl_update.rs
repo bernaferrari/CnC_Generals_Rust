@@ -25,13 +25,8 @@ impl AIPlayer {
         // Prefer live AIData; fall back to retail Default/AIData.ini constants when unloaded.
         let ai_store = the_ai(); let (team_seconds, structure_seconds) = if let Ok(ai) = ai_store.read() {
             if let Ok(data) = ai.get_ai_data().read() {
-                let team = if data.team_seconds > 0.0 {
-                    data.team_seconds
-                } else {
-                    DEFAULT_TEAM_SECONDS
-                };
-                // StructureSeconds = 0.0 is intentional retail (do not treat as missing).
-                (team, data.structure_seconds)
+                // C++ overwrites the 10 initializer with AIData, including 0.
+                (data.team_seconds, data.structure_seconds)
             } else {
                 (DEFAULT_TEAM_SECONDS, DEFAULT_STRUCTURE_SECONDS)
             }
@@ -501,8 +496,7 @@ impl AIPlayer {
                     detected: obj_guard.test_status(ObjectStatusTypes::Detected),
                     disguised: obj_guard.test_status(ObjectStatusTypes::Disguised),
                     is_enemy,
-                    is_bridge: obj_guard.is_kind_of(KindOf::Bridge),
-                    is_bridge_tower: obj_guard.is_kind_of(KindOf::BridgeTower),
+                    is_structure: obj_guard.is_kind_of(KindOf::Structure),
                 }
             }) {
                 candidates.push(c);

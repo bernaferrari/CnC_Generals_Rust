@@ -412,11 +412,12 @@ impl DieModuleInterface for CrushDie {
         );
 
         // C++ line 151: Determine crush location - defaults to TOTAL_CRUSH if no crusher
-        let crush_type = if let Some(ref crusher_arc) = damage_dealer {
-            if let Ok(crusher_guard) = crusher_arc.read() {
-                self.crush_location_check(&crusher_guard, object)
-            } else {
-                CrushEnum::TotalCrush
+        let crush_type = if damage_info.input.source_id == object.get_id() {
+            self.crush_location_check(object, object)
+        } else if let Some(ref crusher_arc) = damage_dealer {
+            match crusher_arc.read() {
+                Ok(crusher_guard) => self.crush_location_check(&crusher_guard, object),
+                Err(_) => CrushEnum::TotalCrush,
             }
         } else {
             CrushEnum::TotalCrush

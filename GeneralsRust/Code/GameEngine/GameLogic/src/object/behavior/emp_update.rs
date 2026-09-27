@@ -479,8 +479,8 @@ impl EMPUpdate {
                     if !victim.is_faction_structure() {
                         return false;
                     }
-                } else if data.reject_mask & WeaponAffectsMask::ALLIES as Int != 0 {
-                    let relationship = source_guard.relationship_to(victim);
+                } else if (data.reject_mask & WeaponAffectsMask::ALLIES as Int) != 0 {
+                    let relationship = victim.relationship_to(&source_guard);
                     if matches!(relationship, Relationship::Allies) {
                         return false;
                     }
@@ -626,9 +626,7 @@ impl BehaviorModuleInterface for EMPUpdate {
 
 impl Snapshotable for EMPUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

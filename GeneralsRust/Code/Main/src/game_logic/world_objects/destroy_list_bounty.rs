@@ -76,7 +76,7 @@ fn apply_transport_death_scatter(
     container_pos: glam::Vec3,
     bounding_radius: f32,
     now: u32,
-) {
+) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
         container_pos.z,
@@ -90,9 +90,11 @@ fn apply_transport_death_scatter(
     unit.set_contained_by(None);
     unit.set_position(container_pos);
     unit.set_orientation(leftover.orientation);
-    unit.set_destination(dest);
     unit.set_ai_state(AIState::Moving);
     unit.status.moving = true;
+    // Pathfinder ignore for the queued move. Physics still skips the wreck
+    // through ignore_collisions_with; scatter does not start a collision timer.
+    unit.ignored_obstacle_id = Some(container_id);
     unit.ignore_collisions_with = Some(container_id);
     unit.next_mood_check_time = now;
     if crate::gameworld_shadow::gameworld_movement_authority_live() {
@@ -106,6 +108,7 @@ fn apply_transport_death_scatter(
         crate::game_logic::host_ai_decision_log::record_set_state(unit.id, 1);
     }
     unit.set_status_attacking(false);
+    dest
 }
 
 /// C++ `Pathfinder::validMovementTerrain` at the hull (AIPathfind.cpp:4763-4783).
@@ -643,14 +646,14 @@ impl GameLogic {
                                 continue;
                             }
                             let rider_template = unit.template_name.clone();
-                            if scatter_on_death {
-                                apply_transport_death_scatter(
+                            let scatter_dest = if scatter_on_death {
+                                Some(apply_transport_death_scatter(
                                     unit,
                                     event.id,
                                     eject_origin,
                                     scatter_radius,
                                     self.frame,
-                                );
+                                ))
                             } else {
                                 let angle =
                                     (contained_id.0 as f32 + i as f32 * 1.11).sin().atan2(1.0)
@@ -680,8 +683,20 @@ impl GameLogic {
                                 }
                                 unit.set_status_moving(false);
                                 unit.set_status_attacking(false);
-                            }
+                                None
+                            };
                             drop(unit);
+                            if let Some(dest) = scatter_dest {
+                                self.path_approach_with_state_ignoring(
+                                    contained_id,
+                                    dest,
+                                    AIState::Moving,
+                                    Some(event.id),
+                                );
+                                if let Some(unit) = self.objects.get_mut(&contained_id) {
+                                    unit.ignored_obstacle_id = Some(event.id);
+                                }
+                            }
                             // C++ OpenContain::onRemoving template SoundExit + SoundFalling.
                             self.play_container_removing_template_sounds_named(
                                 &container_template,
@@ -1591,12 +1606,21 @@ mod tests {
         assert!(!r.status.destroyed);
         assert!(r.contained_by.is_none());
         assert_eq!(r.ai_state, crate::game_logic::AIState::Moving);
+        assert_eq!(r.ignored_obstacle_id, Some(transport));
+        assert_eq!(r.ignore_collisions_with, Some(transport));
         let pos = r.get_position();
         assert!(
             (pos - hull).length() < 0.01,
             "scatter places the rider at the wreck, not an Idle ring offset; got {pos:?}"
         );
-        let dest = r.movement.target_position.expect("aiMoveToPosition dest");
+        let dest = r.movement.path.last().copied().or_else(|| {
+            logic
+                .pathfinding_system
+                .pending_paths()
+                .find(|p| p.unit_id == rider)
+                .map(|p| p.destination)
+        });
+        let dest = dest.expect("aiMoveToPosition dest");
         let dx = dest.x - hull.x;
         let dz = dest.z - hull.z;
         let dist = (dx * dx + dz * dz).sqrt();

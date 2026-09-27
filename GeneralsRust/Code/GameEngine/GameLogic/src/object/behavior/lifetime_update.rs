@@ -150,6 +150,7 @@ mod tests {
             module_data: data.clone(),
             next_call_frame_and_phase: 0,
             die_frame: 123,
+            update_proxy: None,
         };
         let mut module =
             LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data);
@@ -261,6 +262,7 @@ pub struct LifetimeUpdate {
     module_data: Arc<LifetimeUpdateModuleData>,
     next_call_frame_and_phase: UnsignedInt,
     die_frame: UnsignedInt,
+    update_proxy: Option<crate::object::UpdateModulePtr>,
 }
 
 impl LifetimeUpdate {
@@ -285,16 +287,19 @@ impl LifetimeUpdate {
         );
         let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
         let die_frame = current_frame + delay;
+        let object_id = object
+            .read()
+            .ok()
+            .map(|g| g.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: die_frame,
             die_frame,
+            update_proxy: None,
         })
     }
 
@@ -304,21 +309,17 @@ impl LifetimeUpdate {
         let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
         self.die_frame = current_frame + delay;
         self.next_call_frame_and_phase = self.die_frame;
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(guard) = object.read() {
-                let object_id = guard.get_id();
-                drop(guard);
-                crate::helpers::TheGameLogic::set_wake_frame(
-                    object_id,
-                    UpdateSleepTime::from_u32(delay),
-                );
-            }
+        if let Some(proxy) = self.update_proxy.clone() {
+            let _ = crate::helpers::TheGameLogic::register_update_module(
+                self.object_id,
+                proxy,
+                self.die_frame,
+            );
         }
+    }
+
+    pub(crate) fn bind_update_proxy(&mut self, proxy: crate::object::UpdateModulePtr) {
+        self.update_proxy = Some(proxy);
     }
 
     pub fn get_die_frame(&self) -> UnsignedInt {
@@ -346,7 +347,7 @@ impl LifetimeUpdate {
     ) -> (UnsignedInt, UnsignedInt) {
         let override_frames: Int = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
         if is_hulk && override_frames != -1 {
-            let override_frames = override_frames.max(0) as UnsignedInt;
+            let override_frames = override_frames as UnsignedInt;
             (override_frames, override_frames)
         } else {
             (min_frames, max_frames)
@@ -382,6 +383,8 @@ impl UpdateModuleInterface for LifetimeUpdate {
         }) {
             if let Ok(mut guard) = object.write() {
                 guard.kill(None, None);
+            } else {
+                return UpdateSleepTime::None;
             }
         }
         UPDATE_SLEEP_FOREVER
@@ -399,9 +402,7 @@ impl BehaviorModuleInterface for LifetimeUpdate {
 
 impl Snapshotable for LifetimeUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

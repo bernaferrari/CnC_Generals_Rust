@@ -61,18 +61,7 @@ fn is_object_shrouded_for_action(
 }
 
 fn is_faction_structure(obj: &Object) -> bool {
-    obj.is_any_kind_of(&[
-        KindOf::FSBarracks,
-        KindOf::FSWarfactory,
-        KindOf::FSAirfield,
-        KindOf::FSInternetCenter,
-        KindOf::FSPower,
-        KindOf::FSBaseDefense,
-        KindOf::FSSupplyDropzone,
-        KindOf::FSSupplyCenter,
-        KindOf::FSSuperweapon,
-        KindOf::FSStrategyCenter,
-    ])
+    obj.is_faction_structure()
 }
 
 fn is_point_on_map(pos: &crate::common::Coord3D) -> bool {

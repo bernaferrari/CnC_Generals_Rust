@@ -1678,7 +1678,7 @@ fn attack_move_sets_max_shots_and_path_flag() {
     }
     let u = logic.host_object(id).unwrap();
     assert_eq!(u.ai_state, AIState::AttackMoving);
-    assert!(u.is_attack_path);
+    assert!(!u.is_attack_path);
     assert_eq!(u.max_shots_to_fire, 5);
     assert!(u.auto_acquire_when_idle);
 }

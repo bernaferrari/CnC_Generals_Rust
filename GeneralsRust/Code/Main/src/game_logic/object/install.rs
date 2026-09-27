@@ -208,7 +208,9 @@ impl Object {
             if !self.is_kind_of(KindOf::Structure) {
                 self.set_status_moving(false);
                 self.stop_moving();
-                self.set_ai_state(AIState::Idle);
+                if self.ai_state != AIState::Idle {
+                    self.set_ai_state(AIState::Idle);
+                }
             }
             if !already_power {
                 self.queue_power_disable_misc_audio(true);
@@ -261,7 +263,11 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
+        // C++ TheGameLogic->deselectObject(obj, PLAYERMASK_ALL, TRUE).
+        self.deselect();
         // C++ Object.cpp:2145-2179 non-drone unmanned enter:
         // carbomb detonates elsewhere; else wipe XP and undo AutoHeal.
         if !self.is_kind_of(KindOf::Drone) && !self.status.is_carbomb {
@@ -303,7 +309,9 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
         self.set_team_and_owner(pilot_team, pilot_owner_player_id);
         self.set_private_captured(true);
 
@@ -613,7 +621,11 @@ impl Object {
 
     /// Health fraction for BODY_DAMAGED residual gate.
     pub fn health_fraction(&self) -> f32 {
-        let max_h = self.health.maximum.max(self.max_health).max(1.0);
+        let max_h = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health.max(1.0)
+        };
         (self.health.current / max_h).clamp(0.0, 1.0)
     }
 
@@ -700,7 +712,9 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
         // C++ setDisabledUntil: KINDOF_SPAWNS_ARE_THE_WEAPONS orderSlavesDisabledUntil.
         if self.is_spawns_are_the_weapons() {
             let _ = crate::game_logic::host_base_defense::order_hive_slaves_to_go_idle(
@@ -756,7 +770,9 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
         if !already_power {
             self.queue_power_disable_misc_audio(true);
         }
@@ -797,7 +813,9 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
         if becoming {
             self.on_disabled_edge(true);
         }

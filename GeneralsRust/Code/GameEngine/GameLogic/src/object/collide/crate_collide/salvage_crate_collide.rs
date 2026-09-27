@@ -475,12 +475,10 @@ impl SalvageCrateCollide {
         if guard.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne) {
             guard.clear_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
             guard.set_armor_set_flag(ArmorSetFlag::CrateUpgradeTwo);
-            guard
-                .clear_and_set_model_condition_flags(
-                    ModelConditionFlags::ArmorsetCrateUpgradeOne,
-                    ModelConditionFlags::ArmorsetCrateUpgradeTwo,
-                )
-                .map_err(CollisionError::InvalidObject)?;
+            let _ = guard.clear_and_set_model_condition_flags(
+                ModelConditionFlags::ArmorsetCrateUpgradeOne,
+                ModelConditionFlags::ArmorsetCrateUpgradeTwo,
+            );
         } else {
             guard.set_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
             guard.set_model_condition_state(ModelConditionFlags::ArmorsetCrateUpgradeOne);
@@ -559,7 +557,7 @@ impl SalvageCrateCollide {
                 .add_money_earned(payout as u32);
         }
 
-        self.display_money_floating_text(payout as u32, &other, &player_arc)?;
+        let _ = self.display_money_floating_text(payout as u32, &other, &player_arc);
         Ok(())
     }
 
@@ -650,9 +648,9 @@ impl SalvageCrateCollide {
         };
 
         let owner = {
-            let guard = other
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+            let Ok(guard) = other.read() else {
+                return Ok(());
+            };
             guard.get_controlling_player()
         };
 
@@ -660,9 +658,9 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let mut player = player_arc
-            .write()
-            .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
+        let Ok(mut player) = player_arc.write() else {
+            return Ok(());
+        };
         player.get_academy_stats_mut().record_salvage_collected();
         Ok(())
     }

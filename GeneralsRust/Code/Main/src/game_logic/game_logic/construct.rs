@@ -51,6 +51,7 @@ impl GameLogic {
             guard_next_enemy_scan: HashMap::new(),
             hunt_next_enemy_scan: HashMap::new(),
             guard_guardee_pos: HashMap::new(),
+            quick_exit_until: HashMap::new(),
 
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,

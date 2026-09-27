@@ -343,8 +343,9 @@ impl StructureCollapseUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<StructureCollapseUpdateModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let forever = UpdateSleepTime::Forever.to_u32();
         if let Ok(obj) = object.read() {
-            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
+            obj.reschedule_named_update("StructureCollapseUpdate", forever);
         }
 
         Ok(Self {
@@ -354,7 +355,7 @@ impl StructureCollapseUpdate {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: forever,
             collapse_frame: 0,
             burst_frame: 0,
             collapse_state: StructureCollapseStateType::Standing,
@@ -506,7 +507,8 @@ impl StructureCollapseUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object_arc.read() {
-                TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::None);
+                self.next_call_frame_and_phase = current_frame.saturating_add(1);
+                obj.reschedule_named_update("StructureCollapseUpdate", self.next_call_frame_and_phase);
                 let pos = *obj.get_position();
                 self.do_phase_stuff(StructureCollapsePhaseType::Initial, &pos);
             }
@@ -756,6 +758,10 @@ pub struct StructureCollapseUpdateModule {
 }
 
 impl StructureCollapseUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: StructureCollapseUpdate,
         module_name: &AsciiString,

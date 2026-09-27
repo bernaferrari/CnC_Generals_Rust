@@ -432,9 +432,7 @@ fn basic_human_rally_locomotor_set() -> crate::locomotor::LocomotorSet {
     let mut set = crate::locomotor::LocomotorSet::new();
     set.add_locomotor(
         "BasicHumanLocomotor".to_string(),
-        std::sync::Arc::new(std::sync::Mutex::new(crate::locomotor::Locomotor::new(
-            template,
-        ))),
+        crate::locomotor::Locomotor::new(template),
     );
     set
 }

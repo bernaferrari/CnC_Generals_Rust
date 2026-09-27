@@ -100,7 +100,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterWouldCollide {
                 GeometryInfo::new_sphere(radius, is_small)
             }
             Some(game_engine::system::geometry::GeometryType::Box) => {
-                GeometryInfo::new_box(dx.max(0.01), dy.max(0.01), is_small)
+                GeometryInfo::new_box(dx.max(0.01), dy.max(0.01), is_small).with_z_height(height)
             }
             Some(game_engine::system::geometry::GeometryType::Cylinder) => {
                 GeometryInfo::new_cylinder(radius, height, is_small)

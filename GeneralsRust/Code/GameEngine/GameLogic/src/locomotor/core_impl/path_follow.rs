@@ -359,21 +359,18 @@ impl Locomotor {
         current_angle: Real,
         goal_pos: Coord3D,
         is_braking: bool,
+        radius: Real,
     ) -> Real {
         let mut pivot_offset = self.template.turn_pivot_offset;
-        if is_braking {
+        if is_braking || radius == 0.0 {
             pivot_offset = 0.0;
         }
         if pivot_offset.abs() < 0.0001 {
             return (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
         }
-
-        // Approximate bounding radius using close-enough distance as a proxy.
-        let offset = pivot_offset * self.close_enough_dist.max(1.0);
-        let dir_x = current_angle.cos();
-        let dir_y = current_angle.sin();
-        let turn_x = current_pos.x + dir_x * offset;
-        let turn_y = current_pos.y + dir_y * offset;
+        let arm = pivot_offset * radius;
+        let turn_x = current_pos.x + current_angle.cos() * arm;
+        let turn_y = current_pos.y + current_angle.sin() * arm;
         let dx = goal_pos.x - turn_x;
         let dy = goal_pos.y - turn_y;
         if dx.abs() < 0.1 && dy.abs() < 0.1 {

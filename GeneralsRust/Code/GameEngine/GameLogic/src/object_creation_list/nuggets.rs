@@ -52,6 +52,26 @@ pub trait ObjectCreationNugget: Send + Sync {
         angle: Real,
         lifetime_frames: UnsignedInt,
     ) -> CreationResult;
+    /// C++ `ObjectCreationList::create` with a null secondary position.
+    /// Nuggets that require that point override this and do nothing.
+    fn create_without_secondary(
+        &self,
+        ctx: &CreationContext<'_>,
+        primary_obj: Option<&Object>,
+        primary: &Coord3D,
+        angle: Real,
+        lifetime_frames: UnsignedInt,
+    ) -> CreationResult {
+        self.create_with_angle(
+            ctx,
+            primary_obj,
+            primary,
+            primary,
+            angle,
+            lifetime_frames,
+        )
+    }
+
 
     /// Create with object-based parameters
     /// Matches C++ virtual Object* create(primary, secondary, lifetimeFrames)
@@ -1184,16 +1204,16 @@ fn pathfind_cell_type_at(
         _ => AStarLayer::Top,
     };
 
-    crate::ai::the_ai()
-        .read()
-        .ok()
-        .and_then(|ai| ai.pathfinder())
-        .and_then(|pf| {
-            pf.read()
-                .ok()
-                .and_then(|pf| pf.get_cell_type_at_layer(pos, astar_layer))
-        })
-        .unwrap_or(PathfindCellType::Impassable)
+    let found = crate::ai::the_ai().read().ok().and_then(|ai| ai.pathfinder()).and_then(|pf| {
+        let pf = pf.read().ok()?;
+        let layered = pf.get_cell_type_at_layer(pos, astar_layer);
+        if layered.is_some() || matches!(astar_layer, AStarLayer::Ground | AStarLayer::Invalid) {
+            return layered;
+        }
+        // In-bounds miss already fell through inside C++ getCell. Off-map ground is None.
+        pf.get_cell_type_at_layer(pos, AStarLayer::Ground)
+    });
+    found.unwrap_or(PathfindCellType::Impassable)
 }
 
 /// Helper function to adjust vector by transformation matrix

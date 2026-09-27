@@ -1815,6 +1815,15 @@ impl AIUpdateInterface {
         new_speed: Real,
     ) {
         self.cur_locomotor_speed = new_speed;
+        if let Some((yaw, pitch)) =
+            self.get_turret_rot_and_pitch(crate::common::WhichTurretType::Main)
+        {
+            let _ = OBJECT_REGISTRY.with_object_mut(self.owner_object_id, |owner| {
+                owner.cached_main_turret_yaw = yaw;
+                owner.cached_main_turret_pitch = pitch;
+                owner.cached_main_turret_valid = true;
+            });
+        }
         let _ = OBJECT_REGISTRY.with_object_mut(self.owner_object_id, |owner| {
             let _ = owner.set_position(&new_pos);
             let _ = owner.set_orientation(new_angle);
@@ -2572,7 +2581,14 @@ impl AIUpdateInterface {
         if self.is_in_update || self.owner_object_id == INVALID_ID {
             return;
         }
-        TheGameLogic::set_wake_frame(self.owner_object_id, crate::modules::UPDATE_SLEEP_NONE);
+        let now = TheGameLogic::get_frame();
+        if let Some(object) = TheGameLogic::find_object_by_id(self.owner_object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_object_id))
+        {
+            if let Ok(guard) = object.read() {
+                guard.reschedule_ai_update(now.saturating_add(1));
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

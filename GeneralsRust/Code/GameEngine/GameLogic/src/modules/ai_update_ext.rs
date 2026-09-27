@@ -120,6 +120,7 @@ pub trait AIUpdateInterfaceExt {
         cmd_source: CommandSourceType,
     );
     fn is_idle(&self) -> bool;
+    fn get_next_mood_target_id(&self, use_existing_target: bool, ignore_attacked: bool) -> crate::common::ObjectID;
     fn is_busy(&self) -> bool {
         !self.is_idle()
     }
@@ -129,17 +130,19 @@ pub trait AIUpdateInterfaceExt {
     fn mark_as_dead(&self);
     fn get_last_command_source(&self) -> CommandSourceType;
     fn get_which_turret_for_cur_weapon(&self) -> TurretType;
+    fn get_turret_turn_rate(&self, turret: TurretType) -> f32;
     fn set_turret_enabled(&self, turret: TurretType, enabled: bool);
     fn recenter_turret(&self, turret: TurretType);
     fn is_turret_in_natural_position(&self, turret: TurretType) -> bool;
     fn get_path(&self) -> Option<()>;
     fn get_path_destination(&self) -> Option<Coord3D>;
+    fn get_path_last_node(&self) -> Option<Coord3D>;
     fn peek_cached_point_on_path(&self) -> Option<Coord3D>;
 
     fn get_locomotor_distance_to_goal(&self) -> Real;
     fn get_current_victim(&self) -> Option<ObjectID>;
     fn set_current_victim(&mut self, victim: Option<ObjectID>);
-    fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>>;
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor));
     fn get_preferred_height(&self) -> Option<Real>;
     fn ai_go_prone(&self, damage_info: &DamageInfo, cmd_source: CommandSourceType);
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>>;
@@ -637,7 +640,19 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         if let Ok(guard) = self.try_lock() {
             guard.is_idle()
         } else {
-            false
+            true
+        }
+    }
+
+    fn get_next_mood_target_id(
+        &self,
+        use_existing_target: bool,
+        ignore_attacked: bool,
+    ) -> crate::common::ObjectID {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.get_next_mood_target_id(use_existing_target, ignore_attacked)
+        } else {
+            crate::common::INVALID_ID
         }
     }
 
@@ -739,6 +754,14 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             TurretType::Invalid
         }
     }
+    fn get_turret_turn_rate(&self, turret: TurretType) -> f32 {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_turret_turn_rate(turret)
+        } else {
+            0.0
+        }
+    }
+
 
     fn set_turret_enabled(&self, turret: TurretType, enabled: bool) {
         if let Ok(mut guard) = self.try_lock() {
@@ -776,6 +799,13 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             None
         }
     }
+    fn get_path_last_node(&self) -> Option<Coord3D> {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_path_last_node()
+        } else {
+            None
+        }
+    }
 
     fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
         if let Ok(guard) = self.try_lock() {
@@ -808,11 +838,9 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         }
     }
 
-    fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        if let Ok(guard) = self.try_lock() {
-            guard.get_cur_locomotor()
-        } else {
-            None
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.with_cur_locomotor(f);
         }
     }
 

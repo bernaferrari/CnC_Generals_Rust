@@ -330,5 +330,10 @@ pub trait UpdateModuleInterface: Send + Sync {
     fn on_object_created(&mut self) {
         let _ = self;
     }
+
+    /// INI module name. Default empty so unnamed updates do not match a reschedule.
+    fn module_name(&self) -> &str {
+        ""
+    }
 }
 

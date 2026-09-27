@@ -650,7 +650,7 @@ impl SlowDeathBehavior {
         let wake_frame = match sleep_time {
             UpdateSleepTime::None => 0,
             UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
-            UpdateSleepTime::Frames(frames) => now.saturating_add(frames.max(1)),
+            UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
         };
         self.next_call_frame_and_phase = wake_frame;
         let Some(proxy) = self.update_proxy.0.clone() else {
@@ -989,49 +989,76 @@ impl DieModuleInterface for SlowDeathBehavior {
             .map_err(|e| format!("Lock error: {e}"))?;
 
         let mut total_probability: Int = 0;
-        if self.is_die_applicable(damage_info) {
-            total_probability += self.get_probability_modifier(damage_info);
-        }
+        let mut saw_locked_self = false;
         for handle in &handles {
-            handle.try_with_module(|module| {
+            let added = handle.try_with_module(|module| {
                 if let Some(other) = (module as &mut dyn Any).downcast_mut::<SlowDeathBehavior>() {
                     if other.is_die_applicable(damage_info) {
-                        total_probability += other.get_probability_modifier(damage_info);
+                        other.get_probability_modifier(damage_info)
+                    } else {
+                        0
                     }
+                } else {
+                    0
                 }
             });
+            match added {
+                Some(modifier) => total_probability += modifier,
+                None if !saw_locked_self => {
+                    saw_locked_self = true;
+                    if self.is_die_applicable(damage_info) {
+                        total_probability += self.get_probability_modifier(damage_info);
+                    }
+                }
+                None => {}
+            }
         }
 
         if total_probability <= 0 {
             return Err("No valid slow death behaviors found".into());
         }
 
-        // Roll dice to select which behavior executes (C++ lines 488)
         let mut roll = GameLogicRandomValue(1, total_probability);
-
-        if self.is_die_applicable(damage_info) {
-            roll -= self.get_probability_modifier(damage_info);
-            if roll <= 0 {
-                return self.begin_slow_death(damage_info);
-            }
-        }
+        let mut saw_locked_self = false;
 
         for handle in &handles {
-            let mut started = false;
-            let mut result: Result<(), Box<dyn std::error::Error + Send + Sync>> = Ok(());
-            handle.try_with_module(|module| {
+            let picked = handle.try_with_module(|module| {
                 if let Some(other) = (module as &mut dyn Any).downcast_mut::<SlowDeathBehavior>() {
                     if other.is_die_applicable(damage_info) {
                         roll -= other.get_probability_modifier(damage_info);
-                        if roll <= 0 {
-                            started = true;
+                        roll <= 0
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            });
+            match picked {
+                Some(true) => {
+                    // Started inside the unlocked module.
+                    // Re-enter only to call begin; the roll already selected it.
+                    let mut result = Ok(());
+                    let _ = handle.try_with_module(|module| {
+                        if let Some(other) =
+                            (module as &mut dyn Any).downcast_mut::<SlowDeathBehavior>()
+                        {
                             result = other.begin_slow_death(damage_info);
+                        }
+                    });
+                    return result;
+                }
+                Some(false) => {}
+                None if !saw_locked_self => {
+                    saw_locked_self = true;
+                    if self.is_die_applicable(damage_info) {
+                        roll -= self.get_probability_modifier(damage_info);
+                        if roll <= 0 {
+                            return self.begin_slow_death(damage_info);
                         }
                     }
                 }
-            });
-            if started {
-                return result;
+                None => {}
             }
         }
 
@@ -1072,7 +1099,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Check if already activated
+        let _ = damage_info;
         if self.is_slow_death_activated() {
             return Ok(());
         }
@@ -1148,7 +1175,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
                     if obj_write.is_disabled_by_type(DisabledType::Held) {
                         let mut handled = false;
                         if let Some(result) = obj_write.with_slaved_update_interface(|slaved| {
-                            slaved.on_slaver_die(Some(damage_info))
+                            slaved.on_slaver_die(None)
                         }) {
                             let _ = result;
                             handled = true;
@@ -1161,7 +1188,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
                                 if let Ok(mut slave_guard) = slave_module.lock() {
                                     if let Some(slaved) = slave_guard.get_slaved_update_interface()
                                     {
-                                        let _ = slaved.on_slaver_die(Some(damage_info));
+                                        let _ = slaved.on_slaver_die(None);
                                     }
                                 }
                             }
@@ -1211,7 +1238,7 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             .min(self.midpoint_frame);
 
         // C++ UpdateModule.cpp:61-64 setWakeFrame wakes only this module.
-        if flung {
+        if data.fling_force > 0.0 {
             self.wake_this_module_only(UPDATE_SLEEP_NONE);
         } else {
             // C++ line 300: setWakeFrame(obj, UPDATE_SLEEP(whenToWakeTime))
@@ -1297,28 +1324,7 @@ impl Module for SlowDeathBehavior {
 
 impl Snapshotable for SlowDeathBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("SlowDeathBehavior xfer version: {:?}", e))?;
-
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
-
-        let mut sink_frame = self.sink_frame;
-        xfer.xfer_unsigned_int(&mut sink_frame)
-            .map_err(|e| format!("SlowDeathBehavior xfer sink_frame: {:?}", e))?;
-        let mut midpoint_frame = self.midpoint_frame;
-        xfer.xfer_unsigned_int(&mut midpoint_frame)
-            .map_err(|e| format!("SlowDeathBehavior xfer midpoint_frame: {:?}", e))?;
-        let mut destruction_frame = self.destruction_frame;
-        xfer.xfer_unsigned_int(&mut destruction_frame)
-            .map_err(|e| format!("SlowDeathBehavior xfer destruction_frame: {:?}", e))?;
-        let mut accelerated_time_scale = self.accelerated_time_scale;
-        xfer.xfer_real(&mut accelerated_time_scale)
-            .map_err(|e| format!("SlowDeathBehavior xfer accelerated_time_scale: {:?}", e))?;
-        let mut flags = self.flags;
-        xfer.xfer_unsigned_int(&mut flags)
-            .map_err(|e| format!("SlowDeathBehavior xfer flags: {:?}", e))?;
+        let _ = xfer;
         Ok(())
     }
 

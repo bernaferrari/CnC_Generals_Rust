@@ -83,13 +83,13 @@ fn leftover_can_turn_in_place(owner: &GameObject) -> bool {
     let Ok(ai_guard) = ai.lock() else {
         return false;
     };
-    let Some(locomotor) = ai_guard.get_cur_locomotor() else {
-        return false;
-    };
-    locomotor
-        .lock()
-        .map(|loco| loco.template.min_speed == 0.0)
-        .unwrap_or(false)
+    let mut can_turn = false;
+    let mut has_loco = false;
+    ai_guard.with_cur_locomotor(&mut |loco| {
+        has_loco = true;
+        can_turn = loco.template.min_speed == 0.0;
+    });
+    has_loco && can_turn
 }
 
 fn leftover_face_update(
@@ -129,8 +129,13 @@ fn leftover_face_update(
     let Ok(mut ai_guard) = ai.lock() else {
         return StateReturnType::Failed;
     };
-    let angle_to = (target_pos.y - owner_pos.y).atan2(target_pos.x - owner_pos.x);
-    let mut rel = angle_to - owner_ori;
+    let dx = target_pos.x - owner_pos.x;
+    let dy = target_pos.y - owner_pos.y;
+    let mut rel = if dx == 0.0 && dy == 0.0 {
+        0.0
+    } else {
+        dy.atan2(dx) - owner_ori
+    };
     const PI: f32 = std::f32::consts::PI;
     const TAU: f32 = std::f32::consts::TAU;
     while rel > PI {
@@ -167,22 +172,11 @@ impl AIState for AIRappelIntoState {
             return StateReturnType::Failed;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::RappelInto,
-                    CommandSourceType::FromAi,
-                );
-                params.obj = context.goal_object;
-                if let Some(goal_pos) = context.goal_position {
-                    params.pos = goal_pos;
-                }
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.ai_pending_rappel = true;
+            owner.ai_pending_rappel_obj = context.goal_object;
+            owner.ai_pending_rappel_pos = context.goal_position;
+        });
         StateReturnType::Continue
     }
 
@@ -199,14 +193,9 @@ impl AIState for AIRappelIntoState {
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
         });
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
-                ai_guard.set_desired_speed(f32::MAX);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.ai_pending_desired_speed = Some(f32::MAX);
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -231,22 +220,11 @@ impl AIState for AICombatDropState {
             return StateReturnType::Failed;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::CombatDrop,
-                    CommandSourceType::FromAi,
-                );
-                params.obj = context.goal_object;
-                if let Some(goal_pos) = context.goal_position {
-                    params.pos = goal_pos;
-                }
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.ai_pending_combat_drop = true;
+            owner.ai_pending_combat_drop_obj = context.goal_object;
+            owner.ai_pending_combat_drop_pos = context.goal_position;
+        });
         StateReturnType::Continue
     }
 
@@ -289,16 +267,9 @@ impl AIState for AIBusyState {
             return StateReturnType::Failed;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let params =
-                    AiCommandParams::new(AiCommandType::Busy, CommandSourceType::FromAi);
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.ai_pending_busy = true;
+        });
         StateReturnType::Continue
     }
 
@@ -309,12 +280,7 @@ impl AIState for AIBusyState {
         }
 
         let idle = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner_guard| {
-                owner_guard.get_ai_update_interface().and_then(|ai| {
-                    ai.lock().ok().map(|ai_guard| ai_guard.is_idle())
-                })
-            })
-            .flatten()
+            .with_object(context.owner_id, |owner_guard| owner_guard.ai_fire_is_idle)
             .unwrap_or(true);
         if idle {
             StateReturnType::Success
@@ -367,7 +333,6 @@ impl AIExitInstantlyState {
 
 impl AIState for AIExitInstantlyState {
     fn on_enter(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
-        // Wave 254: empty dual-world → fail-closed (no factory owner).
         if dual_world_registry_unavailable() {
             return StateReturnType::Failed;
         }

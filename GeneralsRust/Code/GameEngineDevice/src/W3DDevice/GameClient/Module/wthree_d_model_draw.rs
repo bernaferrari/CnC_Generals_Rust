@@ -458,7 +458,7 @@ impl Default for ModelDrawState {
 
 /// Terrain decal texture names (matching C++ TerrainDecalTextureName)
 pub const TERRAIN_DECAL_TEXTURES: [&str; TERRAIN_DECAL_MAX] = [
-    "DM_RING",     // Demoralized
+    "TERRAIN_DECAL_DEMORALIZED_OBSOLETE",
     "EXHorde",     // Enthusiastic
     "EXHorde_UP",  // Enthusiastic with nationalism
     "EXHordeB",    // Enthusiastic vehicle

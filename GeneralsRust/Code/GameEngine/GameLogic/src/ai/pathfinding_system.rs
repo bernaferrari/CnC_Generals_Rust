@@ -69,7 +69,8 @@ impl From<crate::common::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::common::PathfindLayerEnum) -> Self {
         match layer {
             crate::common::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
-            // C++ layers 2–15 are bridge/wall decks, not air.
+            // This grid is stored on the ground layer only. C++ bridge/wall
+            // decks and the leftover air/water/tunnel values must hit those cells.
             _ => PathfindLayerEnum::Ground,
         }
     }

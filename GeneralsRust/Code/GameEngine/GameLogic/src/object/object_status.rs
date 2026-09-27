@@ -54,49 +54,66 @@ impl Object {
             return false;
         };
 
+        let mut nearest: Option<(f32, ObjectID)> = None;
         for object_id in partition.get_objects_in_range(&pos, scan_radius) {
             let Some(booby_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
                 continue;
             };
-
-            let update_module = {
-                let Ok(booby_guard) = booby_arc.read() else {
-                    continue;
-                };
-
-                if !booby_guard.is_kind_of(KindOf::BoobyTrap) {
-                    continue;
-                }
-                if booby_guard.get_producer_id() != self.id {
-                    continue;
-                }
-
-                if let Some(victim_obj) = victim {
-                    if booby_guard.relationship_to(victim_obj) == Relationship::Allies {
-                        return false;
-                    }
-                }
-
-                booby_guard.find_update_module("StickyBombUpdate")
+            let Ok(booby_guard) = booby_arc.read() else {
+                continue;
             };
-
-            if let Some(module) = update_module {
-                let mut detonated = false;
-                module.with_module(|module| {
-                    if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
-                        sticky_bomb.detonate();
-                        detonated = true;
-                    }
-                });
-                if detonated {
-                    return true;
-                }
+            if !booby_guard.is_kind_of(KindOf::BoobyTrap) {
+                continue;
             }
-
-            return false;
+            if booby_guard.is_off_map() != self.is_off_map() {
+                continue;
+            }
+            if booby_guard.get_producer_id() != self.id {
+                continue;
+            }
+            let other_pos = *booby_guard.get_position();
+            let dx = other_pos.x - pos.x;
+            let dy = other_pos.y - pos.y;
+            let dist2 = dx * dx + dy * dy;
+            if nearest.map(|(best, _)| dist2 < best).unwrap_or(true) {
+                nearest = Some((dist2, object_id));
+            }
         }
 
-        false
+        let Some((_, nearest_id)) = nearest else {
+            return false;
+        };
+        let Some(booby_arc) = crate::helpers::TheGameLogic::find_object_by_id(nearest_id) else {
+            return false;
+        };
+        let Ok(booby_guard) = booby_arc.read() else {
+            return false;
+        };
+        let Some(module) = booby_guard.find_update_module("StickyBombUpdate") else {
+            return false;
+        };
+        if let Some(victim_obj) = victim {
+            let allied = booby_guard.get_controlling_player().and_then(|player| {
+                let team = victim_obj.get_team()?;
+                let team_guard = team.read().ok()?;
+                player.read().ok().map(|guard| {
+                    guard.get_relationship_with_team(&team_guard) == Relationship::Allies
+                })
+            });
+            if allied == Some(true) {
+                return false;
+            }
+        }
+        drop(booby_guard);
+        let mut detonated = false;
+        module.with_module(|module| {
+            if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
+                sticky_bomb.detonate();
+                detonated = true;
+            }
+        });
+        detonated
+
     }
 
     /// Set object status bits with proper side effects
@@ -394,20 +411,20 @@ impl Object {
     /// C++ Object::isFactionStructure(): any KINDOF_FS bit marks a faction structure.
     pub fn is_faction_structure(&self) -> bool {
         self.is_any_kind_of(&[
+            KindOf::Factory,
+            KindOf::FSBaseDefense,
+            KindOf::FSTechnology,
+            KindOf::FSSupplyDropzone,
+            KindOf::FSSuperweapon,
+            KindOf::FsBlackMarket,
+            KindOf::FSSupplyCenter,
+            KindOf::FSStrategyCenter,
+            KindOf::FSFake,
+            KindOf::FSInternetCenter,
+            KindOf::FsAdvancedTech,
             KindOf::FSBarracks,
             KindOf::FSWarfactory,
             KindOf::FSAirfield,
-            KindOf::FSInternetCenter,
-            KindOf::FSPower,
-            KindOf::FSBaseDefense,
-            KindOf::FSSupplyDropzone,
-            KindOf::FSSupplyCenter,
-            KindOf::FSSuperweapon,
-            KindOf::FSStrategyCenter,
-            KindOf::FSFake,
-            KindOf::FSTechnology,
-            KindOf::FsBlackMarket,
-            KindOf::FsAdvancedTech,
         ])
     }
 
@@ -493,6 +510,7 @@ impl Object {
     pub(crate) fn set_effectively_dead(&mut self, dead: bool) {
         if dead {
             self.private_status |= ObjectPrivateStatusBits::EffectivelyDead as u8;
+            self.on_die_remove_from_radar();
         } else {
             self.private_status &= !(ObjectPrivateStatusBits::EffectivelyDead as u8);
         }
@@ -513,8 +531,8 @@ impl Object {
         mask
     }
 
-    pub fn is_kind_of_mask(&self, mask: u32) -> bool {
-        (self.get_kind_of() & mask as u128) != 0
+    pub fn is_kind_of_mask(&self, mask: KindOfMask) -> bool {
+        (self.get_kind_of() & mask) != 0
     }
 
     /// Check required/forbidden KindOf masks (C++ isKindOfMulti).

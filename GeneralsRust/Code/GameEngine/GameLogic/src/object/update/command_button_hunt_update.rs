@@ -148,7 +148,7 @@ impl CommandButtonHuntUpdate {
         Self {
             object_id,
             module_data,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             command_button_name: String::new(),
             command_button: None,
         }
@@ -164,8 +164,15 @@ impl CommandButtonHuntUpdate {
     }
 
     pub fn on_object_created(&mut self) {
-        // Matches C++ constructor: setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER)
-        TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::Forever);
+        self.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
+        if let Some(object_arc) = self.object_arc() {
+            if let Ok(object) = object_arc.read() {
+                object.reschedule_named_update(
+                    "CommandButtonHuntUpdate",
+                    self.next_call_frame_and_phase,
+                );
+            }
+        }
     }
 
     pub fn set_command_button(&mut self, button_name: String) {
@@ -200,7 +207,9 @@ impl CommandButtonHuntUpdate {
                 ai.ai_idle(CommandSourceType::FromAi);
             }
             let _ = self.update_simple();
-            TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::None);
+            let now = TheGameLogic::get_frame();
+            self.next_call_frame_and_phase = now.saturating_add(1);
+            object.reschedule_named_update("CommandButtonHuntUpdate", self.next_call_frame_and_phase);
         }
     }
 
@@ -767,6 +776,10 @@ pub struct CommandButtonHuntUpdateModule {
 }
 
 impl CommandButtonHuntUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: CommandButtonHuntUpdate,
         module_name: &AsciiString,

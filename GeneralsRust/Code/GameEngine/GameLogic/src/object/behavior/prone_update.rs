@@ -122,19 +122,21 @@ impl ProneUpdate {
     }
 
     /// Stop prone visual and gameplay effects
-    fn stop_prone_effects(&self) {
-        if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+    fn stop_prone_effects(&self) -> bool {
+        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut me) = me_arc.write() {
-                // Clear NO_ATTACK status
-                me.set_status(ObjectStatusMaskType::NO_ATTACK, false);
-                me.clear_model_condition_state(ModelConditionFlags::PRONE);
-            }
-        }
+        }) else {
+            return true;
+        };
+        let Ok(mut me) = me_arc.write() else {
+            return false;
+        };
+        me.set_status(ObjectStatusMaskType::NO_ATTACK, false);
+        me.clear_model_condition_state(ModelConditionFlags::PRONE);
+        true
     }
 }
 
@@ -142,8 +144,8 @@ impl UpdateModuleInterface for ProneUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         if self.prone_frames > 0 {
             self.prone_frames -= 1;
-            if self.prone_frames == 0 {
-                self.stop_prone_effects();
+            if self.prone_frames == 0 && !self.stop_prone_effects() {
+                self.prone_frames = 1;
             }
         }
         UPDATE_SLEEP_NONE
@@ -172,9 +174,7 @@ impl ProneControlInterface for ProneUpdate {
 
 impl Snapshotable for ProneUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

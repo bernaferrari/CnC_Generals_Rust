@@ -240,6 +240,22 @@ pub fn repair_action_range(target_selection_radius: f32) -> f32 {
     DOZER_MIN_ACTION_TOLERANCE.max(target_selection_radius.max(0.0) + DOZER_ACTION_SLOP)
 }
 
+/// C++ `getDistanceSquared(dozer, goalPos, FROM_BOUNDINGSPHERE_2D)` vs
+/// `max(MIN_ACTION_TOLERANCE, dozerBoundingSphere + SLOP)`. `goalPos` is the dock.
+#[inline]
+pub fn dozer_within_action_dock(dozer_pos: Vec3, dozer_radius: f32, dock: Vec3) -> bool {
+    let radius = dozer_radius.max(0.0);
+    let gap = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
+        dozer_pos,
+        radius,
+        dock,
+        0.0,
+    );
+    let allowance = DOZER_MIN_ACTION_TOLERANCE.max(radius + DOZER_ACTION_SLOP);
+    gap <= allowance
+}
+
+
 /// C++ `DozerAIUpdate::getBoredRange`: computer dozers scan `modifier * BoredRange`.
 #[inline]
 pub fn dozer_bored_range(is_computer_dozer: bool) -> f32 {

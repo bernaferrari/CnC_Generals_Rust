@@ -850,16 +850,18 @@ impl<'a> CommandExecutor<'a> {
             let goal = *unit_wps.last().unwrap();
             let via = &unit_wps[..unit_wps.len().saturating_sub(1)];
 
-            // Wave 233: waypoint-path prep via GameLogic authority API.
+            let adjusts = self.game_logic.note_move_to_request_path(unit_id);
             let _ = self
                 .game_logic
                 .unit_command_waypoint_path_prep(unit_id, as_team);
-            // C++ AIFollowWaypointPathExact vs smoothed follow residual.
             let ok = if exact {
                 self.game_logic.assign_unit_path_exact(unit_id, goal, via)
             } else {
                 self.game_logic.assign_unit_path(unit_id, goal, via)
             };
+            if ok && adjusts {
+                self.game_logic.register_ground_path_goal(unit_id, goal);
+            }
             if ok {
                 any = true;
             } else if self.path_to_goal_with_state(unit_id, goal, AIState::Moving) {

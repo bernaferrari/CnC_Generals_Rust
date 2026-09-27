@@ -2042,7 +2042,9 @@ impl ThingTemplate {
     }
 
     pub fn get_skill_point_value(&self, level: usize) -> i32 {
-        let value = self.skill_point_values[level];
+        let Some(&value) = self.skill_point_values.get(level) else {
+            return 0;
+        };
         if value == USE_EXP_VALUE_FOR_SKILL_VALUE {
             self.get_experience_value(level)
         } else {
@@ -2051,10 +2053,10 @@ impl ThingTemplate {
     }
 
     pub fn get_experience_value(&self, level: usize) -> i32 {
-        self.experience_values[level]
+        self.experience_values.get(level).copied().unwrap_or(0)
     }
     pub fn get_experience_required(&self, level: usize) -> i32 {
-        self.experience_required[level]
+        self.experience_required.get(level).copied().unwrap_or(0)
     }
     pub fn is_trainable(&self) -> bool {
         self.is_trainable

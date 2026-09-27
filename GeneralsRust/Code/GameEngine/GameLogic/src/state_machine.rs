@@ -24,7 +24,6 @@ pub const INVALID_STATE_ID: u32 = 999999;
 pub type StateId = u32;
 
 const MAX_TRANSITION_RECURSION_DEPTH: u32 = 20;
-
 /// State return codes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StateReturnType {
@@ -207,11 +206,102 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
         StateReturnType::Continue
     }
 
+    /// AI-machine enter. Default keeps the old [`on_enter`].
+    fn on_enter_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: crate::common::ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
+        self.on_enter()
+    }
+
+    /// Same enter, plus the waypoint this machine already stores.
+    fn on_enter_with_waypoint(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+        _waypoint: Option<WaypointId>,
+    ) -> StateReturnType {
+        self.on_enter_with_ai(ai, goal_id, goal_pos)
+    }
+
     /// Executed once when leaving state  
     fn on_exit(&mut self, _status: StateExitType) {}
 
+    /// AI-machine exit. Default keeps the old [`on_exit`].
+    fn on_exit_with_ai(
+        &mut self,
+        _status: StateExitType,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) {
+        self.on_exit(_status)
+    }
+
+    /// Evacuate freezes transitions. The step already holds this machine.
+    fn locks_machine(&self) -> bool {
+        false
+    }
+
+    /// Goal to restore when a locked state exits. `None` leaves the machine alone.
+    fn exit_restore_goal(&self) -> Option<Coord3D> {
+        None
+    }
+
+    /// C++ per-state `loadPostProcess`. Default empty. Guard inner/outer/aggressor
+    /// override this with `onEnter` to rebuild the attack child after xfer.
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
     /// Implements this state's behavior, decides when to change state
     fn update(&mut self) -> StateReturnType;
+
+    /// AI-machine step. Dock and turret keep [`update`]. Default ignores the borrow.
+    fn update_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.update()
+    }
+
+    /// Like [`update_with_ai`], but `machine_locked` is `StateMachine::is_locked`
+    /// on the machine this step already holds. Do not `lock()` it again.
+    fn update_with_ai_held(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _machine_locked: bool,
+    ) -> StateReturnType {
+        self.update_with_ai(ai)
+    }
+
+    /// Owner already known because this step holds the machine.
+    fn note_step_owner(
+        &mut self,
+        _owner: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+    ) {
+    }
+
+    fn note_guard_enter(&mut self, _mode: i32, _polygon: Option<Arc<PolygonTrigger>>) {}
+
+    fn freezes_parent_during_update(&self) -> bool {
+        false
+    }
+
+    fn bind_goal_object_id(&mut self, _id: crate::common::ObjectID) {}
+
+    fn bind_goal_position(&mut self, _pos: Coord3D) {}
+
+    /// Goal chosen while this machine was already borrowed. `None` means no change.
+    /// The bool is whether the goal object should be cleared.
+    fn take_published_goal(&mut self) -> Option<(Coord3D, bool)> {
+        None
+    }
+    fn bind_goal_squad(&mut self, _squad: Option<Arc<Mutex<Squad>>>) {}
+
+    fn bind_goal_polygon(&mut self, _polygon: Option<Arc<PolygonTrigger>>) {}
+
+    fn bind_goal_waypoint(&mut self, _waypoint: Option<WaypointId>) {}
 
     /// Check if this is an idle state
     fn is_idle(&self) -> bool {
@@ -334,13 +424,27 @@ pub struct State {
     pub failure_state_id: StateId,
     pub transitions: Vec<TransitionInfo>,
     pub machine: Option<Weak<Mutex<StateMachine>>>,
+    /// Copied from [`StateMachine::owner_id`] at construction. No second mutex.
+    pub owner_id: crate::common::ObjectID,
+    /// Victim id copied from the machine that owns this state. `machine` is often `None`.
+    pub goal_object_id: crate::common::ObjectID,
+    /// Goal point copied from the machine when `machine` is `None`.
+    pub goal_position_copied: Option<Coord3D>,
+    /// Squad copied before an update that already holds the machine lock.
+    pub goal_squad_copied: Option<Arc<Mutex<Squad>>>,
+    /// Area copied before an update that already holds the machine lock.
+    pub goal_polygon_copied: Option<Arc<PolygonTrigger>>,
+    /// Waypoint copied before an update that already holds the machine lock.
+    pub goal_waypoint_copied: Option<WaypointId>,
 }
 
 impl State {
     /// Create a state without wiring it to a concrete machine. This mirrors the
     /// legacy usage where most states lived inside stack-owned state machines.
-    pub fn new(_machine: &StateMachine, name: &str) -> Self {
-        Self::with_machine(None, name)
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
+        let mut state = Self::with_machine(None, name);
+        state.owner_id = machine.get_owner_id();
+        state
     }
 
     /// Create a state that tracks the owning state machine through a `Weak`.
@@ -352,6 +456,12 @@ impl State {
             failure_state_id: INVALID_STATE_ID,
             transitions: Vec::new(),
             machine,
+            owner_id: crate::common::INVALID_ID,
+            goal_object_id: crate::common::INVALID_ID,
+            goal_position_copied: None,
+            goal_squad_copied: None,
+            goal_polygon_copied: None,
+            goal_waypoint_copied: None,
         }
     }
 
@@ -369,12 +479,19 @@ impl State {
 
     /// Get the machine owner object
     pub fn get_machine_owner(&self) -> Option<Arc<RwLock<Object>>> {
-        self.machine
-            .as_ref()?
-            .upgrade()?
-            .try_lock()
-            .ok()?
-            .get_owner()
+        if let Some(owner) = self
+            .machine
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_owner()))
+        {
+            return Some(owner);
+        }
+        if self.owner_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
     }
 
     /// Get the machine goal object
@@ -385,57 +502,74 @@ impl State {
     }
 
     pub fn get_machine_goal_object_id(&self) -> Option<crate::common::ObjectID> {
-        let machine = self.machine.as_ref().and_then(|weak| weak.upgrade())?;
-        let guard = machine.lock().ok()?;
-        let id = guard.get_goal_object_id();
-        if id == crate::common::INVALID_ID {
+        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
+            if let Ok(guard) = machine.try_lock() {
+                let id = guard.get_goal_object_id();
+                if id != crate::common::INVALID_ID {
+                    return Some(id);
+                }
+            }
+        }
+        if self.goal_object_id == crate::common::INVALID_ID {
             None
         } else {
-            Some(id)
+            Some(self.goal_object_id)
         }
     }
 
     pub fn get_machine_owner_id(&self) -> Option<crate::common::ObjectID> {
-        let machine = self.machine.as_ref().and_then(|weak| weak.upgrade())?;
-        let guard = machine.lock().ok()?;
-        let id = guard.get_owner_id();
-        if id == crate::common::INVALID_ID {
+        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
+            if let Ok(guard) = machine.try_lock() {
+                let id = guard.get_owner_id();
+                if id != crate::common::INVALID_ID {
+                    return Some(id);
+                }
+            }
+        }
+        if self.owner_id == crate::common::INVALID_ID {
             None
         } else {
-            Some(id)
+            Some(self.owner_id)
         }
     }
 
     /// Get the machine goal squad
     pub fn get_machine_goal_squad(&self) -> Option<Arc<Mutex<Squad>>> {
-        self.machine
-            .as_ref()?
-            .upgrade()?
-            .try_lock()
-            .ok()?
-            .get_goal_squad()
+        if let Some(squad) = self
+            .machine
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_goal_squad()))
+        {
+            return Some(squad);
+        }
+        self.goal_squad_copied.clone()
     }
 
     /// Get the machine goal polygon trigger
     pub fn get_machine_goal_polygon(&self) -> Option<Arc<PolygonTrigger>> {
-        self.machine
-            .as_ref()?
-            .upgrade()?
-            .try_lock()
-            .ok()?
-            .get_goal_polygon()
+        if let Some(polygon) = self
+            .machine
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_goal_polygon()))
+        {
+            return Some(polygon);
+        }
+        self.goal_polygon_copied.clone()
     }
 
     /// Get the machine goal position
     pub fn get_machine_goal_position(&self) -> Option<Coord3D> {
-        Some(
-            self.machine
-                .as_ref()?
-                .upgrade()?
-                .try_lock()
-                .ok()?
-                .get_goal_position(),
-        )
+        if let Some(pos) = self
+            .machine
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
+            .and_then(|arc| arc.try_lock().ok().map(|guard| guard.get_goal_position()))
+        {
+            return Some(pos);
+        }
+        self.goal_position_copied
     }
 
     /// Get the state machine reference.
@@ -680,13 +814,27 @@ impl StateMachine {
 
         if let Some(state_id) = self.current_state_id {
             let state_before_update = state_id;
+            let goal_object_id = self.get_goal_object_id();
+            let goal_position = self.get_goal_position();
+            let goal_squad = self.get_goal_squad();
+            let goal_polygon = self.get_goal_polygon();
+            let goal_waypoint = self.get_goal_waypoint();
+            let step_owner = self.get_owner();
             let mut status = {
                 let Some(state) = self.state_map.get_mut(&state_id) else {
                     return StateReturnType::Failure;
                 };
+                if let Some(owner) = step_owner {
+                    state.note_step_owner(owner);
+                }
+                state.bind_goal_object_id(goal_object_id);
+                state.bind_goal_position(goal_position);
+                state.bind_goal_squad(goal_squad);
+                state.bind_goal_polygon(goal_polygon);
+                state.bind_goal_waypoint(goal_waypoint);
                 state.update()
             };
-
+            self.apply_pending_victim_goal();
             if self.current_state_id.is_none() {
                 return StateReturnType::Failure;
             }
@@ -707,6 +855,119 @@ impl StateMachine {
         }
 
         StateReturnType::Failure
+    }
+
+    /// Same as [`update`], but the current state receives the AI this update already borrowed.
+    pub fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let now = self.get_current_frame();
+        if self.sleep_till != 0 && now < self.sleep_till {
+            if self.current_state_id.is_none() {
+                return StateReturnType::Failure;
+            }
+
+            return self.check_for_sleep_transitions_ai(
+                StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
+                Some(ai),
+            );
+        }
+
+        self.sleep_till = 0;
+
+        if let Some(state_id) = self.current_state_id {
+            let state_before_update = state_id;
+            let machine_locked = self.locked;
+            let goal_object_id = self.get_goal_object_id();
+            let goal_position = self.get_goal_position();
+            let goal_squad = self.get_goal_squad();
+            let goal_polygon = self.get_goal_polygon();
+            let goal_waypoint = self.get_goal_waypoint();
+            let step_owner = self.get_owner();
+            let freeze_parent = self
+                .state_map
+                .get(&state_id)
+                .is_some_and(|state| state.freezes_parent_during_update());
+            if freeze_parent {
+                self.locked = true;
+            }
+            let mut status = {
+                let Some(state) = self.state_map.get_mut(&state_id) else {
+                    if freeze_parent {
+                        self.locked = machine_locked;
+                    }
+                    return StateReturnType::Failure;
+                };
+                if let Some(owner) = step_owner {
+                    state.note_step_owner(owner);
+                }
+                state.bind_goal_object_id(goal_object_id);
+                state.bind_goal_position(goal_position);
+                state.bind_goal_squad(goal_squad);
+                state.bind_goal_polygon(goal_polygon);
+                state.bind_goal_waypoint(goal_waypoint);
+                state.update_with_ai_held(ai, machine_locked)
+            };
+            if let Some(state_id) = self.current_state_id {
+                if let Some((pos, clear_object)) = self
+                    .state_map
+                    .get_mut(&state_id)
+                    .and_then(|state| state.take_published_goal())
+                {
+                    self.set_goal_position(pos);
+                    if clear_object {
+                        self.set_goal_object_by_id(None);
+                    }
+                }
+            }
+            if freeze_parent {
+                self.locked = machine_locked;
+            }
+            self.apply_pending_victim_goal();
+            if self.current_state_id.is_none() {
+                return StateReturnType::Failure;
+            }
+
+            if self.current_state_id != Some(state_before_update) {
+                status = StateReturnType::Continue;
+            }
+
+            if let StateReturnType::Sleep(frames) = status {
+                self.sleep_till = now.wrapping_add(frames);
+                return self.check_for_sleep_transitions_ai(
+                    StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
+                    Some(ai),
+                );
+            }
+
+            return self.check_for_transitions_ai(status, Some(ai));
+        }
+
+        StateReturnType::Failure
+    }
+
+    fn apply_pending_victim_goal(&mut self) {
+        let Some(owner) = self.get_owner() else {
+            return;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        let Some(id) = owner_guard.ai_fire_pending_victim else {
+            return;
+        };
+        if id == crate::common::INVALID_ID {
+            return;
+        }
+        self.goal_object_id = id;
+        if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        {
+            if let Ok(guard) = arc.read() {
+                self.internal_set_goal_position(*guard.get_position());
+            }
+        }
     }
 
     /// Clear the machine's internals to a known, initialized state
@@ -772,7 +1033,16 @@ impl StateMachine {
     }
 
     /// Internal state transition used by state-driven transitions even when locked.
-    pub fn internal_set_state(&mut self, mut new_state_id: StateId) -> StateReturnType {
+    pub fn internal_set_state(&mut self, new_state_id: StateId) -> StateReturnType {
+        self.set_state_entering(new_state_id, None)
+    }
+
+    /// `ai` is the update borrow. `None` keeps [`on_enter`].
+    pub fn set_state_entering(
+        &mut self,
+        mut new_state_id: StateId,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         self.sleep_till = 0;
 
         if new_state_id != MACHINE_DONE_STATE_ID {
@@ -793,8 +1063,27 @@ impl StateMachine {
         }
 
         if let Some(current_id) = self.current_state_id {
+            let outgoing_locks = self
+                .state_map
+                .get(&current_id)
+                .is_some_and(|state| state.locks_machine());
+            let restore = self
+                .state_map
+                .get(&current_id)
+                .and_then(|state| state.exit_restore_goal());
             if let Some(current_state) = self.state_map.get_mut(&current_id) {
-                current_state.on_exit(StateExitType::Normal);
+                if let Some(ref mut ai_ref) = ai {
+                    current_state.on_exit_with_ai(StateExitType::Normal, &mut **ai_ref);
+                } else {
+                    current_state.on_exit(StateExitType::Normal);
+                }
+            }
+            if outgoing_locks {
+                self.unlock();
+            }
+            if let Some(origin) = restore {
+                self.unlock();
+                self.internal_set_goal_position(origin);
             }
         }
 
@@ -806,12 +1095,65 @@ impl StateMachine {
 
         if let Some(current_id) = self.current_state_id {
             let state_before_enter = current_id;
+            let goal_id = self.get_goal_object_id();
+            let goal_pos = self.get_goal_position();
+            let goal_squad = self.get_goal_squad();
+            let goal_polygon = self.get_goal_polygon();
+            let locks_machine = self
+                .state_map
+                .get(&current_id)
+                .map(|state| state.locks_machine())
+                .unwrap_or(false);
+            if locks_machine {
+                self.lock();
+            }
+            if let Some(owner) = self.get_owner() {
+                if let Some(state) = self.state_map.get_mut(&current_id) {
+                    state.note_step_owner(owner);
+                }
+            }
+            let guard_mode = self.get_guard_mode_raw();
+            let guard_polygon = self.get_goal_polygon();
+            if let Some(state) = self.state_map.get_mut(&current_id) {
+                state.note_guard_enter(guard_mode, guard_polygon);
+            }
+            let waypoint = self.get_goal_waypoint();
             let mut status = {
                 let Some(new_state) = self.state_map.get_mut(&current_id) else {
+                    if locks_machine {
+                        self.unlock();
+                    }
                     return StateReturnType::Failure;
                 };
-                new_state.on_enter()
+                new_state.bind_goal_object_id(goal_id);
+                new_state.bind_goal_position(goal_pos);
+                new_state.bind_goal_squad(goal_squad);
+                new_state.bind_goal_polygon(goal_polygon);
+                new_state.bind_goal_waypoint(waypoint);
+                if let Some(ref mut ai_ref) = ai {
+                    new_state.on_enter_with_waypoint(&mut **ai_ref, goal_id, goal_pos, waypoint)
+                } else {
+                    new_state.on_enter()
+                }
             };
+            if let Some(id) = self.current_state_id {
+                if let Some((pos, clear_object)) = self
+                    .state_map
+                    .get_mut(&id)
+                    .and_then(|state| state.take_published_goal())
+                {
+                    self.set_goal_position(pos);
+                    if clear_object {
+                        self.set_goal_object_by_id(None);
+                    }
+                }
+            }
+            if locks_machine
+                && (self.current_state_id != Some(state_before_enter)
+                    || matches!(status, StateReturnType::Failure))
+            {
+                self.unlock();
+            }
 
             if self.current_state_id.is_none() {
                 return StateReturnType::Failure;
@@ -825,26 +1167,45 @@ impl StateMachine {
             if let StateReturnType::Sleep(frames) = status {
                 let now = self.get_current_frame();
                 self.sleep_till = now.wrapping_add(frames);
-                return self.check_for_sleep_transitions(StateReturnType::Sleep(
-                    self.sleep_till.wrapping_sub(now),
-                ));
+                return self.check_for_sleep_transitions_ai(
+                    StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
+                    ai,
+                );
             }
 
-            return self.check_for_transitions(status);
+            return self.check_for_transitions_ai(status, ai);
         }
 
         StateReturnType::Continue
     }
 
     fn check_for_transitions(&mut self, status: StateReturnType) -> StateReturnType {
+        self.check_for_transitions_ai(status, None)
+    }
+
+    fn check_for_transitions_ai(
+        &mut self,
+        status: StateReturnType,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         if status.is_sleep() {
             return StateReturnType::Failure;
         }
-
-        self.with_transition_depth_guard(|machine| machine.check_for_transitions_inner(status))
+        self.transition_depth = self.transition_depth.saturating_add(1);
+        if self.transition_depth >= MAX_TRANSITION_RECURSION_DEPTH {
+            self.transition_depth = self.transition_depth.saturating_sub(1);
+            return StateReturnType::Failure;
+        }
+        let result = self.check_for_transitions_inner(status, ai);
+        self.transition_depth = self.transition_depth.saturating_sub(1);
+        result
     }
 
-    fn check_for_transitions_inner(&mut self, status: StateReturnType) -> StateReturnType {
+    fn check_for_transitions_inner(
+        &mut self,
+        status: StateReturnType,
+        mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
         };
@@ -853,7 +1214,7 @@ impl StateMachine {
         };
 
         match status {
-            StateReturnType::Continue => self.check_condition_transitions(&meta),
+            StateReturnType::Continue => self.check_condition_transitions_ai(&meta, ai),
             _ if status.is_success() => match meta.success_state_id {
                 EXIT_MACHINE_WITH_SUCCESS => {
                     let _ = self.internal_set_state(MACHINE_DONE_STATE_ID);
@@ -864,7 +1225,7 @@ impl StateMachine {
                     StateReturnType::Failure
                 }
                 INVALID_STATE_ID => status,
-                next => self.internal_set_state(next),
+                next => self.set_state_entering(next, ai),
             },
             _ if status.is_failure() => match meta.failure_state_id {
                 EXIT_MACHINE_WITH_SUCCESS => {
@@ -876,40 +1237,80 @@ impl StateMachine {
                     StateReturnType::Failure
                 }
                 INVALID_STATE_ID => status,
-                next => self.internal_set_state(next),
+                next => self.set_state_entering(next, ai),
             },
             other => other,
         }
     }
 
     fn check_for_sleep_transitions(&mut self, status: StateReturnType) -> StateReturnType {
+        self.check_for_sleep_transitions_ai(status, None)
+    }
+
+    fn check_for_sleep_transitions_ai(
+        &mut self,
+        status: StateReturnType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         if !matches!(status, StateReturnType::Sleep(_)) {
             return status;
         }
-
-        self.with_sleep_transition_depth_guard(|machine| {
-            machine.check_for_sleep_transitions_inner(status)
-        })
+        self.sleep_transition_depth = self.sleep_transition_depth.saturating_add(1);
+        if self.sleep_transition_depth >= MAX_TRANSITION_RECURSION_DEPTH {
+            self.sleep_transition_depth = self.sleep_transition_depth.saturating_sub(1);
+            return StateReturnType::Failure;
+        }
+        let result = self.check_for_sleep_transitions_inner(status, ai);
+        self.sleep_transition_depth = self.sleep_transition_depth.saturating_sub(1);
+        result
     }
 
-    fn check_for_sleep_transitions_inner(&mut self, status: StateReturnType) -> StateReturnType {
+    fn check_for_sleep_transitions_inner(
+        &mut self,
+        status: StateReturnType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
         };
         let Some(meta) = self.state_meta.get(&state_id).cloned() else {
             return status;
         };
-        self.check_condition_transitions_or_sleep(&meta, status)
+        self.check_condition_transitions_or_sleep(&meta, status, ai)
     }
 
     fn check_condition_transitions(&mut self, meta: &StateMeta) -> StateReturnType {
-        self.check_condition_transitions_or_sleep(meta, StateReturnType::Continue)
+        self.check_condition_transitions_ai(meta, None)
+    }
+
+    fn check_condition_transitions_ai(
+        &mut self,
+        meta: &StateMeta,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
+        let Some(state_id) = self.current_state_id else {
+            return StateReturnType::Failure;
+        };
+        let Some(state) = self.state_map.get(&state_id) else {
+            return StateReturnType::Failure;
+        };
+        for transition in &meta.transitions {
+            if (transition.test)(state.as_ref(), &transition.user_data) {
+                return match transition.to_state_id {
+                    EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
+                    EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
+                    next => self.set_state_entering(next, ai),
+                };
+            }
+        }
+        StateReturnType::Continue
     }
 
     fn check_condition_transitions_or_sleep(
         &mut self,
         meta: &StateMeta,
         status: StateReturnType,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
@@ -923,7 +1324,7 @@ impl StateMachine {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
-                    next => self.internal_set_state(next),
+                    next => self.set_state_entering(next, ai),
                 };
             }
         }
@@ -1340,8 +1741,16 @@ impl StateMachine {
     /// Individual state implementations may have their own loadPostProcess() methods
     /// that handle state-specific restoration logic.
     pub fn load_post_process(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Empty implementation matches C++ StateMachine::loadPostProcess()
-        // No additional post-processing needed at the machine level
+        // C++ StateMachine::loadPostProcess is empty. Per-state loadPostProcess
+        // still runs from the snapshot walker. Call it on the restored state.
+        if let Some(id) = self.current_state_id {
+            if let Some(state) = self.state_map.get_mut(&id) {
+                state.load_post_process().map_err(|e| {
+                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            }
+        }
         Ok(())
     }
 }

@@ -2268,9 +2268,11 @@ fn build_line_vertices(line: &SegmentedLine, camera_dir: Vector3<f32>) -> Vec<Li
 
     let lengths = line.get_segment_lengths();
     let total_length: f32 = lengths.iter().sum();
-    let tile_factor = match line.get_texture_mapping_mode() {
-        TextureMapMode::Stretch => 1.0,
-        TextureMapMode::Tiled => line.get_texture_tile_factor().max(0.0),
+    let tiled = matches!(line.get_texture_mapping_mode(), TextureMapMode::Tiled);
+    let tile_factor = if tiled {
+        line.get_texture_tile_factor().max(0.0)
+    } else {
+        1.0
     };
     let uv_offset = line.get_uv_offset();
 
@@ -2287,6 +2289,9 @@ fn build_line_vertices(line: &SegmentedLine, camera_dir: Vector3<f32>) -> Vec<Li
     let half_width = line.get_width() * 0.5;
 
     for (idx, segment_len) in lengths.iter().enumerate() {
+        if *segment_len <= 1.0e-6 {
+            continue;
+        }
         let start = points[idx];
         let end = points[idx + 1];
         let dir = (end - start).normalize();
@@ -2294,15 +2299,17 @@ fn build_line_vertices(line: &SegmentedLine, camera_dir: Vector3<f32>) -> Vec<Li
 
         let u0 = 0.0;
         let u1 = 1.0;
-        let v0 = if total_length > 0.0 {
-            (length_accum / total_length) * tile_factor + uv_offset
+        let (v0, v1) = if tiled {
+            // C++ seglinerenderer.cpp TILED_TEXTURE_MAP: V = pointIndex * tileFactor.
+            let v0 = idx as f32 * tile_factor + uv_offset;
+            (v0, v0 + tile_factor)
+        } else if total_length > 0.0 {
+            (
+                (length_accum / total_length) * tile_factor + uv_offset,
+                ((length_accum + segment_len) / total_length) * tile_factor + uv_offset,
+            )
         } else {
-            uv_offset
-        };
-        let v1 = if total_length > 0.0 {
-            ((length_accum + segment_len) / total_length) * tile_factor + uv_offset
-        } else {
-            uv_offset + tile_factor
+            (uv_offset, uv_offset + tile_factor)
         };
 
         let p0 = start - perp;

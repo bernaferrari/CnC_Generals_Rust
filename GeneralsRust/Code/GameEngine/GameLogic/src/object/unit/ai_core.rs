@@ -30,6 +30,7 @@ pub struct UnitAIUpdate {
     pub(super) dock_machine: Option<AIDockMachine>,
     pub(super) ai_state_machine: Option<Arc<Mutex<AIStateMachine>>>,
     pub(super) can_path_through_units: bool,
+    pub(super) randomly_offset_mood_check: bool,
     pub(super) allow_chase: bool,
     pub(super) attitude: AIAttitudeType,
     pub(super) last_command_source: CommandSourceType,
@@ -168,6 +169,7 @@ impl UnitAIUpdate {
             dock_machine: None,
             ai_state_machine,
             can_path_through_units: false,
+            randomly_offset_mood_check: false,
             allow_chase: false,
             attitude: AIAttitudeType::Normal,
             last_command_source: CommandSourceType::FromAi,
@@ -245,6 +247,16 @@ impl UnitAIUpdate {
             bump_speed_limit: FAST_AS_POSSIBLE,
         }
     }
+    /// Enter `state_id`. The machine stays on `self` so `on_enter` can see it.
+    /// Do not `take` it and do not swap in an empty shell: `on_enter` writes
+    /// through the `Arc` other owners hold, and a shell would discard those writes.
+    pub(super) fn enter_ai_state(&mut self, state_id: u32) {
+        let Some(state_machine) = self.ai_state_machine.clone() else {
+            return;
+        };
+        let mut guard = state_machine.lock().unwrap_or_else(|err| err.into_inner());
+        let _ = guard.base.set_state_entering(state_id, Some(self));
+    }
     pub(super) fn push_guard_target_type(&mut self, target_type: GuardTargetType) {
         if self.guard_target_type[1] == GuardTargetType::None_ {
             self.guard_target_type[1] = target_type;
@@ -270,8 +282,16 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn wake_up_now(&self) {
-        if let Some(owner_id) = self.owner_object_id() {
-            TheGameLogic::set_wake_frame(owner_id, UPDATE_SLEEP_NONE);
+        let Some(owner_id) = self.owner_object_id() else {
+            return;
+        };
+        let now = TheGameLogic::get_frame();
+        if let Some(object) = TheGameLogic::find_object_by_id(owner_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
+        {
+            if let Ok(guard) = object.read() {
+                guard.reschedule_ai_update(now.saturating_add(1));
+            }
         }
     }
     pub(super) fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -280,13 +300,14 @@ impl UnitAIUpdate {
                 .write()
                 .map_err(|_| "unit lock poisoned during locomotor xfer".to_string())?;
             let guard = &mut *guard;
+            let mut current_name = guard.locomotor_set.active_name().map(|name| name.to_string());
             guard
                 .locomotor_set
-                .xfer_self_and_cur_loco_ptr(xfer, &mut guard.current_locomotor)?;
+                .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
         } else {
             let mut empty_set = LocomotorSet::new();
-            let mut current_locomotor = None;
-            empty_set.xfer_self_and_cur_loco_ptr(xfer, &mut current_locomotor)?;
+            let mut current_name = None;
+            empty_set.xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;
         }
 
         let mut current_locomotor_set = self.current_locomotor_set as i32;

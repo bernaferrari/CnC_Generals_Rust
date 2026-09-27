@@ -76,6 +76,8 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 pub struct AIGuardState {
     pub(crate) base: State,
     pub(crate) guard_machine: Option<AIGuardMachine>,
+    enter_mode: i32,
+    enter_polygon: Option<Arc<PolygonTrigger>>,
 }
 
 impl AIGuardState {
@@ -83,6 +85,8 @@ impl AIGuardState {
         Self {
             base: State::new(machine, "AIGuard"),
             guard_machine: None,
+            enter_mode: 0,
+            enter_polygon: None,
         }
     }
 }
@@ -92,8 +96,84 @@ impl StateImplementation for AIGuardState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
+    fn bind_goal_squad(
+        &mut self,
+        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
+    ) {
+        self.base.goal_squad_copied = squad;
+    }
+
+    fn bind_goal_polygon(
+        &mut self,
+        polygon: Option<std::sync::Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.base.goal_polygon_copied = polygon;
+    }
+
+    fn note_guard_enter(&mut self, mode: i32, polygon: Option<Arc<PolygonTrigger>>) {
+        self.enter_mode = mode;
+        self.enter_polygon = polygon;
+    }
+
+    fn freezes_parent_during_update(&self) -> bool {
+        true
+    }
+    fn on_enter_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+    ) -> StateReturnType {
+        if dual_world_registry_unavailable() {
+            return StateReturnType::Failure;
+        }
+        let Some(owner) = self.base.get_machine_owner() else {
+            return StateReturnType::Failure;
+        };
+        let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner));
+        if let Some(polygon) = self.enter_polygon.clone() {
+            guard_machine.set_area_to_guard(Some(polygon.clone()));
+            let center = polygon.get_center_point();
+            guard_machine.set_target_position_to_guard(&center);
+        } else if goal_id != crate::common::INVALID_ID {
+            if let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+            {
+                guard_machine.set_target_to_guard(Some(&target));
+            } else {
+                guard_machine.set_target_position_to_guard(&goal_pos);
+            }
+        } else {
+            guard_machine.set_target_position_to_guard(&goal_pos);
+        }
+        guard_machine.set_guard_mode(GuardMode::from_i32(self.enter_mode));
+        if guard_machine.init_default_state().is_failure() {
+            return StateReturnType::Failure;
+        }
+        let result = guard_machine.set_state(GuardStateType::Return);
+        self.guard_machine = Some(guard_machine);
+        result
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+    fn update_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let Some(guard_machine) = self.guard_machine.as_mut() else {
+            return StateReturnType::Failure;
+        };
+        guard_machine.update()
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -114,6 +194,18 @@ impl ClassicState for AIGuardState {
         &mut self.base
     }
 
+    fn classic_note_guard_enter(
+        &mut self,
+        mode: i32,
+        polygon: Option<Arc<PolygonTrigger>>,
+    ) {
+        self.enter_mode = mode;
+        self.enter_polygon = polygon;
+    }
+
+    fn classic_freezes_parent_during_update(&self) -> bool {
+        true
+    }
     fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::xfer(self, xfer)
     }
@@ -150,10 +242,9 @@ impl ClassicState for AIGuardState {
             .base
             .get_machine()
             .ok()
-            .and_then(|machine| machine.lock().ok().map(|guard| guard.get_guard_mode_raw()))
-            .map(GuardMode::from_i32)
-            .unwrap_or(GuardMode::Normal);
-        guard_machine.set_guard_mode(guard_mode);
+            .and_then(|machine| machine.try_lock().ok().map(|guard| guard.get_guard_mode_raw()))
+            .unwrap_or(self.enter_mode);
+        guard_machine.set_guard_mode(GuardMode::from_i32(guard_mode));
 
         if guard_machine.init_default_state().is_failure() {
             return Ok(StateReturnType::Failure);
@@ -168,15 +259,6 @@ impl ClassicState for AIGuardState {
         let Some(guard_machine) = self.guard_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
-
-        if let Ok(machine) = self.base.get_machine() {
-            if let Ok(mut machine_guard) = machine.lock() {
-                machine_guard.lock();
-                let result = guard_machine.update();
-                machine_guard.unlock();
-                return Ok(result);
-            }
-        }
 
         Ok(guard_machine.update())
     }
@@ -224,6 +306,28 @@ impl AIGuardRetaliateState {
 impl StateImplementation for AIGuardRetaliateState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
+    fn bind_goal_squad(
+        &mut self,
+        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
+    ) {
+        self.base.goal_squad_copied = squad;
+    }
+
+    fn bind_goal_polygon(
+        &mut self,
+        polygon: Option<std::sync::Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.base.goal_polygon_copied = polygon;
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -331,6 +435,28 @@ impl StateImplementation for AITunnelNetworkGuardState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
+    fn bind_goal_squad(
+        &mut self,
+        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
+    ) {
+        self.base.goal_squad_copied = squad;
+    }
+
+    fn bind_goal_polygon(
+        &mut self,
+        polygon: Option<std::sync::Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.base.goal_polygon_copied = polygon;
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
@@ -386,15 +512,6 @@ impl ClassicState for AITunnelNetworkGuardState {
         let Some(guard_machine) = self.guard_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
-
-        if let Ok(machine) = self.base.get_machine() {
-            if let Ok(mut machine_guard) = machine.lock() {
-                machine_guard.lock();
-                let result = guard_machine.update();
-                machine_guard.unlock();
-                return Ok(result);
-            }
-        }
 
         Ok(guard_machine.update())
     }
@@ -568,13 +685,8 @@ fn clear_owner_guard_target_type(state: &State) {
     let Some(owner) = state.get_machine_owner() else {
         return;
     };
-    let Ok(owner_guard) = owner.read() else {
+    let Ok(mut owner_guard) = owner.write() else {
         return;
     };
-    let Some(ai) = owner_guard.get_ai_update_interface() else {
-        return;
-    };
-    if let Ok(mut ai_guard) = ai.lock() {
-        ai_guard.clear_guard_target_type();
-    }
+    owner_guard.ai_pending_clear_guard_target = true;
 }

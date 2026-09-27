@@ -156,14 +156,14 @@ impl TheGameLogic {
 
     /// Get the global map/script rank cap.
     pub fn get_rank_level_limit() -> Int {
-        crate::system::game_logic::get_game_logic()
-            .lock()
-            .map(|logic| logic.get_rank_level_limit())
-            .unwrap_or(1000)
+        crate::system::game_logic::rank_level_limit_now()
     }
 
     /// Set the global map/script rank cap.
     pub fn set_rank_level_limit(level: Int) {
+        if crate::system::game_logic::note_rank_level_limit_during_update(level) {
+            return;
+        }
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_rank_level_limit(level);
         }
@@ -715,6 +715,14 @@ impl TheGameLogic {
 
         Ok(())
     }
+    pub fn ai_update_already_due(object_id: ObjectID, now: UnsignedInt) -> bool {
+        let mutex = crate::system::game_logic::get_game_logic();
+        let Ok(logic) = mutex.lock() else {
+            return false;
+        };
+        logic.ai_update_already_due(object_id, now)
+    }
+
 
     /// Remove an update module from the global scheduler.
     pub fn unregister_update_module(

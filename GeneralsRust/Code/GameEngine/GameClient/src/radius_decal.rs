@@ -62,6 +62,8 @@ pub struct ShadowTypeInfo {
     pub shadow_name: AsciiString,
     pub size_x: Real,
     pub size_y: Real,
+    pub offset_x: Real,
+    pub offset_y: Real,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +72,8 @@ pub struct ShadowDecal {
     angle: Real,
     color: u32,
     position: Coord3D,
+    /// C++ `m_decalOffsetU/V` = offset * (1/size).
+    uv_offset: (Real, Real),
     opacity: i32,
     active: Bool,
     /// C++ `addShadow` / `m_shadowList` blob, not `addDecal` / `m_decalList`.
@@ -83,6 +87,7 @@ impl ShadowDecal {
             angle: 0.0,
             color: 0xFFFF_FFFF,
             position: Coord3D::new(0.0, 0.0, 0.0),
+            uv_offset: (0.0, 0.0),
             opacity: 255,
             active: true,
             is_unit_blob: false,
@@ -101,6 +106,11 @@ impl ShadowDecal {
         self.position = Coord3D::new(x, y, z);
     }
 
+
+    fn set_size(&mut self, x: Real, y: Real) {
+        self.info.size_x = x;
+        self.info.size_y = y;
+    }
     fn set_opacity(&mut self, opacity: i32) {
         self.opacity = opacity;
     }
@@ -128,6 +138,10 @@ impl ShadowHandle {
 
     pub fn set_opacity(&self, opacity: i32) {
         self.0.lock().set_opacity(opacity);
+    }
+
+    pub fn set_size(&self, x: Real, y: Real) {
+        self.0.lock().set_size(x, y);
     }
 
     pub fn release(&self) {
@@ -168,6 +182,14 @@ impl ProjectedShadowManager {
         }
 
         let mut decal = ShadowDecal::new(info.clone());
+        let oow_x = if info.size_x == 0.0 { 0.0 } else { 1.0 / info.size_x };
+        let oow_y = if info.size_y == 0.0 { 0.0 } else { 1.0 / info.size_y };
+        // `addDecal` is `+offset/size`. `addShadow` inverts the size, so X flips.
+        decal.uv_offset = if is_unit_blob {
+            (-info.offset_x * oow_x, info.offset_y * oow_y)
+        } else {
+            (info.offset_x * oow_x, info.offset_y * oow_y)
+        };
         decal.is_unit_blob = is_unit_blob;
         let handle = ShadowHandle(Arc::new(Mutex::new(decal)));
         self.decals.push(handle.clone());
@@ -216,6 +238,7 @@ impl ProjectedShadowManager {
                 color: argb_u32_to_rgba(decal.color, opacity),
                 texture_name: decal.info.shadow_name.as_str().to_string(),
                 shadow_type: decal.info.shadow_type,
+                uv_offset: [decal.uv_offset.0, decal.uv_offset.1],
             });
         }
         items
@@ -326,6 +349,8 @@ pub fn enqueue_delivery_decal_argb(
         shadow_name: AsciiString::from(texture),
         size_x: radius * 2.0,
         size_y: radius * 2.0,
+        offset_x: 0.0,
+        offset_y: 0.0,
     };
     let handle = get_projected_shadow_manager().write().add_decal(&info)?;
     handle.set_angle(0.0);
@@ -475,6 +500,8 @@ impl RadiusDecalTemplate {
                 shadow_name: self.name.clone(),
                 size_x: radius * 2.0,
                 size_y: radius * 2.0,
+                offset_x: 0.0,
+                offset_y: 0.0,
             };
 
             let decal = get_projected_shadow_manager()
@@ -752,6 +779,8 @@ mod tests {
             shadow_name: AsciiString::from("test"),
             size_x: 1.0,
             size_y: 1.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
         }))))
     }
 
@@ -829,6 +858,8 @@ mod tests {
             shadow_name: AsciiString::from("EXScudStorm"),
             size_x: 80.0,
             size_y: 80.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
         };
         let handle = manager.add_decal(&info).expect("valid decal");
         handle.set_position(10.0, 20.0, 3.0);
@@ -873,6 +904,8 @@ mod tests {
             shadow_name: AsciiString::from("shadow"),
             size_x: 20.0,
             size_y: 20.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
         };
         let ring_info = ShadowTypeInfo {
             allow_updates: false,
@@ -881,6 +914,8 @@ mod tests {
             shadow_name: AsciiString::from("SCCScudStorm_GLA"),
             size_x: 80.0,
             size_y: 80.0,
+            offset_x: 0.0,
+            offset_y: 0.0,
         };
 
         if let Ok(mut runtime) = game_engine::common::global_data::write_safe() {

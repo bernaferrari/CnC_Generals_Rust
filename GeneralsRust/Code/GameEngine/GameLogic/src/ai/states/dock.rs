@@ -94,6 +94,14 @@ impl StateImplementation for AIDockState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
@@ -149,17 +157,13 @@ impl ClassicState for AIDockState {
             return Ok(StateReturnType::Failure);
         };
 
-        if let Ok(owner_guard) = owner.try_read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ignore_obstacle(goal.read().ok().map(|g| g.get_id()));
-                }
-            }
+        if let Ok(mut owner_guard) = owner.write() {
+            owner_guard.ai_pending_ignore_id = Some(goal_id);
         }
 
         let dock_machine = AIDockMachine::new(owner.clone())?;
         let init_result = if let Ok(mut machine) = dock_machine.state_machine.lock() {
-            machine.set_goal_object_by_id(goal.read().ok().map(|g| g.get_id()));
+            machine.set_goal_object_by_id(Some(goal_id));
             Some(machine.init_default_state())
         } else {
             None
@@ -178,12 +182,8 @@ impl ClassicState for AIDockState {
         };
 
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.try_read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_can_path_through_units(true);
-                    }
-                }
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_path_through_units = Some(true);
             }
         }
 
@@ -206,13 +206,9 @@ impl ClassicState for AIDockState {
 
         let owner = self.base.get_machine_owner();
         if let Some(owner) = owner {
-            if let Ok(owner_guard) = owner.try_read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_can_path_through_units(false);
-                        let _ = ai_guard.ignore_obstacle(None);
-                    }
-                }
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_path_through_units = Some(false);
+                owner_guard.ai_pending_clear_ignore = true;
             }
         }
         Ok(())

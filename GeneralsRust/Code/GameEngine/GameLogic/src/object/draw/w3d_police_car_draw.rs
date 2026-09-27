@@ -46,19 +46,13 @@ impl DrawModuleData for W3DPoliceCarDrawModuleData {
 }
 impl Snapshotable for W3DPoliceCarDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.crc(xfer)
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -86,9 +80,12 @@ impl W3DPoliceCarDraw {
     }
     /// Leftover C++ `doDrawModule` light residual driven by live host pose.
     fn tick_live_light(&mut self, position: [f32; 3]) {
-        self.cur_frame += 0.25;
-        if self.cur_frame > 14.0 {
-            self.cur_frame = 0.0;
+        let frames = self.base.anim_frame_count();
+        if self.base.has_bound_animation() && frames > 1 {
+            self.cur_frame += 0.25;
+            if self.cur_frame > frames as Real - 1.0 {
+                self.cur_frame = 0.0;
+            }
         }
         let (red, green, blue) = police_light_color(self.cur_frame);
         if self.light_id.is_none() {
@@ -134,9 +131,16 @@ impl Module for W3DPoliceCarDraw {
 }
 impl DrawModule for W3DPoliceCarDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        self.cur_frame += 0.25;
-        if self.cur_frame > 14.0 {
-            self.cur_frame = 0.0;
+        // C++ returns before the light and the truck draw when the render object is null.
+        if !self.base.has_render_model() {
+            return;
+        }
+        let frames = self.base.anim_frame_count();
+        if self.base.has_bound_animation() && frames > 1 {
+            self.cur_frame += 0.25;
+            if self.cur_frame > frames as Real - 1.0 {
+                self.cur_frame = 0.0;
+            }
         }
         let (red, green, blue) = police_light_color(self.cur_frame);
         if self.light_id.is_none() {
@@ -147,7 +151,10 @@ impl DrawModule for W3DPoliceCarDraw {
             if let Some(owner_id) = self.base.owner_id() {
                 if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
                     if let Ok(owner_guard) = owner.read() {
-                        pos = *owner_guard.get_position();
+                        pos = owner_guard
+                            .get_drawable()
+                            .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_position()))
+                            .unwrap_or_else(|| *owner_guard.get_position());
                     }
                 }
             }
@@ -161,16 +168,6 @@ impl DrawModule for W3DPoliceCarDraw {
             );
         }
         self.base.do_draw_module(transform_mtx);
-        if let Some(owner_id) = self.base.owner_id() {
-            if let Some(client) = TheGameClient::get() {
-                if let Some(mut state) =
-                    client.with_active_object_model_draw(owner_id, |state| state.clone())
-                {
-                    state.animation_time = (self.cur_frame / 14.0).clamp(0.0, 1.0);
-                    client.set_active_object_model_draw(owner_id, state);
-                }
-            }
-        }
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
         self.base.set_shadows_enabled(enable);

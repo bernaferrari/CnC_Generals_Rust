@@ -442,7 +442,12 @@ impl GameLogic {
                 jet.movement.path = vec![end];
                 jet.movement.current_path_index = 0;
                 jet.movement.target_position = Some(end);
-                jet.set_ai_state(AIState::Moving);
+                jet.is_attack_path = false;
+                jet.is_exact_path = false;
+                jet.refresh_follow_path_extra_distance();
+                if jet.ai_state != AIState::Moving {
+                    jet.set_ai_state(AIState::Moving);
+                }
                 jet.set_status_moving(true);
             }
         }
@@ -541,12 +546,23 @@ impl GameLogic {
         if !at_wreck {
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.leave_circling_dead_airfield();
-                jet.target = None;
-                jet.set_status_attacking(false);
-                jet.set_ai_state(AIState::Moving);
+                if jet.target.is_some() || jet.target_location.is_some() {
+                    jet.target = None;
+                    jet.target_location = None;
+                    jet.record_host_target_location();
+                    jet.set_status_attacking(false);
+                }
+                if jet.ai_state != AIState::Moving {
+                    jet.set_ai_state(AIState::Moving);
+                }
             }
-            if let Some(goal) = goal {
-                let _ = self.assign_unit_path(jet_id, goal, &[]);
+            let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
+                jet.movement.path.is_empty() && !jet.waiting_for_path
+            });
+            if need_path {
+                if let Some(goal) = goal {
+                    let _ = self.assign_unit_path(jet_id, goal, &[]);
+                }
             }
             return;
         }
@@ -644,7 +660,9 @@ impl GameLogic {
             jet.status.airborne_target = true;
             // C++ HeliTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:975-976).
             jet.set_precise_z_and_ultra_accurate(true);
-            jet.set_ai_state(AIState::Moving);
+            if jet.ai_state != AIState::Moving {
+                jet.set_ai_state(AIState::Moving);
+            }
             jet.set_status_moving(true);
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;
@@ -2220,7 +2238,12 @@ impl GameLogic {
                 jet.movement.path = taxi.clone();
                 jet.movement.current_path_index = 0;
                 jet.movement.target_position = Some(dest);
-                jet.set_ai_state(AIState::Moving);
+                jet.is_attack_path = false;
+                jet.is_exact_path = false;
+                jet.refresh_follow_path_extra_distance();
+                if jet.ai_state != AIState::Moving {
+                    jet.set_ai_state(AIState::Moving);
+                }
                 jet.set_status_moving(true);
             }
         }
@@ -2794,6 +2817,15 @@ impl GameLogic {
                 jet.set_status_attacking(false);
             }
             self.release_airfield_runway_for_jet(jet_id);
+            let was_taxi = phase >= crate::game_logic::object::JET_RTB_PHASE_TAXI;
+            if was_taxi {
+                let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
+                    jet.movement.path.is_empty() && !jet.waiting_for_path
+                });
+                if !need_path {
+                    return true;
+                }
+            }
             let mut taxi = vec![prep];
             if let Some(inter) = intermediate {
                 taxi.push(inter);
@@ -2803,17 +2835,20 @@ impl GameLogic {
         }
 
         if horiz_dist_sq(jet_position, approach) > APPROACH_RANGE_SQ {
+            let was_approach = phase == crate::game_logic::object::JET_RTB_PHASE_APPROACH;
+            let mut entered_move = false;
             if let Some(jet) = self.objects.get_mut(&jet_id) {
                 jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_APPROACH;
                 jet.jet_ai.landing_in_progress = true;
                 jet.apply_airborne_locomotor_set();
                 jet.target = None;
                 jet.set_status_attacking(false);
-                jet.set_ai_state(AIState::Moving);
+                entered_move = jet.ai_state != AIState::Moving;
+                if entered_move {
+                    jet.set_ai_state(AIState::Moving);
+                }
             }
-            // Host-immediate Moving + decision log (dock pattern): GameWorld
-            // stays last-writer for the RTB AI state under decision authority.
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
                     &AIState::Moving,
                 );
@@ -2825,25 +2860,42 @@ impl GameLogic {
             // raw goal. Install the approach leg directly when the leftover
             // pathfinder refuses an off-grid air goal so an accepted landing
             // command is not rejected after its reservation was made.
+            if was_approach {
+                let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
+                    jet.movement.path.is_empty() && !jet.waiting_for_path
+                });
+                if !need_path {
+                    return true;
+                }
+            }
             return self.assign_rtb_path(jet_id, &[approach]);
         }
 
+        let was_landing = self.objects.get(&jet_id).is_some_and(|jet| {
+            jet.jet_ai.rtb_landing_phase == crate::game_logic::object::JET_RTB_PHASE_LANDING
+        });
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             if jet.jet_ai.rtb_landing_phase != crate::game_logic::object::JET_RTB_PHASE_LANDING {
-                // C++ JetTakeoffOrLandingState::onEnter m_landingSoundPlayed = FALSE
                 jet.jet_ai.landing_sound_played = false;
             }
             jet.jet_ai.rtb_landing_phase = crate::game_logic::object::JET_RTB_PHASE_LANDING;
             jet.jet_ai.landing_in_progress = true;
             jet.apply_airborne_locomotor_set();
-            // C++ JetTakeoffOrLandingState::onEnter (JetAIUpdate.cpp:725-726).
             jet.set_precise_z_and_ultra_accurate(true);
-            // C++ JetTakeoffOrLandingState::onEnter landing: setMaxSpeed(getMinSpeed()).
             if jet.min_speed > 0.0 {
                 jet.movement.max_speed = jet.min_speed;
             }
             jet.target = None;
             jet.set_status_attacking(false);
+        }
+        if was_landing {
+            let need_path = self.objects.get(&jet_id).is_some_and(|jet| {
+                jet.movement.path.is_empty() && !jet.waiting_for_path
+            });
+            if !need_path {
+                self.maybe_play_jet_wheel_screech(jet_id);
+                return true;
+            }
         }
         let ok = self.assign_rtb_path(jet_id, &[approach, runway_end, runway_start]);
         self.maybe_play_jet_wheel_screech(jet_id);
@@ -2862,10 +2914,15 @@ impl GameLogic {
         if let Some(jet) = self.objects.get_mut(&jet_id) {
             jet.target = None;
             jet.set_status_attacking(false);
-            jet.set_ai_state(AIState::Moving);
+            if jet.ai_state != AIState::Moving {
+                jet.set_ai_state(AIState::Moving);
+            }
             jet.movement.path = points.to_vec();
             jet.movement.current_path_index = 0;
             jet.movement.target_position = Some(dest);
+            jet.is_attack_path = false;
+            jet.is_exact_path = false;
+            jet.refresh_follow_path_extra_distance();
             jet.set_status_moving(true);
         }
         true

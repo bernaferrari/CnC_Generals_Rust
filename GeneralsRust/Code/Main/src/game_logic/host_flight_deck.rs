@@ -885,7 +885,6 @@ impl GameLogic {
             }
             HostFlightDeckCommand::AttackMoveToPosition => {
                 jet.status.airborne_target = true;
-                jet.is_attack_path = true;
                 jet.set_destination(position);
                 jet.set_ai_state(AIState::AttackMoving);
             }
@@ -893,6 +892,9 @@ impl GameLogic {
                 jet.set_destination(stall_pos.unwrap_or(position));
                 jet.set_ai_state(AIState::Entering);
                 jet.status.airborne_target = false;
+                // Entering must pass the carrier. Do not keep the building
+                // the jet was attacking, and do not blank the ignore.
+                jet.ignored_obstacle_id = Some(carrier_id);
             }
             HostFlightDeckCommand::NoCommand => {}
         }

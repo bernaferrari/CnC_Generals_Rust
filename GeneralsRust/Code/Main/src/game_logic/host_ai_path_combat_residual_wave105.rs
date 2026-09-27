@@ -63,11 +63,11 @@ pub const MIN_CLUMP_DENSITY_RESIDUAL: f32 = 0.5;
 pub const SKIRMISH_GROUP_FUDGE_DISTANCE_RESIDUAL: f32 = 5.0;
 /// Retail GameData.ini `GroupMoveClickToGatherAreaFactor` residual.
 pub const GROUP_MOVE_CLICK_TO_GATHER_FACTOR_RESIDUAL: f32 = 0.5;
-/// Retail AIData.ini `ForceIdleMSEC` residual (67 ms ≈ 2 frames).
+/// Retail AIData.ini `ForceIdleMSEC` residual (67 ms).
 pub const FORCE_IDLE_MSEC_RESIDUAL: u32 = 67;
-/// ForceIdle frames residual (ceil 67ms @ 30 FPS → 3? wait: 67*30/1000 = 2.01 → 3 with ceil, but comment says 2 frames).
-/// C++ TAiData ctor uses `m_forceIdleFramesCount(1)`; AIData ForceIdleMSEC=67 → ~2 frames.
-pub const FORCE_IDLE_FRAMES_RESIDUAL: u32 = 2;
+/// C++ `parseDurationUnsignedInt` ceils `67 * 0.03` to 3 frames.
+/// The `TAiData` ctor default of 1 is replaced when AIData.ini loads.
+pub const FORCE_IDLE_FRAMES_RESIDUAL: u32 = 3;
 
 /// C++ `CommandSourceType` residual ordinals (GameCommon.h).
 pub const CMD_FROM_PLAYER: u32 = 0;
@@ -298,7 +298,7 @@ pub fn honesty_ai_group_residual_pack_wave105() -> bool {
         && (SKIRMISH_GROUP_FUDGE_DISTANCE_RESIDUAL - 5.0).abs() < 0.001
         && (GROUP_MOVE_CLICK_TO_GATHER_FACTOR_RESIDUAL - 0.5).abs() < 0.001
         && FORCE_IDLE_MSEC_RESIDUAL == 67
-        && FORCE_IDLE_FRAMES_RESIDUAL == 2
+        && FORCE_IDLE_FRAMES_RESIDUAL == 3
         && group_path_should_engage_infantry(3, 100.0)
         && !group_path_should_engage_infantry(2, 100.0)
         && group_path_should_engage_infantry(1, 500.0)

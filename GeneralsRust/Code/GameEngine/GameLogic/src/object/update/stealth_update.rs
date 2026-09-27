@@ -1315,6 +1315,7 @@ impl StealthUpdate {
         }
     }
 
+
     pub fn get_controller(&self) -> Arc<Mutex<StealthUpdateController>> {
         self.controller.clone()
     }

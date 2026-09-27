@@ -336,7 +336,7 @@ impl Object {
             if self.production_door_phases[i] == 0 {
                 continue;
             }
-            if now < self.production_door_phase_end_frames[i] {
+            if now <= self.production_door_phase_end_frames[i] {
                 continue;
             }
             advanced = true;
@@ -888,7 +888,11 @@ impl Object {
             host_apply_body_damage_model_bits, host_calc_body_damage_state,
         };
         let health = self.health.current;
-        let max_h = self.health.maximum.max(0.0);
+        let max_h = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health.max(0.0)
+        };
         let old_state = self.body_damage_state;
         let state = if self.status.destroyed || health <= 0.0 {
             HostBodyDamageType::Rubble

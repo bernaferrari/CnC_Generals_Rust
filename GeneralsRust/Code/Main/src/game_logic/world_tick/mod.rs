@@ -7,6 +7,7 @@ mod ai;
 mod airfield;
 mod attack;
 mod collide_dispatch;
+pub(in super::super) use collide_dispatch::host_object_footprint;
 mod collide_modules;
 
 mod combat;

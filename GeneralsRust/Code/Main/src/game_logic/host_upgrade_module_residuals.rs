@@ -846,6 +846,89 @@ pub fn apply_choose_locomotor_set(
     applied
 }
 
+/// C++ `chooseLocomotorSet` + `chooseLocomotorSetExplicit` (nulls the current
+/// locomotor) + `chooseGoodLocomotorFromCurrentSet`. A cell miss is the GROUND
+/// member, not the object-mask pick and not the previous locomotor. Pose flags
+/// clear only when the chosen member actually changes.
+pub fn apply_choose_locomotor_set_for_cell(
+    obj: &mut crate::game_logic::object::Object,
+    kind: HostLocomotorSetKind,
+    panicking: bool,
+    cell_surfaces: u32,
+) -> bool {
+    let prev = obj.cur_locomotor_name.clone();
+    let applied = apply_locomotor_set_for_cell_change(obj, kind, cell_surfaces, &prev);
+    obj.is_panicking = panicking;
+    let bit = crate::game_logic::host_enum_table_residual::panicking_model_bit();
+    if panicking {
+        obj.model_condition_bits |= 1u128 << bit;
+    } else {
+        obj.model_condition_bits &= !(1u128 << bit);
+    }
+    obj.record_host_model_condition();
+    applied
+}
+
+fn apply_locomotor_set_for_cell_change(
+    obj: &mut crate::game_logic::object::Object,
+    kind: HostLocomotorSetKind,
+    cell_surfaces: u32,
+    prev: &Option<String>,
+) -> bool {
+    let kind = if kind == HostLocomotorSetKind::Normal && obj.locomotor_upgrade {
+        HostLocomotorSetKind::NormalUpgraded
+    } else {
+        kind
+    };
+    let token = locomotor_set_kind_token(kind);
+    if obj.jet_ai.cur_locomotor_set.as_deref() == Some(token) {
+        return true;
+    }
+    let Some(sets) = obj.thing.template.authored_locomotor_sets.clone() else {
+        return apply_locomotor_set_kind(obj, kind);
+    };
+    let Some(row) = sets.into_iter().find(|row| row.kind == kind) else {
+        return false;
+    };
+    let names = row.members;
+    if names.iter().any(|name| {
+        crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(name).is_none()
+    }) {
+        return false;
+    }
+    let selected = crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+        &names,
+        cell_surfaces,
+    )
+    .or_else(|| {
+        crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
+            &names,
+            crate::game_logic::object::LOCO_SURFACE_GROUND,
+        )
+    });
+    let changed = match (prev.as_deref(), selected.as_deref()) {
+        (Some(prev_name), Some(next_name)) => !prev_name.eq_ignore_ascii_case(next_name),
+        (None, None) => false,
+        _ => true,
+    };
+    obj.locomotor_set_names = names;
+    obj.cur_locomotor_name = selected.clone();
+    obj.jet_ai.cur_locomotor_set = Some(token.to_string());
+    if let Some(name) = selected {
+        if let Some(binding) =
+            crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(&name)
+        {
+            crate::game_logic::locomotor_bootstrap::apply_host_locomotor_binding(obj, &binding);
+        }
+    }
+    if changed {
+        obj.precise_z_pos = false;
+        obj.no_slow_down_as_approaching_dest = false;
+        obj.ultra_accurate = false;
+    }
+    true
+}
+
 /// C++ `LocomotorSetUpgrade::upgradeImplementation` live apply.
 /// Sets `m_upgradedLocomotors` and installs SET_NORMAL_UPGRADED only when this
 /// object authors the module (or a WorkerShoes / NuclearTanks residual peel).

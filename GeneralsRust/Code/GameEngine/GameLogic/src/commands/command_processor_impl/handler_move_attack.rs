@@ -213,6 +213,24 @@ impl DefaultCommandHandler {
             }
         }
 
+        if command.command.get_type() == CommandType::DoForceAttackObject {
+            for &attacker_id in &attacker_ids {
+                let _ = OBJECT_REGISTRY.with_object_mut(attacker_id, |obj| {
+                    obj.release_weapon_lock(WeaponLockType::LockedTemporarily);
+                });
+                let _ = OBJECT_REGISTRY.with_object(attacker_id, |obj| {
+                    if let Some(ai) = obj.get_ai_update_interface() {
+                        ai.ai_force_attack_object(
+                            target,
+                            NO_MAX_SHOTS_LIMIT,
+                            CommandSourceType::FromPlayer,
+                        );
+                    }
+                });
+            }
+            return CommandExecutionResult::Success;
+        }
+
         // Issue attack order to AI system
         if let Some(ai_manager) = &context.ai_manager {
             if let Ok(mut ai) = ai_manager.write() {
@@ -391,6 +409,14 @@ impl DefaultCommandHandler {
                         )));
                     }
                 }
+            }
+        }
+
+        if ai_command == crate::ai::AiCommandType::Enter {
+            for &object_id in &object_ids {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                    obj.release_weapon_lock(WeaponLockType::LockedTemporarily);
+                });
             }
         }
 
