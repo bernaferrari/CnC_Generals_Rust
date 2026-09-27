@@ -297,16 +297,14 @@ impl UpgradeEffectApplicator {
     fn apply_speed_bonus(object: &mut Object, bonus_percent: Real) -> Result<(), String> {
         let scalar = (1.0 + bonus_percent).max(0.0);
 
-        if let Some(locomotor) = object.get_locomotor() {
-            if let Ok(mut loco_guard) = locomotor.lock() {
-                let base_speed = loco_guard
-                    .get_max_speed_for_condition(crate::locomotor::core::BodyDamageType::Pristine);
-                let base_accel = loco_guard
-                    .get_max_acceleration(crate::locomotor::core::BodyDamageType::Pristine);
-                loco_guard.set_max_speed(base_speed * scalar);
-                loco_guard.set_max_acceleration(base_accel * scalar);
-            }
-        }
+        object.with_locomotor(&mut |loco| {
+            let base_speed =
+                loco.get_max_speed_for_condition(crate::locomotor::core::BodyDamageType::Pristine);
+            let base_accel =
+                loco.get_max_acceleration(crate::locomotor::core::BodyDamageType::Pristine);
+            loco.set_max_speed(base_speed * scalar);
+            loco.set_max_acceleration(base_accel * scalar);
+        });
 
         if let Some(ai) = object.get_ai_update_interface() {
             if let Ok(mut ai_guard) = ai.lock() {
@@ -320,13 +318,11 @@ impl UpgradeEffectApplicator {
     /// Apply turn-rate bonus to locomotor turn speed.
     fn apply_turn_rate_bonus(object: &mut Object, bonus_percent: Real) -> Result<(), String> {
         let scalar = (1.0 + bonus_percent).max(0.0);
-        if let Some(locomotor) = object.get_locomotor() {
-            if let Ok(mut loco_guard) = locomotor.lock() {
-                let base_turn =
-                    loco_guard.get_max_turn_rate(crate::locomotor::core::BodyDamageType::Pristine);
-                loco_guard.set_max_turn_rate(base_turn * scalar);
-            }
-        }
+        object.with_locomotor(&mut |loco| {
+            let base_turn =
+                loco.get_max_turn_rate(crate::locomotor::core::BodyDamageType::Pristine);
+            loco.set_max_turn_rate(base_turn * scalar);
+        });
         Ok(())
     }
 
@@ -490,32 +486,28 @@ impl UpgradeEffectApplicator {
             UpgradeEffectType::SpeedBonus => {
                 if effect.modifier > -1.0 {
                     let scalar = (1.0 + effect.modifier).max(0.0001);
-                    if let Some(locomotor) = object.get_locomotor() {
-                        if let Ok(mut loco_guard) = locomotor.lock() {
-                            let speed = loco_guard.get_max_speed_for_condition(
-                                crate::locomotor::core::BodyDamageType::Pristine,
-                            );
-                            let accel = loco_guard.get_max_acceleration(
-                                crate::locomotor::core::BodyDamageType::Pristine,
-                            );
-                            loco_guard.set_max_speed(speed / scalar);
-                            loco_guard.set_max_acceleration(accel / scalar);
-                        }
-                    }
+                    object.with_locomotor(&mut |loco| {
+                        let speed = loco.get_max_speed_for_condition(
+                            crate::locomotor::core::BodyDamageType::Pristine,
+                        );
+                        let accel = loco.get_max_acceleration(
+                            crate::locomotor::core::BodyDamageType::Pristine,
+                        );
+                        loco.set_max_speed(speed / scalar);
+                        loco.set_max_acceleration(accel / scalar);
+                    });
                 }
                 Ok(())
             }
             UpgradeEffectType::TurnRateBonus => {
                 if effect.modifier > -1.0 {
                     let scalar = (1.0 + effect.modifier).max(0.0001);
-                    if let Some(locomotor) = object.get_locomotor() {
-                        if let Ok(mut loco_guard) = locomotor.lock() {
-                            let turn = loco_guard.get_max_turn_rate(
-                                crate::locomotor::core::BodyDamageType::Pristine,
-                            );
-                            loco_guard.set_max_turn_rate(turn / scalar);
-                        }
-                    }
+                    object.with_locomotor(&mut |loco| {
+                        let turn = loco.get_max_turn_rate(
+                            crate::locomotor::core::BodyDamageType::Pristine,
+                        );
+                        loco.set_max_turn_rate(turn / scalar);
+                    });
                 }
                 Ok(())
             }

@@ -284,6 +284,7 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
 
     if version >= 5 {
         xfer.xfer_int(&mut logic.rank_level_limit)?;
+        publish_rank_cap_if_live(logic);
     }
 
     if version >= 6 {

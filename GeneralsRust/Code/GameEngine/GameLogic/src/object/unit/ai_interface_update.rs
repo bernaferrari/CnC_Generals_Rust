@@ -12,6 +12,77 @@ use super::registry::{
 use super::types::*;
 
 impl UnitAIUpdate {
+    fn apply_pending_assaults(&mut self) {
+        let Some(owner_id) = self.owner_object_id() else {
+            return;
+        };
+        let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) else {
+            return;
+        };
+        let Ok(mut owner) = owner_arc.try_write() else {
+            return;
+        };
+        let pending = owner.weapon_set.take_pending_assaults();
+        drop(owner);
+        let Some(assault) = self.get_assault_transport_ai_update_interface() else {
+            return;
+        };
+        for target in pending {
+            assault.begin_assault(target);
+        }
+    }
+
+    fn apply_deferred_idle_mood_target(
+        &mut self,
+        turret: &std::sync::Arc<std::sync::Mutex<crate::ai::turret::TurretAI>>,
+    ) {
+        let adjustment =
+            self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Idle);
+        if (adjustment & crate::ai::mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL) != 0 {
+            return;
+        }
+        let Some(enemy) = self.get_next_mood_target(true, true) else {
+            return;
+        };
+        if let Some(owner_id) = self.owner_object_id() {
+            if let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) {
+                if let (Ok(mut owner_write), Ok(target_guard)) = (owner_arc.try_write(), enemy.read())
+                {
+                    let _ = owner_write.choose_best_weapon_for_target(
+                        &target_guard,
+                        crate::weapon::WeaponChoiceCriteria::PreferMostDamage,
+                        crate::common::CommandSourceType::FromAi,
+                    );
+                }
+            }
+        }
+        let enemy_id = enemy.read().ok().map(|guard| guard.get_id());
+        let parts = turret.lock().ok().map(|mut guard| {
+            guard.assign_idle_mood_target(enemy_id);
+            guard.set_next_mood_check_cached(self.get_next_mood_check_time());
+            guard.export_idle_goal()
+        });
+        if let Some((machine, kind, target, pos)) = parts {
+            crate::ai::turret::TurretAI::sync_machine_goal(machine, kind, target, pos);
+        }
+        let idle_id = crate::ai::turret::TurretStateType::Idle.into();
+        let still_idle = turret
+            .lock()
+            .ok()
+            .and_then(|guard| guard.export_idle_goal().0)
+            .and_then(|weak| weak.upgrade())
+            .and_then(|machine| machine.lock().ok().and_then(|guard| guard.get_current_state_id()))
+            == Some(idle_id);
+        if still_idle {
+            if let Ok(mut guard) = turret.lock() {
+                let next = guard.get_sleep_until().min(self.get_next_mood_check_time());
+                guard.set_sleep_until(next);
+            }
+        } else if let Ok(mut guard) = turret.lock() {
+            guard.set_sleep_until(0);
+        }
+    }
+
     pub(super) fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
         const FACADE_WAYPOINT_ID: u32 = 0x00FA_CADE;
 
@@ -180,8 +251,7 @@ impl UnitAIUpdate {
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.can_path_through_units)
             .map_err(|e| e.to_string())?;
-        let mut randomly_offset_mood_check = false;
-        xfer.xfer_bool(&mut randomly_offset_mood_check)
+        xfer.xfer_bool(&mut self.randomly_offset_mood_check)
             .map_err(|e| e.to_string())?;
         xfer.xfer_object_id(&mut self.repulsor1)
             .map_err(|e| e.to_string())?;
@@ -339,7 +409,124 @@ impl UnitAIUpdate {
             self.jet_ai = Some(jet_ai);
         }
 
-        if let Some(state_machine) = self.ai_state_machine.as_ref() {
+        let attack_adjust = self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
+        let attack_ok = (attack_adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0;
+        let has_primary = self.turret_primary_machine.is_some();
+        let has_secondary = self.turret_secondary_machine.is_some();
+        let linked = self.turrets_linked;
+        let primary_enabled = self.turret_primary_enabled;
+        let secondary_enabled = self.turret_secondary_enabled;
+        let current_victim = self.get_current_victim();
+        let original_victim_pos = self.original_victim_pos;
+        let last_command_source = self.last_command_source;
+        let which_turret = self.get_which_turret_for_cur_weapon();
+        let primary_turn_rate = self.get_turret_turn_rate(crate::common::TurretType::Primary);
+        let secondary_turn_rate = self.get_turret_turn_rate(crate::common::TurretType::Secondary);
+        let state_id = self.get_current_state_id();
+        let mood_target = self.get_next_mood_target_id(true, false);
+        let ground_movement = self.is_doing_ground_movement();
+        let mut can_turn_in_place = false;
+        let mut ultra_accurate = false;
+        let mut loco_appearance = None;
+        self.with_cur_locomotor(&mut |loco| {
+            can_turn_in_place = loco.template.min_speed == 0.0;
+            ultra_accurate = loco.is_ultra_accurate();
+            loco_appearance = Some(loco.get_appearance());
+        });
+        let next_mood_check = self.get_next_mood_check_time();
+        let idle_mood_adjust =
+            self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Idle);
+        let crate_id = self.check_for_crate_to_pickup_id();
+        let idle_attack = self.get_next_mood_target_id(true, true);
+        let locomotor_speed = self.get_cur_locomotor_speed();
+        let blocked_and_stuck = self.is_blocked_and_stuck();
+        let has_path = self.get_path().is_some();
+        let waiting_for_path = self.is_waiting_for_path();
+        let has_path_destination = self.get_path_destination().is_some();
+        let path_destination = self.get_path_destination();
+        let is_moving = self.is_moving();
+        let waypoint_queue_empty = self.is_waypoint_queue_empty();
+        let hacking = self
+            .get_hack_internet_ai_update_interface()
+            .is_some_and(|hack| hack.is_hacking_packing_or_unpacking());
+        let desired_speed = self.get_desired_speed();
+        let is_idle = self.is_idle();
+        if let Some(owner_id) = self.owner_object_id() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_fire_attack_ok = attack_ok;
+                owner.ai_fire_turrets_linked = linked;
+                owner.ai_fire_has_primary = has_primary;
+                owner.ai_fire_has_secondary = has_secondary;
+                owner.ai_fire_primary_enabled = primary_enabled;
+                owner.ai_fire_secondary_enabled = secondary_enabled;
+                owner.ai_fire_current_victim = current_victim;
+                owner.ai_fire_original_victim_pos = original_victim_pos;
+                owner.ai_fire_last_command_source = last_command_source;
+                owner.ai_fire_pending_victim = None;
+                owner.ai_fire_which_turret = which_turret;
+                owner.ai_fire_state_id = state_id;
+                owner.ai_fire_waiting_for_path = waiting_for_path;
+                owner.ai_fire_has_path_destination = has_path_destination;
+                owner.ai_fire_path_destination = path_destination;
+                owner.ai_fire_is_moving = is_moving;
+                owner.ai_fire_waypoint_queue_empty = waypoint_queue_empty;
+                owner.ai_pending_completed_waypoint = None;
+                owner.ai_pending_precise_z = None;
+                owner.ai_pending_goal_path_index = None;
+                owner.ai_fire_in_rappel = self.is_in_rappel_state();
+                owner.ai_fire_combat_drop = self.is_doing_combat_drop();
+                owner.ai_fire_hacking = hacking;
+                owner.ai_fire_hack_known = true;
+                owner.ai_fire_desired_speed = desired_speed;
+                owner.ai_fire_primary_turn_rate = primary_turn_rate;
+                owner.ai_fire_secondary_turn_rate = secondary_turn_rate;
+                owner.ai_fire_ultra_accurate = ultra_accurate;
+                owner.ai_fire_loco_appearance = loco_appearance;
+                owner.ai_fire_mood_target = (mood_target != crate::common::INVALID_ID).then_some(mood_target);
+                owner.ai_fire_ground_movement = ground_movement;
+                owner.ai_fire_is_idle = is_idle;
+                owner.ai_fire_ultra_accurate = ultra_accurate;
+                owner.ai_fire_next_mood_check = next_mood_check;
+                owner.ai_fire_idle_mood_adjust = idle_mood_adjust;
+                owner.ai_fire_crate_id = crate_id;
+                owner.ai_fire_mood_value = self.get_mood_matrix_value();
+                owner.ai_fire_idle_attack_target =
+                    (idle_attack != crate::common::INVALID_ID).then_some(idle_attack);
+                owner.ai_pending_move_crate = None;
+                owner.ai_pending_attack_id = None;
+                owner.ai_pending_attack_move = None;
+                owner.ai_pending_attack_follow_waypoint = None;
+                owner.ai_pending_attack_follow_as_team = false;
+                owner.ai_pending_state_id = None;
+                owner.ai_pending_clear_guard_target = false;
+                owner.ai_fire_can_turn_in_place = can_turn_in_place;
+                owner.ai_fire_locomotor_speed = locomotor_speed;
+                owner.ai_fire_blocked_and_stuck = blocked_and_stuck;
+                owner.ai_fire_has_path = has_path;
+                owner.ai_fire_waiting_for_path = waiting_for_path;
+                owner.ai_pending_path_goal = None;
+                owner.ai_pending_ignore_id = None;
+                owner.ai_pending_path_extra = None;
+                owner.ai_pending_attack_path = None;
+                owner.ai_pending_original_victim_pos = None;
+                owner.ai_pending_clear_victim = false;
+                owner.ai_pending_clear_goal = false;
+                owner.ai_pending_set_victim = None;
+                owner.ai_pending_path_through_units = None;
+                owner.ai_pending_allow_invalid_position = None;
+                owner.ai_pending_goal_id = None;
+                owner.ai_pending_reset_mood = false;
+                owner.ai_pending_victim_dead = false;
+                owner.ai_pending_destroy_path = false;
+                owner.ai_pending_clear_ignore = false;
+                owner.ai_pending_goal_orientation = None;
+                owner.ai_pending_goal_position = None;
+                owner.ai_pending_goal_none = false;
+                owner.ai_pending_turret_objects.clear();
+                owner.ai_pending_turret_positions.clear();
+            });
+        }
+        if let Some(state_machine) = self.ai_state_machine.clone() {
             if let Ok(mut machine) = state_machine.lock() {
                 if self.ai_dead && machine.get_current_state_id() != Some(AIStateType::Dead as u32)
                 {
@@ -347,7 +534,411 @@ impl UnitAIUpdate {
                     let _ = machine.set_state(AIStateType::Dead as u32);
                     machine.lock();
                 }
-                let _ = machine.update_state_machine();
+                let _ = machine.update_state_machine(self);
+            }
+        }
+        if let Some(owner_id) = self.owner_object_id() {
+            let pending_state =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    owner.ai_pending_state_id.take()
+                });
+            if let Some(Some(state_id)) = pending_state {
+                self.enter_ai_state(state_id);
+            }
+        }
+        if let Some(owner_id) = self.owner_object_id() {
+            let pending = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_fire_pending_victim.take()
+            });
+            if let Some(Some(victim)) = pending {
+                self.notify_new_victim_chosen(victim);
+            }
+            let orders = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                (
+                    std::mem::take(&mut owner.ai_pending_turret_objects),
+                    std::mem::take(&mut owner.ai_pending_turret_positions),
+                )
+            });
+            if let Some((objects, positions)) = orders {
+                for (turret, target, force) in objects {
+                    self.set_turret_target_object(turret, target, force);
+                }
+                for (turret, pos) in positions {
+                    self.set_turret_target_position(turret, &pos);
+                }
+            }
+            let speed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_desired_speed.take()
+            });
+            if let Some(Some(speed)) = speed {
+                self.set_desired_speed(speed);
+            }
+            let clear_ignore = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let clear = owner.ai_pending_clear_ignore;
+                owner.ai_pending_clear_ignore = false;
+                clear
+            });
+            if clear_ignore == Some(true) {
+                let _ = self.ignore_obstacle(None);
+            }
+            let victim_dead = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let dead = owner.ai_pending_victim_dead;
+                owner.ai_pending_victim_dead = false;
+                dead
+            });
+            if victim_dead == Some(true) {
+                self.notify_victim_is_dead();
+            }
+            let destroy_path = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let destroy = owner.ai_pending_destroy_path;
+                owner.ai_pending_destroy_path = false;
+                destroy
+            });
+            if destroy_path == Some(true) {
+                self.destroy_path();
+            }
+            let ending_move = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let ending = owner.ai_pending_ending_move;
+                owner.ai_pending_ending_move = false;
+                ending
+            });
+            if ending_move == Some(true) {
+                self.friend_ending_move();
+            }
+            let completed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_completed_waypoint.take()
+            });
+            if let Some(Some(id)) = completed {
+                self.set_completed_waypoint_id(Some(id));
+            }
+            let precise_z = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_precise_z.take()
+            });
+            if let Some(Some(precise)) = precise_z {
+                self.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(precise));
+            }
+            let path_index = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_goal_path_index.take()
+            });
+            if let Some(Some(index)) = path_index {
+                let _ = self.set_current_goal_path_index(index);
+            }
+            let busy = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let busy = owner.ai_pending_busy;
+                owner.ai_pending_busy = false;
+                busy
+            });
+            if busy == Some(true) {
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Busy,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                let _ = self.execute_command(&params);
+            }
+            let drop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let drop = owner.ai_pending_combat_drop;
+                let obj = owner.ai_pending_combat_drop_obj.take();
+                let pos = owner.ai_pending_combat_drop_pos.take();
+                owner.ai_pending_combat_drop = false;
+                (drop, obj, pos)
+            });
+            if let Some((true, obj, pos)) = drop {
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::CombatDrop,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                params.obj = obj;
+                if let Some(pos) = pos {
+                    params.pos = pos;
+                }
+                let _ = self.execute_command(&params);
+            }
+            let hack = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let hack = owner.ai_pending_hack;
+                let source = owner.ai_pending_hack_source;
+                owner.ai_pending_hack = false;
+                (hack, source)
+            });
+            if let Some((true, source)) = hack {
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::HackInternet,
+                    source,
+                );
+                let _ = self.execute_command(&params);
+            }
+            let idle = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let idle = owner.ai_pending_idle;
+                let source = owner.ai_pending_idle_source;
+                owner.ai_pending_idle = false;
+                (idle, source)
+            });
+            if let Some((true, source)) = idle {
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Idle,
+                    source,
+                );
+                let _ = self.execute_command(&params);
+            }
+            let exit = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let exit = owner.ai_pending_exit.take();
+                let source = owner.ai_pending_exit_source;
+                let obj = owner.ai_pending_exit_obj.take();
+                (exit, source, obj)
+            });
+            if let Some((Some(instantly), source, obj)) = exit {
+                let cmd = if instantly {
+                    crate::ai::AiCommandType::ExitInstantly
+                } else {
+                    crate::ai::AiCommandType::Exit
+                };
+                let mut params = crate::ai::AiCommandParams::new(cmd, source);
+                params.obj = obj;
+                let _ = self.execute_command(&params);
+            }
+            let evacuate = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let evacuate = owner.ai_pending_evacuate;
+                owner.ai_pending_evacuate = false;
+                evacuate
+            });
+            if evacuate == Some(true) {
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Evacuate,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                let _ = self.execute_command(&params);
+            }
+            let follow = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_follow_pos.take()
+            });
+            if let Some(Some(pos)) = follow {
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::MoveToPosition,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                params.pos = pos;
+                let _ = self.execute_command(&params);
+            }
+            let heal = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_heal.take()
+            });
+            if let Some(Some(target)) = heal {
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::GetHealed,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                params.obj = Some(target);
+                let _ = self.execute_command(&params);
+            }
+            let rappel = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let rappel = owner.ai_pending_rappel;
+                let obj = owner.ai_pending_rappel_obj.take();
+                let pos = owner.ai_pending_rappel_pos.take();
+                owner.ai_pending_rappel = false;
+                (rappel, obj, pos)
+            });
+            if let Some((true, obj, pos)) = rappel {
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::RappelInto,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                params.obj = obj;
+                if let Some(pos) = pos {
+                    params.pos = pos;
+                }
+                let _ = self.execute_command(&params);
+            }
+            let path_goal = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_path_goal.take()
+            });
+            if let Some(Some(goal)) = path_goal {
+                let _ = self.request_path(&goal, false);
+            }
+            let attack = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let ignore = owner.ai_pending_ignore_id.take();
+                let extra = owner.ai_pending_path_extra.take();
+                let path = owner.ai_pending_attack_path.take();
+                (ignore, extra, path)
+            });
+            if let Some((ignore, extra, path)) = attack {
+                if let Some(id) = ignore {
+                    let _ = self.ignore_obstacle(Some(id));
+                }
+                if let Some(extra) = extra {
+                    let _ = self.set_path_extra_distance(extra);
+                }
+                if let Some((id, pos)) = path {
+                    let _ = self.request_attack_path(id, &pos);
+                }
+            }
+            let original_pos = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                owner.ai_pending_original_victim_pos.take()
+            });
+            if let Some(Some(stored)) = original_pos {
+                self.set_original_victim_pos(stored);
+            }
+            let clears = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let set_victim = owner.ai_pending_set_victim.take();
+                let path_through = owner.ai_pending_path_through_units.take();
+                let victim = owner.ai_pending_clear_victim;
+                let goal = owner.ai_pending_clear_goal;
+                owner.ai_pending_clear_victim = false;
+                owner.ai_pending_clear_goal = false;
+                (set_victim, path_through, victim, goal)
+            });
+            if let Some((set_victim, path_through, victim, goal)) = clears {
+                if let Some(id) = set_victim {
+                    self.set_current_victim(Some(id));
+                }
+                if let Some(allow) = path_through {
+                    let _ = self.set_can_path_through_units(allow);
+                }
+                let enter = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    (
+                        owner.ai_pending_allow_invalid_position.take(),
+                        owner.ai_pending_goal_id.take(),
+                    )
+                });
+                if let Some((allow_invalid, goal_id)) = enter {
+                    if let Some(allow) = allow_invalid {
+                        let _ = self.set_allow_invalid_position(allow);
+                    }
+                    if let Some(id) = goal_id {
+                        self.set_goal_object(Some(id));
+                    }
+                }
+                if victim {
+                    self.set_current_victim(None);
+                }
+                if goal {
+                    self.set_goal_object(None);
+                }
+            }
+            let reset_mood = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let reset = owner.ai_pending_reset_mood;
+                owner.ai_pending_reset_mood = false;
+                reset
+            });
+            if reset_mood == Some(true) {
+                self.reset_next_mood_check_time();
+            }
+            let idle_cmd = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                (
+                    owner.ai_pending_move_crate.take(),
+                    owner.ai_pending_attack_id.take(),
+                    owner.ai_pending_attack_move.take(),
+                )
+            });
+            if let Some((crate_id, attack_id, attack_move)) = idle_cmd {
+                if let Some(id) = crate_id {
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::MoveToObject,
+                        crate::common::CommandSourceType::FromAi,
+                    );
+                    params.obj = Some(id);
+                    let _ = self.execute_command(&params);
+                }
+                if let Some(id) = attack_id {
+                    let _ = self.ai_attack_object(id);
+                }
+                if let Some(pos) = attack_move {
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::AttackMoveToPosition,
+                        crate::common::CommandSourceType::FromAi,
+                    );
+                    params.pos = pos;
+                    params.int_value = crate::weapon::NO_MAX_SHOTS_LIMIT;
+                    let _ = self.execute_command(&params);
+                }
+                if let Some((waypoint, as_team)) = crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(owner_id, |owner| {
+                        let id = owner.ai_pending_attack_follow_waypoint.take();
+                        let as_team = owner.ai_pending_attack_follow_as_team;
+                        owner.ai_pending_attack_follow_as_team = false;
+                        id.map(|waypoint| (waypoint, as_team))
+                    })
+                    .flatten()
+                {
+                    let cmd = if as_team {
+                        crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
+                    } else {
+                        crate::ai::AiCommandType::AttackFollowWaypointPath
+                    };
+                    let mut params = crate::ai::AiCommandParams::new(
+                        cmd,
+                        crate::common::CommandSourceType::FromAi,
+                    );
+                    params.waypoint = Some(waypoint);
+                    params.int_value = crate::weapon::NO_MAX_SHOTS_LIMIT;
+                    let _ = self.execute_command(&params);
+                }
+            }
+            let clear_guard = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let clear = owner.ai_pending_clear_guard_target;
+                owner.ai_pending_clear_guard_target = false;
+                clear
+            });
+            if clear_guard == Some(true) {
+                self.clear_guard_target_type();
+            }
+            let wake_path = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let wake = owner.ai_pending_wake_path;
+                owner.ai_pending_wake_path = false;
+                wake
+            });
+            if wake_path == Some(true) {
+                self.set_queue_for_path_time(0);
+            }
+            let clear_move_out = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let clear = owner.ai_pending_clear_move_out;
+                owner.ai_pending_clear_move_out = false;
+                clear
+            });
+            if clear_move_out == Some(true) {
+                self.clear_move_out_of_way();
+            }
+            let goals = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                let orientation = owner.ai_pending_goal_orientation.take();
+                let position = owner.ai_pending_goal_position.take();
+                let none = owner.ai_pending_goal_none;
+                owner.ai_pending_goal_none = false;
+                (orientation, position, none)
+            });
+            if let Some((orientation, position, none)) = goals {
+                if let Some(angle) = orientation {
+                    self.set_locomotor_goal_orientation(angle);
+                }
+                if let Some(pos) = position {
+                    let _ = self.set_locomotor_goal_position_explicit(pos);
+                }
+                if none {
+                    self.set_locomotor_goal_none();
+                }
+            }
+        }
+        for (quick, path, ignore_id, end) in crate::ai::states::follow_path::take_pending_ai_exits()
+        {
+            if quick {
+                self.do_quick_exit(&path);
+            } else {
+                let mut path = path;
+                let mut adjusted = end;
+                let _ = self.adjust_destination(&mut adjusted);
+                for point in &mut path {
+                    if point.x == end.x && point.y == end.y && point.z == end.z {
+                        *point = adjusted;
+                    }
+                }
+                let layer = crate::helpers::TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_layer_for_destination(&adjusted))
+                    .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::FollowPath,
+                    crate::common::CommandSourceType::FromAi,
+                );
+                params.coords = path;
+                params.obj = Some(ignore_id);
+                let _ = self.execute_command(&params);
+                let _ = self.update_goal_position(&adjusted, layer);
             }
         }
 
@@ -380,12 +971,66 @@ impl UnitAIUpdate {
         if update_turrets {
             if let Some(machine) = self.turret_primary_machine.as_ref() {
                 if let Some(turret) = machine.get_turret_ai() {
+                    if let Ok(mut guard) = turret.lock() {
+                        guard.set_turrets_linked_cached(self.are_turrets_linked());
+                        let adjust = self.get_mood_matrix_action_adjustment(
+                            crate::ai::MoodMatrixAction::Attack,
+                        );
+                        guard.set_attack_ok_cached(
+                            (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
+                        );
+                        guard.set_goal_object_id_cached(self.get_goal_object_id());
+                        guard.set_last_command_source_cached(self.get_last_command_source());
+                        guard.set_next_mood_check_cached(self.get_next_mood_check_time());
+                    }
                     let _ = TurretAI::update_turret_ai_handle(&turret);
+                    if let Ok(mut guard) = turret.lock() {
+                        if guard.take_reset_mood_check() {
+                            self.reset_next_mood_check_time();
+                        }
+                        if let Some(which) = guard.take_clear_turret_sync() {
+                            if self.friend_get_turret_sync() == which {
+                                self.friend_set_turret_sync(crate::common::TurretType::Invalid);
+                            }
+                        }
+                        if guard.take_idle_mood_check() {
+                            drop(guard);
+                            self.apply_deferred_idle_mood_target(&turret);
+                        }
+                    }
+                    self.apply_pending_assaults();
                 }
             }
             if let Some(machine) = self.turret_secondary_machine.as_ref() {
                 if let Some(turret) = machine.get_turret_ai() {
+                    if let Ok(mut guard) = turret.lock() {
+                        guard.set_turrets_linked_cached(self.are_turrets_linked());
+                        let adjust = self.get_mood_matrix_action_adjustment(
+                            crate::ai::MoodMatrixAction::Attack,
+                        );
+                        guard.set_attack_ok_cached(
+                            (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
+                        );
+                        guard.set_goal_object_id_cached(self.get_goal_object_id());
+                        guard.set_last_command_source_cached(self.get_last_command_source());
+                        guard.set_next_mood_check_cached(self.get_next_mood_check_time());
+                    }
                     let _ = TurretAI::update_turret_ai_handle(&turret);
+                    if let Ok(mut guard) = turret.lock() {
+                        if guard.take_reset_mood_check() {
+                            self.reset_next_mood_check_time();
+                        }
+                        if let Some(which) = guard.take_clear_turret_sync() {
+                            if self.friend_get_turret_sync() == which {
+                                self.friend_set_turret_sync(crate::common::TurretType::Invalid);
+                            }
+                        }
+                        if guard.take_idle_mood_check() {
+                            drop(guard);
+                            self.apply_deferred_idle_mood_target(&turret);
+                        }
+                    }
+                    self.apply_pending_assaults();
                 }
             }
         }
@@ -503,6 +1148,7 @@ impl UnitAIUpdate {
         if let Some(params) = queued_enter_command {
             let _ = self.execute_command(&params);
         }
+        self.apply_pending_assaults();
         Ok(())
     }
     pub(super) fn apply_bump_speed_limit(
@@ -601,6 +1247,18 @@ impl UnitAIUpdate {
         }
         TurretType::Invalid
     }
+    pub(super) fn get_turret_turn_rate(&self, turret: TurretType) -> f32 {
+        let machine = match turret {
+            TurretType::Primary => self.turret_primary_machine.as_ref(),
+            TurretType::Secondary => self.turret_secondary_machine.as_ref(),
+            TurretType::Invalid => None,
+        };
+        machine
+            .and_then(|machine| machine.get_turret_ai())
+            .and_then(|ai| ai.lock().ok().map(|guard| guard.get_turn_rate()))
+            .unwrap_or(0.0)
+    }
+
     pub(super) fn get_which_turret_for_weapon_slot(&self, slot: WeaponSlotType) -> TurretType {
         if let Some(machine) = self.turret_primary_machine.as_ref() {
             if let Some(ai) = machine.get_turret_ai() {
@@ -881,6 +1539,18 @@ impl UnitAIUpdate {
                 })
             })
             .unwrap_or(false)
+    }
+    pub(super) fn wake_up_and_attempt_to_target(&mut self) {
+        if !self.is_idle() {
+            return;
+        }
+        self.set_next_mood_check_time(crate::helpers::TheGameLogic::get_frame());
+        self.randomly_offset_mood_check = true;
+    }
+    pub(super) fn take_random_mood_offset(&mut self) -> bool {
+        let set = self.randomly_offset_mood_check;
+        self.randomly_offset_mood_check = false;
+        set
     }
     pub(super) fn is_busy(&self) -> bool {
         self.ai_state_machine

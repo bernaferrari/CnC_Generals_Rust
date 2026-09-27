@@ -113,16 +113,11 @@ impl ClassicState for AIHackInternetState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "hack internet missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
+        let mut owner_guard = owner
+            .write()
             .map_err(|_| "hack internet owner lock poisoned".to_string())?;
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let params =
-                    AiCommandParams::new(AiCommandType::HackInternet, CommandSourceType::FromAi);
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
+        owner_guard.ai_pending_hack = true;
+        owner_guard.ai_pending_hack_source = crate::common::CommandSourceType::FromAi;
         Ok(StateReturnType::Continue)
     }
 
@@ -134,16 +129,7 @@ impl ClassicState for AIHackInternetState {
         let owner_guard = owner
             .read()
             .map_err(|_| "hack internet owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "hack internet missing AIUpdateInterface".to_string())?;
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "hack internet AI lock poisoned".to_string())?;
-        let Some(hack) = ai_guard.get_hack_internet_ai_update_interface() else {
-            return Ok(StateReturnType::Success);
-        };
-        if hack.is_hacking_packing_or_unpacking() {
+        if owner_guard.ai_fire_hacking {
             Ok(StateReturnType::Continue)
         } else {
             Ok(StateReturnType::Success)

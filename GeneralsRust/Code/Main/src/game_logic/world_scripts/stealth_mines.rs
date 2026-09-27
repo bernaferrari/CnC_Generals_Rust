@@ -525,7 +525,6 @@ impl GameLogic {
                         continue;
                     }
                     enemy.set_target(Some(rid));
-                    enemy.set_ai_state(AIState::Attacking);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_attack(eid, rid);
                         crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);
@@ -3052,7 +3051,10 @@ impl GameLogic {
                 {
                     obj.set_ai_state(AIState::Moving);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 1);
+                        let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                            &AIState::Moving,
+                        );
+                        crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, ordinal);
                     }
                     obj.movement.target_position = Some(mine_pos);
                     crate::game_logic::host_move_log::record(
@@ -3236,7 +3238,10 @@ impl GameLogic {
             if matches!(clearer.ai_state, AIState::Attacking | AIState::Moving) {
                 clearer.set_ai_state(AIState::Idle);
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, 0);
+                    let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                        &AIState::Idle,
+                    );
+                    crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, ordinal);
                 }
                 clearer.movement.target_position = None;
                 clearer.set_status_moving(false);
@@ -3768,7 +3773,6 @@ impl GameLogic {
                     continue;
                 }
                 enemy.set_target(Some(victim_id));
-                enemy.set_ai_state(AIState::Attacking);
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_attack(eid, victim_id);
                     crate::game_logic::host_ai_decision_log::record_set_state(eid, 2);

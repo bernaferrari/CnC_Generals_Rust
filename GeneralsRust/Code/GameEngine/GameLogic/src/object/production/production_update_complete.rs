@@ -384,6 +384,8 @@ struct ProductionEntryState {
     quantity_produced: i32,
     /// C++ ProductionEntry::m_exitDoor. DOOR_NONE_AVAILABLE = -1.
     exit_door: i32,
+    /// C++ ProductionEntry::m_percentComplete, 0–100 from this frame's build time.
+    percent_complete: f32,
 }
 
 impl ProductionEntryState {
@@ -392,9 +394,10 @@ impl ProductionEntryState {
         let exit_door = entry.exit_door;
         Self {
             entry,
-            quantity_total: 1, // Default single unit
+            quantity_total: 1,
             quantity_produced: 0,
             exit_door,
+            percent_complete: 0.0,
         }
     }
 
@@ -1029,7 +1032,7 @@ impl ProductionUpdateComplete {
     /// Matches C++ update lines 689-703
     fn update_production_progress(
         &mut self,
-        delta_frames: u32,
+        _delta_frames: u32,
         player_modifiers: &PlayerBuildModifiers,
         facility_context: Option<&BuildFacilityContext>,
     ) -> bool {
@@ -1040,21 +1043,24 @@ impl ProductionUpdateComplete {
             // - Energy penalty (low power)
             // - Multiple factory bonus
             // Matches C++ ThingTemplate::calcTimeToBuild lines 1524-1576
-            let base_time_seconds = (prod.entry.build_time as f32) / 30.0; // Assume 30 FPS
+            let base_time_seconds =
+                (prod.entry.build_time as f32) / (LOGICFRAMES_PER_SECOND as f32);
             let total_frames = self.cost_calculator.calc_time_to_build(
                 base_time_seconds,
                 player_modifiers,
                 facility_context,
             );
 
-            // Update time spent
-            // Note: In C++, this increments by 1 each frame (line 687)
-            // We support variable delta_frames for flexibility
-            prod.entry.time_spent = prod.entry.time_spent.saturating_add(delta_frames);
+            // C++ ProductionUpdate::update increments by 1 per call, not by the frame gap.
+            prod.entry.time_spent = prod.entry.time_spent.saturating_add(1);
 
-            // Update percent complete for UI
-            // Matches C++ lines 696-699
-            prod.entry.time_spent >= total_frames
+            let percent = if total_frames == 0 {
+                100.0
+            } else {
+                (prod.entry.time_spent as f32 / total_frames as f32) * 100.0
+            };
+            prod.percent_complete = percent;
+            percent >= 100.0
         } else {
             false
         }
@@ -1208,11 +1214,25 @@ impl ProductionUpdateComplete {
                 break;
             };
             if prod.exit_door == -1 {
-                let Ok(mut exit_guard) = exit.lock() else {
-                    break;
-                };
-                let door = exit_guard.reserve_door_for_exit(None, None);
-                prod.exit_door = exit_door_to_i32(door);
+                let template_name = prod.entry.template_name.clone();
+                let produced_at_helipad = TheThingFactory::find_template(&template_name)
+                    .is_some_and(|template| {
+                        template.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
+                    });
+                let has_parking = owner.read().ok().is_some_and(|guard| {
+                    guard
+                        .with_parking_place_behavior(|_| true)
+                        .unwrap_or(false)
+                });
+                if produced_at_helipad && has_parking {
+                    prod.exit_door = -2;
+                } else {
+                    let Ok(mut exit_guard) = exit.lock() else {
+                        break;
+                    };
+                    let door = exit_guard.reserve_door_for_exit(None, None);
+                    prod.exit_door = exit_door_to_i32(door);
+                }
             }
             if prod.exit_door == -1 {
                 break;
@@ -1240,7 +1260,6 @@ impl ProductionUpdateComplete {
                         door.door_wait_open_frame = current_frame;
                     } else if door.door_closed_frame != 0 {
                         door.door_wait_open_frame = current_frame;
-                        door.door_closed_frame = 0;
                         if let Ok(mut guard) = owner.write() {
                             guard.clear_model_condition_state(OPENING_FLAGS[door_idx]);
                             guard.clear_model_condition_state(CLOSING_FLAGS[door_idx]);
@@ -1290,10 +1309,9 @@ impl ProductionUpdateComplete {
                 .current_production
                 .as_ref()
                 .is_some_and(|p| p.quantity_total == p.quantity_remaining());
+            let producer_id = owner.read().ok().map(|guard| guard.get_id()).unwrap_or(0);
             if let Ok(mut new_guard) = new_obj.write() {
-                if let Ok(owner_guard) = owner.read() {
-                    new_guard.set_producer(Some(&owner_guard));
-                }
+                new_guard.set_producer_id(producer_id);
             }
 
             if let Ok(mut exit_guard) = exit.lock() {
@@ -1301,9 +1319,14 @@ impl ProductionUpdateComplete {
                     .exit_object_via_door(new_id, i32_to_exit_door(exit_door))
                     .map_err(|err| err.to_string())?;
             }
+            if let Some(prod) = self.current_production.as_mut() {
+                prod.exit_door = -1;
+            }
 
-            if let Ok(mut new_guard) = new_obj.write() {
-                new_guard.on_build_complete();
+            if let Some(audio) = TheAudio::get() {
+                let mut voice = template.get_voice_created();
+                voice.set_object_id(new_id);
+                audio.add_audio_event(&voice);
             }
             if let Some(player) = owner
                 .read()
@@ -1314,13 +1337,11 @@ impl ProductionUpdateComplete {
                     player_guard.on_unit_created(&owner, &new_obj);
                 }
             }
-
-            // C++ ProductionUpdate.cpp:809-832 VoiceCreated + first-of-batch VoiceCreate
-            if let Some(audio) = TheAudio::get() {
-                let mut voice = template.get_voice_created();
-                voice.set_object_id(new_id);
-                audio.add_audio_event(&voice);
-                if first_of_batch {
+            if let Ok(mut new_guard) = new_obj.write() {
+                new_guard.on_build_complete();
+            }
+            if first_of_batch {
+                if let Some(audio) = TheAudio::get() {
                     if let Some(mut sound) = template.get_per_unit_sound("VoiceCreate") {
                         sound.set_object_id(new_id);
                         audio.add_audio_event(&sound);
@@ -1357,7 +1378,7 @@ impl ProductionUpdateComplete {
     pub fn current_progress(&self) -> f32 {
         self.current_production
             .as_ref()
-            .map(|p| p.entry.progress())
+            .map(|p| (p.percent_complete / 100.0).clamp(0.0, 1.0))
             .unwrap_or(0.0)
     }
 
@@ -1530,7 +1551,14 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
 
         // Update production progress
         let player_mods = self.build_player_modifiers(None);
-        let is_complete = self.update_production_progress(delta_frames, &player_mods, None);
+        let facility_context = self.current_production.as_ref().and_then(|prod| {
+            let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
+            let player = owner.read().ok()?.get_controlling_player()?;
+            let player_guard = player.read().ok()?;
+            TheThingFactory::build_facility_context_for(&prod.entry.template_name, &player_guard)
+        });
+        let is_complete =
+            self.update_production_progress(delta_frames, &player_mods, facility_context.as_ref());
 
         if is_complete {
             let is_upgrade = self
@@ -1660,21 +1688,21 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
         player_id: ObjectID,
     ) -> Result<(), String> {
         let mut base_cost = 1000;
-        let mut base_time_frames = 300u32; // 10 seconds at 30 FPS
+        let mut base_time_frames = 300u32;
 
         if let Some(template) = TheThingFactory::find_template(template_name.as_str()) {
             base_cost = template.get_build_cost();
-            base_time_frames = template.calc_time_to_build(None).max(1) as u32;
+            let seconds = template.get_build_time().max(0.0);
+            base_time_frames = (seconds * LOGICFRAMES_PER_SECOND as f32)
+                .round()
+                .max(1.0) as u32;
         }
 
         let player_mods = self.build_player_modifiers(Some(template_name.as_str()));
         let cost = self
             .cost_calculator
             .calc_cost_to_build(base_cost, &player_mods);
-        let base_time_seconds = (base_time_frames as f32) / (LOGICFRAMES_PER_SECOND as f32);
-        let build_time =
-            self.cost_calculator
-                .calc_time_to_build(base_time_seconds, &player_mods, None);
+        let build_time = base_time_frames;
 
         self.queue_create_unit(
             template_name,
@@ -1853,7 +1881,7 @@ fn xfer_cpp_production_entry(
     xfer_io(xfer.xfer_ascii_string(&mut name))?;
     let mut production_id = state.entry.production_id;
     xfer_io(xfer.xfer_u32(&mut production_id))?;
-    let mut percent = state.entry.progress() * 100.0;
+    let mut percent = state.percent_complete;
     xfer_io(xfer.xfer_f32(&mut percent))?;
     let mut frames = state.entry.time_spent as i32;
     xfer_io(xfer.xfer_i32(&mut frames))?;
@@ -1886,12 +1914,22 @@ fn xfer_read_cpp_production_entry(xfer: &mut dyn Xfer) -> Result<ProductionEntry
     xfer_io(xfer.xfer_i32(&mut exit_door))?;
 
     let time_spent = frames.max(0) as u32;
-    let build_time = if percent >= 100.0 {
-        time_spent
-    } else if percent > 0.0 {
-        ((time_spent as f32) * 100.0 / percent).round() as u32
+    let raw_frames = |seconds: f32| -> u32 {
+        (seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32)
+            .round()
+            .max(1.0) as u32
+    };
+    let build_time = if production_type == 2 {
+        crate::upgrade::center::get_upgrade_center()
+            .read()
+            .ok()
+            .and_then(|center| center.find_upgrade(&name))
+            .map(|upgrade| raw_frames(upgrade.get_build_time()))
+            .unwrap_or_else(|| time_spent.max(1))
     } else {
-        time_spent.max(1)
+        TheThingFactory::find_template(&name)
+            .map(|template| raw_frames(template.get_build_time()))
+            .unwrap_or_else(|| time_spent.max(1))
     };
     let mut entry = BuildQueueEntry::new(
         name,
@@ -1907,6 +1945,7 @@ fn xfer_read_cpp_production_entry(xfer: &mut dyn Xfer) -> Result<ProductionEntry
     state.quantity_total = qty_total;
     state.quantity_produced = qty_produced;
     state.exit_door = exit_door;
+    state.percent_complete = percent;
     Ok(state)
 }
 

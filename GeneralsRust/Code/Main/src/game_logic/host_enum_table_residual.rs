@@ -270,7 +270,12 @@ pub const MC_BIT_SPLATTED: u32 = 91;
 /// C++ ActiveBody::calcDamageState residual (default thresholds).
 pub fn host_calc_body_damage_state(health: f32, max_health: f32) -> HostBodyDamageType {
     if max_health <= 0.0 {
-        return HostBodyDamageType::Pristine;
+        // health/0 is +inf and stays pristine. 0/0 is NaN and falls through to rubble.
+        return if health > 0.0 {
+            HostBodyDamageType::Pristine
+        } else {
+            HostBodyDamageType::Rubble
+        };
     }
     let ratio = health / max_health;
     if ratio > HOST_UNIT_DAMAGED_THRESH {

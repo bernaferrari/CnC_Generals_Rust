@@ -69,16 +69,17 @@ pub struct W3DModelDraw {
 
     /// Sub-objects to hide/show
     sub_object_vec: Vec<HideShowSubObjInfo>,
+    /// Projectile clip hides for this call only. Not part of `m_subObjectVec`.
+    projectile_clip_hides: [Vec<HideShowSubObjInfo>; WEAPONSLOT_COUNT],
+    /// Muzzle-flash visibility for this frame. Not saved in `m_subObjectVec`.
+    muzzle_flash_hides: Vec<HideShowSubObjInfo>,
+    unsaved_subobject_hides: Vec<HideShowSubObjInfo>,
 
     /// Whether sub-object visibility needs to be pushed to renderer.
     sub_objects_dirty: bool,
 
     /// Current terrain decal type for this draw module.
     terrain_decal: TerrainDecalType,
-    /// Optional terrain decal size override (width, height).
-    terrain_decal_size: Option<(Real, Real)>,
-    /// Optional terrain decal opacity override.
-    terrain_decal_opacity: Option<Real>,
     /// Bound terrain-track handle from `TheTerrainTracksRenderObjClassSystem`.
     track_handle: Option<u32>,
 
@@ -91,6 +92,8 @@ pub struct W3DModelDraw {
     /// Last model conditions (for detecting state changes)
     last_model_conditions: ModelConditionFlags,
 
+    /// First pristine attach-bone result. None means not queried yet.
+    attach_offset_cache: std::sync::Mutex<Option<Coord3D>>,
     /// Owning object ID (used for turret aiming).
     owner_id: Option<ObjectID>,
 }
@@ -124,14 +127,16 @@ impl W3DModelDraw {
             shadow_allocated: false,
 
             sub_object_vec: Vec::new(),
+            projectile_clip_hides: std::array::from_fn(|_| Vec::new()),
+            muzzle_flash_hides: Vec::new(),
+            unsaved_subobject_hides: Vec::new(),
             sub_objects_dirty: false,
             terrain_decal: TerrainDecalType::None,
-            terrain_decal_size: None,
-            terrain_decal_opacity: None,
             track_handle: None,
             particle_systems: Vec::new(),
             animation_override: AnimationOverride::new(),
             last_model_conditions: ModelConditionFlags::empty(),
+            attach_offset_cache: std::sync::Mutex::new(None),
             owner_id: None,
         }
     }
@@ -285,9 +290,39 @@ impl W3DModelDraw {
         }
     }
 
+    pub fn has_render_model(&self) -> bool {
+        self.current_state()
+            .is_some_and(|state| !state.model_name.as_str().is_empty())
+    }
+    pub fn anim_frame_count(&self) -> i32 {
+        self.current_anim_num_frames
+    }
+    pub fn has_bound_animation(&self) -> bool {
+        self.which_anim_in_cur_state >= 0
+    }
     fn current_state(&self) -> Option<&ModelConditionInfo> {
         self.cur_state
             .and_then(|state_ref| self.resolve_state(state_ref))
+    }
+    pub(crate) fn fx_bone_name_for_shot(
+        &self,
+        weapon_slot: usize,
+        barrel_index: i32,
+    ) -> Option<String> {
+        let state = self.current_state()?;
+        let prefix = state.weapon_fire_fx_bone.get(weapon_slot)?;
+        if prefix.is_empty() {
+            return None;
+        }
+        let barrels = state.weapon_barrels.get(weapon_slot)?;
+        if barrels.is_empty() {
+            return None;
+        }
+        let mut selected = barrel_index;
+        if selected < 0 || selected as usize >= barrels.len() {
+            selected = 0;
+        }
+        Some(format!("{prefix}{:02}", selected as usize + 1))
     }
 
     fn is_current_transition_state(&self) -> bool {
@@ -377,6 +412,9 @@ impl W3DModelDraw {
     }
 
     fn particle_hidden(&self) -> bool {
+        // C++ is `m_hidden || m_hiddenByStealth || m_fullyObscuredByShroud`.
+        // Stealth already calls `set_hidden`. `is_drawable_effectively_hidden`
+        // also treats `!is_visible` as hidden, which this function does not.
         self.hidden || self.fully_obscured_by_shroud
     }
 
@@ -441,7 +479,7 @@ impl W3DModelDraw {
         }
         self.with_owner_drawable(|drawable| {
             let local = drawable.get_bone_local_transform(bone_name)?;
-            let scale = drawable.get_world_scale().x;
+            let scale = drawable.get_instance_scale();
             let scale = if scale.is_finite() && scale > 0.0 {
                 scale
             } else {
@@ -452,8 +490,7 @@ impl W3DModelDraw {
                 .current_state()
                 .and_then(|state| state.find_pristine_bone_by_name(bone_name))
                 .map(|(_, bone)| bone.bone_index)
-                .filter(|index| *index != 0)
-                .unwrap_or(1);
+                .unwrap_or(0);
             Some((index, scaled))
         })
         .flatten()
@@ -529,27 +566,24 @@ impl W3DModelDraw {
         if self.data.attach_to_drawable_bone.is_empty() {
             return None;
         }
-
-        if let Some(pos) = self
-            .with_owner_drawable(|drawable| {
-                drawable
-                    .get_pristine_bone_positions(
-                        self.data.attach_to_drawable_bone.as_str(),
-                        0,
-                        1,
-                    )
-                    .into_iter()
-                    .next()
-            })
-            .flatten()
-        {
-            return Some(pos);
+        if let Ok(guard) = self.attach_offset_cache.lock() {
+            if let Some(cached) = *guard {
+                return Some(cached);
+            }
         }
 
-        if let Some((_, info)) = self.current_state().and_then(|state| {
-            state.find_pristine_bone_by_name(self.data.attach_to_drawable_bone.as_str())
-        }) {
-            return Some(Self::matrix_translation(&info.transform));
+        let queried = self.with_owner_drawable(|drawable| {
+            drawable
+                .get_pristine_bone_positions(self.data.attach_to_drawable_bone.as_str(), 0, 1)
+                .into_iter()
+                .next()
+        });
+        if let Some(pos) = queried {
+            let offset = pos.unwrap_or(Coord3D::origin());
+            if let Ok(mut guard) = self.attach_offset_cache.lock() {
+                *guard = Some(offset);
+            }
+            return Some(offset);
         }
 
         Some(self.data.attach_to_drawable_bone_offset)
@@ -781,34 +815,14 @@ impl W3DModelDraw {
             return;
         }
         self.pause_animation = pause;
-        if pause {
-            self.animation_mode = 0;
-        }
     }
 
     fn hide_all_headlights(&mut self) {
         let hide = self.hide_headlights;
-        let mut found = false;
         for entry in &mut self.sub_object_vec {
-            if entry
-                .sub_obj_name
-                .as_str()
-                .to_ascii_uppercase()
-                .contains("HEADLIGHT")
-            {
+            if entry.sub_obj_name.as_str().contains("HEADLIGHT") {
                 entry.hide = hide;
-                found = true;
             }
-        }
-        if hide && !found {
-            self.sub_object_vec.push(HideShowSubObjInfo {
-                sub_obj_name: AsciiString::from("HEADLIGHT"),
-                hide: true,
-            });
-        }
-        if !hide {
-            self.sub_object_vec
-                .retain(|entry| !entry.sub_obj_name.as_str().eq_ignore_ascii_case("HEADLIGHT"));
         }
         self.sub_objects_dirty = true;
     }
@@ -881,7 +895,9 @@ impl W3DModelDraw {
         let Ok(obj) = object.read() else {
             return;
         };
-        let pos = *obj.get_position();
+        let pos = self
+            .with_owner_drawable(|drawable| drawable.get_position())
+            .unwrap_or_else(|| *obj.get_position());
         let now = TheGameLogic::get_frame();
         if self.fully_obscured_by_shroud || obj.test_status(ObjectStatusTypes::Stealthed) {
             client.add_cap(handle, pos.x, pos.y, now);
@@ -900,16 +916,19 @@ impl W3DModelDraw {
         let Some(client) = terrain_track_client() else {
             return;
         };
-        let Some(owner_id) = self.owner_id else {
+        let pos = if let Some(pos) = self.with_owner_drawable(|drawable| drawable.get_position()) {
+            pos
+        } else if let Some(owner_id) = self.owner_id {
+            let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+                return;
+            };
+            let Ok(obj) = object.read() else {
+                return;
+            };
+            *obj.get_position()
+        } else {
             return;
         };
-        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
-            return;
-        };
-        let Ok(obj) = object.read() else {
-            return;
-        };
-        let pos = *obj.get_position();
         client.add_cap(handle, pos.x, pos.y, TheGameLogic::get_frame());
     }
 
@@ -935,13 +954,26 @@ impl W3DModelDraw {
         }
 
         let mut texture = terrain_decal_texture_name(decal_type).to_string();
-        let mut size = self.terrain_decal_size.unwrap_or((0.0, 0.0));
+        // C++ setTerrainDecal always uses ThingTemplate shadow size. setTerrainDecalSize
+        // only calls setSize on a live decal and stores nothing, so a later
+        // setTerrainDecal after release must not replay that override.
+        let mut size = (0.0, 0.0);
+        let mut offset = (0.0, 0.0);
         let mut position = Coord3D::new(0.0, 0.0, 0.0);
         let mut angle = 0.0;
+        let mut shadow_type = crate::common::types::SHADOW_ALPHA_DECAL;
         if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
             if let Ok(obj) = object.read() {
-                position = *obj.get_position();
-                angle = obj.get_orientation();
+                if let Some(drawable_mtx) =
+                    self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
+                {
+                    let adjusted = self.adjust_transform_mtx(&drawable_mtx);
+                    position = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
+                    angle = Self::matrix_z_rotation(&adjusted);
+                } else {
+                    position = *obj.get_position();
+                    angle = obj.get_orientation();
+                }
                 let tmpl = obj.get_template().as_ref();
                 if decal_type == TerrainDecalType::ShadowTexture || texture.is_empty() {
                     texture = leftover_default_shadow_texture(
@@ -949,12 +981,11 @@ impl W3DModelDraw {
                         tmpl.get_shadow_texture_name(),
                     );
                 }
-                if size.0 <= 0.0 || size.1 <= 0.0 {
-                    // C++ setTerrainDecal uses ThingTemplate ShadowSize, never geometry radius.
-                    size = (tmpl.get_shadow_size_x(), tmpl.get_shadow_size_y());
+                if decal_type == TerrainDecalType::ShadowTexture {
+                    shadow_type = tmpl.get_shadow_type_bits();
                 }
-                position.x += tmpl.get_shadow_offset_x();
-                position.y += tmpl.get_shadow_offset_y();
+                size = (tmpl.get_shadow_size_x(), tmpl.get_shadow_size_y());
+                offset = (tmpl.get_shadow_offset_x(), tmpl.get_shadow_offset_y());
             }
         }
 
@@ -964,13 +995,16 @@ impl W3DModelDraw {
             texture_name: texture,
             size_x: size.0,
             size_y: size.1,
-            opacity: self.terrain_decal_opacity.unwrap_or(1.0),
+            opacity: 1.0,
             position,
             angle,
+            offset_x: offset.0,
+            offset_y: offset.1,
             hidden: self.hidden,
             shrouded: self.fully_obscured_by_shroud,
-            shadow_enabled: self.shadow_enabled,
+            shadow_enabled: !self.hidden && self.shadow_enabled,
             is_unit_blob: decal_type == TerrainDecalType::ShadowTexture,
+            shadow_type,
         });
 
     }
@@ -991,8 +1025,14 @@ impl W3DModelDraw {
         let Ok(obj) = object.read() else {
             return;
         };
-        let position = *obj.get_position();
-        client.set_pose(owner_id, position, obj.get_orientation());
+        if let Some(drawable_mtx) = self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
+        {
+            let adjusted = self.adjust_transform_mtx(&drawable_mtx);
+            let position = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
+            client.set_pose(owner_id, position, Self::matrix_z_rotation(&adjusted));
+            return;
+        }
+        client.set_pose(owner_id, *obj.get_position(), obj.get_orientation());
     }
 
     fn logic_fire_fx_fallback(&self) -> (Coord3D, Matrix3D) {
@@ -1030,36 +1070,18 @@ impl W3DModelDraw {
 
     fn fire_owner_weapon_fx(
         &self,
-        weapon_slot: usize,
+        fx: Option<&crate::effects::FXList>,
         pos: &Coord3D,
         mtx: Option<&Matrix3D>,
         victim_pos: Option<&Coord3D>,
         weapon_speed: Real,
         damage_radius: Real,
     ) -> bool {
-        let Some(owner_id) = self.owner_id else {
+        let Some(fx) = fx else {
             return false;
         };
-        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
-            return false;
-        };
-        let Ok(obj) = object.read() else {
-            return false;
-        };
-        let slot = match weapon_slot {
-            0 => WeaponSlotType::Primary,
-            1 => WeaponSlotType::Secondary,
-            _ => WeaponSlotType::Tertiary,
-        };
-        let Some(weapon) = obj.get_weapon_in_slot(slot.into()) else {
-            return false;
-        };
-        let veterancy = obj.get_veterancy_level();
-        if let Some(fx) = weapon.get_template().get_fire_fx(veterancy) {
-            let _ = fx.do_fx_pos(pos, mtx, weapon_speed, victim_pos, damage_radius);
-            return true;
-        }
-        false
+        let _ = fx.do_fx_pos(pos, mtx, weapon_speed, victim_pos, damage_radius);
+        true
     }
 
     fn owner_should_animate(&self) -> bool {

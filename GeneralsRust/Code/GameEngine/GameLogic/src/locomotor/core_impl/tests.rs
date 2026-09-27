@@ -125,16 +125,13 @@ mod tests {
 
     #[test]
     fn locomotor_set_xfer_roundtrips_current_locomotor_pointer() {
-        let infantry = Arc::new(Mutex::new(
-            LOCOMOTOR_STORE.create_locomotor("Infantry").unwrap(),
-        ));
-        let wheeled = Arc::new(Mutex::new(
-            LOCOMOTOR_STORE.create_locomotor("Wheeled").unwrap(),
-        ));
+        let infantry = LOCOMOTOR_STORE.create_locomotor("Infantry").unwrap();
+        let wheeled = LOCOMOTOR_STORE.create_locomotor("Wheeled").unwrap();
         let mut saved = LocomotorSet::new();
-        saved.add_locomotor("Infantry".to_string(), infantry.clone());
-        saved.add_locomotor("Wheeled".to_string(), wheeled.clone());
-        let mut saved_current = Some(wheeled);
+        saved.add_locomotor("Infantry".to_string(), infantry);
+        saved.add_locomotor("Wheeled".to_string(), wheeled);
+        assert!(saved.set_active("Wheeled"));
+        let mut saved_current = Some("Wheeled".to_string());
 
         let mut bytes = Vec::new();
         {
@@ -154,9 +151,13 @@ mod tests {
         }
 
         assert_eq!(loaded.len(), 2);
-        let current = loaded_current.unwrap();
-        assert_eq!(current.lock().unwrap().get_template_name(), "Wheeled");
+        assert_eq!(loaded_current.as_deref(), Some("Wheeled"));
+        assert_eq!(loaded.active_name(), Some("Wheeled"));
         assert!(loaded.get_locomotor("Infantry").is_some());
+        assert_eq!(
+            loaded.get_locomotor("Wheeled").unwrap().get_template_name(),
+            "Wheeled"
+        );
     }
 
     #[test]
@@ -564,11 +565,27 @@ mod tests {
             10.0,
             10.0,
             0.2,
-            |pos| pos.x < 1.0,
+            // 10 is dist/frame. The half-second arc is 15*10 = 150.
+            // A 30× smaller per-frame speed stays inside x<20.
+            |pos| pos.x < 20.0,
         );
         assert!(
             blocked,
-            "projected half/full point on invalid terrain must block motive (Locomotor.cpp:1378-1388)"
+            "C++ arc (15*(goal+actual)/2) must hit terrain past the short probe"
+        );
+        let short = Locomotor::wheels_look_ahead_blocked(
+            current,
+            0.0,
+            rel,
+            10.0 / 30.0,
+            10.0 / 30.0,
+            10.0 / 30.0,
+            0.2 / 30.0,
+            |pos| pos.x < 20.0,
+        );
+        assert!(
+            !short,
+            "dividing speeds by 30 keeps the probe inside x<20 and must not block"
         );
         let clear = Locomotor::wheels_look_ahead_blocked(
             current,
@@ -650,6 +667,7 @@ mod tests {
             10.0,
             10.0,
             BodyDamageType::Pristine,
+            0.0,
         );
         let (_, _, far_accel) = far.move_towards_position_legs_physics(
             start,
@@ -659,6 +677,7 @@ mod tests {
             10.0,
             10.0,
             BodyDamageType::Pristine,
+            0.0,
         );
         assert_eq!(
             near_accel, far_accel,
@@ -676,6 +695,7 @@ mod tests {
             5.0,
             5.0,
             BodyDamageType::Pristine,
+            0.0,
         );
         assert_eq!(
             wing_accel, 0.0,

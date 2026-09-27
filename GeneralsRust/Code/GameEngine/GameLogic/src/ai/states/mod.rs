@@ -9,16 +9,16 @@
 //! AI state implementations split from the former monolithic `states.rs`.
 
 mod attack;
-mod attack_machine;
+pub(crate) mod attack_machine;
 mod dead;
 mod dock;
 mod enter;
 mod face;
-mod follow_path;
+pub(crate) mod follow_path;
 mod follow_path_core;
 mod guard;
 mod hack;
-mod helpers;
+pub(crate) mod helpers;
 mod hunt;
 mod idle;
 #[path = "move.rs"]
@@ -30,6 +30,8 @@ mod wait_busy;
 mod wander_panic;
 mod waypoint;
 
+
+pub(crate) use attack_machine::seed_team_target_if_attack_common;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod ai_state_machine_parity_tests;

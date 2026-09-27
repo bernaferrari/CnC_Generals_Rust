@@ -216,11 +216,8 @@ impl PropagandaTowerBehavior {
             .downcast_ref::<PropagandaTowerBehaviorModuleData>()
             .ok_or("Invalid module data type for PropagandaTowerBehavior")?;
 
-        let object_id = object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or_default();
-        TheGameLogic::set_wake_frame(object_id, UpdateSleepTime::None);
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let wake_frame = now.saturating_add(1);
 
         Ok(Self {
             object_id: object
@@ -229,11 +226,25 @@ impl PropagandaTowerBehavior {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: wake_frame,
             last_scan_frame: 0,
             inside_list: Vec::new(),
             upgrade_required: None,
         })
+    }
+
+    fn reschedule_self(&self) {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return;
+        };
+        if let Ok(guard) = obj.read() {
+            guard.reschedule_named_update(
+                "PropagandaTowerBehavior",
+                self.next_call_frame_and_phase,
+            );
+        }
     }
 
     fn resolve_object(
@@ -369,20 +380,21 @@ impl PropagandaTowerBehavior {
             }
 
             if let Some(body) = target.get_body_module() {
-                if let Ok(body_guard) = body.lock() {
+                let amount = if let Ok(body_guard) = body.lock() {
                     let health_percent = if effect_upgraded {
                         self.module_data.upgraded_auto_heal_percent_per_second
                     } else {
                         self.module_data.auto_heal_percent_per_second
                     };
-                    let amount = (health_percent / LOGICFRAMES_PER_SECOND as f32)
-                        * body_guard.get_max_health();
-                    let _ = target.attempt_healing_from_sole_benefactor(
-                        amount,
-                        Some(tower),
-                        self.module_data.scan_delay_in_frames,
-                    );
-                }
+                    (health_percent / LOGICFRAMES_PER_SECOND as f32) * body_guard.get_max_health()
+                } else {
+                    return;
+                };
+                let _ = target.attempt_healing_from_sole_benefactor_id(
+                    amount,
+                    tower.get_id(),
+                    self.module_data.scan_delay_in_frames,
+                );
             }
         } else {
             target.clear_weapon_bonus_condition(WeaponBonusConditionType::Enthusiastic);
@@ -608,9 +620,12 @@ impl BehaviorModuleInterface for PropagandaTowerBehavior {
                     self.remove_all_influence(&tower_guard);
                 }
             }
-            TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::Forever);
+            self.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
+            self.reschedule_self();
         } else {
-            TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::None);
+            let now = crate::helpers::TheGameLogic::get_frame();
+            self.next_call_frame_and_phase = now.saturating_add(1);
+            self.reschedule_self();
         }
     }
 }
@@ -688,6 +703,10 @@ pub struct PropagandaTowerBehaviorModule {
 }
 
 impl PropagandaTowerBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: PropagandaTowerBehavior,
         module_name: &AsciiString,

@@ -303,12 +303,29 @@ impl ExitInterfaceExt for Arc<Mutex<dyn ExitInterface>> {
         spawner: Option<&str>,
         spawn: Option<ObjectID>,
     ) -> ExitDoorType {
-        if let Ok(mut guard) = self.try_lock() {
-            let _ = spawner;
-            let _ = spawn;
-            guard.reserve_door_for_exit(None, None)
-        } else {
-            DOOR_NONE_AVAILABLE
+        let _ = spawner;
+        let spawn_obj = match spawn {
+            Some(id) => {
+                let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(id).or_else(|| {
+                    crate::object::registry::OBJECT_REGISTRY.get_object(id)
+                }) else {
+                    return ExitDoorType::NoneAvailable;
+                };
+                Some(obj)
+            }
+            None => None,
+        };
+        let Ok(mut guard) = self.try_lock() else {
+            return ExitDoorType::NoneAvailable;
+        };
+        match spawn_obj.as_ref() {
+            Some(obj) => {
+                let Ok(spawn_guard) = obj.read() else {
+                    return ExitDoorType::NoneAvailable;
+                };
+                guard.reserve_door_for_exit(None, Some(&*spawn_guard))
+            }
+            None => guard.reserve_door_for_exit(None, None),
         }
     }
 }

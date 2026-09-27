@@ -26,9 +26,21 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
     fn on_enter(&mut self) -> Result<StateReturnType, String>;
     /// C++ `OnUpdate`
     fn on_update(&mut self) -> Result<StateReturnType, String>;
-    /// C++ `OnExit`
     fn on_exit(&mut self, exit: StateExitType) -> Result<StateReturnType, String>;
 
+    fn on_enter_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.on_enter()
+    }
+
+    fn on_update_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.on_update()
+    }
     /// Debug-friendly state name.
     fn state_name(&self) -> &str;
     /// Unique state identifier assigned by the machine.
@@ -83,6 +95,43 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
     /// Callback used by the original system when a state needs access to a
     /// machine reference but only has a weak pointer.
     fn attach_machine(&mut self, _machine: Weak<Mutex<core::StateMachine>>) {}
+
+    fn note_step_owner(&mut self, _owner: Arc<RwLock<Object>>) {}
+
+    fn note_guard_enter(
+        &mut self,
+        _mode: i32,
+        _polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+    }
+
+    fn exit_restore_goal(&self) -> Option<crate::common::Coord3D> {
+        None
+    }
+
+    fn freezes_parent_during_update(&self) -> bool {
+        false
+    }
+    fn locks_machine(&self) -> bool {
+        false
+    }
+
+    fn bind_goal_waypoint(&mut self, _waypoint: Option<crate::waypoint::WaypointId>) {}
+    fn bind_goal_object_id(&mut self, _id: crate::common::ObjectID) {}
+
+    fn bind_goal_position(&mut self, _pos: crate::common::Coord3D) {}
+
+    fn bind_goal_squad(
+        &mut self,
+        _squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>,
+    ) {
+    }
+
+    fn bind_goal_polygon(
+        &mut self,
+        _polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+    }
 }
 
 /// Adapter turning any [`LegacyState`] implementation into a safe
@@ -123,6 +172,16 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         Self::map_result(state_name.as_str(), self.inner.on_enter())
     }
 
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        _goal_id: crate::common::ObjectID,
+        _goal_pos: crate::common::Coord3D,
+    ) -> StateReturnType {
+        let state_name = self.inner.state_name().to_string();
+        Self::map_result(state_name.as_str(), self.inner.on_enter_with_ai(ai))
+    }
+
     fn on_exit(&mut self, exit: StateExitType) {
         let state_name = self.inner.state_name().to_string();
         let _ = Self::map_result(state_name.as_str(), self.inner.on_exit(exit));
@@ -131,6 +190,14 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
     fn update(&mut self) -> StateReturnType {
         let state_name = self.inner.state_name().to_string();
         Self::map_result(state_name.as_str(), self.inner.on_update())
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let state_name = self.inner.state_name().to_string();
+        Self::map_result(state_name.as_str(), self.inner.on_update_with_ai(ai))
     }
     fn is_idle(&self) -> bool {
         self.inner.is_idle()
@@ -174,6 +241,53 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn crate::common::xfer::Xfer) -> Result<(), String> {
         self.inner.xfer_snapshot(xfer)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.inner.bind_goal_object_id(id);
+    }
+
+    fn locks_machine(&self) -> bool {
+        self.inner.locks_machine()
+    }
+
+    fn bind_goal_waypoint(&mut self, waypoint: Option<crate::waypoint::WaypointId>) {
+        self.inner.bind_goal_waypoint(waypoint);
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.inner.note_step_owner(owner);
+    }
+
+    fn note_guard_enter(
+        &mut self,
+        mode: i32,
+        polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.inner.note_guard_enter(mode, polygon);
+    }
+
+    fn exit_restore_goal(&self) -> Option<crate::common::Coord3D> {
+        self.inner.exit_restore_goal()
+    }
+
+    fn freezes_parent_during_update(&self) -> bool {
+        self.inner.freezes_parent_during_update()
+    }
+
+    fn bind_goal_position(&mut self, pos: crate::common::Coord3D) {
+        self.inner.bind_goal_position(pos);
+    }
+
+    fn bind_goal_squad(&mut self, squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {
+        self.inner.bind_goal_squad(squad);
+    }
+
+    fn bind_goal_polygon(
+        &mut self,
+        polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.inner.bind_goal_polygon(polygon);
     }
 
     fn evaluate_transition_payload(&self, payload: &(dyn Any + Send + Sync)) -> Option<bool> {
@@ -257,7 +371,20 @@ pub trait ClassicState: std::fmt::Debug + Send + Sync {
 
     /// Original `OnEnter` callback.
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String>;
-    /// Original `OnUpdate` callback.
+
+    fn classic_on_enter_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_enter()
+    }
+
+    fn classic_on_update_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_update()
+    }
     fn classic_on_update(&mut self) -> Result<StateReturnType, String>;
     /// Original `OnExit` callback.
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String>;
@@ -288,6 +415,25 @@ pub trait ClassicState: std::fmt::Debug + Send + Sync {
     fn classic_is_busy(&self) -> bool {
         false
     }
+
+    fn classic_locks_machine(&self) -> bool {
+        false
+    }
+
+    fn classic_exit_restore_goal(&self) -> Option<crate::common::Coord3D> {
+        None
+    }
+
+    fn classic_freezes_parent_during_update(&self) -> bool {
+        false
+    }
+
+    fn classic_note_guard_enter(
+        &mut self,
+        _mode: i32,
+        _polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+    }
 }
 
 impl<T> LegacyState for T
@@ -296,6 +442,20 @@ where
 {
     fn on_enter(&mut self) -> Result<StateReturnType, String> {
         self.classic_on_enter()
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_enter_with_ai(ai)
+    }
+
+    fn on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.classic_on_update_with_ai(ai)
     }
 
     fn on_update(&mut self) -> Result<StateReturnType, String> {
@@ -351,6 +511,55 @@ where
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn crate::common::xfer::Xfer) -> Result<(), String> {
         self.classic_xfer_snapshot(xfer)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base_state_mut().goal_object_id = id;
+    }
+
+    fn locks_machine(&self) -> bool {
+        self.classic_locks_machine()
+    }
+
+    fn bind_goal_waypoint(&mut self, waypoint: Option<crate::waypoint::WaypointId>) {
+        self.base_state_mut().goal_waypoint_copied = waypoint;
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        if let Ok(guard) = owner.read() {
+            self.base_state_mut().owner_id = guard.get_id();
+        }
+    }
+
+    fn note_guard_enter(
+        &mut self,
+        mode: i32,
+        polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.classic_note_guard_enter(mode, polygon);
+    }
+
+    fn exit_restore_goal(&self) -> Option<crate::common::Coord3D> {
+        self.classic_exit_restore_goal()
+    }
+
+    fn freezes_parent_during_update(&self) -> bool {
+        self.classic_freezes_parent_during_update()
+    }
+
+    fn bind_goal_position(&mut self, pos: crate::common::Coord3D) {
+        self.base_state_mut().goal_position_copied = Some(pos);
+    }
+
+    fn bind_goal_squad(&mut self, squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {
+        self.base_state_mut().goal_squad_copied = squad;
+    }
+
+    fn bind_goal_polygon(
+        &mut self,
+        polygon: Option<Arc<crate::polygon_trigger::PolygonTrigger>>,
+    ) {
+        self.base_state_mut().goal_polygon_copied = polygon;
     }
 }
 

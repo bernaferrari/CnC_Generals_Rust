@@ -1227,13 +1227,15 @@ fn queue_factory_exit_follows_snapped_production_path() {
     );
     assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
 
-    let (can_path, ai_state, dest, path) = {
+    let (can_path, ai_state, dest, path, index, extra) = {
         let unit = logic.host_object(uid).expect("unit after exit");
         (
             unit.can_path_through_units,
             unit.ai_state.clone(),
             unit.movement.target_position,
             unit.movement.path.clone(),
+            unit.movement.current_path_index,
+            unit.path_extra_distance,
         )
     };
     assert!(
@@ -1280,6 +1282,98 @@ fn queue_factory_exit_follows_snapped_production_path() {
     assert!(
         last.distance(prev) < 1.0,
         "doubled Queue natural must repeat the snapped point, prev={prev:?} last={last:?}"
+    );
+    let expected = if index + 1 < path.len() {
+        let goal = path[index];
+        let next = path[index + 1];
+        let dx = next.x - goal.x;
+        let dz = next.z - goal.z;
+        let mut seg = (dx * dx + dz * dz).sqrt();
+        if index + 2 < path.len() {
+            seg += 40.0;
+        }
+        seg
+    } else {
+        0.0
+    };
+    assert!(
+        (extra - expected).abs() < 0.01,
+        "exit path extra distance must match the points after the current goal, extra={extra} expected={expected} index={index} path={path:?}"
+    );
+}
+
+#[test]
+fn queue_exit_with_a_rally_keeps_the_next_segment() {
+    use crate::game_logic::buildings::BuildingType;
+    use crate::game_logic::{
+        KindOf, ProductionExitMetadata, ProductionExitStyle, Team, ThingTemplate,
+    };
+    let mut logic = GameLogic::new();
+    ensure_test_player_for_team(&mut logic, Team::China);
+    let mut bar = ThingTemplate::new("ChinaBarracks");
+    bar.add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::FSBarracks)
+        .set_health(1000.0);
+    bar.production_exit_metadata = Some(ProductionExitMetadata {
+        style: ProductionExitStyle::Queue,
+        unit_create_point: [0.0, -25.0, 0.0],
+        natural_rally_point: [36.0, -25.0, 0.0],
+        exit_delay_frames: 9,
+        allow_airborne_creation: false,
+        initial_burst: 0,
+        use_spawn_rally_point: false,
+        grant_temporary_stealth_frames: 0,
+    });
+    logic.templates.insert("ChinaBarracks".into(), bar);
+    let mut rg = ThingTemplate::new("ChinaInfantryRedguard");
+    rg.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic.templates.insert("ChinaInfantryRedguard".into(), rg);
+    let bid = logic
+        .create_object(
+            "ChinaBarracks",
+            Team::China,
+            glam::Vec3::new(100.0, 15.0, 100.0),
+        )
+        .expect("barracks");
+    if let Some(o) = logic.host_object_mut(bid) {
+        o.building_data = Some(crate::game_logic::BuildingData::new(BuildingType::Barracks));
+        o.thing.set_orientation(0.0);
+    }
+    let uid = logic
+        .create_object(
+            "ChinaInfantryRedguard",
+            Team::China,
+            glam::Vec3::new(100.0, 15.0, 75.0),
+        )
+        .expect("redguard");
+    crate::game_logic::host_production_spawn_ready_log::clear();
+    crate::game_logic::host_production_spawn_ready_log::record(
+        uid,
+        bid,
+        "ChinaInfantryRedguard".into(),
+        [100.0, 15.0, 75.0],
+        Some([220.0, 15.0, 100.0]),
+    );
+    assert_eq!(logic.host_apply_production_spawn_ready_completions(), 1);
+    let unit = logic.host_object(uid).expect("unit");
+    assert!(!unit.is_exact_path, "exit production is AIFollowPathState");
+    let index = unit.movement.current_path_index;
+    let path = unit.movement.path.clone();
+    let extra = unit.path_extra_distance;
+    assert!(index + 1 < path.len(), "rally must follow the natural exit, path={path:?}");
+    let goal = path[index];
+    let next = path[index + 1];
+    let dx = next.x - goal.x;
+    let dz = next.z - goal.z;
+    let seg = (dx * dx + dz * dz).sqrt();
+    assert!(seg > 1.0, "following point must be distinct, seg={seg} path={path:?}");
+    let mut expected = seg;
+    if index + 2 < path.len() {
+        expected += 40.0;
+    }
+    assert!(
+        (extra - expected).abs() < 0.01,
+        "extra={extra} expected={expected} index={index} path={path:?}"
     );
 }
 

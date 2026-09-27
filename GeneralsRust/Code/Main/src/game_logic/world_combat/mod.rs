@@ -6,6 +6,8 @@
 mod air_and_mig;
 mod base_defense_lasers;
 mod drones_and_garrison;
+pub(crate) use drones_and_garrison::open_contain_exit_path;
+pub(crate) use drones_and_garrison::apply_leftover_open_contain_door_pulse;
 mod gps_and_fields;
 mod heroes_and_plans;
 mod infantry_weapons;

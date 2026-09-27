@@ -143,9 +143,9 @@ fn xfer_sighting_info(xfer: &mut dyn Xfer, sighting: &mut SightingInfo) {
     let _ = xfer.xfer_version(&mut version, current_version);
     xfer_coord3d_values(xfer, &mut sighting.where_pos);
     let _ = xfer.xfer_real(&mut sighting.how_far);
-    let mut for_whom = sighting.for_whom.bits();
-    let _ = xfer.xfer_unsigned_int(&mut for_whom);
-    sighting.for_whom = PlayerMaskType::from_bits_retain(for_whom);
+    let mut for_whom = sighting.for_whom.bits() as u16;
+    let _ = xfer.xfer_unsigned_short(&mut for_whom);
+    sighting.for_whom = PlayerMaskType::from_bits_retain(for_whom as u32);
     let _ = xfer.xfer_unsigned_int(&mut sighting.data);
 }
 
@@ -880,12 +880,12 @@ impl Snapshot for Object {
         }
         xfer_sighting_info(xfer, &mut self.partition_last_shroud);
 
-        let mut vision_spied_mask = self.vision_spied_mask.bits();
+        let mut vision_spied_mask = self.vision_spied_mask.bits() as u16;
         for value in &mut self.vision_spied_by {
             let _ = xfer.xfer_int(value);
         }
-        let _ = xfer.xfer_unsigned_int(&mut vision_spied_mask);
-        self.vision_spied_mask = PlayerMaskType::from_bits_retain(vision_spied_mask);
+        let _ = xfer.xfer_unsigned_short(&mut vision_spied_mask);
+        self.vision_spied_mask = PlayerMaskType::from_bits_retain(vision_spied_mask as u32);
 
         let _ = xfer.xfer_real(&mut self.vision_range);
         let _ = xfer.xfer_real(&mut self.shroud_clearing_range);

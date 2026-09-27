@@ -36,13 +36,21 @@ impl GameLogic {
                     state: AIState::Idle,
                 });
             }
-            // C++ nested AIAttackMoveStateMachine is not idle while a victim
-            // is held: do not getNextMoodTarget or re-issue AttackTarget.
+            // A held victim skips the parent move. Do not clear the locomotor
+            // goal here: movement already ran, and nothing reinstalls a chase
+            // goal before the next locomotor. The acquire path clears it once.
             if target_id.is_some() {
                 return None;
             }
+            if self.try_idle_crate_pickup(object_id) {
+                return None;
+            }
             // C++ AIAttackMoveToState uses getNextMoodTarget, not a 200wu nearest scan.
-            if can_attack && !ai_auto_engage_paused && should_scan(20) {
+            let force_mood = self
+                .objects
+                .get(&object_id)
+                .is_some_and(|o| o.next_mood_check_time == 0);
+            if can_attack && !ai_auto_engage_paused && (should_scan(20) || force_mood) {
                 let is_player = self
                     .objects
                     .get(&object_id)
@@ -755,7 +763,7 @@ impl GameLogic {
     /// GameWorld apply/writeback is last-writer when authority is on. Does not
     /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
     /// Set AI state, honoring AI decision authority (log-only when GameWorld applies).
-    pub(in super::super) fn set_ai_state_decision_aware(
+    pub(crate) fn set_ai_state_decision_aware(
         &mut self,
         unit_id: ObjectId,
         state: AIState,
@@ -793,6 +801,7 @@ impl GameLogic {
         };
         let sleep_until = obj.attack_move_sleep_until;
         let dest = obj.requested_destination;
+        let path_goal = obj.path_goal_position.or(dest);
         let pos = obj.get_position();
         let retry = obj.attack_move_retry_count;
         let waiting = obj.waiting_for_path;
@@ -809,25 +818,36 @@ impl GameLogic {
         let mut moving = waiting || has_move_goal;
         if sleep_until == frame {
             if let Some(goal) = dest {
-                moving = self.assign_unit_path(object_id, goal, &[]);
                 if let Some(o) = self.objects.get_mut(&object_id) {
-                    if o.is_attack_path {
-                        o.set_ai_state(AIState::AttackMoving);
-                    }
+                    let landed_chinook = o.chinook_ai.as_ref().is_some_and(|ai| {
+                        ai.flight_status
+                            == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                    });
+                    o.is_final_goal = !o.is_parachuting()
+                        && !landed_chinook
+                        && !(o.chinook_ai.is_some() && o.allow_invalid_position)
+                        && o.adjust_destinations;
+                    o.num_frames_blocked = 0;
+                    o.is_blocked_and_stuck = false;
+                    o.set_status_moving(true);
                 }
+                moving = self.assign_unit_path(object_id, goal, &[]);
             }
         }
 
         if moving {
             return None;
         }
-        let Some(goal) = dest else {
+        let Some(goal) = path_goal else {
             return None;
         };
         let dx = pos.x - goal.x;
         let dz = pos.z - goal.z;
         let dist_sqr = dx * dx + dz * dz;
         if dist_sqr < CLOSE_ENOUGH * CLOSE_ENOUGH || retry < 1 {
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.is_attack_path = false;
+            }
             return Some(AICommand::SetAIState {
                 object_id,
                 state: AIState::Idle,
@@ -906,9 +926,16 @@ impl GameLogic {
             }
             u.set_status_attacking(true);
             if matches!(u.ai_state, AIState::AttackMoving) {
-                // C++ friend_endingMove + setLocomotorGoalNone. Dest/path stay.
+                // C++ friend_endingMove. Dest/path stay. The nested attack
+                // must not keep the move state's locomotor goal.
                 u.movement.velocity = Vec3::ZERO;
                 u.set_status_moving(false);
+                u.set_locomotor_goal_none();
+                if u.attack_move_command_src.is_none() {
+                    u.attack_move_command_src = Some(u.last_command_source);
+                }
+                u.last_command_source =
+                    crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
             }
         }
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
@@ -1004,11 +1031,11 @@ impl GameLogic {
                 object_id,
                 position,
             } => {
-                if decision_auth {
+                let installed =
+                    self.move_object_with_pathfinding(object_id, position, None);
+                if installed && decision_auth {
                     crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
                 }
-                // Pathfinding stays host-side (movement authority peels integrate separately).
-                self.move_object_with_pathfinding(object_id, position, None);
             }
             AICommand::SetAIState { object_id, state } => {
                 // Player Hunt (`hunting`) must survive transient Idle so the

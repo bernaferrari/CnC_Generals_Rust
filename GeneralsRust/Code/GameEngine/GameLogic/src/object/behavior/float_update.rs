@@ -17,7 +17,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use glam::{EulerRot, Mat4};
+use glam::Mat4;
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -124,15 +124,16 @@ impl UpdateModuleInterface for FloatUpdate {
             };
             let mut pos = *me.get_position();
 
-            let mut water_z = 0.0;
-            if let Some(terrain) = TheTerrainLogic::get() {
-                // Determine if we're underwater and get surface height
-                terrain.is_underwater(pos.x, pos.y, Some(&mut water_z), None);
+            // C++ snaps Z to waterZ whenever a water handle exists, even if the
+            // ground is above the water. No handle leaves waterZ unwritten.
+            let mut water_z = f32::NAN;
+            if let Ok(terrain) = crate::terrain::get_terrain_logic().try_read() {
+                let _ = terrain.is_underwater(pos.x, pos.y, Some(&mut water_z), None);
             }
-
-            // Snap to the water surface
-            pos.z = water_z;
-            let _ = me.set_position(&pos);
+            if water_z.is_finite() {
+                pos.z = water_z;
+                let _ = me.set_position(&pos);
+            }
         }
 
         // Apply rocking motion to the drawable
@@ -145,11 +146,11 @@ impl UpdateModuleInterface for FloatUpdate {
             let yaw_rocking = (frame * 0.0291).sin() * 0.05;
             let pitch_rocking = (frame * 0.0515).sin() * 0.05;
 
-            let transform = draw.get_transform();
-            let (_, rotation, _) = transform.to_scale_rotation_translation();
-            let (_, _, z_rot) = rotation.to_euler(EulerRot::XYZ);
+            let instance = draw.get_instance_matrix();
+            let z_rot = instance.x_axis.y.atan2(instance.x_axis.x);
 
-            // C++: Rotate_Z(zRot); Rotate_Y(yaw); Rotate_X(pitch);
+            // C++ Matrix3D::Get_Z_Rotation is atan2(Row[1][0], Row[0][0]).
+            // Rebuild identity, then Rotate_Z, Rotate_Y, Rotate_X.
             let mut mx = Mat4::from_rotation_z(z_rot);
             mx *= Mat4::from_rotation_y(yaw_rocking);
             mx *= Mat4::from_rotation_x(pitch_rocking);
@@ -173,9 +174,7 @@ impl BehaviorModuleInterface for FloatUpdate {
 
 impl Snapshotable for FloatUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

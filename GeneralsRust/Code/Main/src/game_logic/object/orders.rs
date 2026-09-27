@@ -46,6 +46,21 @@ impl Object {
         crate::game_logic::host_attack_log::record(self.id, target);
     }
 
+    /// Per-frame engagement. Never calls `set_ai_state` itself.
+    /// Takeoff no-ops unless the unit is `Docked` or still contained, so a
+    /// parked aircraft leaves once even when enter already wrote this target.
+    /// The ground-point clear and `host_attack_log` run only when the id changes.
+    pub fn note_attack_target(&mut self, target: ObjectId) {
+        let _ = self.takeoff_from_airfield_parking();
+        if self.target != Some(target) {
+            self.target_location = None;
+            self.record_host_target_location();
+            crate::game_logic::host_attack_log::record(self.id, Some(target));
+        }
+        self.target = Some(target);
+        self.set_status_attacking(true);
+    }
+
     /// Set order target without forcing AIState::Attacking.
     /// Used by capture/hijack/gather/special-ability pathing where
     /// `path_to_goal_with_state` owns the AI state residual.
@@ -154,6 +169,13 @@ impl Object {
                 crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Normal,
             );
         }
+    }
+
+    /// C++ load copies `m_upgradedLocomotors` and `m_curLocomotorSet`.
+    /// It does not call `chooseLocomotorSet`.
+    pub fn restore_saved_locomotor(&mut self, upgrade: bool, set: Option<String>) {
+        self.locomotor_upgrade = upgrade;
+        self.jet_ai.cur_locomotor_set = set;
     }
 
     /// C++ Drawable::setTerrainDecal(TERRAIN_DECAL_CHEMSUIT) residual.
@@ -1442,7 +1464,9 @@ impl Object {
             self.model_condition_bits |= 1u128 << BATTLE_BUS_MC_BIT_SECOND_LIFE;
             self.set_status_disabled_held(true);
             self.stop_moving();
-            self.set_ai_state(AIState::Idle);
+            if self.ai_state != AIState::Idle {
+                self.set_ai_state(AIState::Idle);
+            }
             self.refresh_model_condition_bits();
             // Leftover `finish_first_death` / C++ `FXList::doFXObj(m_fxHitGround, me)`.
             let fx = battle_bus_hit_ground_fx_name(&self.template_name);

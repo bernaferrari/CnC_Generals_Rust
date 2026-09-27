@@ -65,7 +65,12 @@ impl ScriptAction for RevealMapAreaAction {
         );
 
         let center = Coord3D::new(x, y, 0.0);
-        let player_mask = 1u32 << (player.max(0) as u32);
+        let player_index = player.max(0) as u32;
+        let player_mask = if player_index < 16 {
+            1u32 << player_index
+        } else {
+            0
+        };
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
             shroud_mgr.do_shroud_reveal(&center, radius, player_mask);
         }
@@ -283,7 +288,12 @@ impl ScriptAction for MapRevealAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let player_mask = 1u32 << (player.max(0) as u32);
+        let player_index = player.max(0) as u32;
+        let player_mask = if player_index < 16 {
+            1u32 << player_index
+        } else {
+            0
+        };
 
         if player_mask != 0 {
             if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
@@ -359,7 +369,12 @@ impl ScriptAction for MapShroudAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let player_mask = 1u32 << (player.max(0) as u32);
+        let player_index = player.max(0) as u32;
+        let player_mask = if player_index < 16 {
+            1u32 << player_index
+        } else {
+            0
+        };
 
         if player_mask != 0 {
             if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
@@ -829,7 +844,12 @@ impl ScriptAction for RevealAreaAction {
         // Rust: shroud_manager.reveal_area(position, radius, player, permanent)
 
         let pos = Coord3D::new(x as f32, y as f32, 0.0);
-        let player_mask = 1u32 << (player.max(0) as u32);
+        let player_index = player.max(0) as u32;
+        let player_mask = if player_index < 16 {
+            1u32 << player_index
+        } else {
+            0
+        };
         if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
             shroud_mgr.do_shroud_reveal(&pos, radius as f32, player_mask);
             if !permanent {

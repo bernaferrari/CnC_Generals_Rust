@@ -36,7 +36,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXOB_MAGIC: &[u8; 4] = b"OXOB";
-const OXOB_VERSION: u32 = 5;
+const OXOB_VERSION: u32 = 11;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectXferPersistPayload {
@@ -114,6 +114,482 @@ struct ObjectXferPersist {
     ignored_obstacle_id: Option<u32>,
     can_path_through_units: bool,
     last_command_source: u32,
+    /// C++ `m_upgradedLocomotors`.
+    locomotor_upgrade: bool,
+    /// C++ `m_curLocomotorSet` token (`SET_NORMAL`, `SET_TAXIING`, ...).
+    cur_locomotor_set: Option<String>,
+    /// False on upgrades from versions that did not store Locomotor::xfer scalars.
+    has_locomotor_motion: bool,
+    /// C++ `Locomotor::m_maxBraking`.
+    braking: f32,
+    /// C++ `Locomotor::m_maxLift`.
+    max_lift: f32,
+    /// C++ `Locomotor::m_brakingFactor`.
+    braking_factor: f32,
+    /// False on saves that did not store close-enough distance or preferred height.
+    has_locomotor_arrival: bool,
+    /// C++ `Locomotor::m_closeEnoughDist` (None = leave the create-time value).
+    close_enough_dist: Option<f32>,
+    /// C++ close-enough-is-3D flag.
+    close_enough_dist_3d: bool,
+    /// C++ `Locomotor::m_donutTimer`.
+    donut_timer: u32,
+    /// C++ `Locomotor::m_preferredHeight`.
+    preferred_height: f32,
+    /// C++ `Locomotor::m_preferredHeightDamping`.
+    preferred_height_damping: f32,
+    /// False on saves that did not store `m_flags`, maintain position, or wander offset.
+    has_locomotor_pose: bool,
+    /// C++ `Locomotor::m_flags` (`LocoFlag` bit order).
+    loco_flags: u32,
+    /// C++ `Locomotor::m_maintainPos` (None = invalid / unset).
+    maintain_pos: Option<[f32; 3]>,
+    /// C++ `Locomotor::m_angleOffset`.
+    wander_angle_offset: f32,
+    /// C++ `Locomotor::m_offsetIncrement`.
+    wander_offset_increment: f32,
+    /// False on saves that did not store the active locomotor template name.
+    has_locomotor_template: bool,
+    /// C++ `Locomotor::getTemplateName`, reloaded by `LocomotorSet::xfer`.
+    cur_locomotor_name: Option<String>,
+    /// C++ `LocomotorSet::m_validLocomotorSurfaces`.
+    valid_locomotor_surfaces: u32,
+    /// C++ `LocomotorSet::m_downhillOnly`.
+    downhill_only: bool,
+    /// C++ doQuickExit temporary-state frame. Absent before OXOB version 11.
+    #[serde(default)]
+    quick_exit_until: Option<u32>,
+}
+
+/// OXOB version 10: locomotor template, no quick-exit deadline.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ObjectXferPersistV10 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
+    do_final_position: bool,
+    final_position: [f32; 3],
+    ignored_obstacle_id: Option<u32>,
+    can_path_through_units: bool,
+    last_command_source: u32,
+    locomotor_upgrade: bool,
+    cur_locomotor_set: Option<String>,
+    has_locomotor_motion: bool,
+    braking: f32,
+    max_lift: f32,
+    braking_factor: f32,
+    has_locomotor_arrival: bool,
+    close_enough_dist: Option<f32>,
+    close_enough_dist_3d: bool,
+    donut_timer: u32,
+    preferred_height: f32,
+    preferred_height_damping: f32,
+    has_locomotor_pose: bool,
+    loco_flags: u32,
+    maintain_pos: Option<[f32; 3]>,
+    wander_angle_offset: f32,
+    wander_offset_increment: f32,
+    has_locomotor_template: bool,
+    cur_locomotor_name: Option<String>,
+    valid_locomotor_surfaces: u32,
+    downhill_only: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV10 {
+    objects: Vec<ObjectXferPersistV10>,
+}
+
+impl From<ObjectXferPersistV10> for ObjectXferPersist {
+    fn from(v: ObjectXferPersistV10) -> Self {
+        Self {
+            object_id: v.object_id,
+            disabled_held: v.disabled_held,
+            single_use_command_used: v.single_use_command_used,
+            ai_attitude: v.ai_attitude,
+            custom_indicator_color: v.custom_indicator_color,
+            vision_range: v.vision_range,
+            shroud_clearing_range: v.shroud_clearing_range,
+            shroud_range: v.shroud_range,
+            pre_attack_ready_at: v.pre_attack_ready_at,
+            pre_attack_target: v.pre_attack_target,
+            consecutive_shot_target: v.consecutive_shot_target,
+            max_shots_to_fire: v.max_shots_to_fire,
+            turret_angle_deg: v.turret_angle_deg,
+            turret_pitch_deg: v.turret_pitch_deg,
+            turret_idle_scan_next_frame: v.turret_idle_scan_next_frame,
+            turret_idle_scanning: v.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v.turret_idle_scan_index,
+            turret_holding: v.turret_holding,
+            turret_hold_until_frame: v.turret_hold_until_frame,
+            turret_idle_recentering: v.turret_idle_recentering,
+            turret_mood_target: v.turret_mood_target,
+            turret_target_id: v.turret_target_id,
+            turret_force_attacking: v.turret_force_attacking,
+            turret_enabled: v.turret_enabled,
+            turret_substate: v.turret_substate,
+            turret_rotating: v.turret_rotating,
+            temporary_stealth_expires_frame: v.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v.weapon_bonus_solo,
+            which_exit_path: v.which_exit_path,
+            cheer_timer: v.cheer_timer,
+            special_cheering: v.special_cheering,
+            weapon_scatter_targets_unused: v.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v.weapon_bonus_subliminal,
+            safe_occlusion_frame: v.safe_occlusion_frame,
+            health_box_offset: v.health_box_offset,
+            last_fire_frame: v.last_fire_frame,
+            is_recruitable: v.is_recruitable,
+            guard_next_enemy_scan: v.guard_next_enemy_scan,
+            hunt_next_enemy_scan: v.hunt_next_enemy_scan,
+            ignore_collisions_until_frame: v.ignore_collisions_until_frame,
+            do_final_position: v.do_final_position,
+            final_position: v.final_position,
+            ignored_obstacle_id: v.ignored_obstacle_id,
+            can_path_through_units: v.can_path_through_units,
+            last_command_source: v.last_command_source,
+            locomotor_upgrade: v.locomotor_upgrade,
+            cur_locomotor_set: v.cur_locomotor_set,
+            has_locomotor_motion: v.has_locomotor_motion,
+            braking: v.braking,
+            max_lift: v.max_lift,
+            braking_factor: v.braking_factor,
+            has_locomotor_arrival: v.has_locomotor_arrival,
+            close_enough_dist: v.close_enough_dist,
+            close_enough_dist_3d: v.close_enough_dist_3d,
+            donut_timer: v.donut_timer,
+            preferred_height: v.preferred_height,
+            preferred_height_damping: v.preferred_height_damping,
+            has_locomotor_pose: v.has_locomotor_pose,
+            loco_flags: v.loco_flags,
+            maintain_pos: v.maintain_pos,
+            wander_angle_offset: v.wander_angle_offset,
+            wander_offset_increment: v.wander_offset_increment,
+            has_locomotor_template: v.has_locomotor_template,
+            cur_locomotor_name: v.cur_locomotor_name,
+            valid_locomotor_surfaces: v.valid_locomotor_surfaces,
+            downhill_only: v.downhill_only,
+            quick_exit_until: None,
+        }
+    }
+}
+
+/// OXOB version 6: locomotor token, no braking scalars.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistV6 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
+    do_final_position: bool,
+    final_position: [f32; 3],
+    ignored_obstacle_id: Option<u32>,
+    can_path_through_units: bool,
+    last_command_source: u32,
+    locomotor_upgrade: bool,
+    cur_locomotor_set: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV6 {
+    objects: Vec<ObjectXferPersistV6>,
+}
+
+/// OXOB version 7: braking scalars, no close-enough distance.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistV7 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
+    do_final_position: bool,
+    final_position: [f32; 3],
+    ignored_obstacle_id: Option<u32>,
+    can_path_through_units: bool,
+    last_command_source: u32,
+    locomotor_upgrade: bool,
+    cur_locomotor_set: Option<String>,
+    has_locomotor_motion: bool,
+    braking: f32,
+    max_lift: f32,
+    braking_factor: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV7 {
+    objects: Vec<ObjectXferPersistV7>,
+}
+
+/// OXOB version 8: stopping distance, no flag word.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistV8 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
+    do_final_position: bool,
+    final_position: [f32; 3],
+    ignored_obstacle_id: Option<u32>,
+    can_path_through_units: bool,
+    last_command_source: u32,
+    locomotor_upgrade: bool,
+    cur_locomotor_set: Option<String>,
+    has_locomotor_motion: bool,
+    braking: f32,
+    max_lift: f32,
+    braking_factor: f32,
+    has_locomotor_arrival: bool,
+    close_enough_dist: Option<f32>,
+    close_enough_dist_3d: bool,
+    donut_timer: u32,
+    preferred_height: f32,
+    preferred_height_damping: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV8 {
+    objects: Vec<ObjectXferPersistV8>,
+}
+
+/// OXOB version 9: flag word and wander pose, no surface mask.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistV9 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
+    do_final_position: bool,
+    final_position: [f32; 3],
+    ignored_obstacle_id: Option<u32>,
+    can_path_through_units: bool,
+    last_command_source: u32,
+    locomotor_upgrade: bool,
+    cur_locomotor_set: Option<String>,
+    has_locomotor_motion: bool,
+    braking: f32,
+    max_lift: f32,
+    braking_factor: f32,
+    has_locomotor_arrival: bool,
+    close_enough_dist: Option<f32>,
+    close_enough_dist_3d: bool,
+    donut_timer: u32,
+    preferred_height: f32,
+    preferred_height_damping: f32,
+    has_locomotor_pose: bool,
+    loco_flags: u32,
+    maintain_pos: Option<[f32; 3]>,
+    wander_angle_offset: f32,
+    wander_offset_increment: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV9 {
+    objects: Vec<ObjectXferPersistV9>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,6 +757,65 @@ struct ObjectXferPersistV4 {
     ignore_collisions_until_frame: u32,
 }
 
+/// OXOB version 5: command source, no locomotor upgrade or set.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistV5 {
+    object_id: u32,
+    disabled_held: bool,
+    single_use_command_used: bool,
+    ai_attitude: i8,
+    custom_indicator_color: Option<u32>,
+    vision_range: f32,
+    shroud_clearing_range: f32,
+    shroud_range: f32,
+    pre_attack_ready_at: f32,
+    pre_attack_target: Option<u32>,
+    consecutive_shot_target: Option<u32>,
+    max_shots_to_fire: i32,
+    turret_angle_deg: f32,
+    turret_pitch_deg: f32,
+    turret_idle_scan_next_frame: u32,
+    turret_idle_scanning: bool,
+    turret_idle_scan_desired_angle_deg: f32,
+    turret_idle_scan_index: u32,
+    turret_holding: bool,
+    turret_hold_until_frame: u32,
+    turret_idle_recentering: bool,
+    turret_mood_target: bool,
+    turret_target_id: Option<u32>,
+    turret_force_attacking: bool,
+    turret_enabled: bool,
+    turret_substate: u8,
+    turret_rotating: bool,
+    temporary_stealth_expires_frame: u32,
+    weapon_bonus_solo: u8,
+    which_exit_path: u8,
+    cheer_timer: f32,
+    special_cheering: bool,
+    weapon_scatter_targets_unused: [Vec<i32>; 3],
+    weapon_scatter_targets_inited: [bool; 3],
+    weapon_bonus_horde: bool,
+    weapon_bonus_enthusiastic: bool,
+    weapon_bonus_subliminal: bool,
+    safe_occlusion_frame: u32,
+    health_box_offset: [f32; 3],
+    last_fire_frame: u32,
+    is_recruitable: bool,
+    guard_next_enemy_scan: Option<u32>,
+    hunt_next_enemy_scan: Option<u32>,
+    ignore_collisions_until_frame: u32,
+    do_final_position: bool,
+    final_position: [f32; 3],
+    ignored_obstacle_id: Option<u32>,
+    can_path_through_units: bool,
+    last_command_source: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct ObjectXferPersistPayloadV5 {
+    objects: Vec<ObjectXferPersistV5>,
+}
+
 impl From<ObjectXferPersistV1> for ObjectXferPersist {
     fn from(v1: ObjectXferPersistV1) -> Self {
         Self {
@@ -326,6 +861,7 @@ impl From<ObjectXferPersistV1> for ObjectXferPersist {
             last_fire_frame: 0,
             is_recruitable: true,
             guard_next_enemy_scan: None,
+            quick_exit_until: None,
             hunt_next_enemy_scan: None,
             ignore_collisions_until_frame: 0,
             do_final_position: false,
@@ -333,6 +869,27 @@ impl From<ObjectXferPersistV1> for ObjectXferPersist {
             ignored_obstacle_id: None,
             can_path_through_units: false,
             last_command_source: HUNT_CMD_FROM_AI,
+            locomotor_upgrade: false,
+            cur_locomotor_set: None,
+            has_locomotor_motion: false,
+            braking: 0.0,
+            max_lift: 0.0,
+            braking_factor: 0.0,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
         }
     }
 }
@@ -382,6 +939,7 @@ impl From<ObjectXferPersistV2> for ObjectXferPersist {
             last_fire_frame: 0,
             is_recruitable: true,
             guard_next_enemy_scan: None,
+            quick_exit_until: None,
             hunt_next_enemy_scan: None,
             ignore_collisions_until_frame: 0,
             do_final_position: false,
@@ -389,6 +947,27 @@ impl From<ObjectXferPersistV2> for ObjectXferPersist {
             ignored_obstacle_id: None,
             can_path_through_units: false,
             last_command_source: HUNT_CMD_FROM_AI,
+            locomotor_upgrade: false,
+            cur_locomotor_set: None,
+            has_locomotor_motion: false,
+            braking: 0.0,
+            max_lift: 0.0,
+            braking_factor: 0.0,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
         }
     }
 }
@@ -438,6 +1017,7 @@ impl From<ObjectXferPersistV3> for ObjectXferPersist {
             last_fire_frame: 0,
             is_recruitable: true,
             guard_next_enemy_scan: None,
+            quick_exit_until: None,
             hunt_next_enemy_scan: None,
             ignore_collisions_until_frame: 0,
             do_final_position: false,
@@ -445,6 +1025,27 @@ impl From<ObjectXferPersistV3> for ObjectXferPersist {
             ignored_obstacle_id: None,
             can_path_through_units: false,
             last_command_source: HUNT_CMD_FROM_AI,
+            locomotor_upgrade: false,
+            cur_locomotor_set: None,
+            has_locomotor_motion: false,
+            braking: 0.0,
+            max_lift: 0.0,
+            braking_factor: 0.0,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
         }
     }
 }
@@ -494,6 +1095,7 @@ impl From<ObjectXferPersistV4> for ObjectXferPersist {
             last_fire_frame: v4.last_fire_frame,
             is_recruitable: v4.is_recruitable,
             guard_next_enemy_scan: v4.guard_next_enemy_scan,
+            quick_exit_until: None,
             hunt_next_enemy_scan: v4.hunt_next_enemy_scan,
             ignore_collisions_until_frame: v4.ignore_collisions_until_frame,
             do_final_position: false,
@@ -501,6 +1103,417 @@ impl From<ObjectXferPersistV4> for ObjectXferPersist {
             ignored_obstacle_id: None,
             can_path_through_units: false,
             last_command_source: HUNT_CMD_FROM_AI,
+            locomotor_upgrade: false,
+            cur_locomotor_set: None,
+            has_locomotor_motion: false,
+            braking: 0.0,
+            max_lift: 0.0,
+            braking_factor: 0.0,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV5> for ObjectXferPersist {
+    fn from(v5: ObjectXferPersistV5) -> Self {
+        Self {
+            object_id: v5.object_id,
+            disabled_held: v5.disabled_held,
+            single_use_command_used: v5.single_use_command_used,
+            ai_attitude: v5.ai_attitude,
+            custom_indicator_color: v5.custom_indicator_color,
+            vision_range: v5.vision_range,
+            shroud_clearing_range: v5.shroud_clearing_range,
+            shroud_range: v5.shroud_range,
+            pre_attack_ready_at: v5.pre_attack_ready_at,
+            pre_attack_target: v5.pre_attack_target,
+            consecutive_shot_target: v5.consecutive_shot_target,
+            max_shots_to_fire: v5.max_shots_to_fire,
+            turret_angle_deg: v5.turret_angle_deg,
+            turret_pitch_deg: v5.turret_pitch_deg,
+            turret_idle_scan_next_frame: v5.turret_idle_scan_next_frame,
+            turret_idle_scanning: v5.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v5.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v5.turret_idle_scan_index,
+            turret_holding: v5.turret_holding,
+            turret_hold_until_frame: v5.turret_hold_until_frame,
+            turret_idle_recentering: v5.turret_idle_recentering,
+            turret_mood_target: v5.turret_mood_target,
+            turret_target_id: v5.turret_target_id,
+            turret_force_attacking: v5.turret_force_attacking,
+            turret_enabled: v5.turret_enabled,
+            turret_substate: v5.turret_substate,
+            turret_rotating: v5.turret_rotating,
+            temporary_stealth_expires_frame: v5.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v5.weapon_bonus_solo,
+            which_exit_path: v5.which_exit_path,
+            cheer_timer: v5.cheer_timer,
+            special_cheering: v5.special_cheering,
+            weapon_scatter_targets_unused: v5.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v5.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v5.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v5.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v5.weapon_bonus_subliminal,
+            safe_occlusion_frame: v5.safe_occlusion_frame,
+            health_box_offset: v5.health_box_offset,
+            last_fire_frame: v5.last_fire_frame,
+            is_recruitable: v5.is_recruitable,
+            guard_next_enemy_scan: v5.guard_next_enemy_scan,
+            quick_exit_until: None,
+            hunt_next_enemy_scan: v5.hunt_next_enemy_scan,
+            ignore_collisions_until_frame: v5.ignore_collisions_until_frame,
+            do_final_position: v5.do_final_position,
+            final_position: v5.final_position,
+            ignored_obstacle_id: v5.ignored_obstacle_id,
+            can_path_through_units: v5.can_path_through_units,
+            last_command_source: v5.last_command_source,
+            locomotor_upgrade: false,
+            cur_locomotor_set: None,
+            has_locomotor_motion: false,
+            braking: 0.0,
+            max_lift: 0.0,
+            braking_factor: 0.0,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV6> for ObjectXferPersist {
+    fn from(v6: ObjectXferPersistV6) -> Self {
+        Self {
+            object_id: v6.object_id,
+            disabled_held: v6.disabled_held,
+            single_use_command_used: v6.single_use_command_used,
+            ai_attitude: v6.ai_attitude,
+            custom_indicator_color: v6.custom_indicator_color,
+            vision_range: v6.vision_range,
+            shroud_clearing_range: v6.shroud_clearing_range,
+            shroud_range: v6.shroud_range,
+            pre_attack_ready_at: v6.pre_attack_ready_at,
+            pre_attack_target: v6.pre_attack_target,
+            consecutive_shot_target: v6.consecutive_shot_target,
+            max_shots_to_fire: v6.max_shots_to_fire,
+            turret_angle_deg: v6.turret_angle_deg,
+            turret_pitch_deg: v6.turret_pitch_deg,
+            turret_idle_scan_next_frame: v6.turret_idle_scan_next_frame,
+            turret_idle_scanning: v6.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v6.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v6.turret_idle_scan_index,
+            turret_holding: v6.turret_holding,
+            turret_hold_until_frame: v6.turret_hold_until_frame,
+            turret_idle_recentering: v6.turret_idle_recentering,
+            turret_mood_target: v6.turret_mood_target,
+            turret_target_id: v6.turret_target_id,
+            turret_force_attacking: v6.turret_force_attacking,
+            turret_enabled: v6.turret_enabled,
+            turret_substate: v6.turret_substate,
+            turret_rotating: v6.turret_rotating,
+            temporary_stealth_expires_frame: v6.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v6.weapon_bonus_solo,
+            which_exit_path: v6.which_exit_path,
+            cheer_timer: v6.cheer_timer,
+            special_cheering: v6.special_cheering,
+            weapon_scatter_targets_unused: v6.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v6.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v6.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v6.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v6.weapon_bonus_subliminal,
+            safe_occlusion_frame: v6.safe_occlusion_frame,
+            health_box_offset: v6.health_box_offset,
+            last_fire_frame: v6.last_fire_frame,
+            is_recruitable: v6.is_recruitable,
+            guard_next_enemy_scan: v6.guard_next_enemy_scan,
+            quick_exit_until: None,
+            hunt_next_enemy_scan: v6.hunt_next_enemy_scan,
+            ignore_collisions_until_frame: v6.ignore_collisions_until_frame,
+            do_final_position: v6.do_final_position,
+            final_position: v6.final_position,
+            ignored_obstacle_id: v6.ignored_obstacle_id,
+            can_path_through_units: v6.can_path_through_units,
+            last_command_source: v6.last_command_source,
+            locomotor_upgrade: v6.locomotor_upgrade,
+            cur_locomotor_set: v6.cur_locomotor_set,
+            has_locomotor_motion: false,
+            braking: 0.0,
+            max_lift: 0.0,
+            braking_factor: 0.0,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV7> for ObjectXferPersist {
+    fn from(v7: ObjectXferPersistV7) -> Self {
+        Self {
+            object_id: v7.object_id,
+            disabled_held: v7.disabled_held,
+            single_use_command_used: v7.single_use_command_used,
+            ai_attitude: v7.ai_attitude,
+            custom_indicator_color: v7.custom_indicator_color,
+            vision_range: v7.vision_range,
+            shroud_clearing_range: v7.shroud_clearing_range,
+            shroud_range: v7.shroud_range,
+            pre_attack_ready_at: v7.pre_attack_ready_at,
+            pre_attack_target: v7.pre_attack_target,
+            consecutive_shot_target: v7.consecutive_shot_target,
+            max_shots_to_fire: v7.max_shots_to_fire,
+            turret_angle_deg: v7.turret_angle_deg,
+            turret_pitch_deg: v7.turret_pitch_deg,
+            turret_idle_scan_next_frame: v7.turret_idle_scan_next_frame,
+            turret_idle_scanning: v7.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v7.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v7.turret_idle_scan_index,
+            turret_holding: v7.turret_holding,
+            turret_hold_until_frame: v7.turret_hold_until_frame,
+            turret_idle_recentering: v7.turret_idle_recentering,
+            turret_mood_target: v7.turret_mood_target,
+            turret_target_id: v7.turret_target_id,
+            turret_force_attacking: v7.turret_force_attacking,
+            turret_enabled: v7.turret_enabled,
+            turret_substate: v7.turret_substate,
+            turret_rotating: v7.turret_rotating,
+            temporary_stealth_expires_frame: v7.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v7.weapon_bonus_solo,
+            which_exit_path: v7.which_exit_path,
+            cheer_timer: v7.cheer_timer,
+            special_cheering: v7.special_cheering,
+            weapon_scatter_targets_unused: v7.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v7.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v7.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v7.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v7.weapon_bonus_subliminal,
+            safe_occlusion_frame: v7.safe_occlusion_frame,
+            health_box_offset: v7.health_box_offset,
+            last_fire_frame: v7.last_fire_frame,
+            is_recruitable: v7.is_recruitable,
+            guard_next_enemy_scan: v7.guard_next_enemy_scan,
+            quick_exit_until: None,
+            hunt_next_enemy_scan: v7.hunt_next_enemy_scan,
+            ignore_collisions_until_frame: v7.ignore_collisions_until_frame,
+            do_final_position: v7.do_final_position,
+            final_position: v7.final_position,
+            ignored_obstacle_id: v7.ignored_obstacle_id,
+            can_path_through_units: v7.can_path_through_units,
+            last_command_source: v7.last_command_source,
+            locomotor_upgrade: v7.locomotor_upgrade,
+            cur_locomotor_set: v7.cur_locomotor_set,
+            has_locomotor_motion: v7.has_locomotor_motion,
+            braking: v7.braking,
+            max_lift: v7.max_lift,
+            braking_factor: v7.braking_factor,
+            has_locomotor_arrival: false,
+            close_enough_dist: None,
+            close_enough_dist_3d: false,
+            donut_timer: 0,
+            preferred_height: 0.0,
+            preferred_height_damping: 0.0,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV8> for ObjectXferPersist {
+    fn from(v8: ObjectXferPersistV8) -> Self {
+        Self {
+            object_id: v8.object_id,
+            disabled_held: v8.disabled_held,
+            single_use_command_used: v8.single_use_command_used,
+            ai_attitude: v8.ai_attitude,
+            custom_indicator_color: v8.custom_indicator_color,
+            vision_range: v8.vision_range,
+            shroud_clearing_range: v8.shroud_clearing_range,
+            shroud_range: v8.shroud_range,
+            pre_attack_ready_at: v8.pre_attack_ready_at,
+            pre_attack_target: v8.pre_attack_target,
+            consecutive_shot_target: v8.consecutive_shot_target,
+            max_shots_to_fire: v8.max_shots_to_fire,
+            turret_angle_deg: v8.turret_angle_deg,
+            turret_pitch_deg: v8.turret_pitch_deg,
+            turret_idle_scan_next_frame: v8.turret_idle_scan_next_frame,
+            turret_idle_scanning: v8.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v8.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v8.turret_idle_scan_index,
+            turret_holding: v8.turret_holding,
+            turret_hold_until_frame: v8.turret_hold_until_frame,
+            turret_idle_recentering: v8.turret_idle_recentering,
+            turret_mood_target: v8.turret_mood_target,
+            turret_target_id: v8.turret_target_id,
+            turret_force_attacking: v8.turret_force_attacking,
+            turret_enabled: v8.turret_enabled,
+            turret_substate: v8.turret_substate,
+            turret_rotating: v8.turret_rotating,
+            temporary_stealth_expires_frame: v8.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v8.weapon_bonus_solo,
+            which_exit_path: v8.which_exit_path,
+            cheer_timer: v8.cheer_timer,
+            special_cheering: v8.special_cheering,
+            weapon_scatter_targets_unused: v8.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v8.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v8.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v8.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v8.weapon_bonus_subliminal,
+            safe_occlusion_frame: v8.safe_occlusion_frame,
+            health_box_offset: v8.health_box_offset,
+            last_fire_frame: v8.last_fire_frame,
+            is_recruitable: v8.is_recruitable,
+            guard_next_enemy_scan: v8.guard_next_enemy_scan,
+            quick_exit_until: None,
+            hunt_next_enemy_scan: v8.hunt_next_enemy_scan,
+            ignore_collisions_until_frame: v8.ignore_collisions_until_frame,
+            do_final_position: v8.do_final_position,
+            final_position: v8.final_position,
+            ignored_obstacle_id: v8.ignored_obstacle_id,
+            can_path_through_units: v8.can_path_through_units,
+            last_command_source: v8.last_command_source,
+            locomotor_upgrade: v8.locomotor_upgrade,
+            cur_locomotor_set: v8.cur_locomotor_set,
+            has_locomotor_motion: v8.has_locomotor_motion,
+            braking: v8.braking,
+            max_lift: v8.max_lift,
+            braking_factor: v8.braking_factor,
+            has_locomotor_arrival: v8.has_locomotor_arrival,
+            close_enough_dist: v8.close_enough_dist,
+            close_enough_dist_3d: v8.close_enough_dist_3d,
+            donut_timer: v8.donut_timer,
+            preferred_height: v8.preferred_height,
+            preferred_height_damping: v8.preferred_height_damping,
+            has_locomotor_pose: false,
+            loco_flags: 0,
+            maintain_pos: None,
+            wander_angle_offset: 0.0,
+            wander_offset_increment: 0.0,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
+        }
+    }
+}
+
+impl From<ObjectXferPersistV9> for ObjectXferPersist {
+    fn from(v9: ObjectXferPersistV9) -> Self {
+        Self {
+            object_id: v9.object_id,
+            disabled_held: v9.disabled_held,
+            single_use_command_used: v9.single_use_command_used,
+            ai_attitude: v9.ai_attitude,
+            custom_indicator_color: v9.custom_indicator_color,
+            vision_range: v9.vision_range,
+            shroud_clearing_range: v9.shroud_clearing_range,
+            shroud_range: v9.shroud_range,
+            pre_attack_ready_at: v9.pre_attack_ready_at,
+            pre_attack_target: v9.pre_attack_target,
+            consecutive_shot_target: v9.consecutive_shot_target,
+            max_shots_to_fire: v9.max_shots_to_fire,
+            turret_angle_deg: v9.turret_angle_deg,
+            turret_pitch_deg: v9.turret_pitch_deg,
+            turret_idle_scan_next_frame: v9.turret_idle_scan_next_frame,
+            turret_idle_scanning: v9.turret_idle_scanning,
+            turret_idle_scan_desired_angle_deg: v9.turret_idle_scan_desired_angle_deg,
+            turret_idle_scan_index: v9.turret_idle_scan_index,
+            turret_holding: v9.turret_holding,
+            turret_hold_until_frame: v9.turret_hold_until_frame,
+            turret_idle_recentering: v9.turret_idle_recentering,
+            turret_mood_target: v9.turret_mood_target,
+            turret_target_id: v9.turret_target_id,
+            turret_force_attacking: v9.turret_force_attacking,
+            turret_enabled: v9.turret_enabled,
+            turret_substate: v9.turret_substate,
+            turret_rotating: v9.turret_rotating,
+            temporary_stealth_expires_frame: v9.temporary_stealth_expires_frame,
+            weapon_bonus_solo: v9.weapon_bonus_solo,
+            which_exit_path: v9.which_exit_path,
+            cheer_timer: v9.cheer_timer,
+            special_cheering: v9.special_cheering,
+            weapon_scatter_targets_unused: v9.weapon_scatter_targets_unused,
+            weapon_scatter_targets_inited: v9.weapon_scatter_targets_inited,
+            weapon_bonus_horde: v9.weapon_bonus_horde,
+            weapon_bonus_enthusiastic: v9.weapon_bonus_enthusiastic,
+            weapon_bonus_subliminal: v9.weapon_bonus_subliminal,
+            safe_occlusion_frame: v9.safe_occlusion_frame,
+            health_box_offset: v9.health_box_offset,
+            last_fire_frame: v9.last_fire_frame,
+            is_recruitable: v9.is_recruitable,
+            guard_next_enemy_scan: v9.guard_next_enemy_scan,
+            quick_exit_until: None,
+            hunt_next_enemy_scan: v9.hunt_next_enemy_scan,
+            ignore_collisions_until_frame: v9.ignore_collisions_until_frame,
+            do_final_position: v9.do_final_position,
+            final_position: v9.final_position,
+            ignored_obstacle_id: v9.ignored_obstacle_id,
+            can_path_through_units: v9.can_path_through_units,
+            last_command_source: v9.last_command_source,
+            locomotor_upgrade: v9.locomotor_upgrade,
+            cur_locomotor_set: v9.cur_locomotor_set,
+            has_locomotor_motion: v9.has_locomotor_motion,
+            braking: v9.braking,
+            max_lift: v9.max_lift,
+            braking_factor: v9.braking_factor,
+            has_locomotor_arrival: v9.has_locomotor_arrival,
+            close_enough_dist: v9.close_enough_dist,
+            close_enough_dist_3d: v9.close_enough_dist_3d,
+            donut_timer: v9.donut_timer,
+            preferred_height: v9.preferred_height,
+            preferred_height_damping: v9.preferred_height_damping,
+            has_locomotor_pose: v9.has_locomotor_pose,
+            loco_flags: v9.loco_flags,
+            maintain_pos: v9.maintain_pos,
+            wander_angle_offset: v9.wander_angle_offset,
+            wander_offset_increment: v9.wander_offset_increment,
+            has_locomotor_template: false,
+            cur_locomotor_name: None,
+            valid_locomotor_surfaces: 0,
+            downhill_only: false,
         }
     }
 }
@@ -526,7 +1539,7 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1 && version != 2 && version != 3 && version != OXOB_VERSION {
+    if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != 9 && version != 10 && version != OXOB_VERSION {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXOB suffix version {version}"
         )));
@@ -560,6 +1573,76 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
         }
     } else if version == 3 {
         let old: ObjectXferPersistPayloadV3 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 4 {
+        let old: ObjectXferPersistPayloadV4 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 5 {
+        let old: ObjectXferPersistPayloadV5 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 6 {
+        let old: ObjectXferPersistPayloadV6 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 7 {
+        let old: ObjectXferPersistPayloadV7 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 8 {
+        let old: ObjectXferPersistPayloadV8 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 9 {
+        let old: ObjectXferPersistPayloadV9 = bincode_legacy::deserialize(encoded)
+            .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
+        ObjectXferPersistPayload {
+            objects: old
+                .objects
+                .into_iter()
+                .map(ObjectXferPersist::from)
+                .collect(),
+        }
+    } else if version == 10 {
+        let old: ObjectXferPersistPayloadV10 = bincode_legacy::deserialize(encoded)
             .map_err(|err| SaveLoadError::Corrupted(format!("OXOB payload decode: {err}")))?;
         ObjectXferPersistPayload {
             objects: old
@@ -625,6 +1708,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             last_fire_frame: object.last_fire_frame,
             is_recruitable: object.is_recruitable,
             guard_next_enemy_scan: game_logic.guard_next_enemy_scan.get(id).copied(),
+            quick_exit_until: game_logic.quick_exit_until.get(id).copied(),
             hunt_next_enemy_scan: game_logic.hunt_next_enemy_scan.get(id).copied(),
             ignore_collisions_until_frame: object.ignore_collisions_until_frame,
             do_final_position: object.do_final_position,
@@ -632,6 +1716,27 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             ignored_obstacle_id: object.ignored_obstacle_id.map(|id| id.0),
             can_path_through_units: object.can_path_through_units,
             last_command_source: object.last_command_source,
+            locomotor_upgrade: object.locomotor_upgrade,
+            cur_locomotor_set: object.jet_ai.cur_locomotor_set.clone(),
+            has_locomotor_motion: true,
+            braking: object.braking,
+            max_lift: object.max_lift,
+            braking_factor: object.braking_factor,
+            has_locomotor_arrival: true,
+            close_enough_dist: object.close_enough_dist,
+            close_enough_dist_3d: object.close_enough_dist_3d,
+            donut_timer: object.donut_timer,
+            preferred_height: object.loco_preferred_height,
+            preferred_height_damping: object.loco_preferred_height_damping,
+            has_locomotor_pose: true,
+            loco_flags: pack_loco_flags(object),
+            maintain_pos: object.maintain_pos.map(|p| [p.x, p.y, p.z]),
+            wander_angle_offset: object.wander_angle_offset,
+            wander_offset_increment: object.wander_offset_increment,
+            has_locomotor_template: true,
+            cur_locomotor_name: object.cur_locomotor_name.clone(),
+            valid_locomotor_surfaces: object.locomotor_surfaces,
+            downhill_only: object.downhill_only,
         });
     }
     ObjectXferPersistPayload { objects }
@@ -639,6 +1744,7 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
 
 fn reset_object_xfer(game_logic: &mut GameLogic) {
     game_logic.guard_next_enemy_scan.clear();
+    game_logic.quick_exit_until.clear();
     game_logic.hunt_next_enemy_scan.clear();
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
@@ -683,6 +1789,8 @@ fn reset_object_xfer(game_logic: &mut GameLogic) {
         object.ignored_obstacle_id = None;
         object.can_path_through_units = false;
         object.last_command_source = HUNT_CMD_FROM_AI;
+        object.locomotor_upgrade = false;
+        object.jet_ai.cur_locomotor_set = None;
     }
 }
 
@@ -737,14 +1845,80 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
             object.ignored_obstacle_id = entry.ignored_obstacle_id.map(ObjectId);
             object.can_path_through_units = entry.can_path_through_units;
             object.last_command_source = entry.last_command_source;
+            object.restore_saved_locomotor(entry.locomotor_upgrade, entry.cur_locomotor_set);
+            if entry.has_locomotor_motion {
+                object.braking = entry.braking;
+                object.max_lift = entry.max_lift;
+                object.braking_factor = entry.braking_factor;
+            }
+            if entry.has_locomotor_arrival {
+                object.close_enough_dist = entry.close_enough_dist;
+                object.close_enough_dist_3d = entry.close_enough_dist_3d;
+                object.donut_timer = entry.donut_timer;
+                object.loco_preferred_height = entry.preferred_height;
+                object.loco_preferred_height_damping = entry.preferred_height_damping;
+            }
+            if entry.has_locomotor_pose {
+                apply_loco_flags(object, entry.loco_flags);
+                object.maintain_pos = entry.maintain_pos.map(glam::Vec3::from_array);
+                object.wander_angle_offset = entry.wander_angle_offset;
+                object.wander_offset_increment = entry.wander_offset_increment;
+            }
+            if entry.has_locomotor_template {
+                object.cur_locomotor_name = entry.cur_locomotor_name;
+                object.locomotor_surfaces = entry.valid_locomotor_surfaces;
+                object.downhill_only = entry.downhill_only;
+            }
         }
         if let Some(next) = entry.guard_next_enemy_scan {
             game_logic.guard_next_enemy_scan.insert(id, next);
+        }
+        if let Some(until) = entry.quick_exit_until {
+            game_logic.quick_exit_until.insert(id, until);
         }
         if let Some(next) = entry.hunt_next_enemy_scan {
             game_logic.hunt_next_enemy_scan.insert(id, next);
         }
     }
+}
+
+fn pack_loco_flags(object: &crate::game_logic::Object) -> u32 {
+    let mut flags = 0u32;
+    let mut set = |bit: u32, on: bool| {
+        if on {
+            flags |= 1 << bit;
+        }
+    };
+    // C++ LocoFlag order (Locomotor.h:397-408).
+    set(0, object.is_braking);
+    set(1, object.allow_invalid_position);
+    set(2, object.maintain_pos_valid);
+    set(3, object.precise_z_pos);
+    set(4, object.no_slow_down_as_approaching_dest);
+    set(5, object.over_water);
+    set(6, object.ultra_accurate);
+    set(7, object.moving_backwards);
+    set(8, object.doing_three_point_turn);
+    set(9, object.is_climbing);
+    set(10, object.close_enough_dist_3d);
+    set(11, object.wander_offset_increasing);
+    flags
+}
+
+fn apply_loco_flags(object: &mut crate::game_logic::Object, flags: u32) {
+    let on = |bit: u32| flags & (1 << bit) != 0;
+    object.is_braking = on(0);
+    object.allow_invalid_position = on(1);
+    object.maintain_pos_valid = on(2);
+    object.precise_z_pos = on(3);
+    object.no_slow_down_as_approaching_dest = on(4);
+    object.over_water = on(5);
+    object.ultra_accurate = on(6);
+    object.moving_backwards = on(7);
+    object.doing_three_point_turn = on(8);
+    object.is_climbing = on(9);
+    object.close_enough_dist_3d = on(10);
+    object.wander_offset_increasing = on(11);
 }
 
 fn special_cheering_mask() -> u128 {
@@ -1154,6 +2328,27 @@ mod tests {
             object.last_fire_frame = 77;
             object.is_recruitable = false;
             object.ignore_collisions_until_frame = 150;
+            object.locomotor_upgrade = true;
+            object.jet_ai.cur_locomotor_set = Some("SET_NORMAL_UPGRADED".to_string());
+            object.braking = 40.0;
+            object.max_lift = 9.5;
+            object.braking_factor = 0.25;
+            object.close_enough_dist = Some(25.0);
+            object.close_enough_dist_3d = true;
+            object.donut_timer = 80;
+            object.loco_preferred_height = 12.0;
+            object.loco_preferred_height_damping = 0.4;
+            object.is_braking = true;
+            object.is_climbing = true;
+            object.doing_three_point_turn = true;
+            object.cur_locomotor_name = Some("WorkerShoes".to_string());
+            object.locomotor_surfaces = 0x11;
+            object.downhill_only = true;
+            object.maintain_pos_valid = true;
+            object.maintain_pos = Some(glam::Vec3::new(3.0, 1.0, 4.0));
+            object.wander_angle_offset = 0.7;
+            object.wander_offset_increment = 0.15;
+            object.wander_offset_increasing = true;
         }
         source.guard_next_enemy_scan.insert(id, 90);
         source.hunt_next_enemy_scan.insert(id, 120);
@@ -1174,6 +2369,8 @@ mod tests {
             object.last_fire_frame = 1;
             object.is_recruitable = true;
             object.ignore_collisions_until_frame = 3;
+            object.locomotor_surfaces = 0x40;
+            object.cur_locomotor_name = Some("CreateTime".to_string());
         }
         dest.guard_next_enemy_scan.insert(dest_id, 1);
         dest.hunt_next_enemy_scan.insert(dest_id, 2);
@@ -1197,6 +2394,30 @@ mod tests {
             loaded.ignore_collisions_until_frame, 150,
             "m_ignoreCollisionsUntil must survive load"
         );
+        assert!(loaded.locomotor_upgrade);
+        assert_eq!(
+            loaded.jet_ai.cur_locomotor_set.as_deref(),
+            Some("SET_NORMAL_UPGRADED")
+        );
+        assert!((loaded.braking - 40.0).abs() < 0.001);
+        assert!((loaded.max_lift - 9.5).abs() < 0.001);
+        assert!((loaded.braking_factor - 0.25).abs() < 0.001);
+        assert_eq!(loaded.close_enough_dist, Some(25.0));
+        assert!(loaded.close_enough_dist_3d);
+        assert_eq!(loaded.donut_timer, 80);
+        assert!((loaded.loco_preferred_height - 12.0).abs() < 0.001);
+        assert!((loaded.loco_preferred_height_damping - 0.4).abs() < 0.001);
+        assert!(loaded.is_braking);
+        assert!(loaded.is_climbing);
+        assert!(loaded.doing_three_point_turn);
+        assert_eq!(loaded.cur_locomotor_name.as_deref(), Some("WorkerShoes"));
+        assert_eq!(loaded.locomotor_surfaces, 0x11);
+        assert!(loaded.downhill_only);
+        assert!(loaded.maintain_pos_valid);
+        assert_eq!(loaded.maintain_pos, Some(glam::Vec3::new(3.0, 1.0, 4.0)));
+        assert!((loaded.wander_angle_offset - 0.7).abs() < 0.001);
+        assert!((loaded.wander_offset_increment - 0.15).abs() < 0.001);
+        assert!(loaded.wander_offset_increasing);
         assert_eq!(
             dest.guard_next_enemy_scan.get(&dest_id).copied(),
             Some(90),
@@ -1207,6 +2428,204 @@ mod tests {
             Some(120),
             "AIHuntState scan clock must survive load"
         );
+    }
+
+    #[test]
+    fn oxob_v5_suffix_clears_the_locomotor_upgrade() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.locomotor_upgrade = true;
+            object.jet_ai.cur_locomotor_set = Some("SET_TAXIING".to_string());
+        }
+        let v5 = ObjectXferPersistPayloadV5 {
+            objects: vec![ObjectXferPersistV5 {
+                object_id: id.0,
+                ..Default::default()
+            }],
+        };
+        let encoded = bincode_legacy::serialize(&v5).expect("v5 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(OXOB_MAGIC);
+        append_u32(&mut bytes, 5);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v5");
+        let loaded = logic.host_object(id).expect("unit");
+        assert!(!loaded.locomotor_upgrade);
+        assert!(loaded.jet_ai.cur_locomotor_set.is_none());
+    }
+
+    #[test]
+    fn oxob_v6_suffix_keeps_create_time_braking() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.braking = 40.0;
+            object.max_lift = 9.5;
+            object.braking_factor = 0.25;
+            object.locomotor_upgrade = true;
+            object.jet_ai.cur_locomotor_set = Some("SET_TAXIING".to_string());
+        }
+        let v6 = ObjectXferPersistPayloadV6 {
+            objects: vec![ObjectXferPersistV6 {
+                object_id: id.0,
+                locomotor_upgrade: true,
+                cur_locomotor_set: Some("SET_TAXIING".to_string()),
+                ..Default::default()
+            }],
+        };
+        let encoded = bincode_legacy::serialize(&v6).expect("v6 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(OXOB_MAGIC);
+        append_u32(&mut bytes, 6);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v6");
+        let loaded = logic.host_object(id).expect("unit");
+        assert!(loaded.locomotor_upgrade);
+        assert_eq!(loaded.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
+        assert!((loaded.braking - 40.0).abs() < 0.001);
+        assert!((loaded.max_lift - 9.5).abs() < 0.001);
+        assert!((loaded.braking_factor - 0.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn oxob_v7_suffix_keeps_create_time_stopping_distance() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.close_enough_dist = Some(25.0);
+            object.close_enough_dist_3d = true;
+            object.donut_timer = 80;
+            object.loco_preferred_height = 12.0;
+            object.loco_preferred_height_damping = 0.4;
+            object.braking = 40.0;
+        }
+        let v7 = ObjectXferPersistPayloadV7 {
+            objects: vec![ObjectXferPersistV7 {
+                object_id: id.0,
+                has_locomotor_motion: true,
+                braking: 40.0,
+                ..Default::default()
+            }],
+        };
+        let encoded = bincode_legacy::serialize(&v7).expect("v7 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(OXOB_MAGIC);
+        append_u32(&mut bytes, 7);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v7");
+        let loaded = logic.host_object(id).expect("unit");
+        assert!((loaded.braking - 40.0).abs() < 0.001);
+        assert_eq!(loaded.close_enough_dist, Some(25.0));
+        assert!(loaded.close_enough_dist_3d);
+        assert_eq!(loaded.donut_timer, 80);
+        assert!((loaded.loco_preferred_height - 12.0).abs() < 0.001);
+        assert!((loaded.loco_preferred_height_damping - 0.4).abs() < 0.001);
+    }
+
+    #[test]
+    fn oxob_v8_suffix_keeps_create_time_climb_and_wander() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.is_climbing = true;
+            object.wander_angle_offset = 0.7;
+            object.maintain_pos = Some(glam::Vec3::new(3.0, 1.0, 4.0));
+            object.close_enough_dist = Some(25.0);
+        }
+        let v8 = ObjectXferPersistPayloadV8 {
+            objects: vec![ObjectXferPersistV8 {
+                object_id: id.0,
+                has_locomotor_arrival: true,
+                close_enough_dist: Some(25.0),
+                ..Default::default()
+            }],
+        };
+        let encoded = bincode_legacy::serialize(&v8).expect("v8 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(OXOB_MAGIC);
+        append_u32(&mut bytes, 8);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v8");
+        let loaded = logic.host_object(id).expect("unit");
+        assert_eq!(loaded.close_enough_dist, Some(25.0));
+        assert!(loaded.is_climbing);
+        assert!((loaded.wander_angle_offset - 0.7).abs() < 0.001);
+        assert_eq!(loaded.maintain_pos, Some(glam::Vec3::new(3.0, 1.0, 4.0)));
+    }
+
+    #[test]
+    fn oxob_v9_suffix_keeps_create_time_locomotor_name() {
+        let mut logic = GameLogic::new();
+        logic.templates.insert(
+            "AmericaInfantryRanger".to_string(),
+            ThingTemplate::new("AmericaInfantryRanger"),
+        );
+        logic.add_player(Player::new(0, Team::USA, "USA", true));
+        let id = logic
+            .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.cur_locomotor_name = Some("KeepMe".to_string());
+            object.locomotor_surfaces = 0x40;
+            object.is_climbing = true;
+        }
+        let v9 = ObjectXferPersistPayloadV9 {
+            objects: vec![ObjectXferPersistV9 {
+                object_id: id.0,
+                has_locomotor_pose: true,
+                loco_flags: 1 << 9,
+                ..Default::default()
+            }],
+        };
+        let encoded = bincode_legacy::serialize(&v9).expect("v9 encode");
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(OXOB_MAGIC);
+        append_u32(&mut bytes, 9);
+        append_u32(&mut bytes, encoded.len() as u32);
+        bytes.extend_from_slice(&encoded);
+        apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v9");
+        let loaded = logic.host_object(id).expect("unit");
+        assert!(loaded.is_climbing);
+        assert_eq!(loaded.cur_locomotor_name.as_deref(), Some("KeepMe"));
+        assert_eq!(loaded.locomotor_surfaces, 0x40);
     }
 
     #[test]

@@ -23,12 +23,12 @@ mod weapon_template;
 // Leftover god-file split (canonical types live here, re-exported below).
 mod audio_event;
 mod crc_snapshot;
-mod helpers;
+pub(crate) mod helpers;
 mod masks_enums;
 mod store;
 mod template;
 mod weapon_approach;
-mod weapon_bonus;
+pub(crate) mod weapon_bonus;
 mod weapon_instance;
 mod weapon_instance_combat;
 mod weapon_range;

@@ -414,6 +414,36 @@ impl ProductionPrerequisite {
         true
     }
 
+    /// First owned facility in prereq 0's OR-group.
+    /// C++ `getExistingBuildFacilityTemplate`, with the caller's object counter.
+    pub fn get_existing_build_facility_template_with_counter<CountObjects>(
+        &self,
+        mut count_objects: CountObjects,
+    ) -> Option<ThingTemplateHandle>
+    where
+        CountObjects: FnMut(&[ThingTemplateHandle], bool, &mut [i32]),
+    {
+        if self.prereq_units.is_empty() {
+            return None;
+        }
+        let cnt = std::cmp::min(self.prereq_units.len(), MAX_PREREQ);
+        let templates: Vec<ThingTemplateHandle> = self.prereq_units[..cnt]
+            .iter()
+            .map(|rec| rec.unit.unwrap_or(ThingTemplateHandle::INVALID))
+            .collect();
+        let mut own_count = [0i32; MAX_PREREQ];
+        count_objects(&templates, false, &mut own_count[..cnt]);
+        for i in 0..cnt {
+            if i > 0 && !self.prereq_units[i].flags.has_or_with_prev() {
+                break;
+            }
+            if own_count[i] > 0 {
+                return self.prereq_units[i].unit;
+            }
+        }
+        None
+    }
+
     /// Add a unit prerequisite
     ///
     /// If `or_with_previous` is true, this unit is an alternate to the

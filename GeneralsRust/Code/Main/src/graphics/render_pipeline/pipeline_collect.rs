@@ -507,6 +507,9 @@ impl RenderPipeline {
                                 {
                                     continue;
                                 }
+                                if !u.world_is_night && mesh.name.contains("HEADLIGHT") {
+                                    continue;
+                                }
                                 if !transform_is_reasonable_for_mesh(mesh_local_transform) {
                                     let key = format!(
                                         "{}::{}::{}",
@@ -1594,6 +1597,15 @@ impl RenderPipeline {
                                 mesh_idx,
                                 &bridge_subobject_visibility,
                             ) {
+                                continue;
+                            }
+                            // C++ hideAllHeadlights: day hides any child whose
+                            // name contains HEADLIGHT. Night clears that hide.
+                            if !submission
+                                .condition_flags
+                                .contains(game_client::render_bridge::RenderConditionFlags::NIGHT)
+                                && mesh.name.contains("HEADLIGHT")
+                            {
                                 continue;
                             }
                             if !transform_is_reasonable_for_mesh(mesh_local_transform) {

@@ -307,19 +307,13 @@ impl DrawModuleData for W3DTruckDrawModuleData {
 }
 impl Snapshotable for W3DTruckDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.crc(xfer)
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -342,7 +336,6 @@ pub struct W3DTruckDraw {
     powerslide_sound: Option<crate::common::audio::AudioEventRts>,
     powerslide_handle: u32,
     last_live_speed: Real,
-    tracked_airborne_frames: i32,
 }
 
 impl W3DTruckDraw {
@@ -366,8 +359,14 @@ impl W3DTruckDraw {
             powerslide_sound: None,
             powerslide_handle: 0,
             last_live_speed: 0.0,
-            tracked_airborne_frames: 0,
         }
+    }
+    pub(crate) fn fx_bone_name_for_shot(
+        &self,
+        weapon_slot: usize,
+        barrel_index: i32,
+    ) -> Option<String> {
+        self.base.fx_bone_name_for_shot(weapon_slot, barrel_index)
     }
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);
@@ -379,6 +378,15 @@ impl W3DTruckDraw {
 
     pub fn last_live_speed(&self) -> Real {
         self.last_live_speed
+    }
+    pub fn has_render_model(&self) -> bool {
+        self.base.has_render_model()
+    }
+    pub fn anim_frame_count(&self) -> i32 {
+        self.base.anim_frame_count()
+    }
+    pub fn has_bound_animation(&self) -> bool {
+        self.base.has_bound_animation()
     }
 
     pub fn bind_per_unit_sounds(
@@ -536,20 +544,7 @@ impl W3DTruckDraw {
     pub fn tick_live(&mut self, physics: TruckDrawLivePhysics) {
         const ACCEL_THRESHOLD: Real = 0.01;
         const SIZE_CAP: Real = 2.0;
-        let mut frames_airborne = physics.frames_airborne;
-        if frames_airborne <= 0 {
-            if physics.airborne {
-                self.tracked_airborne_frames = self.tracked_airborne_frames.saturating_add(1);
-                frames_airborne = self.tracked_airborne_frames;
-            } else {
-                frames_airborne = self.tracked_airborne_frames;
-                self.tracked_airborne_frames = 0;
-            }
-        } else if physics.airborne {
-            self.tracked_airborne_frames = frames_airborne;
-        } else {
-            self.tracked_airborne_frames = 0;
-        }
+        let frames_airborne = physics.frames_airborne;
 
         let was_powersliding = self.is_powersliding;
         self.is_powersliding = false;
@@ -628,7 +623,7 @@ impl W3DTruckDraw {
         self.was_airborne = physics.airborne;
         self.last_live_speed = physics.speed;
     }
-    fn append_bone_overrides(&mut self, speed: Real, turning: Real, backwards: bool) {
+    fn append_bone_overrides(&mut self, _speed: Real, turning: Real, _backwards: bool) {
         let Some(owner_id) = self.base.owner_id() else {
             return;
         };
@@ -658,19 +653,8 @@ impl W3DTruckDraw {
         let wheel_info = client.get_object_wheel_info(owner_id);
         let wheel_angle = wheel_info.map(|info| info.wheel_angle).unwrap_or(turning);
         let heights = wheel_info.unwrap_or(DrawWheelInfo::default());
-        let mut front = self.front_wheel_rotation
-            + self.data.rotation_speed_multiplier * if backwards { -speed } else { speed };
-        let mut rear = self.rear_wheel_rotation
-            + self.data.rotation_speed_multiplier
-                * if self.is_powersliding {
-                    speed + self.data.powerslide_rotation_addition
-                } else {
-                    speed
-                };
-        if backwards {
-            rear = -rear;
-            front = -front;
-        }
+        let front = self.front_wheel_rotation;
+        let rear = self.rear_wheel_rotation;
         let steered = |height: Real, spin: Real| {
             Matrix3D::from_translation(glam::Vec3::new(0.0, 0.0, height))
                 * Matrix3D::from_rotation_z(wheel_angle)
@@ -754,10 +738,8 @@ impl W3DTruckDraw {
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(ai) = owner_guard.get_ai_update_interface() {
                         if let Ok(ai_guard) = ai.lock() {
-                            if let Some(point) = ai_guard
-                                .peek_cached_point_on_path()
-                                .or_else(|| ai_guard.get_path_destination())
-                            {
+                            if ai_guard.has_nonempty_path() {
+                                if let Some(point) = ai_guard.peek_cached_point_on_path() {
                                 let pos = *owner_guard.get_position();
                                 let facing = owner_guard.get_orientation();
                                 let angle_to_goal = relative_angle_2d(pos, facing, point);
@@ -776,32 +758,36 @@ impl W3DTruckDraw {
                                         desired_cab = 0.0;
                                     }
                                 }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        let desired_trailer = -wheel_angle * self.data.trailer_rotation_factor;
         let cab_index = self.bone_index(info, &self.data.cab_bone_name);
         let trailer_index = self.bone_index(info, &self.data.trailer_bone_name);
-        // C++ parity: exponential smoothing — deltaAngle = (desired - current) * damping; current += deltaAngle
-        let cab_damping = self.data.rotation_damping_factor.max(0.0);
-        let cab_delta = (desired_cab - self.cur_cab_rotation) * cab_damping;
-        self.cur_cab_rotation += cab_delta;
-        add(
-            &mut overrides,
-            cab_index,
-            Matrix3D::from_rotation_z(self.cur_cab_rotation),
-        );
-        let trailer_damping = self.data.rotation_damping_factor.max(0.0);
-        let trailer_delta = (desired_trailer - self.cur_trailer_rotation) * trailer_damping;
-        self.cur_trailer_rotation += trailer_delta;
-        add(
-            &mut overrides,
-            trailer_index,
-            Matrix3D::from_rotation_z(self.cur_trailer_rotation),
-        );
+        if wheel_info.is_some() && cab_index != 0 {
+            let cab_damping = self.data.rotation_damping_factor.max(0.0);
+            let cab_delta = (desired_cab - self.cur_cab_rotation) * cab_damping;
+            self.cur_cab_rotation += cab_delta;
+            add(
+                &mut overrides,
+                cab_index,
+                Matrix3D::from_rotation_z(self.cur_cab_rotation),
+            );
+            if trailer_index != 0 {
+                let desired_trailer = -wheel_angle * self.data.trailer_rotation_factor;
+                let trailer_delta =
+                    (desired_trailer - self.cur_trailer_rotation) * cab_damping;
+                self.cur_trailer_rotation += trailer_delta;
+                add(
+                    &mut overrides,
+                    trailer_index,
+                    Matrix3D::from_rotation_z(self.cur_trailer_rotation),
+                );
+            }
+        }
         // C++ W3DTruckDraw calls the base model draw first, then controls
         // wheel/cab bones on that same render object.  The base has already
         // applied instance scaling, so replacing its world transform here
@@ -858,6 +844,8 @@ impl DrawModule for W3DTruckDraw {
         let mut speed = 0.0;
         let mut vel_x = 0.0;
         let mut vel_y = 0.0;
+        let mut accel_x = 0.0;
+        let mut accel_y = 0.0;
         let mut turning = 0.0;
         let mut motive = false;
         let mut airborne = false;
@@ -870,17 +858,19 @@ impl DrawModule for W3DTruckDraw {
                         let velocity = physics_guard.get_velocity();
                         vel_x = velocity.x;
                         vel_y = velocity.y;
-                        speed = (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
+                        speed = velocity.length();
                         turning = physics_guard.get_turning();
-                        motive = speed > 0.0;
+                        motive = physics_guard.is_motive();
+                        let accel = physics_guard.get_acceleration();
+                        accel_x = accel.x;
+                        accel_y = accel.y;
                     }
                 }
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(ai_guard) = ai.lock() {
-                        backwards = ai_guard
-                            .get_cur_locomotor()
-                            .and_then(|l| l.lock().ok().map(|loco| loco.is_moving_backwards()))
-                            .unwrap_or(false);
+                        ai_guard.with_cur_locomotor(&mut |loco| {
+                            backwards = loco.is_moving_backwards();
+                        });
                     }
                 }
             }
@@ -890,20 +880,22 @@ impl DrawModule for W3DTruckDraw {
             .map(|info| info.frames_airborne)
             .unwrap_or(0);
         self.base.do_draw_module(transform_mtx);
+        if !truck_client_physics_active() {
+            return;
+        }
         // C++ spins wheels from last-frame powerslide, then refreshes emitters.
-        self.front_wheel_rotation +=
-            self.data.rotation_speed_multiplier * if backwards { -speed } else { speed };
+        let signed_speed = if backwards { -speed } else { speed };
+        let signed_addition = if backwards {
+            -self.data.powerslide_rotation_addition
+        } else {
+            self.data.powerslide_rotation_addition
+        };
+        self.front_wheel_rotation += self.data.rotation_speed_multiplier * signed_speed;
         self.rear_wheel_rotation += self.data.rotation_speed_multiplier
             * if self.is_powersliding {
-                speed
-                    + self
-                        .data
-                        .powerslide_rotation_addition
-                        .copysign(if backwards { -1.0 } else { 1.0 })
-            } else if backwards {
-                -speed
+                signed_speed + signed_addition
             } else {
-                speed
+                signed_speed
             };
         self.mid_front_wheel_rotation = self.front_wheel_rotation;
         self.mid_rear_wheel_rotation = self.rear_wheel_rotation;
@@ -912,8 +904,8 @@ impl DrawModule for W3DTruckDraw {
             speed,
             vel_x,
             vel_y,
-            accel_x: speed - self.last_live_speed,
-            accel_y: 0.0,
+            accel_x,
+            accel_y,
             is_motive: motive,
             airborne,
             frames_airborne,
@@ -984,6 +976,25 @@ impl Snapshotable for W3DTruckDraw {
         self.toss_emitters();
         Ok(())
     }
+}
+
+fn truck_client_physics_active() -> bool {
+    let show = game_engine::common::ini::get_global_data()
+        .map(|data| data.read().show_client_physics)
+        .unwrap_or(true);
+    if !show {
+        return false;
+    }
+    let camera_frozen = crate::helpers::get_camera_view_bridge().is_some_and(|view| {
+        view.is_time_frozen() && !view.is_camera_movement_finished()
+    });
+    if camera_frozen
+        || crate::helpers::TheScriptEngine::is_time_frozen_debug()
+        || crate::helpers::TheScriptEngine::is_time_frozen_script()
+    {
+        return false;
+    }
+    true
 }
 
 fn relative_angle_2d(from: Coord3D, facing: Real, to: Coord3D) -> Real {

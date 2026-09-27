@@ -225,7 +225,7 @@ impl Locomotor {
             return 0.0;
         }
 
-        let dist = (delta * delta / max_braking.abs()) * 0.5;
+        let dist = (delta * delta / max_braking.abs().max(1.0e-6)) * 0.5;
 
         // Use a little fudge so that things can stop "on a dime" more easily
         const FUDGE: Real = 1.05;

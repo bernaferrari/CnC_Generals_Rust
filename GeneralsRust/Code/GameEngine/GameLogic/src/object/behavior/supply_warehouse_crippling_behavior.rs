@@ -143,10 +143,6 @@ impl SupplyWarehouseCripplingBehavior {
             data_ref.clone()
         };
 
-        if let Ok(obj_guard) = thing.read() {
-            TheGameLogic::set_wake_frame(obj_guard.get_id(), UPDATE_SLEEP_FOREVER);
-        }
-
         Ok(Self {
             object_id: thing
                 .read()
@@ -154,7 +150,7 @@ impl SupplyWarehouseCripplingBehavior {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UPDATE_SLEEP_FOREVER.to_u32(),
             healing_suppressed_until_frame: 0,
             next_healing_frame: 0,
         })
@@ -320,6 +316,7 @@ impl DamageModuleInterface for SupplyWarehouseCripplingBehavior {
 
         // We got hit, time to get up for work after a quick snooze
         let sleep_time = self.healing_suppressed_until_frame.saturating_sub(now);
+        self.next_call_frame_and_phase = now.saturating_add(sleep_time);
         if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -327,9 +324,9 @@ impl DamageModuleInterface for SupplyWarehouseCripplingBehavior {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj_guard) = obj.read() {
-                TheGameLogic::set_wake_frame(
-                    obj_guard.get_id(),
-                    UpdateSleepTime::from_u32(sleep_time),
+                obj_guard.reschedule_named_update(
+                    "SupplyWarehouseCripplingBehavior",
+                    self.next_call_frame_and_phase,
                 );
             }
         }
@@ -383,6 +380,10 @@ pub struct SupplyWarehouseCripplingBehaviorModule {
 }
 
 impl SupplyWarehouseCripplingBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: SupplyWarehouseCripplingBehavior,
         module_name: &AsciiString,

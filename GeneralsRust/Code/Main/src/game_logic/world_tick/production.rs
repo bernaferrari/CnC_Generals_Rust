@@ -6,8 +6,19 @@ impl GameLogic {
     /// progress only after idle at ACTION dock (`DOZER_DO_BUILD_AT_DOCK`).
     /// C++ DozerAIUpdate.cpp:305 — one exclusive builder per structure.
 
+    /// C++ `DozerAIUpdate::internalTaskComplete(DOZER_TASK_BUILD)`.
+    /// Clears the task slot and the actively-constructing bit. The end dock
+    /// must already have been copied; this also drops `dozer_dock_action`.
+    fn release_finished_builders(&mut self, ids: &[ObjectId]) {
+        for &oid in ids {
+            self.dozer_internal_task_complete(oid, false);
+            if let Some(obj) = self.objects.get_mut(&oid) {
+                obj.set_actively_constructing(false);
+            }
+        }
+    }
+
     pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
-        const BUILDER_RANGE: f32 = crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE;
 
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
         // construction as to production queue speed.
@@ -15,10 +26,14 @@ impl GameLogic {
         // Resolve legacy ownerless objects before taking mutable object borrows.
         // A concrete PlayerId is authoritative; the helper only supplies a
         // compatibility owner when this team has exactly one living player.
-        let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = self
+        let owner_raw: Vec<(ObjectId, Option<u32>, crate::game_logic::Team)> = self
             .objects
             .values()
-            .map(|obj| (obj.id, self.player_owner_for_host_object(obj)))
+            .map(|obj| (obj.id, obj.owner_player_id, obj.team))
+            .collect();
+        let object_owner_player_ids: std::collections::HashMap<ObjectId, Option<u32>> = owner_raw
+            .into_iter()
+            .map(|(id, owner_id, team)| (id, self.player_owner_for_event(owner_id, team)))
             .collect();
 
         // C++ `ThingTemplate::calcTimeToBuild(player)` converts build time to
@@ -54,7 +69,10 @@ impl GameLogic {
         let dozer_info: Vec<(
             ObjectId,
             Vec3,
+            f32,
             Option<u32>,
+            Option<ObjectId>,
+            Option<ObjectId>,
             Option<ObjectId>,
             Option<Vec3>,
             AIState,
@@ -67,7 +85,10 @@ impl GameLogic {
                 (
                     obj.id,
                     obj.get_position(),
+                    obj.selection_radius,
                     object_owner_player_ids.get(&obj.id).copied().flatten(),
+                    obj.dozer_task_build_target,
+                    obj.target,
                     obj.dozer_task_build_target.or(obj.target),
                     obj.dozer_dock_action,
                     obj.ai_state.clone(),
@@ -90,6 +111,8 @@ impl GameLogic {
         // Unmapped sole-tick also uses projected (no writeback entity).
         let ready_structures: std::collections::HashSet<ObjectId> =
             std::collections::HashSet::new();
+        let mut rejected_builders: Vec<ObjectId> = Vec::new();
+        let mut arrived_moving: Vec<ObjectId> = Vec::new();
         for &id in object_ids {
             if let Some(obj) = self.objects.get_mut(&id) {
                 if obj.status.under_construction {
@@ -97,17 +120,32 @@ impl GameLogic {
                     let build_radius = obj.selection_radius;
                     let site_template = obj.template_name.clone();
                     let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
-                    let exclusive_builder = obj.builder_id;
+                    let exclusive_builder = obj.builder_id.filter(|bid| {
+                        dozer_info.iter().any(|(did, _, _, _, slot, _, _, _, _, _)| {
+                            did == bid && *slot == Some(id)
+                        })
+                    });
+                    for (did, _, _, _, build_slot, live_target, _, _, ai_state, _) in &dozer_info {
+                        if *build_slot == Some(id)
+                            && *live_target == Some(id)
+                            && matches!(ai_state, AIState::Constructing)
+                            && exclusive_builder != Some(*did)
+                        {
+                            rejected_builders.push(*did);
+                        }
+                    }
                     let nearby_dozers = dozer_info
                         .iter()
-                        .filter(|(did, pos, owner_player_id, target, stored_dock, ai_state, arrived)| {
+                        .filter(|(did, pos, radius, owner_player_id, build_slot, live_target, _, stored_dock, ai_state, arrived)| {
                             *owner_player_id == build_owner_player_id
-                                && *target == Some(id)
-                                && exclusive_builder.map(|bid| bid == *did).unwrap_or(true)
-                                && (matches!(
-                                    ai_state,
-                                    AIState::Idle | AIState::Docked | AIState::Constructing
-                                ) || (*ai_state == AIState::Moving && *arrived))
+                                && (*build_slot == Some(id)
+                                    || (*ai_state == AIState::Constructing && *live_target == Some(id)))
+                                && match exclusive_builder {
+                                    Some(bid) => bid == *did,
+                                    None => true,
+                                }
+                                && (matches!(ai_state, AIState::Constructing)
+                                    || (*ai_state == AIState::Moving && *arrived))
                                 && {
                                     let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
                                         *stored_dock,
@@ -115,7 +153,15 @@ impl GameLogic {
                                         build_pos,
                                         build_radius,
                                     );
-                                    pos.distance(dock) <= BUILDER_RANGE
+                                    let at = crate::game_logic::host_repair::dozer_within_action_dock(
+                                        *pos,
+                                        *radius,
+                                        dock,
+                                    );
+                                    if at && *ai_state == AIState::Moving {
+                                        arrived_moving.push(*did);
+                                    }
+                                    at
                                 }
                         })
                         .count()
@@ -191,17 +237,12 @@ impl GameLogic {
                     // C++ DozerAIUpdate.cpp:526 then :536 — increment health first,
                     // then complete. Completion itself never writes max health, so
                     // scaffold damage taken during build persists.
-                    if !(construction_sole && gw_mapped) {
+                    if !(construction_sole && gw_mapped) && actively_built {
                         let frames = authored_frames.max(1) as f32;
                         let per_frame = obj.health.maximum / frames;
                         let logic_frames = (dt * 30.0).max(0.0);
-                        let build_hp = if actively_built {
-                            (obj.health.current + per_frame * logic_frames)
-                                .min(obj.health.maximum)
-                                .max(1.0)
-                        } else {
-                            obj.health.current.max(1.0).min(obj.health.maximum)
-                        };
+                        let build_hp = (obj.health.current + per_frame * logic_frames)
+                            .clamp(0.0, obj.health.maximum);
                         if crate::gameworld_shadow::gameworld_damage_authority_live() {
                             crate::game_logic::host_heal_log::record(id, build_hp);
                         } else {
@@ -261,6 +302,26 @@ impl GameLogic {
                 }
             }
         }
+        for did in arrived_moving {
+            if self.objects.get(&did).is_some_and(|dozer| dozer.ai_state == AIState::Moving) {
+                self.set_ai_state_decision_aware(did, AIState::Constructing);
+            }
+        }
+        for did in rejected_builders {
+            let live_construct = self.objects.get(&did).is_some_and(|dozer| {
+                matches!(dozer.ai_state, AIState::Constructing)
+                    && dozer.target.is_some()
+                    && dozer.target == dozer.dozer_task_build_target
+            });
+            self.dozer_internal_task_complete(did, false);
+            if live_construct {
+                if let Some(dozer) = self.objects.get_mut(&did) {
+                    dozer.target = None;
+                    dozer.set_ai_state(AIState::Idle);
+                }
+            }
+        }
+
         for (site_id, template_name, pos) in start_build_loops {
             self.start_building_sound(site_id, &template_name, pos);
         }
@@ -291,20 +352,28 @@ impl GameLogic {
             self.on_supply_center_build_complete(completed_id);
             let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
             let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
+            let mut finished_builders: Vec<ObjectId> = Vec::new();
             for obj in self.objects.values_mut() {
-                if obj.ai_state == AIState::Constructing
-                    && obj.target == Some(completed_id)
-                    && obj.is_alive()
-                {
-                    let oid = obj.id;
+                let slot = obj.dozer_task_build_target;
+                let constructing = obj.is_alive()
+                    && obj.ai_state == AIState::Constructing
+                    && (slot == Some(completed_id) || obj.target == Some(completed_id));
+                let approaching = obj.is_alive()
+                    && slot == Some(completed_id)
+                    && matches!(obj.ai_state, AIState::Moving | AIState::Idle);
+                if !(constructing || approaching) {
+                    continue;
+                }
+                let oid = obj.id;
+                if constructing {
                     let dozer_pos = obj.get_position();
                     let stored_action = obj.dozer_dock_action;
-                    let is_worker = obj.is_resource_collector()
-                        || obj.template_name.to_ascii_lowercase().contains("worker");
-                    obj.set_target(None);
-                    if is_worker {
-                        obj.stop_moving();
-                    } else if let Some(bpos) = building_pos {
+                    obj.target = None;
+                    obj.target_location = None;
+                    obj.record_host_target_location();
+                    obj.set_status_force_attack(false);
+                    obj.set_status_attacking(false);
+                    if let Some(bpos) = building_pos {
                         end_moves.push((
                             oid,
                             crate::game_logic::host_repair::dozer_complete_end_dock(
@@ -315,15 +384,54 @@ impl GameLogic {
                         ));
                     } else {
                         obj.stop_moving();
+                        if obj.ai_state != AIState::Idle {
+                            obj.set_ai_state(AIState::Idle);
+                        }
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                            crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
+                        }
                     }
-                    obj.set_ai_state(AIState::Idle);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
+                } else {
+                    let radius = obj.selection_radius;
+                    let on_dock_walk = obj.dozer_dock_action.is_some_and(|dock| {
+                        match obj.movement.path.last() {
+                            Some(end) => {
+                                crate::game_logic::host_repair::dozer_within_action_dock(
+                                    *end, radius, dock,
+                                )
+                            }
+                            None => crate::game_logic::host_repair::dozer_within_action_dock(
+                                obj.get_position(),
+                                radius,
+                                dock,
+                            ),
+                        }
+                    });
+                    if on_dock_walk {
+                        if obj.target == Some(completed_id) {
+                            obj.target = None;
+                            obj.target_location = None;
+                            obj.record_host_target_location();
+                            obj.set_status_force_attack(false);
+                            obj.set_status_attacking(false);
+                        }
+                        obj.stop_moving();
                     }
                 }
+                finished_builders.push(oid);
             }
+            // C++ internalTaskComplete(DOZER_TASK_BUILD) after the end-dock
+            // move is issued. The dock was already copied into end_moves.
+            // A leftover task greys every dozer-construct cameo.
+            self.release_finished_builders(&finished_builders);
+            if self.objects.contains_key(&completed_id) {
+                self.record_structure_completion(completed_id);
+            }
+            self.notify_structure_construction_complete(completed_id);
+            // Seal first. A path computed before the footprint becomes
+            // impassable cannot be followed.
+            self.block_structure_object_path(completed_id);
             for (oid, mut end) in end_moves {
-                // C++ DozerAIUpdate.cpp:627-635 adjustToPossibleDestination then aiMoveToPosition(END).
                 self.adjust_to_possible_destination(oid, &mut end);
                 self.path_approach_with_state_ignoring(
                     oid,
@@ -331,16 +439,12 @@ impl GameLogic {
                     AIState::Moving,
                     Some(completed_id),
                 );
+                if let Some(unit) = self.objects.get_mut(&oid) {
+                    if !unit.movement.path.is_empty() {
+                        unit.is_attack_path = false;
+                    }
+                }
             }
-            if self.objects.contains_key(&completed_id) {
-                self.record_structure_completion(completed_id);
-            }
-            // C++ onStructureConstructionComplete feedback residual.
-            self.notify_structure_construction_complete(completed_id);
-            // C++ RadarUpdate::extendRadar is only called from
-            // RadarUpgrade::upgradeImplementation, not on every CC complete.
-            // Constructed footprint is a static path/LOS obstacle.
-            self.block_structure_object_path(completed_id);
         }
         // C++ ACTIVELY_CONSTRUCTING residual for dozers/factories.
         // Wave 815: under coupled shadow, model bit owned by GW expire + logs.
@@ -357,11 +461,10 @@ impl GameLogic {
     /// `update()` AFTER the fixed step — the proven integration timing (paths
     /// queued between ticks install and walk). Throttled to once a second.
     pub(crate) fn reissue_dozer_approaches(&mut self) {
-        const BUILDER_RANGE: f32 = crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE;
         if self.frame % 30 != 0 {
             return;
         }
-        let dozer_info: Vec<(ObjectId, Vec3, Option<u32>, Option<ObjectId>, Option<Vec3>)> = self
+        let raw_dozers: Vec<(ObjectId, Vec3, f32, Option<u32>, crate::game_logic::Team, Option<ObjectId>, Option<Vec3>)> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
@@ -369,30 +472,55 @@ impl GameLogic {
                 (
                     obj.id,
                     obj.get_position(),
+                    obj.selection_radius,
                     obj.owner_player_id,
+                    obj.team,
                     obj.dozer_task_build_target.or(obj.target),
                     obj.dozer_dock_action,
                 )
             })
             .collect();
-        for (did, dpos, downer, dtarget, sdock) in dozer_info.iter() {
+        let dozer_info: Vec<(ObjectId, Vec3, f32, Option<u32>, Option<ObjectId>, Option<Vec3>)> = raw_dozers
+            .into_iter()
+            .map(|(id, pos, radius, owner_id, team, target, dock)| {
+                (
+                    id,
+                    pos,
+                    radius,
+                    self.player_owner_for_event(owner_id, team),
+                    target,
+                    dock,
+                )
+            })
+            .collect();
+        for (did, dpos, dradius, downer, dtarget, sdock) in dozer_info.iter() {
             let Some(sid) = dtarget else {
                 continue;
             };
-            let Some(site) = self.host_object(*sid) else {
+            let Some((under_construction, alive, bpos, bradius, site_owner_id, site_team)) =
+                self.host_object(*sid).map(|site| {
+                    (
+                        site.status.under_construction,
+                        site.is_alive(),
+                        site.get_position(),
+                        site.selection_radius,
+                        site.owner_player_id,
+                        site.team,
+                    )
+                })
+            else {
                 continue;
             };
-            if !site.status.under_construction || !site.is_alive() {
+            if !under_construction || !alive {
                 continue;
             }
-            if site.owner_player_id != *downer {
+            if self.player_owner_for_event(site_owner_id, site_team) != *downer {
                 continue;
             }
-            let (bpos, bradius) = (site.get_position(), site.selection_radius);
             let dock = crate::game_logic::host_repair::resolve_dozer_action_dock(
                 *sdock, *dpos, bpos, bradius,
             );
-            if dpos.distance(dock) <= BUILDER_RANGE {
+            if crate::game_logic::host_repair::dozer_within_action_dock(*dpos, *dradius, dock) {
                 continue;
             }
             let Some(d) = self.objects.get(did) else {
@@ -537,20 +665,28 @@ impl GameLogic {
             self.on_supply_center_build_complete(completed_id);
             let building_pos = self.objects.get(&completed_id).map(|o| o.get_position());
             let mut end_moves: Vec<(ObjectId, glam::Vec3)> = Vec::new();
+            let mut finished_builders: Vec<ObjectId> = Vec::new();
             for obj in self.objects.values_mut() {
-                if obj.ai_state == AIState::Constructing
-                    && obj.target == Some(completed_id)
-                    && obj.is_alive()
-                {
-                    let oid = obj.id;
+                let slot = obj.dozer_task_build_target;
+                let constructing = obj.is_alive()
+                    && obj.ai_state == AIState::Constructing
+                    && (slot == Some(completed_id) || obj.target == Some(completed_id));
+                let approaching = obj.is_alive()
+                    && slot == Some(completed_id)
+                    && matches!(obj.ai_state, AIState::Moving | AIState::Idle);
+                if !(constructing || approaching) {
+                    continue;
+                }
+                let oid = obj.id;
+                if constructing {
                     let dozer_pos = obj.get_position();
                     let stored_action = obj.dozer_dock_action;
-                    let is_worker = obj.is_resource_collector()
-                        || obj.template_name.to_ascii_lowercase().contains("worker");
-                    obj.set_target(None);
-                    if is_worker {
-                        obj.stop_moving();
-                    } else if let Some(bpos) = building_pos {
+                    obj.target = None;
+                    obj.target_location = None;
+                    obj.record_host_target_location();
+                    obj.set_status_force_attack(false);
+                    obj.set_status_attacking(false);
+                    if let Some(bpos) = building_pos {
                         end_moves.push((
                             oid,
                             crate::game_logic::host_repair::dozer_complete_end_dock(
@@ -561,22 +697,64 @@ impl GameLogic {
                         ));
                     } else {
                         obj.stop_moving();
+                        if obj.ai_state != AIState::Idle {
+                            obj.set_ai_state(AIState::Idle);
+                        }
+                        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                            crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
+                        }
                     }
-                    obj.set_ai_state(AIState::Idle);
-                    if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        crate::game_logic::host_ai_decision_log::record_set_state(oid, 0);
+                } else {
+                    let radius = obj.selection_radius;
+                    let on_dock_walk = obj.dozer_dock_action.is_some_and(|dock| {
+                        match obj.movement.path.last() {
+                            Some(end) => {
+                                crate::game_logic::host_repair::dozer_within_action_dock(
+                                    *end, radius, dock,
+                                )
+                            }
+                            None => crate::game_logic::host_repair::dozer_within_action_dock(
+                                obj.get_position(),
+                                radius,
+                                dock,
+                            ),
+                        }
+                    });
+                    if on_dock_walk {
+                        if obj.target == Some(completed_id) {
+                            obj.target = None;
+                            obj.target_location = None;
+                            obj.record_host_target_location();
+                            obj.set_status_force_attack(false);
+                            obj.set_status_attacking(false);
+                        }
+                        obj.stop_moving();
                     }
                 }
+                finished_builders.push(oid);
             }
-            for (oid, mut end) in end_moves {
-                self.adjust_to_possible_destination(oid, &mut end);
-                self.path_approach_with_state(oid, end, AIState::Moving);
-            }
+            self.release_finished_builders(&finished_builders);
             if self.objects.contains_key(&completed_id) {
                 self.record_structure_completion(completed_id);
             }
             self.notify_structure_construction_complete(completed_id);
+            // Same order as the host completion path: seal the footprint,
+            // then leave while ignoring that building.
             self.block_structure_object_path(completed_id);
+            for (oid, mut end) in end_moves {
+                self.adjust_to_possible_destination(oid, &mut end);
+                self.path_approach_with_state_ignoring(
+                    oid,
+                    end,
+                    AIState::Moving,
+                    Some(completed_id),
+                );
+                if let Some(unit) = self.objects.get_mut(&oid) {
+                    if !unit.movement.path.is_empty() {
+                        unit.is_attack_path = false;
+                    }
+                }
+            }
         }
         if !completed_structures.is_empty() {
             // Wave 828: under coupled shadow, ACTIVELY_CONSTRUCTING bit owned by GW expire.
@@ -1501,16 +1679,24 @@ impl GameLogic {
         crusher_level: u8,
         unit_radius: f32,
     ) -> Option<Vec3> {
-        let cell = self.pathfinding_system.grid.world_to_grid(dest);
-        let adj = self.pathfinding_system.grid.adjust_destination_ex(
+        let cell_size = self.pathfinding_system.grid.grid_size();
+        let (_, center_in_cell) = Self::factory_exit_radius_and_center(unit_radius);
+        let mut shifted = dest;
+        if !center_in_cell {
+            shifted.x += cell_size * 0.5;
+            shifted.z += cell_size * 0.5;
+        }
+        let cell = self.pathfinding_system.grid.world_to_grid(shifted);
+        let layer = self.pathfinding_system.grid.layer_for_destination(dest);
+        let adj = self.pathfinding_system.grid.adjust_destination_on_layer(
             cell,
             surfaces,
             is_crusher,
             400,
             seeker_player,
             crusher_level,
+            layer,
         )?;
-        let (_, center_in_cell) = Self::factory_exit_radius_and_center(unit_radius);
         Some(self.factory_exit_coord_to_cell(adj, center_in_cell, dest.y))
     }
 
@@ -1524,6 +1710,12 @@ impl GameLogic {
     ) {
         if path.is_empty() {
             return;
+        }
+        // C++ AI_FOLLOW_EXITPRODUCTION_PATH clears adjust before the nested
+        // move, so the first exit search does not spiral.
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.adjust_destinations = false;
+            unit.can_path_through_units = true;
         }
         self.path_approach_with_state_ignoring(
             unit_id,
@@ -1563,7 +1755,13 @@ impl GameLogic {
                         .or(unit.movement.target_position)
                         .unwrap_or(wp);
                     unit.movement.path.push(end);
-                    unit.movement.target_position = Some(end);
+                    if unit.movement.target_position.is_some_and(|dest| {
+                        let dx = dest.x - wp.x;
+                        let dz = dest.z - wp.z;
+                        dx * dx + dz * dz < 0.1 * 0.1
+                    }) {
+                        unit.movement.target_position = Some(end);
+                    }
                 }
             } else {
                 let _ = self.append_unit_waypoint(unit_id, wp);
@@ -1572,11 +1770,41 @@ impl GameLogic {
         // After the path is installed — move_object_with_pathfinding
         // clears this on new orders (C++ FollowPath onExit).
         if let Some(unit) = self.objects.get_mut(&unit_id) {
+            if let Some(node) = unit
+                .movement
+                .path
+                .get(unit.movement.current_path_index)
+                .copied()
+            {
+                unit.movement.target_position = Some(node);
+                if crate::gameworld_shadow::gameworld_movement_authority_live() {
+                    crate::game_logic::host_move_log::record(
+                        unit.id,
+                        Some([node.x, node.y, node.z]),
+                    );
+                    unit.record_host_movement();
+                }
+            }
             unit.can_path_through_units = true;
+            unit.ignored_obstacle_id = Some(ignore_producer);
+            unit.is_attack_path = false;
+            unit.last_command_source =
+                crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+            // C++ AIFollowPathState::onEnter writes m_adjustFinal after
+            // requestPath has already copied the pre-search false.
+            unit.adjust_destinations =
+                unit.movement.current_path_index + 1 >= unit.movement.path.len();
+            unit.refresh_follow_path_extra_distance();
         }
-        // C++ AIUpdate.cpp:1674-1681 computePath factory-exit:
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            if !unit.movement.path.is_empty() {
+                unit.set_status_moving(true);
+            }
+        }
         // computeQuickPath ok → leftover moveAlliesAwayFromDestination.
         self.move_allies_away_from_destination(unit_id, path[0]);
+        // privateFollowPath setGoalPosition is the last node (AIUpdate.cpp:3373-3375).
+        self.register_ground_path_goal(unit_id, path[path.len() - 1]);
     }
 
     /// Wave 679: drain production-spawn ready log and apply host presentation residual

@@ -16,6 +16,8 @@ const MAX_PLAYER_COUNT: usize = 16;
 pub struct PartitionShroudGrid {
     cell_size: f32,
     levels: HashMap<(i32, i32), [i16; MAX_PLAYER_COUNT]>,
+    /// C++ `m_activeShroudLevel`, separate from `m_currentShroud`.
+    active_shroud: HashMap<(i32, i32), [u16; MAX_PLAYER_COUNT]>,
 }
 
 impl Default for PartitionShroudGrid {
@@ -29,6 +31,7 @@ impl PartitionShroudGrid {
         Self {
             cell_size: PARTITION_CELL_SIZE,
             levels: HashMap::new(),
+            active_shroud: HashMap::new(),
         }
     }
 
@@ -38,6 +41,7 @@ impl PartitionShroudGrid {
 
     pub fn clear(&mut self) {
         self.levels.clear();
+        self.active_shroud.clear();
     }
 
     pub fn iter_known_cells(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
@@ -116,7 +120,6 @@ impl PartitionShroudGrid {
         row[idx] = (row[idx] - 1).min(-1);
     }
 
-    /// C++ `removeLooker`: `-1` → fogged (`0`) when no active shrouders.
     pub fn remove_looker(&mut self, player_index: i32, x: i32, y: i32) {
         if player_index < 0 {
             return;
@@ -125,11 +128,76 @@ impl PartitionShroudGrid {
         if idx >= MAX_PLAYER_COUNT {
             return;
         }
+        let active = self
+            .active_shroud
+            .get(&(x, y))
+            .and_then(|row| row.get(idx).copied())
+            .unwrap_or(0);
         let row = self.levels.entry((x, y)).or_insert([1; MAX_PLAYER_COUNT]);
         if row[idx] == -1 {
-            row[idx] = 0;
+            row[idx] = (active as i16).min(1);
         } else if row[idx] < -1 {
             row[idx] += 1;
+        }
+    }
+
+    pub fn add_shrouder(&mut self, player_index: i32, x: i32, y: i32) {
+        if player_index < 0 {
+            return;
+        }
+        let idx = player_index as usize;
+        if idx >= MAX_PLAYER_COUNT {
+            return;
+        }
+        let active = self
+            .active_shroud
+            .entry((x, y))
+            .or_insert([0; MAX_PLAYER_COUNT]);
+        active[idx] = active[idx].saturating_add(1);
+        let row = self.levels.entry((x, y)).or_insert([1; MAX_PLAYER_COUNT]);
+        if row[idx] == 0 {
+            row[idx] = 1;
+        }
+    }
+
+    pub fn remove_shrouder(&mut self, player_index: i32, x: i32, y: i32) {
+        if player_index < 0 {
+            return;
+        }
+        let idx = player_index as usize;
+        if idx >= MAX_PLAYER_COUNT {
+            return;
+        }
+        if let Some(row) = self.active_shroud.get_mut(&(x, y)) {
+            if row[idx] > 0 {
+                row[idx] -= 1;
+            }
+        }
+    }
+
+    pub fn cover_circle(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
+        if radius <= 0.0 {
+            return;
+        }
+        for cell in super::partition_coi::do_circle_fill(center.x, center.y, radius) {
+            for p in 0..MAX_PLAYER_COUNT {
+                if (player_mask & (1u32 << p)) != 0 {
+                    self.add_shrouder(p as i32, cell.x, cell.y);
+                }
+            }
+        }
+    }
+
+    pub fn uncover_circle(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
+        if radius <= 0.0 {
+            return;
+        }
+        for cell in super::partition_coi::do_circle_fill(center.x, center.y, radius) {
+            for p in 0..MAX_PLAYER_COUNT {
+                if (player_mask & (1u32 << p)) != 0 {
+                    self.remove_shrouder(p as i32, cell.x, cell.y);
+                }
+            }
         }
     }
 
@@ -138,24 +206,10 @@ impl PartitionShroudGrid {
         if radius <= 0.0 {
             return;
         }
-        let (cx, cy) = self.world_to_cell(center.x, center.y);
-        let cell_r = (radius / self.cell_size).ceil() as i32;
-        let r2 = radius * radius;
-        for dx in -cell_r..=cell_r {
-            for dy in -cell_r..=cell_r {
-                let x = cx + dx;
-                let y = cy + dy;
-                let wx = x as f32 * self.cell_size + self.cell_size * 0.5;
-                let wy = y as f32 * self.cell_size + self.cell_size * 0.5;
-                let ddx = wx - center.x;
-                let ddy = wy - center.y;
-                if ddx * ddx + ddy * ddy > r2 {
-                    continue;
-                }
-                for p in 0..MAX_PLAYER_COUNT {
-                    if (player_mask & (1u32 << p)) != 0 {
-                        self.add_looker(p as i32, x, y);
-                    }
+        for cell in super::partition_coi::do_circle_fill(center.x, center.y, radius) {
+            for p in 0..MAX_PLAYER_COUNT {
+                if (player_mask & (1u32 << p)) != 0 {
+                    self.add_looker(p as i32, cell.x, cell.y);
                 }
             }
         }
@@ -165,24 +219,10 @@ impl PartitionShroudGrid {
         if radius <= 0.0 {
             return;
         }
-        let (cx, cy) = self.world_to_cell(center.x, center.y);
-        let cell_r = (radius / self.cell_size).ceil() as i32;
-        let r2 = radius * radius;
-        for dx in -cell_r..=cell_r {
-            for dy in -cell_r..=cell_r {
-                let x = cx + dx;
-                let y = cy + dy;
-                let wx = x as f32 * self.cell_size + self.cell_size * 0.5;
-                let wy = y as f32 * self.cell_size + self.cell_size * 0.5;
-                let ddx = wx - center.x;
-                let ddy = wy - center.y;
-                if ddx * ddx + ddy * ddy > r2 {
-                    continue;
-                }
-                for p in 0..MAX_PLAYER_COUNT {
-                    if (player_mask & (1u32 << p)) != 0 {
-                        self.remove_looker(p as i32, x, y);
-                    }
+        for cell in super::partition_coi::do_circle_fill(center.x, center.y, radius) {
+            for p in 0..MAX_PLAYER_COUNT {
+                if (player_mask & (1u32 << p)) != 0 {
+                    self.remove_looker(p as i32, cell.x, cell.y);
                 }
             }
         }
@@ -225,6 +265,16 @@ impl PartitionManager {
 
     pub fn undo_shroud_reveal_cells(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
         self.shroud.undo_reveal_circle(center, radius, player_mask);
+        self.mark_updated_since_last_reset();
+    }
+
+    pub fn do_shroud_cover_cells(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
+        self.shroud.cover_circle(center, radius, player_mask);
+        self.mark_updated_since_last_reset();
+    }
+
+    pub fn undo_shroud_cover_cells(&mut self, center: &Coord3D, radius: f32, player_mask: u32) {
+        self.shroud.uncover_circle(center, radius, player_mask);
         self.mark_updated_since_last_reset();
     }
 

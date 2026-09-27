@@ -228,6 +228,7 @@ impl WeaponStore {
         inflict_damage: bool,
     ) -> GameLogicResult<()> {
         let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        temp_weapon.load_ammo_now(source)?;
         temp_weapon
             .fire_projectile_detonation_weapon(
                 source,
@@ -332,6 +333,7 @@ impl WeaponStore {
         inflict_damage: bool,
     ) -> GameLogicResult<()> {
         let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        temp_weapon.load_ammo_now(source)?;
         temp_weapon
             .fire_projectile_detonation_weapon(
                 source,
@@ -431,21 +433,25 @@ impl WeaponStore {
 
         if damage_info.delay_intended_victim_id != INVALID_OBJECT_ID {
             temp_weapon
-                .fire_projectile_detonation_weapon_with_bonus(
+                .private_fire_weapon(
                     damage_info.delay_source_id,
                     Some(damage_info.delay_intended_victim_id),
                     None,
                     &damage_info.bonus,
+                    false,
+                    false,
                     true,
                 )
                 .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
         } else {
             temp_weapon
-                .fire_projectile_detonation_weapon_with_bonus(
+                .private_fire_weapon(
                     damage_info.delay_source_id,
                     None,
                     Some(&damage_info.delay_damage_pos),
                     &damage_info.bonus,
+                    false,
+                    false,
                     true,
                 )
                 .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;

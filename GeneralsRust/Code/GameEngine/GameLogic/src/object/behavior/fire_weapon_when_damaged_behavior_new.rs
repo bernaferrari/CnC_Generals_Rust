@@ -25,7 +25,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::str::FromStr;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 367: host-only path has no dual-world factory objects.
 #[inline]
@@ -368,16 +368,16 @@ pub struct FireWeaponWhenDamagedBehavior {
     module_data: Arc<FireWeaponWhenDamagedBehaviorModuleData>,
 
     // Reaction weapons (fire once on damage). Matches C++ lines 37-44
-    reaction_weapon_pristine: Option<Arc<Mutex<Weapon>>>,
-    reaction_weapon_damaged: Option<Arc<Mutex<Weapon>>>,
-    reaction_weapon_really_damaged: Option<Arc<Mutex<Weapon>>>,
-    reaction_weapon_rubble: Option<Arc<Mutex<Weapon>>>,
+    reaction_weapon_pristine: Option<Weapon>,
+    reaction_weapon_damaged: Option<Weapon>,
+    reaction_weapon_really_damaged: Option<Weapon>,
+    reaction_weapon_rubble: Option<Weapon>,
 
     // Continuous weapons (fire repeatedly). Matches C++ lines 41-44
-    continuous_weapon_pristine: Option<Arc<Mutex<Weapon>>>,
-    continuous_weapon_damaged: Option<Arc<Mutex<Weapon>>>,
-    continuous_weapon_really_damaged: Option<Arc<Mutex<Weapon>>>,
-    continuous_weapon_rubble: Option<Arc<Mutex<Weapon>>>,
+    continuous_weapon_pristine: Option<Weapon>,
+    continuous_weapon_damaged: Option<Weapon>,
+    continuous_weapon_really_damaged: Option<Weapon>,
+    continuous_weapon_rubble: Option<Weapon>,
 
     next_call_frame_and_phase: UnsignedInt,
     upgrade_mux: UpgradeMux,
@@ -450,14 +450,15 @@ impl FireWeaponWhenDamagedBehavior {
             || continuous_weapon_really_damaged.is_some()
             || continuous_weapon_rubble.is_some();
 
+        let should_wake = upgrade_mux.is_already_upgraded() && has_continuous_weapon;
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let wake_frame = if should_wake {
+            now.saturating_add(1)
+        } else {
+            UPDATE_SLEEP_FOREVER.to_u32()
+        };
         if let Ok(obj_guard) = object.read() {
-            let should_wake = upgrade_mux.is_already_upgraded() && has_continuous_weapon;
-            let sleep_time = if should_wake {
-                UPDATE_SLEEP_NONE
-            } else {
-                UPDATE_SLEEP_FOREVER
-            };
-            TheGameLogic::set_wake_frame(obj_guard.get_id(), sleep_time);
+            obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
         }
 
         Ok(Self {
@@ -475,28 +476,20 @@ impl FireWeaponWhenDamagedBehavior {
             continuous_weapon_damaged,
             continuous_weapon_really_damaged,
             continuous_weapon_rubble,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: wake_frame,
             upgrade_mux,
         })
     }
 
     /// Allocate a weapon from template. Matches C++ TheWeaponStore->allocateNewWeapon()
     /// from FireWeaponWhenDamagedBehavior.cpp lines 52-99
-    fn allocate_weapon(
-        template: Arc<WeaponTemplate>,
-        object_id: crate::common::ObjectID,
-    ) -> Arc<Mutex<Weapon>> {
-        // Create new weapon instance from template, using PRIMARY_WEAPON slot
-        // This matches C++ line 53: TheWeaponStore->allocateNewWeapon(d->m_reactionWeaponPristine, PRIMARY_WEAPON)
-        let weapon = Weapon::new(template, WeaponSlotType::Primary);
-
-        // Wrap in Arc<Mutex<>> for thread-safe shared ownership
+    fn allocate_weapon(template: Arc<WeaponTemplate>, object_id: crate::common::ObjectID) -> Weapon {
+        // Caller-owned, same as C++ WeaponStore::allocateNewWeapon (Weapon.h):
+        // the store does not retain the instance.
+        let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
         // C++ ctor calls reloadAmmo (clip reload delay), not loadAmmoNow.
-        let weapon = Arc::new(Mutex::new(weapon));
         if object_id != crate::common::INVALID_ID {
-            if let Ok(mut guard) = weapon.lock() {
-                let _ = guard.reload_ammo(object_id);
-            }
+            let _ = weapon.reload_ammo(object_id);
         }
         weapon
     }
@@ -509,18 +502,16 @@ impl FireWeaponWhenDamagedBehavior {
         position: &crate::common::Coord3D,
     ) {
         let weapon = match body_damage_type {
-            BodyDamageType::Rubble => &self.reaction_weapon_rubble, // Matches C++ lines 166-171
-            BodyDamageType::ReallyDamaged => &self.reaction_weapon_really_damaged, // Matches C++ lines 173-178
-            BodyDamageType::Damaged => &self.reaction_weapon_damaged, // Matches C++ lines 180-185
-            _ => &self.reaction_weapon_pristine, // Matches C++ lines 187-192 (pristine/undamaged)
+            BodyDamageType::Rubble => self.reaction_weapon_rubble.as_mut(),
+            BodyDamageType::ReallyDamaged => self.reaction_weapon_really_damaged.as_mut(),
+            BodyDamageType::Damaged => self.reaction_weapon_damaged.as_mut(),
+            _ => self.reaction_weapon_pristine.as_mut(),
         };
 
-        if let Some(weapon_arc) = weapon {
-            if let Ok(mut weapon_guard) = weapon_arc.lock() {
-                if weapon_guard.get_status() == WeaponStatus::ReadyToFire {
-                    // Matches C++ line 169: m_reactionWeaponPristine->forceFireWeapon( obj, obj->getPosition() )
-                    let _ = weapon_guard.force_fire_weapon(obj_id, position);
-                }
+        if let Some(weapon) = weapon {
+            if weapon.get_status() == WeaponStatus::ReadyToFire {
+                // Matches C++ line 169: m_reactionWeaponPristine->forceFireWeapon( obj, obj->getPosition() )
+                let _ = weapon.force_fire_weapon(obj_id, position);
             }
         }
     }
@@ -533,18 +524,16 @@ impl FireWeaponWhenDamagedBehavior {
         position: &crate::common::Coord3D,
     ) {
         let weapon = match body_damage_type {
-            BodyDamageType::Rubble => &self.continuous_weapon_rubble, // Matches C++ lines 211-216
-            BodyDamageType::ReallyDamaged => &self.continuous_weapon_really_damaged, // Matches C++ lines 219-224
-            BodyDamageType::Damaged => &self.continuous_weapon_damaged, // Matches C++ lines 226-231
-            _ => &self.continuous_weapon_pristine, // Matches C++ lines 233-238 (pristine)
+            BodyDamageType::Rubble => self.continuous_weapon_rubble.as_mut(),
+            BodyDamageType::ReallyDamaged => self.continuous_weapon_really_damaged.as_mut(),
+            BodyDamageType::Damaged => self.continuous_weapon_damaged.as_mut(),
+            _ => self.continuous_weapon_pristine.as_mut(),
         };
 
-        if let Some(weapon_arc) = weapon {
-            if let Ok(mut weapon_guard) = weapon_arc.lock() {
-                if weapon_guard.get_status() == WeaponStatus::ReadyToFire {
-                    // Matches C++ line 215: m_continuousWeaponPristine->forceFireWeapon( obj, obj->getPosition() )
-                    let _ = weapon_guard.force_fire_weapon(obj_id, position);
-                }
+        if let Some(weapon) = weapon {
+            if weapon.get_status() == WeaponStatus::ReadyToFire {
+                // Matches C++ line 215: m_continuousWeaponPristine->forceFireWeapon( obj, obj->getPosition() )
+                let _ = weapon.force_fire_weapon(obj_id, position);
             }
         }
     }
@@ -562,7 +551,13 @@ impl FireWeaponWhenDamagedBehavior {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj_guard) = obj.read() {
-                TheGameLogic::set_wake_frame(obj_guard.get_id(), sleep_time);
+                let now = crate::helpers::TheGameLogic::get_frame();
+                let wake_frame = match sleep_time {
+                    UpdateSleepTime::None => now.saturating_add(1),
+                    UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+                    UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+                };
+                obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
             }
         }
     }
@@ -570,7 +565,7 @@ impl FireWeaponWhenDamagedBehavior {
     fn ensure_weapon_for_xfer(
         slot_template: &Option<Arc<WeaponTemplate>>,
         object_id: crate::common::ObjectID,
-    ) -> Result<Arc<Mutex<Weapon>>, String> {
+    ) -> Result<Weapon, String> {
         let Some(template) = slot_template.as_ref() else {
             return Err("Weapon snapshot present but template missing".to_string());
         };
@@ -579,7 +574,7 @@ impl FireWeaponWhenDamagedBehavior {
 
     fn xfer_weapon_option(
         xfer: &mut dyn Xfer,
-        weapon: &mut Option<Arc<Mutex<Weapon>>>,
+        weapon: &mut Option<Weapon>,
         template: &Option<Arc<WeaponTemplate>>,
         object_id: crate::common::ObjectID,
     ) -> Result<(), String> {
@@ -591,10 +586,8 @@ impl FireWeaponWhenDamagedBehavior {
             if weapon.is_none() {
                 *weapon = Some(Self::ensure_weapon_for_xfer(template, object_id)?);
             }
-            if let Some(weapon_arc) = &weapon {
-                if let Ok(mut weapon_guard) = weapon_arc.lock() {
-                    weapon_guard.xfer(xfer)?;
-                }
+            if let Some(weapon) = weapon.as_mut() {
+                weapon.xfer(xfer)?;
             }
         } else {
             *weapon = None;
@@ -646,17 +639,17 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
             Err(_) => return Ok(()),
         };
 
-        // Get body damage state. Matches C++ line 163
-        let body_damage_type = obj_read
+        let Some(body_damage_type) = obj_read
             .get_body_module()
             .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
-            .unwrap_or(BodyDamageType::Pristine);
+        else {
+            return Ok(());
+        };
 
-        // Get object ID and position for weapon firing
         let obj_id = obj_read.get_id();
         let position = obj_read.get_position().clone();
+        drop(obj_read);
 
-        // Fire appropriate reaction weapon. Matches C++ lines 165-194
         self.fire_reaction_weapon(body_damage_type, obj_id, &position);
 
         Ok(())
@@ -714,17 +707,17 @@ impl UpdateModuleInterface for FireWeaponWhenDamagedBehavior {
             Err(_) => return UPDATE_SLEEP_FOREVER,
         };
 
-        // Get body damage state. Matches C++ line 209
-        let body_damage_type = obj_read
+        let Some(body_damage_type) = obj_read
             .get_body_module()
             .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
-            .unwrap_or(BodyDamageType::Pristine);
+        else {
+            return UPDATE_SLEEP_NONE;
+        };
 
-        // Get object ID and position for weapon firing
         let obj_id = obj_read.get_id();
         let position = obj_read.get_position().clone();
+        drop(obj_read);
 
-        // Fire appropriate continuous weapon. Matches C++ lines 211-239
         self.fire_continuous_weapon(body_damage_type, obj_id, &position);
 
         UPDATE_SLEEP_NONE // Matches C++ line 241
@@ -866,45 +859,29 @@ impl Snapshotable for FireWeaponWhenDamagedBehavior {
             .load_post_process()
             .map_err(|e| format!("Failed to load upgrade mux: {}", e))?;
 
-        if let Some(ref weapon) = self.reaction_weapon_pristine {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.reaction_weapon_pristine.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.reaction_weapon_damaged {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.reaction_weapon_damaged.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.reaction_weapon_really_damaged {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.reaction_weapon_really_damaged.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.reaction_weapon_rubble {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.reaction_weapon_rubble.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.continuous_weapon_pristine {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.continuous_weapon_pristine.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.continuous_weapon_damaged {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.continuous_weapon_damaged.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.continuous_weapon_really_damaged {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.continuous_weapon_really_damaged.as_mut() {
+            weapon.load_post_process()?;
         }
-        if let Some(ref weapon) = self.continuous_weapon_rubble {
-            if let Ok(mut weapon_guard) = weapon.lock() {
-                weapon_guard.load_post_process()?;
-            }
+        if let Some(weapon) = self.continuous_weapon_rubble.as_mut() {
+            weapon.load_post_process()?;
         }
 
         Ok(())
@@ -919,6 +896,10 @@ pub struct FireWeaponWhenDamagedBehaviorModule {
 }
 
 impl FireWeaponWhenDamagedBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: FireWeaponWhenDamagedBehavior,
         module_name: &AsciiString,

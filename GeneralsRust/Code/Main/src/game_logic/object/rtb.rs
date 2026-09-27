@@ -735,6 +735,13 @@ impl Object {
         self.locomotor_goal_type = LocoGoalType::None;
     }
 
+    /// C++ `AIUpdateInterface::setLocomotorGoalPositionOnPath`.
+    /// Type only. The path nodes stay on `movement.path`.
+    pub fn set_locomotor_goal_position_on_path(&mut self) {
+        self.locomotor_goal_type = LocoGoalType::PositionOnPath;
+        self.locomotor_goal_angle = 0.0;
+    }
+
     /// C++ `AIFaceState::update` goal select — ANGLE vs POSITION_EXPLICIT.
     /// Does not integrate; `doLocomotor` / `tick_face_towards` leftover-march.
     pub fn arm_face_locomotor_goal(&mut self, target_pos: glam::Vec3) -> bool {

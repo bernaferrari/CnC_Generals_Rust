@@ -251,7 +251,9 @@ impl UpdateModuleInterface for ProjectileStreamUpdate {
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
                 if let Ok(obj_guard) = obj.read() {
-                    if let Err(err) = TheGameLogic::destroy_object(&obj_guard) {
+                    let id = obj_guard.get_id();
+                    drop(obj_guard);
+                    if let Err(err) = TheGameLogic::destroy_object_by_id(id) {
                         log::debug!("ProjectileStreamUpdate::destroy_object failed: {err}");
                     }
                 }
@@ -314,9 +316,8 @@ impl ProjectileStreamDrawInterface for ProjectileStreamUpdate {
 
 impl Snapshotable for ProjectileStreamUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        // UpdateModule::crc -> BehaviorModule::crc -> Module::crc writes nothing.
+        let _ = xfer;
         Ok(())
     }
 

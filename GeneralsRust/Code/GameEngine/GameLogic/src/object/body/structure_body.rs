@@ -123,8 +123,11 @@ impl StructureBody {
 
     /// Set the constructor object (the unit that built this structure)
     pub fn set_constructor_object(&mut self, object_id: Option<ObjectId>) -> BodyResult<()> {
+        let Some(object_id) = object_id else {
+            return Ok(());
+        };
         if let Ok(mut state) = self.state.write() {
-            state.constructor_object_id = object_id.unwrap_or(INVALID_ID);
+            state.constructor_object_id = object_id;
             Ok(())
         } else {
             Err(BodyError::OperationNotSupported)
@@ -358,9 +361,9 @@ mod tests {
         assert!(body.set_constructor_object(Some(constructor_id)).is_ok());
         assert_eq!(body.get_constructor_object_id(), constructor_id);
 
-        // Clear constructor
+        // C++ null does not clear a constructor that was already set.
         assert!(body.set_constructor_object(None).is_ok());
-        assert_eq!(body.get_constructor_object_id(), INVALID_ID);
+        assert_eq!(body.get_constructor_object_id(), constructor_id);
     }
 
     #[test]

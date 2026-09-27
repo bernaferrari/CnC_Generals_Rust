@@ -548,6 +548,10 @@ impl GameLogic {
                 },
                 false,
             );
+            // C++ sets these once after chooseLocomotorSet(PANIC). The host
+            // re-chooses every tick, which clears ultra-accurate, including orbit.
+            o.set_allow_invalid_position(true);
+            o.set_ultra_accurate(true);
             if was_ab != tick.afterburners_on {
                 audio.push((id, o.template_name.clone(), tick.pos, tick.afterburners_on));
             }
@@ -773,8 +777,6 @@ impl GameLogic {
         }
         if let Some(o) = self.objects.get_mut(&source_id) {
             o.set_target(Some(target_id));
-            o.target_location = None;
-            o.set_ai_state(crate::game_logic::AIState::Attacking);
             let shots = o
                 .fire_weapon_power
                 .as_ref()

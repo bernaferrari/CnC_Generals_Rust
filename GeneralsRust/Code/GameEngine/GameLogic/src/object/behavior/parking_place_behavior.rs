@@ -333,9 +333,8 @@ impl ParkingPlaceBehavior {
             .downcast_ref::<ParkingPlaceBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
-        if let Ok(owner_guard) = object.read() {
-            TheGameLogic::set_wake_frame(owner_guard.get_id(), UpdateSleepTime::None);
-        }
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let wake_frame = now.saturating_add(1);
 
         Ok(Self {
             object_id: object
@@ -345,7 +344,7 @@ impl ParkingPlaceBehavior {
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
             got_info: false,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: wake_frame,
             spaces: Vec::new(),
             runways: Vec::new(),
             healing: VecDeque::new(),
@@ -1238,6 +1237,10 @@ pub struct ParkingPlaceBehaviorModule {
 }
 
 impl ParkingPlaceBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: ParkingPlaceBehavior,
         module_name: &AsciiString,

@@ -125,8 +125,7 @@ impl TechBuildingBehavior {
             data_ref.clone()
         };
 
-        let object_id = thing.read().map(|guard| guard.get_id()).unwrap_or_default();
-        TheGameLogic::set_wake_frame(object_id, UpdateSleepTime::None);
+        let now = TheGameLogic::get_frame();
 
         Ok(Self {
             object_id: thing
@@ -135,7 +134,7 @@ impl TechBuildingBehavior {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(data),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: now.saturating_add(1),
         })
     }
 
@@ -196,7 +195,13 @@ impl TechBuildingBehavior {
         _new_owner: Option<&Player>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Wake up next frame so we can re-evaluate our captured status
-        TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::None);
+        let now = TheGameLogic::get_frame();
+        self.next_call_frame_and_phase = now.saturating_add(1);
+        if let Ok(object) = self.get_object() {
+            if let Ok(guard) = object.read() {
+                guard.reschedule_named_update("TechBuildingBehavior", self.next_call_frame_and_phase);
+            }
+        }
         Ok(())
     }
 }
@@ -318,6 +323,10 @@ pub struct TechBuildingBehaviorModule {
 }
 
 impl TechBuildingBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: TechBuildingBehavior,
         module_name: &game_engine::common::rts::AsciiString,

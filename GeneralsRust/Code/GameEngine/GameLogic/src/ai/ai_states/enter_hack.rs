@@ -439,18 +439,10 @@ impl AIState for AIHackInternetState {
             return StateReturnType::Failed;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::HackInternet,
-                    CommandSourceType::FromAi,
-                );
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.ai_pending_hack = true;
+            owner.ai_pending_hack_source = crate::common::CommandSourceType::FromAi;
+        });
         StateReturnType::Continue
     }
 
@@ -461,16 +453,10 @@ impl AIState for AIHackInternetState {
         }
 
         let Some(status) = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
-            let Some(ai) = owner_guard.get_ai_update_interface() else {
-                return None; // Failed
-            };
-            let Ok(mut ai_guard) = ai.lock() else {
-                return None; // Failed
-            };
-            let Some(hack) = ai_guard.get_hack_internet_ai_update_interface() else {
-                return Some(false); // Success (not busy)
-            };
-            Some(hack.is_hacking_packing_or_unpacking())
+            if !owner_guard.ai_fire_hack_known {
+                return None;
+            }
+            Some(owner_guard.ai_fire_hacking)
         })
         .flatten() else {
             return StateReturnType::Failed;

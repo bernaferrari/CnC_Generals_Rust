@@ -30,14 +30,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn set_movement_target(&mut self, target: &Coord3D) -> Result<(), String>;
     /// Returns the locomotor preferred height if available.
     fn get_preferred_height(&self) -> Option<Real> {
-        self.get_cur_locomotor()
-            .and_then(|loc| loc.lock().ok().map(|guard| guard.preferred_height))
+        let mut height = None;
+        self.with_cur_locomotor(&mut |loco| height = Some(loco.preferred_height));
+        height
     }
 
-    /// Get current locomotor (matches C++ AIUpdateInterface::getCurLocomotor).
-    fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        None
-    }
+    /// Borrow the current locomotor. C++ `getCurLocomotor` returned a pointer into the set.
+    fn with_cur_locomotor(&self, _f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {}
     /// Get whether a locomotor path is active (matches C++ AIUpdateInterface::getPath).
     fn get_path(&self) -> Option<()> {
         self.get_path_destination().map(|_| ())
@@ -45,6 +44,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Get the destination of the active path (matches C++ AIUpdateInterface::getPath last node).
     fn get_path_destination(&self) -> Option<Coord3D> {
         None
+    }
+    /// C++ `getPath()->getLastNode()->getPosition()`. None when there is no path.
+    fn get_path_last_node(&self) -> Option<Coord3D> {
+        None
+    }
+    /// True only when a waypoint path exists. A destination alone is not a path.
+    fn has_nonempty_path(&self) -> bool {
+        false
     }
     /// C++ `AIUpdateInterface::getPath()->peekCachedPointOnPath` residual.
     /// Default: last node. Concrete AIs override to return the local lead point.
@@ -439,6 +446,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn get_goal_position(&self) -> Option<Coord3D> {
         None
     }
+    /// C++ `AIUpdateInterface::getCurrentVictimPos`. Goal only for a position attack.
+    fn get_current_victim_pos(&self) -> Option<Coord3D> {
+        None
+    }
+
 
     /// Set goal position on the AI state machine (matches C++ setGoalPosition).
     fn set_goal_position(&mut self, pos: Option<Coord3D>) {
@@ -587,8 +599,19 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     }
     /// Reset next mood check time (matching C++ AIUpdateInterface::resetNextMoodCheckTime)
     fn reset_next_mood_check_time(&mut self) {}
+    /// C++ AIUpdateInterface::wakeUpAndAttemptToTarget. Idle only; check this frame.
+    fn wake_up_and_attempt_to_target(&mut self) {}
+    fn take_random_mood_offset(&mut self) -> bool {
+        false
+    }
     /// Set next mood check time (matching C++ AIUpdateInterface::setNextMoodCheckTime)
     fn set_next_mood_check_time(&mut self, _frame: u32) {}
+    fn can_auto_acquire(&self) -> bool {
+        false
+    }
+    fn can_auto_acquire_while_stealthed(&self) -> bool {
+        true
+    }
     /// Get packed mood matrix parameters (matching C++ AIUpdateInterface::getMoodMatrixValue).
     fn get_mood_matrix_value(&self) -> u32 {
         0
@@ -633,6 +656,8 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
 
     /// Set a temporary AI state (matches AIStateMachine::setTemporaryState).
     fn set_temporary_state(&mut self, _state: AIStateType, _frame_limit: UnsignedInt) {}
+    /// C++ AIUpdateInterface::doQuickExit.
+    fn do_quick_exit(&mut self, _path: &[Coord3D]) {}
     /// Notify AI about a crate created by this unit (matching C++ AIUpdateInterface::notifyCrate)
     fn notify_crate(&mut self, crate_id: ObjectID) {
         let _ = crate_id;
@@ -908,6 +933,11 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn get_which_turret_for_cur_weapon(&self) -> TurretType {
         TurretType::Invalid
     }
+    /// C++ `AIUpdateInterface::getTurretTurnRate`. Nonzero means the turret aims itself.
+    fn get_turret_turn_rate(&self, _turret: TurretType) -> f32 {
+        0.0
+    }
+
 
     /// Get which turret is used for a weapon slot
     /// Matches C++ AIUpdateInterface::GetWhichTurretForWeaponSlot

@@ -2374,6 +2374,7 @@ fn downhill_only_blocks_uphill() {
     let mut t = ThingTemplate::new("Ski");
     t.add_kind_of(KindOf::Vehicle);
     let mut o = Object::new(t, ObjectId(1002), Team::USA);
+    o.loco_appearance = crate::game_logic::LocomotorAppearance::LegsTwo;
     o.downhill_only = true;
     o.set_position(Vec3::new(0.0, 10.0, 0.0));
     o.movement.max_speed = 30.0;
@@ -2383,6 +2384,33 @@ fn downhill_only_blocks_uphill() {
     o.update_movement(1.0 / 30.0);
     // Should not advance toward uphill goal.
     assert!((o.get_position() - p0).length() < 1e-3);
+}
+
+#[test]
+fn physics_keeps_upward_speed_when_downhill_only() {
+    use crate::game_logic::{KindOf, LocomotorAppearance, Object, ObjectId, Team, ThingTemplate};
+    use glam::Vec3;
+    let mut t = ThingTemplate::new("Truck");
+    t.add_kind_of(KindOf::Vehicle);
+    let mut o = Object::new(t, ObjectId(1003), Team::USA);
+    o.loco_appearance = LocomotorAppearance::WheelsFour;
+    o.downhill_only = true;
+    o.stick_to_ground = false;
+    o.allow_to_fall = true;
+    o.set_position(Vec3::new(0.0, 5.0, 0.0));
+    o.movement.velocity = Vec3::new(0.0, 10.0, 0.0);
+    o.movement.target_position = None;
+    let _ = o.tick_physics_motion_step(0.0);
+    assert!(
+        o.get_position().y > 5.0,
+        "physics must not snap an uphill step, y={}",
+        o.get_position().y
+    );
+    assert!(
+        o.movement.velocity.y > 0.0,
+        "physics must not clear upward speed, vy={}",
+        o.movement.velocity.y
+    );
 }
 
 #[test]
@@ -2730,12 +2758,25 @@ fn loco_set_physics_options_sticks_infantry() {
     let mut t = ThingTemplate::new("LocoInf");
     t.add_kind_of(KindOf::Infantry);
     let mut o = Object::new(t, ObjectId(952), Team::USA);
+    o.stick_to_ground = true;
     o.loco_extra_2d_friction = 0.2;
     o.loco_apply_2d_friction_airborne = true;
     o.set_locomotor_physics_options();
     assert!(o.stick_to_ground);
     assert!((o.extra_friction - 0.2).abs() < 1e-6);
     assert!(o.apply_friction_2d_when_airborne);
+    let mut loose = Object::new(
+        ThingTemplate::new("LocoInfLoose"),
+        ObjectId(953),
+        Team::USA,
+    );
+    loose.thing.template.add_kind_of(KindOf::Infantry);
+    loose.stick_to_ground = false;
+    loose.set_locomotor_physics_options();
+    assert!(
+        !loose.stick_to_ground,
+        "StickToGround = No must survive setPhysicsOptions"
+    );
 }
 
 #[test]

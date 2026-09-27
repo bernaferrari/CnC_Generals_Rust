@@ -363,7 +363,11 @@ pub trait ObjectDrawInterface {
         &mut self,
         weapon_slot: usize,
         barrel_index: i32,
+        fx: Option<&crate::effects::FXList>,
         victim_pos: &Coord3D,
+        weapon_speed: f32,
+        damage_radius: f32,
+        live_bone: Option<&crate::common::Matrix3D>,
     ) -> bool;
 
     /// Get number of weapon barrels for a slot

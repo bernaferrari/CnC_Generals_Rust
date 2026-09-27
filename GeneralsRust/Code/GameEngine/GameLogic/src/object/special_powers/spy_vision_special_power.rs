@@ -160,23 +160,18 @@ impl SpyVisionSpecialPower {
     /// Activate spy vision on the SpyVisionUpdate module found on the object.
     fn activate_spy_vision_update(
         &self,
-        _handle: &crate::object::BehaviorModuleHandle,
+        handle: &crate::object::BehaviorModuleHandle,
         duration: UnsignedInt,
     ) {
-        // Try to access the SpyVisionUpdate through the behavior module system.
-        // The SpyVisionUpdate is registered as a behavior module with name "SpyVisionUpdate".
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                // Try through find_update_behavior which gives us the BehaviorModuleInterface
-                if let Some(behavior_arc) = owner_guard.find_update_behavior("SpyVisionUpdate") {
-                    if let Ok(mut behavior_guard) = behavior_arc.lock() {
-                        // Use the SpyVisionUpdate trait method
-                        if let Some(spy) = behavior_guard.get_spy_vision_update() {
-                            spy.activate_spy_vision(duration);
-                        }
-                    }
-                }
-            }
+        let activated = handle.with_module_downcast::<
+            crate::object::update::spy_vision_update::SpyVisionUpdateModule,
+            _,
+            _,
+        >(|module| {
+            module.behavior_mut().activate_spy_vision(duration);
+        });
+        if activated.is_none() {
+            log::warn!("SpyVisionSpecialPower found SpyVisionUpdate but the module type did not match");
         }
     }
 
@@ -184,6 +179,12 @@ impl SpyVisionSpecialPower {
         &mut self,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
     ) {
+        // C++ returns before SpecialPowerModule::doSpecialPower when the object is disabled.
+        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
+            if owner.read().map(|guard| guard.is_disabled()).unwrap_or(false) {
+                return;
+            }
+        }
         self.base_module.do_special_power(command_options);
         SpyVisionSpecialPower::do_special_power(self, command_options.bits());
     }

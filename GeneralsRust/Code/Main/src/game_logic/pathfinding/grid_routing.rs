@@ -286,13 +286,46 @@ impl PathfindingGrid {
                 && !obj.is_kind_of(KindOf::Immobile)
                 && !obj.is_kind_of(KindOf::Structure)
             {
-                let dest = obj
-                    .movement
-                    .path
-                    .last()
-                    .copied()
-                    .or(obj.movement.target_position);
-                if let Some(goal) = dest {
+                let dest = if obj.do_final_position && obj.movement.path.is_empty() {
+                    Some(obj.final_position)
+                } else {
+                    obj.movement
+                        .path
+                        .last()
+                        .copied()
+                        .or(obj.movement.target_position)
+                };
+                let stored = obj.pathfind_goal_cell;
+                let here = self.cell_for_unit_position(pos, center_in_cell);
+                // Live path / target wins. The stored cell is only the idle
+                // reservation, and only while the unit is still on that cell.
+                // A finished move clears dest; restamping the pre-move cell
+                // would keep the old square reserved.
+                if dest.is_none()
+                    && stored.0 >= 0
+                    && stored.1 >= 0
+                    && here.x == stored.0
+                    && here.y == stored.1
+                {
+                    let goal_cell = GridPos::new(stored.0, stored.1);
+                    for i in (goal_cell.x - radius)..(goal_cell.x + num_above) {
+                        for j in (goal_cell.y - radius)..(goal_cell.y + num_above) {
+                            let p = GridPos::new(i, j);
+                            if self.is_valid_pos(p) {
+                                self.mark_occupancy(
+                                    p,
+                                    player,
+                                    false,
+                                    false,
+                                    true,
+                                    255,
+                                    obj.id.0,
+                                    PathfindLayerEnum::Ground,
+                                );
+                            }
+                        }
+                    }
+                } else if let Some(goal) = dest {
                     let goal_layer = self.layer_for_destination(goal);
                     let goal_at_end = self.object_interacts_with_bridge_end(
                         pos,
@@ -473,8 +506,9 @@ impl PathfindingGrid {
             || obj.chinook_ai.is_some()
     }
 
-    /// C++ `AIUpdateInterface::isDoingGroundMovement` (AIUpdate.cpp:2347-2361).
-    /// Air-only / current-AIR locos never stamp UNIT_PRESENT.
+    /// C++ air early-out of `isDoingGroundMovement` (AIUpdate.cpp:2347-2361).
+    /// `UNIT_PRESENT` uses this. Close-enough uses `is_doing_ground_movement_full`.
+    /// Unmanned-helipad, a set with no member, HELD, and allow-to-fall stay on the full test.
     pub fn is_doing_ground_movement(obj: &Object) -> bool {
         use crate::game_logic::object::LOCO_SURFACE_AIR;
         if matches!(
@@ -498,6 +532,163 @@ impl PathfindingGrid {
         }
         true
     }
+
+    /// Full C++ `AIUpdateInterface::isDoingGroundMovement` (AIUpdate.cpp:2339-2380).
+    pub fn is_doing_ground_movement_full(obj: &Object) -> bool {
+        use crate::game_logic::object::LOCO_SURFACE_AIR;
+        if obj.status.disabled_unmanned
+            && crate::game_logic::GameLogic::object_is_produced_at_helipad(obj)
+        {
+            return true;
+        }
+        if obj.locomotor_surfaces == LOCO_SURFACE_AIR {
+            return false;
+        }
+        let has_set = obj.locomotor_set_names.iter().any(|name| !name.is_empty());
+        let has_cur = obj
+            .cur_locomotor_name
+            .as_ref()
+            .is_some_and(|name| !name.is_empty());
+        if has_set && !has_cur {
+            return false;
+        }
+        if (obj.locomotor_surfaces & LOCO_SURFACE_AIR) != 0 {
+            return false;
+        }
+        if obj.status.disabled_held {
+            return false;
+        }
+        if obj.is_above_terrain() && obj.allow_to_fall {
+            return false;
+        }
+        true
+    }
+
+    /// Last UNIT_GOAL writer on the ground layer. 0 = none.
+    pub fn ground_goal_unit(&self, pos: GridPos) -> u32 {
+        self.bit_index(pos)
+            .and_then(|idx| self.occ_goal_unit.get(idx).copied())
+            .unwrap_or(0)
+    }
+
+    /// Player bits of UNIT_GOAL. Path cost reads this mask, not the id.
+    pub fn ground_goal_mask(&self, pos: GridPos) -> u16 {
+        self.bit_index(pos)
+            .and_then(|idx| self.occ_goal_mask.get(idx).copied())
+            .unwrap_or(0)
+    }
+
+    /// C++ `Pathfinder::updateGoal` for `LAYER_GROUND`. The same cell returns
+    /// without a stamp (AIPathfind.cpp:9755). A change `removeGoal`s that id
+    /// then `setGoalUnit`s the radius square.
+    pub fn update_ground_goal_cell(
+        &mut self,
+        unit_id: u32,
+        player: u32,
+        selection_radius: f32,
+        immobile: bool,
+        old: (i32, i32),
+        pos: Vec3,
+    ) -> (i32, i32) {
+        if immobile {
+            return old;
+        }
+        let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);
+        let mut num_above = radius;
+        if center {
+            num_above += 1;
+        }
+        // removeGoal bumps a zero radius; updateGoal does not.
+        let mut clear_radius = radius;
+        if clear_radius == 0 {
+            clear_radius += 1;
+        }
+        let mut clear_above = clear_radius;
+        if center {
+            clear_above += 1;
+        }
+        let new_cell = self.cell_for_unit_position(pos, center);
+        if old == (new_cell.x, new_cell.y) {
+            return old;
+        }
+        let bit = 1u16 << player.min(15);
+        if old.0 >= 0 && old.1 >= 0 {
+            for i in (old.0 - clear_radius)..(old.0 + clear_above) {
+                for j in (old.1 - clear_radius)..(old.1 + clear_above) {
+                    let p = GridPos::new(i, j);
+                    let Some(idx) = self.bit_index(p) else {
+                        continue;
+                    };
+                    if self.occ_goal_unit.get(idx).copied() == Some(unit_id) {
+                        if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
+                            *slot = 0;
+                        }
+                        if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
+                            *slot &= !bit;
+                        }
+                    }
+                }
+            }
+        }
+        for i in (new_cell.x - radius)..(new_cell.x + num_above) {
+            for j in (new_cell.y - radius)..(new_cell.y + num_above) {
+                let p = GridPos::new(i, j);
+                if self.is_valid_pos(p) {
+                    self.mark_occupancy(
+                        p,
+                        player,
+                        false,
+                        false,
+                        true,
+                        255,
+                        unit_id,
+                        PathfindLayerEnum::Ground,
+                    );
+                }
+            }
+        }
+        (new_cell.x, new_cell.y)
+    }
+
+    /// C++ `Pathfinder::removeGoal` for the stored ground cell.
+    pub fn clear_ground_goal_square(
+        &mut self,
+        unit_id: u32,
+        player: u32,
+        selection_radius: f32,
+        old: (i32, i32),
+    ) {
+        if old.0 < 0 || old.1 < 0 {
+            return;
+        }
+        let (radius, center) = Self::radius_and_center(selection_radius, self.grid_size);
+        let mut clear_radius = radius;
+        if clear_radius == 0 {
+            clear_radius += 1;
+        }
+        let mut clear_above = clear_radius;
+        if center {
+            clear_above += 1;
+        }
+        let bit = 1u16 << player.min(15);
+        for i in (old.0 - clear_radius)..(old.0 + clear_above) {
+            for j in (old.1 - clear_radius)..(old.1 + clear_above) {
+                let p = GridPos::new(i, j);
+                let Some(idx) = self.bit_index(p) else {
+                    continue;
+                };
+                if self.occ_goal_unit.get(idx).copied() == Some(unit_id) {
+                    if let Some(slot) = self.occ_goal_unit.get_mut(idx) {
+                        *slot = 0;
+                    }
+                    if let Some(slot) = self.occ_goal_mask.get_mut(idx) {
+                        *slot &= !bit;
+                    }
+                }
+            }
+        }
+    }
+
 
     pub fn goal_aircraft(&self, pos: GridPos) -> u32 {
         self.bit_index(pos)
@@ -530,6 +721,9 @@ impl PathfindingGrid {
             ) {
                 return Some(Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
             }
+        }
+        if obj.do_final_position && obj.movement.path.is_empty() {
+            return Some(obj.final_position);
         }
         obj.movement
             .path
@@ -1001,6 +1195,26 @@ impl PathfindingGrid {
     /// C++ `validLocomotorSurfacesForCellType` + fence crusher exception.
     pub fn cell_passable_for(&self, pos: GridPos, surfaces: u32, is_crusher: bool) -> bool {
         self.cell_passable_for_layer(pos, PathfindLayerEnum::Ground, surfaces, is_crusher)
+    }
+
+    /// Owned obstacle cells are open while `ignore_obstacle` is that object.
+    pub fn cell_passable_for_ignoring(
+        &self,
+        pos: GridPos,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore_obstacle: Option<u32>,
+    ) -> bool {
+        if self.cell_passable_for(pos, surfaces, is_crusher) {
+            return true;
+        }
+        let Some(id) = ignore_obstacle.filter(|id| *id != 0) else {
+            return false;
+        };
+        self.cell_type(pos) == PathfindCellType::Obstacle
+            && self
+                .obstacle_owner(pos)
+                .is_some_and(|(owner, _, _)| owner == id)
     }
 
     /// C++ `Pathfinder::getRadiusAndCenter` (AIPathfind.cpp:9670-9696). MAX_RADIUS=2.
@@ -1844,13 +2058,24 @@ impl PathfindingGrid {
         if !self.is_valid_pos(cell) {
             return false;
         }
-        if !allow_pinched && self.is_pinched(cell) {
+        // C++ validMovementPosition returns before occupancy when the cell's
+        // obstacle is the ignored structure (AIPathfind.cpp:4836-4838). The
+        // structure also stamps a fixed occupant; that bit must not veto the
+        // dozer who is allowed to leave the footprint.
+        if let Some(ignore_id) = ignore_obstacle {
+            if ignore_id != 0
+                && self.cell_type(cell) == PathfindCellType::Obstacle
+                && self.obstacle_owner(cell).map(|(id, _, _)| id) == Some(ignore_id)
+            {
+                return true;
+            }
+        }
+        let occupied_by_ignored = ignore_obstacle
+            .is_some_and(|id| id != 0 && self.dynamic_pos_unit(cell) == id);
+        if !allow_pinched && self.is_pinched(cell) && !occupied_by_ignored {
             return false;
         }
-        if self.occupancy_blocks_line(cell, seeker_player, crusher_level) {
-            return false;
-        }
-        if !self.diameter_allows(is_crusher, cell) {
+        if !occupied_by_ignored && self.occupancy_blocks_line(cell, seeker_player, crusher_level) {
             return false;
         }
         if unpinched_cliff_passable
@@ -1861,17 +2086,6 @@ impl PathfindingGrid {
         }
         if self.cell_passable_for(cell, surfaces, is_crusher) {
             return true;
-        }
-        // C++ AIPathfind.cpp:4837-4838 — a cell whose obstacle is the unit's
-        // ignored obstacle (ignoreObstacle(goalObject), DozerAIUpdate.cpp:210-211)
-        // stays passable for the line check, so a dozer can follow its path
-        // across the footprint cells of the very structure it is building.
-        if let Some(ignore_id) = ignore_obstacle {
-            if self.cell_type(cell) == PathfindCellType::Obstacle
-                && self.obstacle_owner(cell).map(|(id, _, _)| id) == Some(ignore_id)
-            {
-                return true;
-            }
         }
         false
     }
@@ -1957,7 +2171,7 @@ impl PathfindingGrid {
             if !self.is_valid_pos(cell) {
                 return false;
             }
-            if self.is_pinched(cell) {
+            if self.is_pinched(cell) && !allow_pinched {
                 return false;
             }
             if !self.cell_passable_for(cell, surfaces, false) {

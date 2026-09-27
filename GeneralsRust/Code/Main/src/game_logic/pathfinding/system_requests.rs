@@ -24,6 +24,8 @@ impl PathfindingSystem {
             seeker_path_diameter: 1,
             seeker_center_in_cell: true,
             ignore_obstacle_id: None,
+            adjust_goal: true,
+            tighten_restore_adjust: false,
             human_player_mask: 0,
             seeker_is_human: false,
             seeker_is_dozer: false,
@@ -304,6 +306,15 @@ impl PathfindingSystem {
         self.ignore_obstacle_id
     }
 
+    /// C++ `setAdjustsDestination`. False skips the snap on a non-final hop.
+    pub fn set_adjust_goal(&mut self, adjust: bool) {
+        self.adjust_goal = adjust;
+    }
+
+    pub fn adjusts_goal(&self) -> bool {
+        self.adjust_goal
+    }
+
     /// Leftover `ignored_obstacle_cells`: footprint cells of `m_ignoreObstacleID`.
     pub(super) fn ignored_obstacle_cells(&self) -> Option<HashSet<GridCoord>> {
         let id = self.ignore_obstacle_id?.0;
@@ -528,33 +539,39 @@ impl PathfindingSystem {
                 start_layer,
             )
             .unwrap_or(start_seed);
-        // C++ adjustDestination: snap water/cliff/impassable/occupied clicks
-        // on destinationLayer (AIPathfind.cpp:5352-5355).
         self.grid.query_from = Some(start);
         self.grid.query_orig_dest = Some(goal_seed);
-        let mut goal = self
-            .grid
-            .adjust_destination_on_layer(
-                goal_seed,
-                surfaces,
-                is_crusher,
-                400,
-                self.seeker_player,
-                crusher_level,
-                dest_layer,
-            )
-            .filter(|c| {
-                // C++ internalFindPath refuses a goal that fails
-                // validMovementPosition (AIPathfind.cpp:6561-6568); the zone
-                // gate in checkDestination must not accept Impassable/Obstacle.
-                !matches!(
-                    self.grid.resolved_cell_type(dest_layer, *c),
-                    PathfindCellType::Impassable
-                        | PathfindCellType::Obstacle
-                        | PathfindCellType::BridgeImpassable
+        let ignore_id = self.ignore_obstacle_id.map(|id| id.0).filter(|id| *id != 0);
+        let goal_is_ignored = ignore_id.is_some_and(|id| {
+            self.grid.cell_type(goal_seed) == PathfindCellType::Obstacle
+                && self
+                    .grid
+                    .obstacle_owner(goal_seed)
+                    .is_some_and(|(owner, _, _)| owner == id)
+        });
+        let mut goal = if !self.adjust_goal || goal_is_ignored {
+            goal_seed
+        } else {
+            self.grid
+                .adjust_destination_on_layer(
+                    goal_seed,
+                    surfaces,
+                    is_crusher,
+                    400,
+                    self.seeker_player,
+                    crusher_level,
+                    dest_layer,
                 )
-            })
-            .unwrap_or(goal_seed);
+                .filter(|c| {
+                    !matches!(
+                        self.grid.resolved_cell_type(dest_layer, *c),
+                        PathfindCellType::Impassable
+                            | PathfindCellType::Obstacle
+                            | PathfindCellType::BridgeImpassable
+                    )
+                })
+                .unwrap_or(goal_seed)
+        };
         self.grid.query_from = None;
         self.grid.query_orig_dest = None;
         let ignore_cells = self.ignored_obstacle_cells();
@@ -869,7 +886,7 @@ impl PathfindingSystem {
             };
             let ground_h = |c: GridCoord| {
                 let w = self.grid.grid_to_world(GridPos::new(c.x, c.y));
-                sample_host_ground_height(w.x, w.z)
+                self.sample_terrain_height(w.x, w.z)
             };
             if is_human
                 && (!self.grid.in_logical_extent(start) || !self.grid.in_logical_extent(goal))
@@ -936,7 +953,7 @@ impl PathfindingSystem {
             let from_w = self.grid.grid_to_world(start);
             let to_w = self.grid.grid_to_world(goal);
             if let Some(closest) =
-                self.find_closest_path(from_w, to_w, surfaces, is_crusher, is_human)
+                self.find_closest_path(from_w, to_w, surfaces, is_crusher, is_human, 0.0)
             {
                 return Some(closest);
             }

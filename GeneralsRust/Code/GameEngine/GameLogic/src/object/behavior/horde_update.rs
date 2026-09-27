@@ -341,7 +341,7 @@ impl HordeUpdate {
             .downcast_ref::<HordeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        let instance = Self {
+        let mut instance = Self {
             object_id: object
                 .read()
                 .ok()
@@ -354,14 +354,7 @@ impl HordeUpdate {
             true_horde_member: false,
             has_flag: false,
         };
-
-        if let Ok(obj) = object.read() {
-            let delay = instance.module_data.update_rate;
-            if delay > 0 {
-                let wake = GameLogicRandomValue(1, delay as i32) as u32;
-                TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::from_u32(wake));
-            }
-        }
+        instance.arm_initial_wake();
 
         Ok(instance)
     }
@@ -370,7 +363,7 @@ impl HordeUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<HordeUpdateModuleData>,
     ) -> Self {
-        let instance = Self {
+        let mut instance = Self {
             object_id: object
                 .read()
                 .ok()
@@ -383,16 +376,18 @@ impl HordeUpdate {
             true_horde_member: false,
             has_flag: false,
         };
-
-        if let Ok(obj) = object.read() {
-            let delay = instance.module_data.update_rate;
-            if delay > 0 {
-                let wake = GameLogicRandomValue(1, delay as i32) as u32;
-                TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::from_u32(wake));
-            }
-        }
+        instance.arm_initial_wake();
 
         instance
+    }
+
+    fn arm_initial_wake(&mut self) {
+        let delay = self.module_data.update_rate;
+        if delay > 0 {
+            let wake = GameLogicRandomValue(1, delay as i32) as u32;
+            let now = TheGameLogic::get_frame();
+            self.next_call_frame_and_phase = now.saturating_add(wake);
+        }
     }
 
     pub fn is_in_horde(&self) -> Bool {
@@ -581,7 +576,8 @@ impl UpdateModuleInterface for HordeUpdate {
                         let decal_type = if is_infantry {
                             horde_terrain_decal_type(true, has_nationalism, has_fanaticism)
                         } else {
-                            let size = 3.5 * obj.get_geometry_info().get_major_radius();
+                            let geom = obj.get_geometry_info();
+                            let size = 3.5 * ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5);
                             drawable.set_terrain_decal_size(size, size);
                             horde_terrain_decal_type(false, has_nationalism, has_fanaticism)
                         };
@@ -605,9 +601,7 @@ impl UpdateModuleInterface for HordeUpdate {
 
 impl Snapshotable for HordeUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -668,6 +662,10 @@ pub struct HordeUpdateModule {
 }
 
 impl HordeUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: HordeUpdate,
         module_name: &AsciiString,

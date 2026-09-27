@@ -356,6 +356,12 @@ impl SabotageInternetCenterCrateCollide {
         }
         drop(object_lock);
 
+        let Ok(module_data) = self.module_data.lock() else {
+            return Ok(false);
+        };
+        let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
+        drop(module_data);
+
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());
 
@@ -363,47 +369,37 @@ impl SabotageInternetCenterCrateCollide {
             .base
             .do_sabotage_feedback_fx(&other, SabotageVictimType::InternetCenter);
 
-        // Play eva sound if locally controlled
-        {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
+        if let Ok(other_lock) = other.read() {
             if other_lock.is_locally_controlled() {
                 let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
             }
         }
 
-        // Calculate disable frame
-        let module_data = self.module_data.lock().map_err(|_| GameError::LockError)?;
-        let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
-        drop(module_data);
-
-        // Disable all internet center spy visions (they stack) without visually disabling the other centers
+        // This loop goes before DISABLED_HACKED. The hacked timer uses the normal disabled path.
+        if let Some(controlling_player) = other
+            .read()
+            .ok()
+            .and_then(|other_lock| other_lock.get_controlling_player())
         {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
-            if let Some(controlling_player) = other_lock.get_controlling_player() {
-                let player_guard = controlling_player
-                    .read()
-                    .map_err(|_| GameError::LockError)?;
-                player_guard.iterate_object_ids(|obj_id| {
+            if let Ok(player_guard) = controlling_player.read() {
+                let _ = player_guard.iterate_object_ids(|obj_id| {
                     disable_internet_center_spy_vision(obj_id, disable_frame)
-                })?;
+                });
             }
         }
 
-        // Disable the internet center
-        {
-            let mut other_lock = other.write().map_err(|_| GameError::LockError)?;
+        if let Ok(mut other_lock) = other.write() {
             other_lock.set_disabled_until(DisabledType::DisabledHacked, disable_frame);
         }
 
-        // Disable all the hackers inside
-        {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
+        if let Ok(other_lock) = other.read() {
             if let Some(contain) = other_lock.get_contain() {
-                let contain_guard = contain.lock().map_err(|_| GameError::LockError)?;
-                let contained_ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
-                drop(contain_guard);
-                for object_id in contained_ids {
-                    disable_hacker_id(object_id, disable_frame)?;
+                if let Ok(contain_guard) = contain.lock() {
+                    let contained_ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
+                    drop(contain_guard);
+                    for object_id in contained_ids {
+                        let _ = disable_hacker_id(object_id, disable_frame);
+                    }
                 }
             }
         }

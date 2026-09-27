@@ -207,6 +207,13 @@ impl Object {
         if self.indestructible {
             return false;
         }
+        // C++ ActiveBody::attemptDamage returns on isEffectivelyDead before the
+        // damage-type switch. Healing stays later so bridge rubble can revive.
+        if self.status.effectively_dead
+            && !matches!(damage_type, crate::game_logic::combat::DamageType::Healing)
+        {
+            return false;
+        }
 
         // C++ DAMAGE_DISARM residual: destroy mine without detonation splash.
         if matches!(damage_type, crate::game_logic::combat::DamageType::Disarm) {
@@ -252,16 +259,24 @@ impl Object {
         if matches!(damage_type, crate::game_logic::combat::DamageType::Healing) {
             let _ = death_type;
             let is_bridge = self.is_host_bridge_member();
+            if self.status.effectively_dead && !is_bridge {
+                return false;
+            }
             if self.status.destroyed && !self.status.keep_as_rubble && !is_bridge {
                 return false;
             }
-            if !self.is_alive() && !is_bridge {
+            let slow_dying = self.slow_death.as_ref().is_some_and(|s| s.is_active())
+                || self.jet_slow_death.as_ref().is_some_and(|j| j.is_active())
+                || self
+                    .helicopter_slow_death
+                    .as_ref()
+                    .is_some_and(|h| h.is_active());
+            if !is_bridge && (self.status.keep_as_rubble || slow_dying) {
                 return false;
             }
             if is_bridge {
                 self.revive_from_bridge_rubble();
             }
-            self.clear_poisoned_on_healing();
             let amount = crate::game_logic::host_armor_residual::apply_residual_armor(
                 self,
                 damage_type,
@@ -271,9 +286,16 @@ impl Object {
             if amount > 0.0 {
                 let now = crate::game_logic::host_historic_bonus::logic_frame();
                 self.last_healing_timestamp = Some(now);
+                self.last_damage_timestamp = Some(now);
+                self.last_damage_source = source;
+                self.last_damage_source_preferred = false;
                 self.last_damage_info_type = Some(crate::game_logic::combat::DamageType::Healing);
                 if is_bridge {
-                    let max_health = self.health.maximum.max(self.max_health).max(1.0);
+                    let max_health = if self.health.maximum > 0.0 {
+                        self.health.maximum
+                    } else {
+                        self.max_health.max(1.0)
+                    };
                     crate::game_logic::host_bridge_behavior::record_mirror(
                         self.id,
                         amount.max(0.0),
@@ -318,7 +340,11 @@ impl Object {
                         self.target = None;
                         crate::game_logic::host_damage_log::record_typed(
                             self.id,
-                            self.health.maximum.max(self.max_health).max(1.0),
+                            if self.health.maximum > 0.0 {
+                                self.health.maximum
+                            } else {
+                                self.max_health.max(1.0)
+                            },
                             source,
                             true,
                             damage_type.to_store() as u32,
@@ -330,6 +356,9 @@ impl Object {
                                 fx_type,
                                 damage.max(0.0),
                             );
+                        if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+                            record_neutral_vehicle_sniped();
+                        }
                         return true;
                     }
                     self.occupants.clear();
@@ -343,7 +372,9 @@ impl Object {
                         fx_type,
                         damage.max(0.0),
                     );
-                    let _ = (source, death_type);
+                    if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+                        record_neutral_vehicle_sniped();
+                    }
                     return false;
                 }
                 if self.is_car_bomb() {
@@ -351,6 +382,9 @@ impl Object {
                 }
                 self.apply_kill_pilot_unmanned();
                 self.set_team(crate::game_logic::Team::Neutral);
+                if self.is_kind_of(crate::game_logic::KindOf::Vehicle) {
+                    record_neutral_vehicle_sniped();
+                }
             }
             if damage > 0.0 {
                 self.stamp_last_damage_cpp(source, false, damage_type);
@@ -363,6 +397,8 @@ impl Object {
             let _ = (source, death_type);
             return false;
         }
+
+
 
         // C++ DAMAGE_MICROWAVE (Damage.h:63) is ordinary HP through armor.
         // IsSubdualDamage is false (Damage.h:95-107). Do not peel EMP/Microwave
@@ -445,6 +481,11 @@ impl Object {
         if self.is_inactive_body() {
             return self.apply_inactive_body_damage(damage_type);
         }
+        // C++ ActiveBody::attemptDamage returns when isEffectivelyDead,
+        // before armor, repulsor, and onDie.
+        if self.status.effectively_dead {
+            return false;
+        }
         // OCL InvulnerableTime residual (post-eject pilot shield).
         if self.status.eject_invulnerable {
             return false;
@@ -453,9 +494,12 @@ impl Object {
             return false;
         }
         let prev_health = self.health.current;
-        self.previous_health = prev_health;
         let old_body_state = self.body_damage_state;
-        let max_health = self.health.maximum.max(self.max_health).max(1.0);
+        let max_health = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health.max(1.0)
+        };
 
         // C++ BaseRegenerateUpdate::onDamage residual (delay before auto-heal).
         if damage > 0.0 {
@@ -536,16 +580,12 @@ impl Object {
         // C++ ActiveBody: damaged CAN_BE_REPULSED civilians scare others when EnableRepulsors.
         // Object::setStatus(REPULSOR) + ObjectRepulsorHelper sleepUntil(+2 sec).
         if crate::game_logic::host_repulsor_gate::is_enabled()
-            && actual_damage > 0.0
             && self.is_kind_of(KindOf::CanBeRepulsed)
+            && !self.status.repulsor
         {
+            // C++ Object::setStatus sleeps the helper only when the bit changes.
+            self.repulsor_until_frame = 60; // 2 seconds @ 30Hz
             self.set_status_repulsor(true);
-            // 2 * LOGICFRAMES_PER_SECOND residual; frame base applied by host tick if 0.
-            // Store absolute if known; else relative sentinel cleared by tick with current frame.
-            if self.repulsor_until_frame == 0 || self.repulsor_until_frame < 100_000 {
-                // relative duration residual; tick converts with current_frame
-                self.repulsor_until_frame = 60; // 2 seconds @ 30Hz
-            }
         }
 
         // C++ ImmortalBody::internalChangeHealth (ImmortalBody.cpp:31-37):
@@ -564,6 +604,9 @@ impl Object {
         // (ActiveBody.cpp:1188+). Always mutate host health.current this
         // frame so mid-frame death / HP visibility matches C++, and still
         // log for the GameWorld shadow channel.
+        if actual_damage > 0.0 {
+            self.previous_health = prev_health;
+        }
         self.health.damage(actual_damage);
         // C++ MinefieldBehavior::onDamage — next mine tick syncs virtuals from HP.
         if let Some(md) = self.mine_data.as_mut() {
@@ -575,7 +618,11 @@ impl Object {
             .mine_data
             .as_ref()
             .is_some_and(|md| md.defers_lethal_body_destroy());
-        let mut destroyed = if !self.health.is_alive() && !defer_mine_death {
+        let mut destroyed = if actual_damage > 0.0
+            && prev_health > 0.0
+            && !self.health.is_alive()
+            && !defer_mine_death
+        {
             if !self.status.destroyed {
                 self.status.destroyed = true;
                 self.status.death_type = death_type;
@@ -654,8 +701,12 @@ impl Object {
                     if let Some(w) = fw.on_damage(
                         actual_damage,
                         self.health.current,
-                        self.health.maximum.max(self.max_health).max(1.0),
-                        fw.last_reaction_frame.saturating_add(2),
+                        if self.health.maximum > 0.0 {
+                            self.health.maximum
+                        } else {
+                            self.max_health.max(1.0)
+                        },
+                        crate::game_logic::host_historic_bonus::logic_frame(),
                         damage_type.to_store() as u32,
                     ) {
                         self.pending_fire_when_damaged_weapon = Some(w);
@@ -891,6 +942,18 @@ impl Object {
             self.last_damage_timestamp = Some(frame);
             self.last_damage_source_preferred = preferred;
         }
+    }
+}
+
+pub(crate) fn record_neutral_vehicle_sniped() {
+    let Ok(list) = gamelogic::player::player_list().read() else {
+        return;
+    };
+    let Some(neutral) = list.get_neutral_player() else {
+        return;
+    };
+    if let Ok(mut player) = neutral.write() {
+        player.get_academy_stats_mut().record_vehicle_sniped();
     }
 }
 
@@ -1477,11 +1540,12 @@ mod tests {
     }
 
     #[test]
-    fn healing_stamps_last_healing_not_hostile_source() {
+    fn healing_copies_last_damage_info_including_source() {
         let mut unit = vehicle("HealTank", 72, 200.0);
         unit.health.current = 50.0;
         assert!(!unit.take_damage_from_typed(20.0, Some(ObjectId(9)), DamageType::Healing));
-        assert!(unit.last_damage_source.is_none());
+        assert_eq!(unit.last_damage_source, Some(ObjectId(9)));
+        assert!(unit.last_damage_timestamp.is_some());
         assert!(unit.last_healing_timestamp.is_some());
     }
 

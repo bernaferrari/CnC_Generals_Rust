@@ -266,21 +266,17 @@ impl DrawModuleData for W3DTankDrawModuleData {
 
 impl Snapshotable for W3DTankDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        // C++ does not override `W3DTankDrawModuleData::xfer`. The inherited
+        // `W3DModelDrawModuleData::xfer` is the whole payload.
+        self.base.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -330,6 +326,13 @@ impl W3DTankDraw {
             current_velocity: 0.0,
             max_velocity: 1.0,
         }
+    }
+    pub(crate) fn fx_bone_name_for_shot(
+        &self,
+        weapon_slot: usize,
+        barrel_index: i32,
+    ) -> Option<String> {
+        self.base.fx_bone_name_for_shot(weapon_slot, barrel_index)
     }
 
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
@@ -637,15 +640,13 @@ impl W3DTankDraw {
         }
 
         // C++ parity: moving straight at speed uses uniform scroll on all treads.
+        // `m_lastDirection` is updated only in the pivot branch (W3DTankDraw.cpp:362).
         if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
             for tread in &mut self.treads {
                 let offset = tread.uv_offset - tread_scroll_speed;
                 tread.uv_offset = wrap_uv_offset(offset);
             }
         }
-
-        // Save direction for next frame
-        self.last_direction = *direction;
     }
 }
 
@@ -684,6 +685,16 @@ impl Module for W3DTankDraw {
 
 impl DrawModule for W3DTankDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
+        // C++ W3DTankDraw.cpp:288-291 — frozen tactical view or script time skips the whole draw.
+        let camera_frozen = crate::helpers::get_camera_view_bridge().is_some_and(|view| {
+            view.is_time_frozen() && !view.is_camera_movement_finished()
+        });
+        if camera_frozen
+            || crate::helpers::TheScriptEngine::is_time_frozen_debug()
+            || crate::helpers::TheScriptEngine::is_time_frozen_script()
+        {
+            return;
+        }
         self.update_tread_objects();
         let mut direction = Coord3D::new(transform_mtx.x_axis.x, transform_mtx.x_axis.y, 0.0);
         let mut turning = 0.0;
@@ -703,7 +714,7 @@ impl DrawModule for W3DTankDraw {
                             self.current_velocity =
                                 (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
                             turning = physics_guard.get_turning();
-                            is_motive = self.current_velocity > 0.0;
+                            is_motive = physics_guard.is_motive();
                         }
                     }
 

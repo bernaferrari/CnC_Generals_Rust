@@ -36,7 +36,9 @@
 //! collision_system.process_collisions().unwrap();
 //! ```
 
-use super::collision_geometry::{CollideInfo, CollideLocAndNormal, GeometryInfo, collision_test};
+use super::collision_geometry::{
+    CollideInfo, CollideLocAndNormal, GeometryInfo, collide_test_dispatch,
+};
 use super::collision_response::{CollisionResponseConfig, CollisionResponseHandler};
 use super::partition_manager::PartitionManager;
 use super::{COLLISION_MANAGER, CollisionError, Coord3D, GameObject, ObjectId, ObjectStatusMask};
@@ -150,6 +152,16 @@ impl CollisionSystem {
             .update_object_position(id, new_position)
     }
 
+    pub fn update_object_pose(
+        &mut self,
+        id: ObjectId,
+        new_position: Coord3D,
+        angle: f32,
+    ) -> Result<(), CollisionError> {
+        self.partition_manager
+            .update_object_pose(id, new_position, angle)
+    }
+
     /// Set collision response configuration for an object
     pub fn set_collision_config(&mut self, id: ObjectId, config: CollisionResponseConfig) {
         self.object_configs.insert(id, config);
@@ -210,7 +222,22 @@ impl CollisionSystem {
         let mut cinfo = CollideLocAndNormal::new(Coord3D::ZERO, Coord3D::ZERO);
         let info_a = CollideInfo::new(pos_a, geom_a, angle_a);
         let info_b = CollideInfo::new(pos_b, geom_b, angle_b);
-        if !collision_test(&info_a, &info_b, Some(&mut cinfo)) {
+        // PartitionData::collidesWith includes the below-height. Spheres extend
+        // major_radius downward. geomCollidesWithGeom does not.
+        let a_top = info_a.position.z + info_a.geom.get_max_height_above_position();
+        let a_bot = info_a.position.z - info_a.geom.get_max_height_below_position();
+        let b_top = info_b.position.z + info_b.geom.get_max_height_above_position();
+        let b_bot = info_b.position.z - info_b.geom.get_max_height_below_position();
+        if !(a_top >= b_bot && a_bot <= b_top) {
+            return Ok(false);
+        }
+        if !collide_test_dispatch(
+            info_a.geom.get_geom_type(),
+            info_b.geom.get_geom_type(),
+            &info_a,
+            &info_b,
+            Some(&mut cinfo),
+        ) {
             return Ok(false);
         }
 
@@ -406,14 +433,18 @@ impl CollisionSystem {
                     guard.is_ai_in_dead_state(),
                     guard.get_path_destination(),
                     guard.get_num_frames_blocked(),
-                    guard
-                        .get_cur_locomotor()
-                        .and_then(|loc| loc.lock().ok().map(|loco| loco.is_moving_backwards()))
-                        .unwrap_or(false),
-                    guard
-                        .get_cur_locomotor()
-                        .and_then(|loc| loc.lock().ok().map(|loco| loco.template.move_priority))
-                        .unwrap_or(LocomotorPriority::Middle),
+                    {
+            let mut __back = false;
+            guard.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
+            __back
+        },
+                    {
+                        let mut priority = LocomotorPriority::Middle;
+                        guard.with_cur_locomotor(&mut |loco| {
+                            priority = loco.template.move_priority;
+                        });
+                        priority
+                    },
                 )
             };
 

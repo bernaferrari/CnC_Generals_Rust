@@ -96,22 +96,22 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
-            return UpdateSleepTime::Frames(1);
+            return UpdateSleepTime::None;
         };
         let Ok(object_guard) = object_arc.read() else {
-            return UpdateSleepTime::Frames(1);
+            return UpdateSleepTime::None;
         };
 
         let Some(physics_arc) = object_guard.get_physics() else {
-            return UpdateSleepTime::Frames(1);
+            return UpdateSleepTime::None;
         };
         let Some(drawable_arc) = object_guard.get_drawable() else {
-            return UpdateSleepTime::Frames(1);
+            return UpdateSleepTime::None;
         };
 
         let now = TheGameLogic::get_frame();
         if now < self.next_transition_frame {
-            return UpdateSleepTime::Frames(1);
+            return UpdateSleepTime::None;
         }
 
         let current_turn = physics_arc
@@ -129,7 +129,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
 
         let mut drawable_guard = match drawable_arc.write() {
             Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::Frames(1),
+            Err(_) => return UpdateSleepTime::None,
         };
 
         if self.current_turn_anim == ModelConditionFlags::Invalid {
@@ -172,7 +172,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
             }
         }
 
-        UpdateSleepTime::Frames(1)
+        UpdateSleepTime::None
     }
 }
 
@@ -187,9 +187,7 @@ impl BehaviorModuleInterface for AnimationSteeringUpdate {
 
 impl Snapshotable for AnimationSteeringUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

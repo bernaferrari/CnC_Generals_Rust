@@ -258,15 +258,12 @@ impl ClassicState for AIHuntState {
                 return Ok(StateReturnType::Failure);
             }
 
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                        if let Some(hunt_machine) = self.hunt_machine.as_mut() {
-                            hunt_machine.set_goal_object(crate_obj.read().ok().map(|g| g.get_id()));
-                            let _ = hunt_machine.set_state(AIStateType::PickUpCrate);
-                            return Ok(StateReturnType::Continue);
-                        }
-                    }
+            if owner_guard.ai_fire_crate_id != crate::common::INVALID_ID {
+                let crate_id = owner_guard.ai_fire_crate_id;
+                if let Some(hunt_machine) = self.hunt_machine.as_mut() {
+                    hunt_machine.set_goal_object(Some(crate_id));
+                    let _ = hunt_machine.set_state(AIStateType::PickUpCrate);
+                    return Ok(StateReturnType::Continue);
                 }
             }
 
@@ -310,18 +307,6 @@ impl ClassicState for AIHuntState {
         let Some(hunt_machine) = self.hunt_machine.as_mut() else {
             return Ok(StateReturnType::Failure);
         };
-
-        if let Ok(machine) = self.base.get_machine() {
-            if let Ok(mut machine_guard) = machine.lock() {
-                machine_guard.lock();
-                let result = hunt_machine.update();
-                machine_guard.unlock();
-                return Ok(match result {
-                    StateReturnType::Sleep(_) => StateReturnType::Continue,
-                    other => other,
-                });
-            }
-        }
 
         let result = hunt_machine.update();
         Ok(match result {

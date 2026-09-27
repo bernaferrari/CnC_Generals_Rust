@@ -114,10 +114,10 @@ impl BodyModuleInterface for InactiveBody {
                     if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
                         if let Ok(mut owner_guard) = owner.write() {
                             owner_guard.on_die(damage_info);
+                            self.set_die_called()?;
                         }
                     }
                 }
-                self.set_die_called()?;
             }
         }
 

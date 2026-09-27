@@ -251,7 +251,14 @@ impl PathfindingSystem {
                         .flatten()
                     {
                         if let Ok(mut ai_g) = ai.lock() {
+                            // C++ ai->doPathfind reads the live ignore id and destination.
                             ai_g.do_pathfind();
+                            drop(ai_g);
+                            // One pathfind per queue entry. The PathRequest was snapshotted
+                            // at queue time; do not search it after do_pathfind.
+                            if let Ok(mut queued) = self.request_queue.lock() {
+                                queued.retain(|r| r.object_id != id);
+                            }
                         }
                     } else if let Ok(mut queue) = self.request_queue.lock() {
                         // Fallback: PathRequest residual for host/tests without registry object.
@@ -267,7 +274,8 @@ impl PathfindingSystem {
             }
         }
 
-        // Also drain PathRequest queue for host/tests without ObjectID ring.
+        // Residual PathRequests with no live ObjectID (INVALID_ID host/tests).
+        // A request whose object already ran do_pathfind was removed above.
         if let Ok(mut queue) = self.request_queue.lock() {
             while (self.cumulative_cells_allocated() as usize) < cell_budget && !queue.is_empty() {
                 if let Some(request) = queue.pop_front() {

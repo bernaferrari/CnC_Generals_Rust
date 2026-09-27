@@ -41,6 +41,8 @@ pub const TAG_FX_LIST_DIE: &str = "FXListDie";
 pub const TAG_CREATE_OBJECT_DIE: &str = "CreateObjectDie";
 /// C++ LifetimeUpdate residual.
 pub const TAG_LIFETIME: &str = "LifetimeUpdate";
+/// C++ `AIUpdateInterface::m_pathExtraDistance`.
+pub const TAG_PATH_EXTRA_DISTANCE: &str = "PathExtraDistance";
 /// C++ SlowDeathBehavior residual.
 pub const TAG_SLOW_DEATH: &str = "SlowDeath";
 /// C++ HeightDieUpdate residual.
@@ -196,4 +198,5 @@ pub const INVENTORY_TAGS: &[&str] = &[
     TAG_ACTIVE_BODY,
     TAG_PHYSICS_BEHAVIOR,
     TAG_RAILROAD,
+    TAG_PATH_EXTRA_DISTANCE,
 ];

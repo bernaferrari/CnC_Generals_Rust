@@ -532,25 +532,25 @@ impl VeterancyCrateCollide {
                 continue;
             }
             let old_level = tracker_guard.get_veterancy_level();
-            if tracker_guard.gain_exp_for_level(
+            let gained = tracker_guard.gain_exp_for_level(
                 levels_to_gain,
                 !self.module_data.is_pilot,
                 requirements.as_array(),
-            ) {
-                let new_level = tracker_guard.get_veterancy_level();
-                if old_level != new_level {
-                    obj_guard.on_veterancy_level_changed(old_level, new_level, true);
-                }
+            );
+            let new_level = tracker_guard.get_veterancy_level();
+            drop(tracker_guard);
+            if gained && old_level != new_level {
+                obj_guard.on_veterancy_level_changed(old_level, new_level, true);
             }
         }
 
         // Transfer object name for pilots (for script control)
         if self.module_data.is_pilot {
-            let owner_name = TheGameLogic::find_object_by_id(self.owner_object_id)
+            if let Some(owner_name) = TheGameLogic::find_object_by_id(self.owner_object_id)
                 .and_then(|obj| obj.read().ok().map(|obj| obj.get_name().clone()))
-                .unwrap_or_else(|| format!("Object{}", self.owner_object_id).into());
-            transfer_object_name(&owner_name, other.get_id())
-                .map_err(|e| CollisionError::InvalidObject(e.to_string()))?;
+            {
+                let _ = transfer_object_name(&owner_name, other.get_id());
+            }
         }
 
         Ok(true)

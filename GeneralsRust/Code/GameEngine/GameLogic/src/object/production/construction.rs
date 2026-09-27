@@ -490,7 +490,11 @@ impl DozerConstructionTask {
 
     /// Update construction by one frame
     /// Returns true if construction is now complete
-    /// Matches C++ DozerActionDoActionState::update DOZER_TASK_BUILD case lines 476-641
+    /// C++ recalculates calcTimeToBuild every dock frame.
+    pub fn set_total_build_frames(&mut self, frames: u32) {
+        self.total_build_frames = frames.max(1);
+    }
+
     pub fn update_construction_frame(&mut self) -> bool {
         self.progress.update_frame(self.total_build_frames)
     }
@@ -627,7 +631,16 @@ impl ConstructionManager {
     }
 
     /// Update construction for a single dozer by one frame.
-    /// Returns completed building IDs for that dozer.
+    pub fn set_build_frames(&mut self, building_id: ObjectID, frames: u32) {
+        if let Some(task) = self
+            .active_tasks
+            .iter_mut()
+            .find(|task| task.building_id == building_id)
+        {
+            task.set_total_build_frames(frames);
+        }
+    }
+
     pub fn update_for_dozer(&mut self, dozer_id: ObjectID) -> Vec<ObjectID> {
         let mut completed_buildings = Vec::new();
         let mut completed_dozers = Vec::new();

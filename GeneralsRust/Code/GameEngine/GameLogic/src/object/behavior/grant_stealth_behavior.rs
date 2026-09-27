@@ -260,7 +260,10 @@ impl GrantStealthBehavior {
         }
 
         if let Ok(obj_guard) = object.read() {
-            TheGameLogic::set_wake_frame(obj_guard.get_id(), UPDATE_SLEEP_NONE);
+            let now = crate::helpers::TheGameLogic::get_frame();
+            let wake_frame = now.saturating_add(1);
+            behavior.next_call_frame_and_phase = wake_frame;
+            obj_guard.reschedule_named_update("GrantStealthBehavior", wake_frame);
         }
 
         Ok(behavior)
@@ -366,8 +369,8 @@ impl GrantStealthBehavior {
             return;
         };
 
-        // Get object position (C++ line 141: self->getPosition())
         let position: Coord3D = *self_guard.get_position();
+        let grantor_off_map = self_guard.is_off_map();
         drop(self_guard);
 
         // C++ lines 124-128: Setup scan filters
@@ -420,8 +423,7 @@ impl GrantStealthBehavior {
                 continue;
             }
 
-            // C++ line 126: PartitionFilterSameMapStatus - check not off-map
-            if obj_guard.is_off_map() {
+            if obj_guard.is_off_map() != grantor_off_map {
                 continue;
             }
 
@@ -429,21 +431,9 @@ impl GrantStealthBehavior {
             if obj_guard.is_effectively_dead() {
                 continue;
             }
-            let rider_id = obj_guard.get_contain().and_then(|contain| {
-                contain
-                    .lock()
-                    .ok()
-                    .and_then(|guard| guard.friend_get_rider())
-            });
-
             drop(obj_guard);
 
-            // Grant stealth to this object (C++ line 145)
-            // In C++: grantStealthToObject( obj )
             self.grant_stealth_to_object(obj_id);
-            if let Some(rider_id) = rider_id {
-                self.grant_stealth_to_object(rider_id);
-            }
         }
     }
 
@@ -503,22 +493,7 @@ impl UpdateModuleInterface for GrantStealthBehavior {
 
 impl Snapshotable for GrantStealthBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
-            .map_err(|e| format!("GrantStealthBehavior update module base state: {}", e))?;
-
-        let mut radius_particle_system_id = self.radius_particle_system_id;
-        xfer.xfer_unsigned_int(&mut radius_particle_system_id)
-            .map_err(|e| format!("GrantStealthBehavior radius_particle_system_id: {:?}", e))?;
-        let mut current_scan_radius = self.current_scan_radius;
-        xfer.xfer_real(&mut current_scan_radius)
-            .map_err(|e| format!("GrantStealthBehavior current_scan_radius: {:?}", e))?;
-
+        let _ = xfer;
         Ok(())
     }
 
@@ -572,6 +547,10 @@ pub struct GrantStealthBehaviorModule {
 }
 
 impl GrantStealthBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: GrantStealthBehavior,
         module_name: &AsciiString,

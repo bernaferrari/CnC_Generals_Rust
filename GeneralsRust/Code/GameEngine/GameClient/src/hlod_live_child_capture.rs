@@ -39,6 +39,63 @@ fn mapper_is_linear_offset(mapper: Option<&ww3d_assets::prototypes::MapperDefini
     mapper.is_some_and(|definition| definition.mapper_type == MAPPER_ID_LINEAR_OFFSET)
 }
 
+/// C++ `doHideShowBoneSubObjs` (`#if 1`, `W3DModelDraw.cpp:2253-2276`).
+/// Step to the parent first, then compare. `Get_Parent_Index` returns 0 for a
+/// null parent, and that 0 can equal the hidden mesh's bone. A mesh already on
+/// bone 0 is not its own child (`while (parentBoneIndex != 0)` never enters).
+fn bone_descends_from(parents: &[i32], bone_index: i32, ancestor: i32) -> bool {
+    if parents.is_empty() || bone_index <= 0 {
+        return false;
+    }
+    let mut current = bone_index;
+    for _ in 0..parents.len() {
+        if current == 0 {
+            return false;
+        }
+        let parent = parents.get(current as usize).copied().unwrap_or(0);
+        let parent = if parent < 0 { 0 } else { parent };
+        if parent == ancestor {
+            return true;
+        }
+        if parent == 0 {
+            return false;
+        }
+        current = parent;
+    }
+    false
+}
+
+fn hierarchy_parent_indices(assets: &AssetManager, hlod: &HlodInstance) -> Vec<i32> {
+    assets
+        .get_hierarchy_prototype(hlod.hierarchy_name())
+        .map(|hierarchy| hierarchy.pivots.iter().map(|pivot| pivot.parent_idx).collect())
+        .unwrap_or_default()
+}
+
+/// Last visibility write wins, including a show that must unhide children.
+fn hidden_from_subobject_visibility(
+    name: &str,
+    bone_index: i32,
+    visibility: &[SubObjectVisibility],
+    named_bones: &[(&str, i32)],
+    parents: &[i32],
+) -> bool {
+    let mut hidden = false;
+    for entry in visibility {
+        let Some((_, named_bone)) = named_bones
+            .iter()
+            .find(|(entry_name, _)| entry_name.eq_ignore_ascii_case(&entry.sub_object_name))
+        else {
+            continue;
+        };
+        let named = entry.sub_object_name.eq_ignore_ascii_case(name);
+        if named || bone_descends_from(parents, bone_index, *named_bone) {
+            hidden = entry.hidden;
+        }
+    }
+    hidden
+}
+
 /// Snapshot live per-child name / visibility / transform / UV-disable.
 ///
 /// Bone overrides stay a read-time overlay (C++ `Control_Bone` after
@@ -65,13 +122,25 @@ pub fn capture_hlod_live_child_states(
         .aggregates()
         .iter()
         .flat_map(|aggregate| aggregate.models().iter());
+    let models: Vec<_> = lod.models().iter().chain(extra).collect();
+    let parents = hierarchy_parent_indices(assets, hlod);
+    let named_bones: Vec<(&str, i32)> = models
+        .iter()
+        .map(|model| (model.name.as_str(), model.bone_index))
+        .collect();
     let mut states = Vec::new();
-    for model in lod.models().iter().chain(extra) {
+    for model in models {
         if model.name.trim().is_empty() {
             return None;
         }
         let object = model.object.as_deref()?;
-        let mut transform = *object.get_transform();
+        let mut transform = if let Some(bones) = anim_bones.as_deref() {
+            child_world_from_anim_bones(model.bone_index, bones)?
+        } else if animation_requested {
+            return None;
+        } else {
+            *object.get_transform()
+        };
         if let Some(bone) = bone_overrides
             .iter()
             .find(|bone| bone.bone_index == model.bone_index)
@@ -79,18 +148,18 @@ pub fn capture_hlod_live_child_states(
             if !bone.transform.is_finite() {
                 return None;
             }
-            transform = bone.transform;
-        } else if let Some(bones) = anim_bones.as_deref() {
-            transform = child_world_from_anim_bones(model.bone_index, bones)?;
-        } else if animation_requested {
-            return None;
+            transform *= bone.transform;
         }
         if !transform.is_finite() {
             return None;
         }
-        let hidden_by_submission = visibility
-            .iter()
-            .any(|entry| entry.hidden && entry.sub_object_name.eq_ignore_ascii_case(&model.name));
+        let hidden_by_submission = hidden_from_subobject_visibility(
+            &model.name,
+            model.bone_index,
+            visibility,
+            &named_bones,
+            &parents,
+        );
         states.push(HlodLiveChildState {
             name: model.name.clone(),
             hidden: hidden_by_submission || child_name_is_muzzle_fx(&model.name),
@@ -135,7 +204,7 @@ pub fn materialize_hlod_ghost_children(
         return Some((sub_objects, HlodGhostChildCapturePath::LiveHierarchy));
     }
 
-    let reconstructed = reconstruct_hlod_children_from_submission(hlod, submission)?;
+    let reconstructed = reconstruct_hlod_children_from_submission(hlod, submission, assets)?;
     log::debug!(
         "hlod ghost child capture path=BoneOverridesFallback model={} children={}",
         submission.model_name,
@@ -150,6 +219,7 @@ pub fn materialize_hlod_ghost_children(
 fn reconstruct_hlod_children_from_submission(
     hlod: &HlodInstance,
     submission: &DrawSubmission,
+    assets: &AssetManager,
 ) -> Option<Vec<RenderSubObjectSnapshot>> {
     let animation_requested =
         submission.animation_name.is_some() || submission.animation_time != 0.0;
@@ -162,8 +232,14 @@ fn reconstruct_hlod_children_from_submission(
         .aggregates()
         .iter()
         .flat_map(|aggregate| aggregate.models().iter());
+    let models: Vec<_> = lod.models().iter().chain(extra).collect();
+    let parents = hierarchy_parent_indices(assets, hlod);
+    let named_bones: Vec<(&str, i32)> = models
+        .iter()
+        .map(|model| (model.name.as_str(), model.bone_index))
+        .collect();
     let mut sub_objects = Vec::new();
-    for model in lod.models().iter().chain(extra) {
+    for model in models {
         if model.name.trim().is_empty() {
             return None;
         }
@@ -177,16 +253,20 @@ fn reconstruct_hlod_children_from_submission(
             if !bone.transform.is_finite() {
                 return None;
             }
-            transform = bone.transform;
+            transform *= bone.transform;
         } else if animation_requested {
             return None;
         }
         if !transform.is_finite() {
             return None;
         }
-        let hidden = submission.sub_object_visibility.iter().any(|visibility| {
-            visibility.hidden && visibility.sub_object_name.eq_ignore_ascii_case(&model.name)
-        });
+        let hidden = hidden_from_subobject_visibility(
+            &model.name,
+            model.bone_index,
+            &submission.sub_object_visibility,
+            &named_bones,
+            &parents,
+        );
         sub_objects.push(RenderSubObjectSnapshot {
             name: model.name.clone(),
             visible: !hidden,

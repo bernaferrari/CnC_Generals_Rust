@@ -568,7 +568,7 @@ impl GameLogic {
         let seed = unit_id.0.wrapping_add(self.frame);
 
         if evac == 1 || evac == 2 {
-            let (start, end) =
+            let (start, mut end) =
                 garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
             let Some(p) = self.objects.get_mut(&unit_id) else {
                 return false;
@@ -577,6 +577,19 @@ impl GameLogic {
             p.target = None;
             p.set_position(start);
             p.set_orientation(yaw);
+            drop(p);
+            let _ = self.adjust_to_possible_destination(unit_id, &mut end);
+            let Some(p) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            p.movement.path.clear();
+            p.movement.path.push(end);
+            p.movement.current_path_index = 0;
+            p.is_attack_path = false;
+            p.can_path_through_units = false;
+            p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+            p.refresh_follow_path_extra_distance();
+            p.adjust_destinations = !p.ultra_accurate;
             p.set_destination(end);
             p.set_ai_state(AIState::Moving);
             p.status.moving = true;
@@ -598,9 +611,24 @@ impl GameLogic {
                 p.set_position(start);
             }
             p.set_orientation(yaw);
+            p.movement.path.clear();
+            p.movement.path.push(end);
+            p.movement.current_path_index = 0;
+            p.is_attack_path = false;
+            p.can_path_through_units = false;
+            p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+            p.refresh_follow_path_extra_distance();
+            p.adjust_destinations = !p.ultra_accurate;
             p.set_destination(end);
             p.set_ai_state(AIState::Moving);
             p.status.moving = true;
+        }
+        if let Some(goal) = self
+            .objects
+            .get(&unit_id)
+            .and_then(|p| p.movement.target_position)
+        {
+            self.register_ground_path_goal(unit_id, goal);
         }
         if !enclosing {
             // C++ GarrisonContain::onRemoving Patch 1.01: Fire Base station
@@ -613,15 +641,9 @@ impl GameLogic {
             p.stamp_safe_occlusion_frame(self.frame);
         }
 
-        if crate::gameworld_shadow::gameworld_movement_authority_live() {
-            if let Some(p) = self.objects.get(&unit_id) {
-                let pos = p.get_position();
-                crate::game_logic::host_move_log::record(unit_id, Some([pos.x, pos.y, pos.z]));
-            }
-        }
+        // set_destination → move_to already records the goal.
         // C++ OpenContain::removeFromContain doUnloadSound — leftover TheAudio.
         self.play_container_exit_sound(container_id);
-        self.reset_rider_mood_check_on_exit(unit_id);
         self.play_container_removing_template_sounds(container_id, unit_id);
         // C++ GarrisonContain::exitObjectViaDoor ends in recalcApparentControllingPlayer.
         self.recalc_garrison_apparent_controller(container_id);
@@ -840,6 +862,7 @@ impl GameLogic {
         let mut packing_hackers: Vec<ObjectId> = Vec::new();
         for (i, pid) in passengers.iter().enumerate() {
             let mut walked_transport = false;
+            let mut side_end: Option<glam::Vec3> = None;
             // Remove from container first.
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let _ = c.remove_occupant(*pid);
@@ -853,9 +876,8 @@ impl GameLogic {
                     let (start, end) =
                         garrison_evac_side_points(building_pos, yaw, major, minor, evac, seed);
                     p.set_position(start);
-                    p.set_destination(end);
-                    p.set_ai_state(AIState::Moving);
-                    p.status.moving = true;
+                    p.set_orientation(yaw);
+                    side_end = Some(end);
                 } else if is_garrison {
                     // C++ EVAC_BURST_FROM_CENTER: enclosing occupants snap to
                     // start (Y to ground), then aiFollowPath to adjusted dest.
@@ -866,6 +888,14 @@ impl GameLogic {
                     }
                     p.set_orientation(yaw);
                     if let Some(end) = burst_end {
+                        p.movement.path.clear();
+                        p.movement.path.push(end);
+                        p.movement.current_path_index = 0;
+                        p.is_attack_path = false;
+                        p.can_path_through_units = false;
+                        p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+                        p.refresh_follow_path_extra_distance();
+                        p.adjust_destinations = !p.ultra_accurate;
                         p.set_destination(end);
                     }
                     p.set_ai_state(AIState::Moving);
@@ -887,13 +917,37 @@ impl GameLogic {
                 }
                 any = true;
             }
+            if let Some(mut end) = side_end {
+                // GarrisonContain.cpp:1548 adjust after setPosition, then follow.
+                let _ = self.adjust_to_possible_destination(*pid, &mut end);
+                if let Some(p) = self.objects.get_mut(pid) {
+                    p.movement.path.clear();
+                    p.movement.path.push(end);
+                    p.movement.current_path_index = 0;
+                    p.is_attack_path = false;
+                    p.can_path_through_units = false;
+                    p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+                    p.refresh_follow_path_extra_distance();
+                    p.adjust_destinations = !p.ultra_accurate;
+                    p.set_destination(end);
+                    p.set_ai_state(AIState::Moving);
+                    p.status.moving = true;
+                }
+            }
+            if is_garrison {
+                if let Some(goal) = self.objects.get(pid).and_then(|p| p.movement.target_position) {
+                    self.register_ground_path_goal(*pid, goal);
+                }
+            }
             if is_garrison && !enclosing {
                 self.snap_garrison_exit_occupant_to_ground(*pid, container_id);
             }
             if walked_transport {
                 self.walk_unit_via_open_contain_exit(*pid, container_id);
-            } else {
+            } else if !is_garrison && !is_tunnel && !is_cave {
                 self.reset_rider_mood_check_on_exit(*pid);
+                self.play_container_removing_template_sounds(container_id, *pid);
+            } else {
                 self.play_container_removing_template_sounds(container_id, *pid);
             }
             if is_cave {
@@ -1311,6 +1365,9 @@ impl GameLogic {
             obj.movement.path = vec![start, end];
             obj.movement.current_path_index = 1;
             obj.movement.target_position = Some(end);
+            obj.is_attack_path = false;
+            obj.is_exact_path = false;
+            obj.refresh_follow_path_extra_distance();
             obj.set_ai_state(AIState::Moving);
             obj.status.moving = true;
         }

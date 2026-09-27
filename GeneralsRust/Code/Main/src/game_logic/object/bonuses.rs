@@ -656,7 +656,9 @@ impl Object {
         self.target = None;
         self.target_location = None;
         self.set_status_force_attack(false);
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
         if let Some(d) = donor {
             // C++ setVisionRange / setShroudClearingRange from converter.
             self.vision_range = d.vision_range;
@@ -704,7 +706,9 @@ impl Object {
         self.set_status_moving(false);
         self.stop_moving();
         self.target = None;
-        self.set_ai_state(AIState::Idle);
+        if self.ai_state != AIState::Idle {
+            self.set_ai_state(AIState::Idle);
+        }
         // C++ ConvertToHijackedVehicleCrateCollide: setDrawableHidden(true).
         self.set_drawable_hidden(true);
     }
@@ -808,11 +812,10 @@ impl Object {
         self.target_location = None;
         self.set_status_force_attack(false);
         // C++ aiMoveToPosition(self) then aiIdle — host: clear move + Idle.
-        self.set_ai_state(AIState::Idle);
-        // Cancel dozer construction/repair residual.
-        if self.is_kind_of(KindOf::Worker) || self.is_worker() {
+        if self.ai_state != AIState::Idle {
             self.set_ai_state(AIState::Idle);
-            // Clear construction target residual if any.
+        }
+        if self.is_kind_of(KindOf::Worker) || self.is_worker() {
             self.target = None;
         }
         if let Some(d) = donor {

@@ -96,10 +96,12 @@ impl Team {
 
         if let Some(ai_arc) = ai {
             if let Ok(ai_guard) = ai_arc.lock() {
-                if let Some(loco_arc) = ai_guard.get_cur_locomotor() {
-                    if let Ok(loco_guard) = loco_arc.lock() {
-                        return (loco_guard.get_legal_surfaces() & considered) != 0;
-                    }
+                let mut matched = None;
+                ai_guard.with_cur_locomotor(&mut |loco| {
+                    matched = Some((loco.get_legal_surfaces() & considered) != 0);
+                });
+                if let Some(matched) = matched {
+                    return matched;
                 }
             }
         }

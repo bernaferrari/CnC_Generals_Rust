@@ -470,6 +470,17 @@ pub trait ProneControlInterface {
 
 pub trait StickyBombControlInterface {
     fn init_sticky_bomb(&mut self, target_id: ObjectID, bomber_id: ObjectID);
+    /// C++ script booby trap: perimeter point, then ground snap inside init.
+    fn init_sticky_bomb_at(
+        &mut self,
+        target_id: ObjectID,
+        bomber_id: ObjectID,
+        _x: f32,
+        _y: f32,
+        _z: f32,
+    ) {
+        self.init_sticky_bomb(target_id, bomber_id);
+    }
     fn detonate(&mut self);
     fn get_target(&self) -> ObjectID;
     fn set_target_object_id(&mut self, target_id: ObjectID);

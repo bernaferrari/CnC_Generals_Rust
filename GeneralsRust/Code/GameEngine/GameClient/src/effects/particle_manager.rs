@@ -1836,6 +1836,20 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
             }
         }
     }
+    fn set_particle_lifetime_range(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        min: f32,
+        max: f32,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_lifetime_range(min, max);
+                }
+            }
+        }
+    }
 
     fn set_particle_system_initial_delay(
         &self,

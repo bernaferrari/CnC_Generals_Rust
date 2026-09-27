@@ -3509,3 +3509,84 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
     OBJECT_REGISTRY.unregister_object(ALLY_OBS_ID);
     OBJECT_REGISTRY.unregister_object(ENEMY_OBS_ID);
 }
+
+/// C++ processPathfindQueue calls doPathfind once. It must not also A* a
+/// PathRequest snapshotted when the object was queued.
+#[test]
+fn process_queue_skips_snapshot_after_do_pathfind() {
+    let _lock = crate::object::registry::test_isolation_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    const ID: ObjectID = 0x00F1_A701;
+    struct Unreg(ObjectID);
+    impl Drop for Unreg {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+    let _unreg = Unreg(ID);
+
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    #[derive(Debug)]
+    struct CountingAi {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+    impl crate::modules::AIUpdateInterface for CountingAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn is_moving(&self) -> bool {
+            false
+        }
+        fn is_idle(&self) -> bool {
+            true
+        }
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+        fn do_pathfind(&mut self) {
+            self.calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    let obj = register_test_object(ID, &[], None);
+    obj.write().unwrap().set_ai_update_interface(Some(std::sync::Arc::new(
+        std::sync::Mutex::new(CountingAi {
+            calls: calls.clone(),
+        }),
+    )));
+
+    let mut system = PathfindingSystem::new(40, 40);
+    system.new_map();
+    system
+        .queue_path_request(PathRequest {
+            object_id: ID,
+            from: Coord3D::new(20.0, 20.0, 0.0),
+            to: Coord3D::new(200.0, 200.0, 0.0),
+            surfaces: SURFACE_GROUND,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: Some(99),
+            is_human: false,
+        })
+        .unwrap();
+
+    let n = system.process_queue(PATHFIND_CELLS_PER_FRAME);
+    assert_eq!(n, 1, "one pathfind per queued object");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "do_pathfind once"
+    );
+    assert_eq!(
+        system.cumulative_cells_allocated(),
+        0,
+        "snapshotted PathRequest must not run a second search"
+    );
+    assert!(system.request_queue.lock().unwrap().is_empty());
+    assert!(system.object_path_queue.lock().unwrap().is_empty());
+}

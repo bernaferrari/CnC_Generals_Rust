@@ -20,8 +20,9 @@ use crate::helpers::{
 };
 use crate::locomotor::BodyDamageType;
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, PhysicsBehaviorExt, ProjectileUpdateInterface,
-    UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
+    AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModuleInterface, ContainModuleInterface,
+    PhysicsBehaviorExt, ProjectileUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    UpdateSleepTime,
 };
 use crate::object::Object;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
@@ -1076,19 +1077,21 @@ impl MissileAIUpdate {
         let Some(ai) = self.current_ai_interface() else {
             return;
         };
-        let Some(locomotor) = ai.get_cur_locomotor() else {
+        let mut has_loco = false;
+        ai.with_cur_locomotor(&mut |_| has_loco = true);
+        if !has_loco {
             return;
-        };
+        }
         let Some(distance_to_target_sq) = self.distance_to_goal_position_2d_squared() else {
             return;
         };
-        if let Ok(mut guard) = locomotor.lock() {
-            if guard.preferred_height > 0.0
+        ai.with_cur_locomotor(&mut |loco| {
+            if loco.preferred_height > 0.0
                 && distance_to_target_sq < self.data.dive_distance * self.data.dive_distance
             {
-                guard.set_precise_z_pos(true);
+                loco.set_precise_z_pos(true);
             }
-        };
+        });
     }
 
     fn distance_to_goal_2d_squared(&self) -> Option<Real> {
@@ -1193,22 +1196,19 @@ impl MissileAIUpdate {
         let Some(ai) = self.current_ai_interface() else {
             return;
         };
-        let Some(locomotor) = ai.get_cur_locomotor() else {
-            return;
-        };
-        if let Ok(mut guard) = locomotor.lock() {
-            guard.set_max_acceleration(acceleration);
-            guard.set_max_turn_rate(turn_rate);
-        };
+        ai.with_cur_locomotor(&mut |loco| {
+            loco.set_max_acceleration(acceleration);
+            loco.set_max_turn_rate(turn_rate);
+        });
     }
 
     fn current_locomotor_pristine_speed(&self) -> Option<Real> {
         let ai = self.current_ai_interface()?;
-        let locomotor = ai.get_cur_locomotor()?;
-        locomotor
-            .lock()
-            .ok()
-            .map(|guard| guard.get_max_speed_for_condition(BodyDamageType::Pristine))
+        let mut speed = None;
+        ai.with_cur_locomotor(&mut |loco| {
+            speed = Some(loco.get_max_speed_for_condition(BodyDamageType::Pristine));
+        });
+        speed
     }
 
     /// Kill state: precise terminal guidance to target
@@ -1509,16 +1509,17 @@ impl MissileAIUpdateBehavior {
                         initial_vel = weapon.get_projectile_speed();
                     }
                 }
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                let launch_ai = obj_guard.get_ai_update_interface();
+                drop(obj_guard);
+                if let Some(ai) = launch_ai {
                     if let Ok(ai_guard) = ai.try_lock() {
-                        if let Some(loco) = ai_guard.get_cur_locomotor() {
-                            if let Ok(mut loco_guard) = loco.lock() {
-                                loco_guard.set_max_speed(initial_vel);
-                                loco_guard.set_max_acceleration(initial_vel);
-                            }
-                        }
+                        ai_guard.with_cur_locomotor(&mut |loco| {
+                            loco.set_max_speed(initial_vel);
+                            loco.set_max_acceleration(initial_vel);
+                        });
                     }
                 }
+                if let Ok(mut obj_guard) = projectile_arc.write() {
 
                 let dx = victim_pos.x - launch_pos.x;
                 let dy = victim_pos.y - launch_pos.y;
@@ -1568,6 +1569,7 @@ impl MissileAIUpdateBehavior {
                     Vec4::new(obj_pos.x, obj_pos.y, obj_pos.z, 1.0),
                 );
                 obj_guard.set_transform_matrix(&transform);
+                }
             }
 
             launch_pos

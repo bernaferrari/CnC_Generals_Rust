@@ -199,19 +199,13 @@ impl DrawModuleData for W3DTankTruckDrawModuleData {
 
 impl Snapshotable for W3DTankTruckDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.crc(xfer)
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.base.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -242,6 +236,13 @@ impl W3DTankTruckDraw {
             current_velocity: 0.0,
             max_velocity: 1.0,
         }
+    }
+    pub(crate) fn fx_bone_name_for_shot(
+        &self,
+        weapon_slot: usize,
+        barrel_index: i32,
+    ) -> Option<String> {
+        self.base.fx_bone_name_for_shot(weapon_slot, barrel_index)
     }
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);

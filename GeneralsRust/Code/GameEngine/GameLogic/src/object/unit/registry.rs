@@ -65,6 +65,13 @@ pub(super) fn get_unit_arc(id: ObjectID) -> Option<Arc<RwLock<Unit>>> {
     UNIT_REGISTRY.write().ok().and_then(|mut g| g.get(id))
 }
 
+/// `AIUpdate::getCurrentVictim` reads the unit, not the AI mutex.
+pub fn unit_attack_target(id: ObjectID) -> Option<ObjectID> {
+    let unit = get_unit_arc(id)?;
+    let guard = unit.read().ok()?;
+    guard.attack_target.filter(|target| *target != INVALID_ID)
+}
+
 /// Borrow unit by id: factory-owned first, then test/registry Arc.
 pub(super) fn with_unit_ref<R>(id: ObjectID, f: impl FnOnce(&Unit) -> R) -> Option<R> {
     if id == INVALID_ID {

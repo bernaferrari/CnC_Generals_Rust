@@ -9,7 +9,7 @@ use crate::common::{
     AsciiString, KIND_OF_MASK_NONE, KindOfMaskType, ModuleData, ObjectID, Real, UnsignedInt,
     XferVersion,
 };
-use crate::helpers::{TheGameLogic, ThePartitionManager};
+use crate::helpers::ThePartitionManager;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::Object as GameObject;
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
@@ -92,9 +92,8 @@ impl WeaponBonusUpdate {
             .downcast_ref::<WeaponBonusUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        if let Ok(obj) = object.read() {
-            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::None);
-        }
+        let next_call_frame_and_phase =
+            crate::helpers::TheGameLogic::get_frame().saturating_add(1);
 
         Ok(Self {
             object_id: object
@@ -103,7 +102,7 @@ impl WeaponBonusUpdate {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID),
             module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase,
         })
     }
 }
@@ -187,9 +186,8 @@ impl BehaviorModuleInterface for WeaponBonusUpdate {
 
 impl Snapshotable for WeaponBonusUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
         Ok(())
     }
 

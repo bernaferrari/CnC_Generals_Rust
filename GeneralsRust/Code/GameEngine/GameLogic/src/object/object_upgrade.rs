@@ -807,7 +807,7 @@ impl Object {
             if let Ok(player_guard) = player_arc.read() {
                 (
                     upgrade.calc_cost_to_build(&player_guard),
-                    upgrade.calc_time_to_build(&player_guard).max(0) as u32,
+                    (upgrade.get_build_time() * LOGICFRAMES_PER_SECOND as f32).max(0.0) as u32,
                 )
             } else {
                 (

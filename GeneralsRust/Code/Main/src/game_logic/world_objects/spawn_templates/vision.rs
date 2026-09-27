@@ -29,6 +29,7 @@ impl GameLogic {
         let mut live_reveal_all = std::collections::HashSet::new();
         let mut live_covers = std::collections::HashSet::new();
         let mut cell_ops: Vec<(Coord3D, f32, u32, bool)> = Vec::new();
+        let mut cover_ops: Vec<(Coord3D, f32, u32, bool)> = Vec::new();
 
         let snaps: Vec<_> = self
             .objects
@@ -37,23 +38,9 @@ impl GameLogic {
             .map(|obj| {
                 let pos = obj.get_position();
                 let tpl = obj.get_template();
-                let vision_range = if obj.vision_range > 0.0 {
-                    obj.vision_range
-                } else {
-                    tpl.sight_range
-                };
-                // C++ Object::look calls getShroudClearingRange() (Object.cpp:4938).
-                // The getter, not look() itself, clamps UNDER_CONSTRUCTION to
-                // the bounding-circle radius (Object.cpp:5128-5140).
-                let mut shroud_range = obj.get_shroud_clearing_range();
-                if !obj.status.under_construction {
-                    if shroud_range <= 0.0 {
-                        shroud_range = tpl.resolved_shroud_clearing_range();
-                    }
-                    if shroud_range < 0.0 {
-                        shroud_range = vision_range;
-                    }
-                }
+                // C++ Object::look uses getShroudClearingRange() only.
+                // A runtime 0 stays blind; the ctor already resolved -1 to vision.
+                let shroud_range = obj.get_shroud_clearing_range();
                 let owner_pid = obj
                     .owner_player_id
                     .or_else(|| self.player_id_for_team(obj.team));
@@ -181,6 +168,7 @@ impl GameLogic {
                             &mut self.vision_last_shroud,
                             &mut live_covers,
                             &mut shroud_mgr,
+                            &mut cover_ops,
                             id,
                             center,
                             cover_range,
@@ -211,9 +199,13 @@ impl GameLogic {
             &mut self.vision_last_shroud,
             &live_covers,
             &mut shroud_mgr,
+            &mut cover_ops,
         );
 
         drop(shroud_mgr);
+        for (center, radius, mask, add) in cover_ops {
+            gamelogic::object::stamp_partition_cell_covers(&center, radius, mask, add);
+        }
         for (center, radius, mask, add) in cell_ops {
             gamelogic::object::stamp_partition_cell_lookers(&center, radius, mask, add);
         }
@@ -224,7 +216,7 @@ impl GameLogic {
             return;
         };
         use crate::game_logic::partition_coi::{
-            HostPartitionFootprint, cells_touched_for_footprint, mix_object_shroud_from_cells,
+            cells_touched_for_footprint, mix_object_shroud_from_cells,
         };
         use game_engine::common::system::radar::CellShroudStatus;
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
@@ -235,18 +227,7 @@ impl GameLogic {
             .filter(|o| o.is_alive())
             .map(|o| {
                 let pos = o.get_position();
-                let geom = &o.thing.template.geometry_info;
-                let fp = if geom.authored {
-                    HostPartitionFootprint {
-                        major_radius: geom.major_radius,
-                        minor_radius: geom.minor_radius,
-                        angle: o.get_orientation(),
-                        is_small: geom.is_small,
-                        is_box: matches!(geom.geom_type, crate::game_logic::HostGeometryType::Box),
-                    }
-                } else {
-                    HostPartitionFootprint::small_circle(o.selection_radius.max(1.0))
-                };
+                let fp = crate::game_logic::game_logic::host_object_footprint(o);
                 (
                     o.id,
                     o.owner_player_id,

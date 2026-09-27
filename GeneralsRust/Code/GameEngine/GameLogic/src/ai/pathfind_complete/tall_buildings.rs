@@ -446,10 +446,24 @@ impl PathfindingSystem {
         pos: &Coord3D,
     ) -> bool {
         let coord = GridCoord::from_world(pos);
-        if !self.is_valid_coord(coord) {
-            return false;
-        }
-        let Some(cell_type) = self.get_cell_type(pos) else {
+        // PathfindLayer::getCell returns NULL for CELL_IMPASSABLE
+        // (AIPathfind.cpp:3636-3637). Pathfinder::getCell then uses m_map.
+        // BridgeImpassable is a real layer cell and stays.
+        let elevated = !matches!(
+            layer,
+            PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
+        );
+        let cell_type = self
+            .get_cell_type_at_cell(layer, coord.x, coord.y)
+            .filter(|ty| !(elevated && *ty == PathfindCellType::Impassable))
+            .or_else(|| {
+                if elevated {
+                    self.get_cell_type_at_cell(PathfindLayerEnum::Ground, coord.x, coord.y)
+                } else {
+                    None
+                }
+            });
+        let Some(cell_type) = cell_type else {
             return false;
         };
         // C++: OBSTACLE / IMPASSABLE → true
@@ -459,10 +473,7 @@ impl PathfindingSystem {
         ) {
             return true;
         }
-        // C++ validMovementTerrain: non-ground CLEAR cells always pass
-        if layer != PathfindLayerEnum::Ground && cell_type == PathfindCellType::Clear {
-            return true;
-        }
+        // AIPathfind.cpp:4775 is cell m_layer == LAYER_INVALID, not type Clear.
         let cell_surfaces = Self::valid_locomotor_surfaces_for_cell_type(cell_type);
         (surfaces & cell_surfaces) != 0
     }

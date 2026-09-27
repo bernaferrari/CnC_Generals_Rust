@@ -324,6 +324,10 @@ impl WeaponBonusConditionFlags {
     pub fn is_empty(&self) -> bool {
         self.0 == 0
     }
+
+    pub fn union(&mut self, other: Self) {
+        self.0 |= other.0;
+    }
 }
 
 /// Weapon bonus field types

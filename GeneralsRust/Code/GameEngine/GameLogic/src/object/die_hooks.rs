@@ -14,13 +14,15 @@ impl Object {
     }
 
     /// C++ `if (m_radarData) TheRadar->removeObject(this)`.
-    pub(super) fn on_die_remove_from_radar(&self) {
+    pub(super) fn on_die_remove_from_radar(&mut self) {
         if self.radar_data.is_none() {
             return;
         }
         if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
             let _ = radar.remove_object(self.id as u32);
         }
+        // C++ deleteFromList: friend_setRadarData(NULL) before the node is freed.
+        self.radar_data = None;
     }
 
     /// C++ `draw->setTerrainDecalFadeTarget(0.0f, -0.03f)`.
@@ -57,31 +59,25 @@ impl Object {
         let Some(hole) = crate::helpers::TheGameLogic::find_object_by_id(hole_id) else {
             return;
         };
-        let Ok(mut hole_guard) = hole.write() else {
-            return;
-        };
-        let mut started = false;
-        for behavior in hole_guard.behaviors.clone() {
-            if let Ok(mut bg) = behavior.lock() {
-                if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
-                    rhbi.start_rebuild_process(template.clone(), dead_id);
-                    started = true;
+        if let Ok(mut hole_guard) = hole.write() {
+            for behavior in hole_guard.behaviors.clone() {
+                if let Ok(mut bg) = behavior.lock() {
+                    if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
+                        rhbi.start_rebuild_process(template.clone(), dead_id);
+                    }
                 }
             }
-        }
-        drop(hole_guard);
-        if !started {
-            return;
         }
         Self::transfer_attackers_between(dead_id, hole_id);
     }
 
     fn transfer_attackers_between(from_id: ObjectID, to_id: ObjectID) {
-        let ids = crate::system::game_logic::get_game_logic()
-            .lock()
-            .ok()
-            .map(|logic| logic.get_all_object_ids().to_vec())
-            .unwrap_or_else(|| OBJECT_REGISTRY.get_all_object_ids());
+        let mut ids = OBJECT_REGISTRY.get_all_object_ids();
+        if ids.is_empty() {
+            if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
+                ids = logic.get_all_object_ids().to_vec();
+            }
+        }
         for object_id in ids {
             if object_id == from_id {
                 continue;

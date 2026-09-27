@@ -171,9 +171,9 @@ impl CleanupHazardUpdate {
             self.module_data.scan_range
         };
 
-        // Filter for KINDOF_CLEANUP_HAZARD
-        let best_target = partition.get_closest_object(target_pos, radius, |obj| {
-            obj.is_kind_of(KindOf::CleanupHazard)
+        let cleaner_off_map = me.is_off_map();
+        let best_target = partition.get_closest_object_2d(target_pos, radius, |obj| {
+            obj.is_kind_of(KindOf::CleanupHazard) && obj.is_off_map() == cleaner_off_map
         });
 
         self.best_target_id = best_target.unwrap_or(INVALID_ID);
@@ -214,24 +214,18 @@ impl CleanupHazardUpdate {
                     if dist_sqr < fire_range * fire_range {
                         self.in_range = true;
                     } else if self.in_range {
-                        // Out of range, force new scan
                         self.next_scan_frames = game_logic_random_value(0, 3) as i32;
                         self.best_target_id = INVALID_ID;
                         if self.next_scan_frames == 0 {
                             self.scan_closest_target();
                             self.next_scan_frames = self.module_data.scan_frames as i32;
-                            target_id = self.best_target_id;
-                        } else {
                             target_id = INVALID_ID;
                         }
                     } else {
                         self.in_range = false;
                     }
                 }
-                None => {
-                    self.best_target_id = INVALID_ID;
-                    target_id = INVALID_ID;
-                }
+                None => {}
             }
         }
 
@@ -309,17 +303,14 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
             return UPDATE_SLEEP_NONE;
         };
 
-        // Handle busy status for area cleanup
         if self.move_range > 0.0 {
-            let Some(ai_arc) = me_arc.read().ok().and_then(|me| me.get_ai()) else {
-                return UPDATE_SLEEP_NONE;
-            };
-            if ai_arc.is_idle() {
-                ai_arc.ai_busy(CommandSourceType::FromAi);
-            } else if ai_arc.get_last_command_source() != CommandSourceType::FromAi {
-                // Canceled by user/script (abandon the cleanup)
-                self.move_range = 0.0;
-                return UPDATE_SLEEP_NONE;
+            if let Some(ai_arc) = me_arc.read().ok().and_then(|me| me.get_ai()) {
+                if ai_arc.is_idle() {
+                    ai_arc.ai_busy(CommandSourceType::FromAi);
+                } else if ai_arc.get_last_command_source() != CommandSourceType::FromAi {
+                    self.move_range = 0.0;
+                    return UPDATE_SLEEP_NONE;
+                }
             }
         }
 
@@ -379,11 +370,11 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
         if let Some(weapon_arc) = me.get_weapon_in_slot(self.module_data.weapon_slot) {
             self.weapon_template = Some(Arc::clone(weapon_arc.get_template()));
         } else {
-            return Err(format!(
+            error!(
                 "CleanupHazardUpdate for {} doesn't have a valid weapon template",
                 me.get_template().get_name()
-            )
-            .into());
+            );
+            return Ok(());
         }
 
         // Validate scan range vs attack range
@@ -415,9 +406,7 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
 
 impl Snapshotable for CleanupHazardUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

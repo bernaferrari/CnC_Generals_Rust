@@ -959,8 +959,7 @@ impl AIPlayer {
                 detected: other.status.detected,
                 disguised: other.status.disguised,
                 is_enemy: other.team != self.team && other.team != Team::Neutral,
-                is_bridge: other.is_kind_of(KindOf::Bridge),
-                is_bridge_tower: other.is_kind_of(KindOf::BridgeTower),
+                is_structure: other.is_kind_of(KindOf::Structure),
             }
         });
         gamelogic::ai::ai_player::leftover_is_location_safe(pos.x, pos.z, radius, candidates)

@@ -1202,13 +1202,9 @@ impl TheGameClient {
             if let Ok(guard) = drawable.try_read() {
                 let pos = guard.get_position();
                 let transform = guard.get_transform_matrix();
-                let (scale, rotation, _) = transform.to_scale_rotation_translation();
+                let (_, rotation, _) = transform.to_scale_rotation_translation();
                 let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
-                let scale = if (guard.get_instance_scale() - 1.0).abs() > f32::EPSILON {
-                    guard.get_instance_scale()
-                } else {
-                    scale.x
-                };
+                let scale = guard.get_instance_scale();
                 return Some((pos, angle, scale));
             }
         }

@@ -5,7 +5,7 @@ use super::cooldown::CooldownState;
 use super::targeting::TargetingInfo;
 use super::types::*;
 use crate::common::*;
-use crate::system::shroud_manager::get_shroud_manager;
+
 
 #[derive(Debug, Clone)]
 pub struct SpyVisionSpecialPowerData {
@@ -53,38 +53,15 @@ impl SpyVisionSpecialPower {
 
     fn reveal_area(
         &mut self,
-        player_id: ObjectID,
-        targeting: &TargetingInfo,
+        source_id: ObjectID,
+        _targeting: &TargetingInfo,
         current_frame: UnsignedInt,
     ) -> Result<(), String> {
-        log::info!("Revealing area at {:?}", targeting.position);
-
-        let duration_frames = (self.data.vision_duration
-            / crate::system::game_logic::FIXED_DELTA_TIME as Real)
-            .ceil()
-            .max(0.0) as u32;
-        let player_mask = 1u32 << (player_id.min((MAX_PLAYER_COUNT - 1) as u32));
-
-        let shroud_manager = get_shroud_manager();
-        let mut shroud = shroud_manager
-            .lock()
-            .map_err(|_| "ShroudManager lock poisoned".to_string())?;
-        shroud.do_shroud_reveal(
-            &targeting.position,
-            targeting.radius.max(self.data.base.radius) as f32,
-            player_mask,
-        );
-        shroud.queue_undo_shroud_reveal(
-            &targeting.position,
-            targeting.radius.max(self.data.base.radius) as f32,
-            player_mask,
-            duration_frames,
-            current_frame as u32,
-        );
-
-        self.active_vision_end_time = (current_frame as Real
-            * crate::system::game_logic::FIXED_DELTA_TIME as Real)
-            + self.data.vision_duration;
+        // Duration is base frames plus a captured-unit bonus, capped at max.
+        // That math lives on object/special_powers/spy_vision_special_power.rs.
+        // This stub has no those INI fields, so it must not invent a duration
+        // from vision_duration or shift the object id into a shroud mask.
+        let _ = (source_id, current_frame);
         Ok(())
     }
 }

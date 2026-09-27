@@ -42,14 +42,59 @@ impl Object {
     /// Set the object's transform matrix
     /// C++ Reference: Object.cpp - transform matrix setter
     pub fn set_transform_matrix(&mut self, matrix: &Matrix3D) {
-        let (_, rotation, translation) = matrix.to_scale_rotation_translation();
+        let (_, _, translation) = matrix.to_scale_rotation_translation();
+        let old_pos = self.geometry_info.position;
+        let pi = std::f32::consts::PI;
+        let mut new_angle = matrix.x_axis.y.atan2(matrix.x_axis.x);
+        while new_angle > pi {
+            new_angle -= 2.0 * pi;
+        }
+        while new_angle < -pi {
+            new_angle += 2.0 * pi;
+        }
+        let mut old_angle = self.geometry_info.angle;
+        while old_angle > pi {
+            old_angle -= 2.0 * pi;
+        }
+        while old_angle < -pi {
+            old_angle += 2.0 * pi;
+        }
         self.geometry_info.position = translation;
-        self.geometry_info.angle = rotation.to_euler(EulerRot::XYZ).2;
+        self.geometry_info.angle = new_angle;
+        self.geometry_info.height_above_terrain = self.calculate_height_above_terrain();
 
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable) = drawable.write() {
                 drawable.set_transform(*matrix);
             }
+        }
+        let pos_diff = (old_pos.x - translation.x).abs() > 0.01
+            || (old_pos.y - translation.y).abs() > 0.01
+            || (old_pos.z - translation.z).abs() > 0.01;
+        let ang_diff = (old_angle - new_angle).abs() > 0.01;
+        if pos_diff || ang_diff {
+            self.react_contain_to_transform();
+        }
+        if pos_diff || ang_diff {
+            let geom = Self::collision_geometry_from_bounds(
+                &self.geometry_info,
+                self.get_template_geometry_type(),
+            );
+            let _ = crate::object::collide::collision_system::with_collision_system_mut(|system| {
+                let collision_pos = crate::object::collide::Coord3D::new(
+                    translation.x,
+                    translation.y,
+                    translation.z,
+                );
+                let res = system.update_object_pose(self.id, collision_pos, new_angle);
+                if res.is_err() {
+                    let _ = system.register_object(self.id, collision_pos, geom, None);
+                }
+                Ok::<(), crate::object::collide::CollisionError>(())
+            });
+        }
+        if pos_diff {
+            self.set_trigger_area_flags_for_change_in_position();
         }
     }
 
@@ -79,6 +124,30 @@ impl Object {
         }
 
         world_positions
+    }
+
+    pub fn get_multi_logical_bone_matrix(
+        &self,
+        bone_prefix: &str,
+        max_bones: usize,
+    ) -> Vec<Matrix3D> {
+        let Some(drawable) = &self.drawable else {
+            return Vec::new();
+        };
+        let Ok(draw_guard) = drawable.read() else {
+            return Vec::new();
+        };
+        let positions = draw_guard.get_pristine_bone_positions(bone_prefix, 1, max_bones);
+        let transforms = draw_guard.get_pristine_bone_transforms(bone_prefix, 1, max_bones);
+        let count = positions.len().min(transforms.len());
+        let mut world = Vec::with_capacity(count);
+        for i in 0..count {
+            world.push(self.convert_bone_pos_to_world_pos(
+                Some(&positions[i]),
+                Some(&transforms[i]),
+            ));
+        }
+        world
     }
 
     /// Get single logical bone position and transform (C++ Object::getSingleLogicalBonePosition).
@@ -170,6 +239,26 @@ impl Object {
         (true, position, transform)
     }
 
+    fn turret_firepoint_matrix_at_yaw(&self, bone_name: &str, turret_rotation: f32) -> Option<Matrix3D> {
+        let drawable = self.drawable.as_ref()?;
+        let draw_guard = drawable.read().ok()?;
+        let launch = drawable.get_projectile_launch_offset(
+            crate::common::WeaponSlotType::Primary,
+            1,
+            TurretType::Primary,
+        )?;
+        let bone_positions = draw_guard.get_pristine_bone_positions(bone_name, 0, 1);
+        if bone_positions.len() != 1 {
+            return None;
+        }
+        let bone_offset = Matrix3D::from_translation(bone_positions[0]);
+        let turn_adjustment = Matrix3D::from_translation(launch.turret_rot_pos)
+            * Matrix3D::from_rotation_z(turret_rotation)
+            * Matrix3D::from_translation(-launch.turret_rot_pos);
+        let bone_logic_transform = turn_adjustment * bone_offset;
+        Some(self.convert_bone_pos_to_world_pos(None, Some(&bone_logic_transform)))
+    }
+
     /// Get object position
     pub fn get_position(&self) -> &Coord3D {
         &self.geometry_info.position
@@ -228,7 +317,10 @@ impl Object {
     /// Returns true if the object is well above the ground plane. Matches the C++ helper used
     /// by crates to prevent airborne pickups.
     pub fn is_significantly_above_terrain(&self) -> bool {
-        self.get_height_above_terrain() > 1.0
+        crate::object::die::eject_pilot_die::is_significantly_above_terrain_height(
+            self.get_height_above_terrain(),
+            crate::object::die::eject_pilot_die::current_gravity(),
+        )
     }
 
     /// Returns true if the object is currently treated as airborne.
@@ -238,7 +330,22 @@ impl Object {
 
     /// Set object position
     pub fn set_position(&mut self, position: &Coord3D) -> Result<(), String> {
+        if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            let terrain = crate::terrain::get_terrain_logic();
+            if let Ok(terrain) = terrain.try_read() {
+                let mut mtx = Matrix3D::IDENTITY;
+                terrain.align_on_terrain(self.geometry_info.angle, position, true, &mut mtx);
+                drop(terrain);
+                self.set_transform_matrix(&mtx);
+                return Ok(());
+            }
+        }
+        let old = self.geometry_info.position;
+        let moved = (old.x - position.x).abs() > 0.01
+            || (old.y - position.y).abs() > 0.01
+            || (old.z - position.z).abs() > 0.01;
         self.geometry_info.position = position.clone();
+        self.geometry_info.height_above_terrain = self.calculate_height_above_terrain();
         let geom = Self::collision_geometry_from_bounds(
             &self.geometry_info,
             self.get_template_geometry_type(),
@@ -267,10 +374,90 @@ impl Object {
             }
         }
 
-        // C++ Object.cpp lines 2542-2651: Update trigger area flags when position changes
-        self.set_trigger_area_flags_for_change_in_position();
+        if let Some(drawable) = &self.drawable {
+            if let Ok(mut drawable) = drawable.write() {
+                drawable.set_transform(self.get_transform_matrix());
+            }
+        }
+        if moved {
+            self.set_trigger_area_flags_for_change_in_position();
+            self.react_contain_to_transform();
+        }
 
         Ok(())
+    }
+
+    pub(crate) fn note_main_turret_yaw_and_redeploy(&mut self, yaw: f32) {
+        self.cached_main_turret_yaw = yaw;
+        self.cached_main_turret_valid = true;
+        self.react_contain_to_transform();
+    }
+
+    pub(crate) fn react_to_non_main_turret_turn(&mut self) {
+        // C++ reactToTurretChange notifies contain on any turret rotation, not only the main yaw cache.
+        self.react_contain_to_transform();
+    }
+    fn react_contain_to_transform(&mut self) {
+        let use_turret = self
+            .contain
+            .as_ref()
+            .and_then(|contain| contain.try_lock().ok())
+            .is_some_and(|guard| guard.passengers_in_turret());
+        let ai_held = use_turret
+            && self
+                .get_ai_update_interface()
+                .is_some_and(|ai| ai.try_lock().is_err());
+        let bones = if use_turret && self.cached_main_turret_valid {
+            let yaw = self.cached_main_turret_yaw;
+            let mut turret_bones = Vec::new();
+            for index in 1..=32 {
+                let name = format!("FIREPOINT{index:02}");
+                let Some(matrix) = self.turret_firepoint_matrix_at_yaw(&name, yaw) else {
+                    break;
+                };
+                turret_bones.push(matrix);
+            }
+            Some(turret_bones)
+        } else if use_turret && ai_held {
+            None
+        } else if use_turret {
+            let mut turret_bones = Vec::new();
+            for index in 1..=32 {
+                let name = format!("FIREPOINT{index:02}");
+                let (found, _, matrix) = self.get_single_logical_bone_position_on_turret(
+                    TurretType::Primary,
+                    &name,
+                );
+                if !found {
+                    break;
+                }
+                turret_bones.push(matrix);
+            }
+            Some(turret_bones)
+        } else {
+            Some(self.get_multi_logical_bone_matrix("FIREPOINT", 32))
+        };
+        let position = self.geometry_info.position;
+        if let Some(bones) = bones {
+            if let Some(contain) = &self.contain {
+                if let Ok(mut guard) = contain.try_lock() {
+                    if let Some(hidden) = guard.drawable_hidden_after_transform() {
+                        if let Some(drawable) = self.get_drawable() {
+                            drawable.set_drawable_hidden(hidden);
+                        }
+                    }
+                    guard.redeploy_riders_at(&position, &bones);
+                }
+            }
+        } else if let Some(contain) = &self.contain {
+            if let Ok(guard) = contain.try_lock() {
+                if let Some(hidden) = guard.drawable_hidden_after_transform() {
+                    if let Some(drawable) = self.get_drawable() {
+                        drawable.set_drawable_hidden(hidden);
+                    }
+                }
+            }
+        }
     }
 
     /// Update trigger area flags when object position changes.
@@ -485,7 +672,7 @@ impl Object {
         false
     }
 
-    pub(super) fn collision_geometry_from_bounds(
+    pub(crate) fn collision_geometry_from_bounds(
         info: &crate::common::GeometryInfo,
         template_type: Option<game_engine::system::geometry::GeometryType>,
     ) -> crate::object::collide::collision_geometry::GeometryInfo {
@@ -507,6 +694,7 @@ impl Object {
                     dy.max(0.01),
                     is_small,
                 )
+                .with_z_height(height)
             }
             Some(game_engine::system::geometry::GeometryType::Cylinder) => {
                 crate::object::collide::collision_geometry::GeometryInfo::new_cylinder(
@@ -532,14 +720,54 @@ impl Object {
         self.carrier_deck_height
     }
 
-    /// Set carrier deck height offset (used for deck-taxiing logic).
-    pub fn set_carrier_deck_height(&mut self, height: Real) {
-        self.carrier_deck_height = height;
-    }
 
     /// Set object orientation (stored on geometry info; rendering updates occur elsewhere).
     pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
+        if self.is_kind_of(KindOf::StickToTerrainSlope) {
+            let terrain = crate::terrain::get_terrain_logic();
+            if let Ok(terrain) = terrain.try_read() {
+                let mut mtx = Matrix3D::IDENTITY;
+                let pos = self.geometry_info.position;
+                terrain.align_on_terrain(angle, &pos, true, &mut mtx);
+                drop(terrain);
+                self.set_transform_matrix(&mtx);
+                return Ok(());
+            }
+        }
+        let mut angle = angle;
+        let pi = std::f32::consts::PI;
+        while angle > pi {
+            angle -= 2.0 * pi;
+        }
+        while angle < -pi {
+            angle += 2.0 * pi;
+        }
+        let mut old = self.geometry_info.angle;
+        while old > pi {
+            old -= 2.0 * pi;
+        }
+        while old < -pi {
+            old += 2.0 * pi;
+        }
         self.geometry_info.angle = angle;
+        if let Some(drawable) = &self.drawable {
+            if let Ok(mut drawable) = drawable.write() {
+                let pos = self.geometry_info.position;
+                let matrix =
+                    Matrix3D::from_translation(pos) * Matrix3D::from_rotation_z(angle);
+                drawable.set_transform(matrix);
+            }
+        }
+        if (old - angle).abs() > 0.01 {
+            let pos = self.geometry_info.position;
+            let _ = crate::object::collide::collision_system::with_collision_system_mut(|system| {
+                let collision_pos =
+                    crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z);
+                let _ = system.update_object_pose(self.id, collision_pos, angle);
+                Ok::<(), crate::object::collide::CollisionError>(())
+            });
+            self.react_contain_to_transform();
+        }
         Ok(())
     }
 

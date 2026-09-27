@@ -320,21 +320,21 @@ impl SabotageCommandCenterCrateCollide {
             .base
             .do_sabotage_feedback_fx(&other, SabotageVictimType::CommandCenter);
 
-        // Play eva sound if locally controlled
         {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
-            if other_lock.is_locally_controlled() {
-                let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
+            if let Ok(other_lock) = other.read() {
+                if other_lock.is_locally_controlled() {
+                    let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
+                }
             }
         }
 
-        // Reset ALL special powers on the command center
-        let other_lock = other.read().map_err(|_| GameError::LockError)?;
-        let behavior_modules = other_lock.get_behavior_modules();
-        for module in behavior_modules {
-            if let Ok(mut module_guard) = module.lock() {
-                if let Some(special_power) = module_guard.get_special_power() {
-                    special_power.start_power_recharge()?;
+        if let Ok(other_lock) = other.read() {
+            let behavior_modules = other_lock.get_behavior_modules();
+            for module in behavior_modules {
+                if let Ok(mut module_guard) = module.lock() {
+                    if let Some(special_power) = module_guard.get_special_power() {
+                        let _ = special_power.start_power_recharge();
+                    }
                 }
             }
         }

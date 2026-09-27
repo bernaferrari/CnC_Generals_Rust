@@ -394,44 +394,30 @@ impl MoneyCrateCollide {
         &mut self,
         other: &dyn GameObject,
     ) -> Result<bool, CollisionError> {
-        let player_id = other.get_controlling_player();
+        let Some(handle) = other.as_object_handle() else {
+            return Ok(false);
+        };
+        let Some(player_id) = handle.read().ok().and_then(|obj| obj.get_player_id()) else {
+            return Ok(false);
+        };
 
-        // Start collection state tracking
-        {
-            let mut state = self.state.lock().map_err(|e| {
-                CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-            })?;
-            state.is_collecting = true;
-            state.collecting_player_id = Some(player_id);
-            state.collection_start_time = self.get_current_time()?;
-        }
-
-        // Calculate total money amount including upgrades
         let base_money = self.module_data.money_provided;
-        let (upgrade_bonus, contributing_upgrades) = self.get_upgraded_supply_boost(other)?;
-
+        let (upgrade_bonus, contributing_upgrades) =
+            self.get_upgraded_supply_boost_for_player(player_id)?;
         let total_money = Self::apply_money_boost(base_money, upgrade_bonus);
 
-        // Deposit money to player's account
         self.deposit_money_to_player(player_id, total_money)?;
-
-        // Add to player's score
         self.add_money_earned_to_score(player_id, total_money)?;
-
-        // Play money collection audio
         self.play_money_audio(other)?;
 
-        // Create collection statistics
-        let collection_stats =
-            MoneyCollectionStats::new(base_money, upgrade_bonus, contributing_upgrades);
-
-        // Store collection statistics
-        {
-            let mut state = self.state.lock().map_err(|e| {
-                CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-            })?;
+        if let Ok(mut state) = self.state.lock() {
             state.is_collecting = false;
-            state.last_collection_stats = Some(collection_stats);
+            state.collecting_player_id = Some(player_id);
+            state.last_collection_stats = Some(MoneyCollectionStats::new(
+                base_money,
+                upgrade_bonus,
+                contributing_upgrades,
+            ));
         }
 
         Ok(true)

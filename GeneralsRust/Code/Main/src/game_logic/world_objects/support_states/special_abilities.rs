@@ -122,6 +122,7 @@ impl GameLogic {
     pub(super) fn abort_capture_channel(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving();
+            object.ignored_obstacle_id = None;
             object.capture_channel = None;
             object.set_status_using_ability(false);
             object.set_target(None);
@@ -140,6 +141,7 @@ impl GameLogic {
     pub(super) fn finish_capture_channel(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving();
+            object.ignored_obstacle_id = None;
             object.capture_channel = None;
             object.set_status_using_ability(false);
             object.set_target(None);
@@ -1410,7 +1412,7 @@ impl GameLogic {
         true
     }
 
-    pub(super) fn leftover_flee_after_plant(
+    pub(crate) fn leftover_flee_after_plant(
         &mut self,
         object_id: ObjectId,
         target_id: ObjectId,
@@ -1443,8 +1445,14 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&object_id) {
             obj.set_status_using_ability(false);
         }
-        self.path_approach_with_state(object_id, dest, AIState::Moving);
-        let _ = target_id;
+        // C++ requestPath queues; processPathfindQueue later reads
+        // getIgnoredObstacleID. Rust snapshots the pathfinder ignore into
+        // the queued request, so the structure must be ignored before that
+        // copy. The field write still happens after a refused assign.
+        self.path_approach_with_state_ignoring(object_id, dest, AIState::Moving, Some(target_id));
+        if let Some(obj) = self.objects.get_mut(&object_id) {
+            obj.ignored_obstacle_id = Some(target_id);
+        }
     }
 
     pub(super) fn tick_leftover_special_ability(
@@ -1907,7 +1915,7 @@ impl GameLogic {
         if plan.previous_rider == Some(rider_id) {
             if let Some(rider) = self.objects.get_mut(&rider_id) {
                 rider.stop_moving();
-                rider.set_target(Some(container_id));
+                rider.target = Some(container_id);
                 rider.set_contained_by(Some(container_id));
                 rider.set_position(plan.container_position);
                 rider.set_ai_state(AIState::Docked);
@@ -2016,7 +2024,7 @@ impl GameLogic {
             rider.set_status_attacking(false);
             rider.target_location = None;
             rider.set_status_force_attack(false);
-            rider.set_target(Some(container_id));
+            rider.target = Some(container_id);
             rider.set_contained_by(Some(container_id));
             rider.set_position(plan.container_position);
             rider.set_ai_state(AIState::Docked);
@@ -2379,6 +2387,7 @@ impl GameLogic {
         self.pending_special_abilities.remove(&object_id);
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving();
+            object.ignored_obstacle_id = None;
             object.hacker_disable_channel = None;
             object.set_status_using_ability(false);
             object.set_target(None);
@@ -2834,11 +2843,15 @@ impl GameLogic {
                         .get(&channel.target_id)
                         .map(Object::get_position)
                         .unwrap_or_default();
-                    self.path_approach_with_state(
+                    self.path_approach_with_state_ignoring(
                         object_id,
                         target_position,
                         AIState::SpecialAbility,
+                        Some(channel.target_id),
                     );
+                    if let Some(object) = self.objects.get_mut(&object_id) {
+                        object.ignored_obstacle_id = Some(channel.target_id);
+                    }
                 } else {
                     self.begin_hacker_disable_building_packing(
                         object_id,

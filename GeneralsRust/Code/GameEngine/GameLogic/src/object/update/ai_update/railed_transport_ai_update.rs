@@ -377,7 +377,8 @@ impl RailedTransportAIUpdate {
                 return Ok(());
             };
 
-            let start = us_guard.get_position();
+            let start = *us_guard.get_position();
+            drop(us_guard);
             let end = waypoint.get_location();
             let v = Coord3D::new(end.x - start.x, end.y - start.y, end.z - start.z);
             let dist = v.length();
@@ -472,7 +473,8 @@ impl RailedTransportAIUpdate {
         let Ok(us_guard) = us.read() else {
             return Ok(());
         };
-        let our_pos = us_guard.get_position();
+        let our_pos = *us_guard.get_position();
+        drop(us_guard);
 
         let terrain = get_terrain_logic();
         let Ok(terrain_guard) = terrain.read() else {
@@ -533,13 +535,14 @@ impl RailedTransportAIUpdate {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return;
+        let is_loading = {
+            let Ok(owner_guard) = owner.read() else {
+                return;
+            };
+            owner_guard
+                .with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
         };
-
-        let Some(is_loading) = owner_guard
-            .with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
-        else {
+        let Some(is_loading) = is_loading else {
             return;
         };
         if is_loading {

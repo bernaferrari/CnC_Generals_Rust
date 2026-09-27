@@ -183,24 +183,31 @@ impl Object {
     /// (not leftover always-false). `is_ally` is the crusher's
     /// `getRelationship == ALLIES` (Object.cpp:1096).
     pub fn ai_blocked_by(&self, other: &Object, is_ally: bool) -> bool {
-        if let Some(goal) = self.host_blocked_by_goal() {
-            let us = self.get_position();
-            let dx = (goal.x - us.x).abs();
-            let dz = (goal.z - us.z).abs();
-            if dx < PATHFIND_CELL_SIZE_F_RESIDUAL && dz < PATHFIND_CELL_SIZE_F_RESIDUAL {
-                return false;
+        let cell = self.pathfind_goal_cell;
+        if cell.0 > 0 && cell.1 > 0 {
+            if let Some(goal) = self.host_blocked_by_goal() {
+                let us = self.get_position();
+                let dx = (goal.x - us.x).abs();
+                let dz = (goal.z - us.z).abs();
+                if dx < PATHFIND_CELL_SIZE_F_RESIDUAL && dz < PATHFIND_CELL_SIZE_F_RESIDUAL {
+                    return false;
+                }
             }
         }
 
         if self.can_crush_or_squish(other, is_ally) {
             return false;
         }
-        let other_ground =
-            other.can_move() && !other.status.airborne_target && !other.is_parachuting();
-        if !other_ground {
+        if !crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(other)
+        {
             return false;
         }
-        if self.moving_backwards {
+        if self.moving_backwards
+            && self
+                .cur_locomotor_name
+                .as_ref()
+                .is_some_and(|name| !name.is_empty())
+        {
             return false;
         }
 
@@ -228,11 +235,16 @@ impl Object {
             return self.has_higher_path_priority(other);
         }
 
+        // C++ blocked > 1s and not the same heading: pass through before angles.
+        if self.num_frames_blocked > 30 && dir_dot <= 0.0 {
+            return false;
+        }
         // Relative angle of other from us along our facing.
         let collision_angle = self.relative_angle_2d_to(them);
         let other_angle = other.relative_angle_2d_to(us);
         let mut angle_limit = std::f32::consts::FRAC_PI_4; // 45 deg
-        let other_moving = other.movement.velocity.length_squared() > 0.01;
+        // C++ otherMoving is locomotorGoalType != NONE, not current velocity.
+        let other_moving = other.locomotor_goal_type != super::LocoGoalType::None;
         if !other_moving {
             angle_limit *= 0.75;
         }
@@ -262,12 +274,6 @@ impl Object {
                 return false;
             }
         }
-
-        // Long blocked + opposite heading: pass through residual.
-        if self.num_frames_blocked > 30 && dir_dot <= 0.0 {
-            return false;
-        }
-
         !other.status.destroyed && other.is_alive()
     }
 
@@ -319,7 +325,7 @@ impl Object {
             .path
             .last()
             .copied()
-            .or(self.movement.target_position)
+            .or(self.path_goal_position)
             .or(self.requested_destination)
     }
 
@@ -331,7 +337,7 @@ impl Object {
         let mut vz = them.z - us.z;
         let len = (vx * vx + vz * vz).sqrt();
         if len < 1.0e-4 {
-            return 0.0;
+            return self.cur_max_blocked_speed;
         }
         vx /= len;
         vz /= len;
@@ -361,10 +367,10 @@ impl Object {
 
     /// C++ `AIUpdateInterface::isMoving` (AIUpdate.cpp:3169-3180).
     pub fn host_ai_is_moving(&self) -> bool {
-        self.status.moving
-            || self.movement.target_position.is_some()
-            || !self.movement.path.is_empty()
-            || self.movement.velocity.length_squared() > 0.01
+        if self.ai_state == AIState::Idle {
+            return false;
+        }
+        self.locomotor_goal_type != super::LocoGoalType::None || self.status.moving
     }
 
     /// C++ AIUpdateInterface::processCollision residual (force-apply gate + blocked).
@@ -376,12 +382,12 @@ impl Object {
         other: &Object,
         current_frame: u32,
         is_ally: bool,
+        other_sees_us_as_ally: bool,
     ) -> bool {
         if !self.allow_collide_force {
             return false;
         }
         if self.can_path_through_units {
-            self.is_blocked = false;
             return false;
         }
         if self.ignore_collisions_until_frame > 0
@@ -394,10 +400,11 @@ impl Object {
         if !other.is_mobile() {
             return false;
         }
-        let self_ground = self.can_move() && !self.status.airborne_target && !self.is_parachuting();
-        let other_ground =
-            other.can_move() && !other.status.airborne_target && !other.is_parachuting();
-        if !self_ground || !other_ground {
+        if !crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(self)
+            || !crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(
+                other,
+            )
+        {
             return false;
         }
 
@@ -405,36 +412,81 @@ impl Object {
         if self_moving {
             let blocked = self.ai_blocked_by(other, is_ally);
             if blocked {
-                // Panic infantry bounces residual.
-                if self.is_kind_of(crate::game_logic::KindOf::Infantry) && self.is_panicking {
-                    return true;
-                }
                 self.is_blocked = true;
-                if self.num_frames_blocked == 0 {
-                    self.num_frames_blocked = 1;
+                if other.host_ai_is_moving() && other.waiting_for_path {
+                    return false;
                 }
                 let max_speed = self.calculate_max_blocked_speed(other);
                 if max_speed < self.cur_max_blocked_speed {
                     self.cur_max_blocked_speed = max_speed;
                 }
-                // C++ processCollision: rotate resets blockedFrames; stopped other → stuck.
+                let already_yielding = other.move_away_frames > 0
+                    && (other.move_away_from == Some(self.id)
+                        || other.move_away_from_2 == Some(self.id));
+                if !already_yielding
+                    && other.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    && !self.is_kind_of(crate::game_logic::KindOf::Infantry)
+                {
+                    let other_busy = matches!(
+                        other.ai_state,
+                        super::AIState::Constructing
+                            | super::AIState::Repairing
+                            | super::AIState::SpecialAbility
+                            | super::AIState::Capturing
+                    );
+                    if !other.status.using_ability && !other_busy {
+                        self.request_other_move_away = Some(other.id);
+                    }
+                    return false;
+                }
+                if self.num_frames_blocked == 0 {
+                    self.num_frames_blocked = 1;
+                }
                 if !self.need_to_rotate() {
-                    if !other.host_ai_is_moving() {
+                    // C++ isMoving: idle is not moving; else goal or m_isMoving.
+                    let other_moving = other.host_ai_is_moving();
+                    if !other_moving {
                         self.is_blocked_and_stuck = true;
+                    } else if other.ai_blocked_by(self, other_sees_us_as_ally)
+                        && !other.need_to_rotate()
+                        && !self.has_higher_path_priority(other)
+                    {
+                        self.request_self_yield_from = Some(other.id);
                     }
                 } else {
                     self.num_frames_blocked = 1;
                 }
-                // Vehicle into infantry: request move-away residual.
-                if other.is_kind_of(crate::game_logic::KindOf::Infantry)
-                    && !self.is_kind_of(crate::game_logic::KindOf::Infantry)
-                {
-                    // C++ busy/using-ability gate residual.
-                    if !other.status.using_ability {
-                        self.request_other_move_away = Some(other.id);
-                    }
-                }
                 return false;
+            }
+        } else if !self.is_alive()
+            && self.is_kind_of(crate::game_logic::KindOf::Infantry)
+            && !other_sees_us_as_ally
+            && !other.status.disabled_unmanned
+            && other.crusher_level > 0
+            && other.has_squish_collide
+        {
+            return true;
+        } else if !other.host_ai_is_moving() {
+            let us = self.get_position();
+            let them = other.get_position();
+            let dx = us.x - them.x;
+            let dz = us.z - them.z;
+            let cell = PATHFIND_CELL_SIZE_F_RESIDUAL;
+            if dx * dx + dz * dz < cell * cell * 0.25 {
+                let busy = matches!(
+                    self.ai_state,
+                    super::AIState::Constructing
+                        | super::AIState::Repairing
+                        | super::AIState::SpecialAbility
+                        | super::AIState::Capturing
+                );
+                if busy || self.status.using_ability {
+                    return false;
+                }
+                if self.ai_state == super::AIState::Idle || other.ai_state == super::AIState::Idle
+                {
+                    self.unstack_partner = Some(other.id);
+                }
             }
         }
         false
@@ -545,9 +597,7 @@ impl Object {
             turn_speed = max_speed / 4.0;
         }
         if turn_speed > 0.0 {
-            (self.movement.velocity.length() / turn_speed)
-                .abs()
-                .min(1.0)
+            (self.forward_speed_2d().abs() / turn_speed).min(1.0)
         } else {
             0.0
         }
@@ -566,7 +616,12 @@ impl Object {
         }
         let us = self.get_position();
         let (dx, dz, turn_pos) = if offset.abs() > 1e-6 {
-            let radius = self.selection_radius.max(1.0);
+            let g = &self.thing.template.geometry_info;
+            let radius = if g.authored {
+                g.bounding_circle_radius()
+            } else {
+                self.selection_radius.max(1.0)
+            };
             let turn_point = offset * radius;
             let dir = self.unit_direction_vector_2d();
             let turn_pos =
@@ -840,16 +895,15 @@ impl Object {
         &mut self,
         cell_type: gamelogic::ai::pathfind_astar::PathfindCellType,
     ) {
-        if self.locomotor_set_names.len() < 2 && self.thing.template.authored_locomotor_sets.is_none() {
+        if self.locomotor_set_names.iter().all(|name| name.is_empty())
+            && self.thing.template.authored_locomotor_sets.is_none()
+        {
             let fallback = crate::game_logic::locomotor_bootstrap::locomotor_set_names_for_unit(
                 &self.thing.template.name,
             );
-            if fallback.len() >= 2 {
+            if fallback.iter().any(|name| !name.is_empty()) {
                 self.locomotor_set_names = fallback;
             }
-        }
-        if self.locomotor_set_names.len() < 2 {
-            return;
         }
         let acceptable =
             crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
@@ -860,7 +914,11 @@ impl Object {
                 &self.locomotor_set_names,
                 acceptable,
             )
-            .or_else(|| self.cur_locomotor_name.clone())
+            .or_else(|| {
+                self.cur_locomotor_name
+                    .clone()
+                    .filter(|name| !name.is_empty())
+            })
             .or_else(|| {
                 crate::game_logic::locomotor_bootstrap::choose_best_locomotor_name_for_surfaces(
                     &self.locomotor_set_names,
@@ -887,6 +945,10 @@ impl Object {
         self.precise_z_pos = false;
         self.no_slow_down_as_approaching_dest = false;
         self.ultra_accurate = false;
+        // C++ setUltraAccurate(FALSE) only clears the flag (Locomotor.h:333).
+        // doLocomotor then setPhysicsOptions (AIUpdate.cpp:2132) and must not
+        // keep the +0.5 that apply wrote while the old flag was still true.
+        self.set_locomotor_physics_options();
     }
 
     /// C++ `Locomotor::moveTowardsPositionHover` OVER_WATER (Locomotor.cpp:1868-1886).
@@ -937,12 +999,10 @@ impl Object {
 
     /// C++ doLocomotor blocked-frame bookkeeping (AIUpdate.cpp:2116-2127).
     pub fn tick_do_locomotor_blocked_frames(&mut self) {
+        // C++ doLocomotor (AIUpdate.cpp:2116-2125) only increments or zeroes.
+        // The rotate reset to 1 lives in the collision scan, not here.
         if self.is_blocked {
-            if self.need_to_rotate() {
-                self.num_frames_blocked = 1;
-            } else {
-                self.num_frames_blocked = self.num_frames_blocked.saturating_add(1);
-            }
+            self.num_frames_blocked = self.num_frames_blocked.saturating_add(1);
         } else {
             self.num_frames_blocked = 0;
         }
@@ -962,12 +1022,14 @@ impl Object {
             }
             self.bump_speed_limit *= 0.95;
             speed = self.bump_speed_limit;
-        } else if self.bump_speed_limit < f32::MAX {
-            // C++ only eases while bump < FAST_AS_POSSIBLE (AIUpdate.cpp:2209-2217).
-            if self.bump_speed_limit < speed * 0.2 {
-                self.bump_speed_limit = speed * 0.2;
+        } else {
+            // C++ FAST_AS_POSSIBLE (999999), not f32::MAX.
+            if self.bump_speed_limit < 999_999.0 {
+                if self.bump_speed_limit < speed * 0.2 {
+                    self.bump_speed_limit = speed * 0.2;
+                }
+                self.bump_speed_limit *= 1.05;
             }
-            self.bump_speed_limit *= 1.05;
             if speed > self.bump_speed_limit {
                 speed = self.bump_speed_limit;
             }
@@ -999,9 +1061,9 @@ impl Object {
             self.extra_friction = self.loco_extra_2d_friction + ultra;
         }
         self.apply_friction_2d_when_airborne = self.loco_apply_2d_friction_airborne;
-        // Walking units stick to ground residual.
+        // C++ setStickToGround(getStickToGround()). The binding already wrote
+        // the template flag. Do not force every infantry unit on.
         if self.is_kind_of(crate::game_logic::KindOf::Infantry) {
-            self.stick_to_ground = true;
             if matches!(self.loco_appearance, LocomotorAppearance::Other) {
                 self.loco_appearance = LocomotorAppearance::LegsTwo;
                 self.record_host_locomotor();
@@ -1044,7 +1106,7 @@ impl Object {
     pub fn physics_collide_sphere_radius(&self) -> f32 {
         let g = &self.thing.template.geometry_info;
         if g.authored {
-            g.bounding_sphere_radius().max(1.0)
+            g.bounding_sphere_radius()
         } else {
             self.selection_radius.max(1.0)
         }
@@ -1054,7 +1116,7 @@ impl Object {
     pub fn physics_collide_circle_radius(&self) -> f32 {
         let g = &self.thing.template.geometry_info;
         if g.authored {
-            g.bounding_circle_radius().max(1.0)
+            g.bounding_circle_radius()
         } else {
             self.selection_radius.max(1.0)
         }
@@ -1075,9 +1137,15 @@ impl Object {
         if !self.allow_collide_force {
             return;
         }
+        let g = &self.thing.template.geometry_info;
+        let lift = match g.geom_type {
+            crate::game_logic::thing::HostGeometryType::Sphere => 0.0,
+            crate::game_logic::thing::HostGeometryType::Box
+            | crate::game_logic::thing::HostGeometryType::Cylinder => g.height * 0.5,
+        };
         let us = self.get_position();
         let mut dx = other_center.x - us.x;
-        let mut dy = other_center.y - us.y;
+        let mut dy = other_center.y - (us.y + lift);
         let mut dz = other_center.z - us.z;
         if !self.is_above_terrain() {
             dy = 0.0;
@@ -1186,22 +1254,42 @@ impl Object {
         self.requested_victim_id = victim_id;
         self.record_host_ai_request();
         self.is_attack_path = true;
+        self.is_exact_path = false;
         self.is_approach_path = false;
         self.record_host_locomotor();
         self.is_safe_path = false;
         self.waiting_for_path = true;
         if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
-            // C++ setQueueForPathTime(2 sec)
-            self.queue_for_path_frames = 60;
+            // C++ setQueueForPathTime(2 * LOGICFRAMES_PER_SECOND) and setLocomotorGoalNone.
+            self.queue_for_path_frames = 2
+                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            self.set_locomotor_goal_none();
             return false;
         }
-        self.path_timestamp = current_frame;
         self.record_host_ai_request();
         true
     }
 
     /// C++ AIUpdateInterface::requestPath flag residual (non-attack).
     pub fn begin_request_move_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
+        let ok = self.begin_request_move_path_inner(destination, current_frame, true);
+        if !ok && !self.movement.path.is_empty() && self.is_blocked_and_stuck {
+            self.ignore_collisions_until_frame = current_frame.saturating_add(
+                2 * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL,
+            );
+            self.num_frames_blocked = 0;
+            self.is_blocked = false;
+            self.is_blocked_and_stuck = false;
+        }
+        ok
+    }
+
+    fn begin_request_move_path_inner(
+        &mut self,
+        destination: glam::Vec3,
+        current_frame: u32,
+        allow_quick: bool,
+    ) -> bool {
         self.requested_destination = Some(destination);
         self.record_host_ai_request();
         self.requested_victim_id = None;
@@ -1211,13 +1299,49 @@ impl Object {
         self.is_approach_path = false;
         self.record_host_locomotor();
         self.is_safe_path = false;
+        self.is_final_goal = true;
+        if allow_quick && self.try_non_aircraft_quick_path(destination, current_frame) {
+            return true;
+        }
         self.waiting_for_path = true;
         if self.path_timestamp > 0 && current_frame.saturating_sub(self.path_timestamp) < 3 {
-            self.queue_for_path_frames = 60;
+            self.queue_for_path_frames = crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
             return false;
         }
-        self.path_timestamp = current_frame;
         self.record_host_ai_request();
+        true
+    }
+
+    /// Flying non-aircraft `computeQuickPath`. Aircraft need `getAircraftPath`
+    /// on the world pathfinder, so they return false and stay queued.
+    fn try_non_aircraft_quick_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
+        let air_surface = (self.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0;
+        if !air_surface || crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self) {
+            return false;
+        }
+        if let Some(last) = self.movement.path.last() {
+            if (*last - destination).length_squared() < 0.25 {
+                return true;
+            }
+        }
+        if self.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            && !self.is_kind_of(crate::game_logic::KindOf::Projectile)
+        {
+            return false;
+        }
+        let mut start = self.get_position();
+        start.y = destination.y;
+        self.is_attack_path = false;
+        self.set_locomotor_goal_none();
+        self.waiting_for_path = false;
+        self.movement.path = vec![start, destination];
+        self.movement.current_path_index = 1;
+        self.movement.target_position = Some(destination);
+        self.path_timestamp = current_frame;
+        self.num_frames_blocked = 0;
+        self.is_blocked_and_stuck = false;
+        self.waiting_for_path = false;
+        self.set_status_moving(true);
         true
     }
 
@@ -1227,8 +1351,13 @@ impl Object {
         destination: glam::Vec3,
         current_frame: u32,
     ) -> bool {
-        let ok = self.begin_request_move_path(destination, current_frame);
+        let ok = self.begin_request_move_path_inner(destination, current_frame, false);
         self.is_approach_path = true;
+        self.is_final_goal = true;
+        if !ok {
+            self.queue_for_path_frames = 2
+                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+        }
         self.record_host_locomotor();
         ok
     }
@@ -1240,32 +1369,49 @@ impl Object {
         flee_pos: glam::Vec3,
         current_frame: u32,
     ) -> bool {
-        let ok = self.begin_request_move_path(flee_pos, current_frame);
+        self.adjust_destinations = false;
+        let previous = self.requested_victim_id;
+        let ok = self.begin_request_move_path_inner(flee_pos, current_frame, false);
         self.is_safe_path = true;
-        if self.requested_victim_id != Some(repulsor) {
-            self.safe_path_repulsor2 = self.requested_victim_id;
+        self.is_final_goal = false;
+        // C++ AIMoveAwayFromRepulsorsState keeps adjustsDestination false
+        // (AIStates.cpp:2265 and :2294). It never restores true.
+        self.adjust_destinations = false;
+        if !ok {
+            self.queue_for_path_frames = 2
+                * crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+        }
+        if previous != Some(repulsor) {
+            self.safe_path_repulsor2 = previous;
         }
         self.requested_victim_id = Some(repulsor);
         self.record_host_ai_request();
         ok
     }
 
-    /// Tick path queue delay residual.
-    pub fn tick_path_queue(&mut self) {
-        if self.queue_for_path_frames > 0 {
+    /// Returns true the frame the delay hits zero while a path is still waiting.
+    pub fn tick_path_queue(&mut self) -> bool {
+        let expired = if self.queue_for_path_frames == 0 {
+            false
+        } else {
             self.queue_for_path_frames -= 1;
-        }
+            if self.queue_for_path_frames > 0 {
+                self.waiting_for_path = true;
+            }
+            self.queue_for_path_frames == 0
+                && self.waiting_for_path
+                && self.requested_destination.is_some()
+        };
         if self.temporary_move_frames > 0 {
-            self.temporary_move_frames -= 1;
-            if self.temporary_move_frames == 0
-                && matches!(self.ai_state, AIState::Moving)
+            let arrived = self.movement.path.is_empty()
                 && self.movement.target_position.is_none()
-            {
-                // Temporary AI move expired with no destination — idle residual.
-                self.set_ai_state(AIState::Idle);
-                self.record_host_combat_attack();
+                && !self.waiting_for_path;
+            self.temporary_move_frames -= 1;
+            if arrived || self.temporary_move_frames == 0 {
+                self.end_temporary_move_overlay();
             }
         }
+        expired
     }
 
     /// C++ privateAttackObject max-shots residual.
@@ -1378,11 +1524,23 @@ impl Object {
         } else {
             self.movement.path = vec![destination];
         }
-        self.movement.current_path_index = 0;
-        self.movement.target_position = self.movement.path.first().copied();
+        if self.movement.path.len() >= 2 {
+            self.movement.current_path_index = 1;
+            self.movement.target_position = Some(self.movement.path[1]);
+        } else {
+            self.movement.current_path_index = 0;
+            self.movement.target_position = self.movement.path.first().copied();
+        }
+        self.is_attack_path = false;
+        self.is_exact_path = false;
+        self.set_locomotor_goal_position_on_path();
+        self.refresh_follow_path_extra_distance();
         self.waiting_for_path = false;
         self.is_braking = false;
         self.start_move();
+        self.num_frames_blocked = 0;
+        self.is_blocked_and_stuck = false;
+        self.set_status_moving(true);
         self.record_host_movement();
     }
 
@@ -1513,7 +1671,8 @@ impl Object {
         let actual = self.movement.velocity.length();
         if self.braking > 0.0 && !self.no_slow_down_as_approaching_dest {
             let slow = calc_slow_down_dist(actual, self.min_speed, self.braking);
-            if on_path_dist < slow {
+            let approach = on_path_dist + self.path_extra_distance.max(0.0);
+            if approach < slow {
                 desired_speed = self.min_speed;
             }
         }

@@ -866,8 +866,20 @@ impl DozerAIUpdate {
             return;
         }
         // C++ privateResumeConstruction -> newTask(DOZER_TASK_BUILD) uses
-        // calcTimeToBuild, not a 1-frame collapse (DozerAIUpdate.cpp:515).
-        let frames = target_guard.get_template().calc_time_to_build(None).max(1) as u32;
+        // calcTimeToBuild(player), not the raw template frames.
+        let player = owner_guard.get_controlling_player();
+        let frames = if let Some(player) = player.as_ref() {
+            if let Ok(player_guard) = player.read() {
+                target_guard
+                    .get_template()
+                    .calc_time_to_build(Some(&*player_guard))
+                    .max(1) as u32
+            } else {
+                target_guard.get_template().calc_time_to_build(None).max(1) as u32
+            }
+        } else {
+            target_guard.get_template().calc_time_to_build(None).max(1) as u32
+        };
         let max_health = target_guard
             .get_body_module()
             .and_then(|body| body.lock().ok().map(|g| g.get_max_health()))
@@ -915,7 +927,7 @@ impl DozerAIUpdate {
             return;
         };
         let mut event = sound.clone();
-        event.set_object_id(self.object_id);
+        event.set_object_id(construction_site_id);
         let handle = audio.add_audio_event(&event);
         event.set_playing_handle(handle);
         self.building_sound = Some(event);
@@ -943,6 +955,8 @@ impl DozerAIUpdate {
         let mut target_pos: Option<Coord3D> = None;
         let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
 
+        let mut structure_id = crate::common::INVALID_ID;
+
         if let Ok(mut target_guard) = target.write() {
             target_guard.clear_status(
                 crate::common::ObjectStatusMaskType::from_status(
@@ -965,10 +979,6 @@ impl DozerAIUpdate {
                 }
             }
 
-            target_guard.handle_partition_cell_maintenance();
-            target_guard.update_upgrade_modules_from_player();
-            target_guard.on_build_complete();
-
             let template = target_guard.get_template();
             let display_name = template.get_name();
             if display_name.is_empty() {
@@ -980,22 +990,23 @@ impl DozerAIUpdate {
             }
             target_pos = Some(*target_guard.get_position());
             controlling_player = target_guard.get_controlling_player();
+            structure_id = target_guard.get_id();
         }
 
         if let Some(player) = controlling_player {
             if let Ok(mut player_guard) = player.write() {
-                let builder_id = owner.read().ok().map(|g| g.get_id());
-                let structure_id = target
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
                 player_guard.on_structure_construction_complete_id(
-                    builder_id,
+                    Some(self.object_id),
                     structure_id,
                     is_rebuild,
                 );
             }
+        }
+
+        if let Ok(mut target_guard) = target.write() {
+            target_guard.on_build_complete();
+            target_guard.handle_partition_cell_maintenance();
+            target_guard.update_upgrade_modules_from_player();
         }
 
         if let Ok(owner_guard) = owner.read() {
@@ -1010,12 +1021,9 @@ impl DozerAIUpdate {
                     crate::helpers::TheInGameUI::display_message(&message);
                 }
 
-                if let Some(voice) = owner_guard
-                    .get_template()
-                    .get_per_unit_sound("VoiceTaskComplete")
-                {
-                    if let Some(audio) = TheAudio::get() {
-                        let mut event = voice.clone();
+                if let Some(audio) = TheAudio::get() {
+                    let mut event = owner_guard.get_template().get_voice_task_complete();
+                    if !event.get_event_name().is_empty() {
                         event.set_object_id(owner_guard.get_id());
                         audio.add_audio_event(&event);
                     }
@@ -1034,10 +1042,35 @@ impl DozerAIUpdate {
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
-                    let end_pos = self
+                    let mut end_pos = self
                         .get_dock_point(self.current_task, DozerDockPoint::End)
                         .unwrap_or(*owner_guard.get_position());
-                    let _ = ai_guard.ai_move_to_position(&end_pos);
+                    let start = *owner_guard.get_position();
+                    let is_crusher = owner_guard.get_crusher_level() > 0;
+                    let radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
+                    if let Some(loco_set) = ai_guard.get_locomotor_set_clone() {
+                        let surfaces = loco_set.get_valid_surfaces();
+                        let ai_store = crate::ai::the_ai();
+                        if let Ok(ai_sys) = ai_store.read() {
+                            if let Some(pf_arc) = ai_sys.pathfinder() {
+                                if let Ok(pf) = pf_arc.read() {
+                                    let _ = pf.adjust_to_possible_destination(
+                                        &start,
+                                        &mut end_pos,
+                                        surfaces,
+                                        is_crusher,
+                                        radius,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::MoveToPosition,
+                        crate::ai::CommandSourceType::FromAi,
+                    );
+                    params.pos = end_pos;
+                    let _ = ai_guard.execute_command(&params);
                 }
             }
         }
@@ -1210,44 +1243,50 @@ impl DozerAIUpdate {
                             return;
                         }
                     }
-                    let health = target_body_max
-                        * self.get_repair_health_per_second()
-                        * SECONDS_PER_LOGICFRAME_REAL;
-                    let healed = if let (Ok(owner_guard), Ok(mut target_write)) =
-                        (owner.read(), target.write())
-                    {
-                        match target_write.attempt_healing_from_sole_benefactor(
-                            health,
-                            Some(&*owner_guard),
-                            2,
-                        ) {
-                            Ok(ok) => ok,
-                            Err(_) => false,
-                        }
-                    } else {
-                        false
-                    };
-                    if !healed {
-                        self.internal_task_complete(DozerTask::Repair);
-                        return;
-                    }
-                    let full = target
+                    let already_full = target
                         .read()
                         .ok()
-                        .and_then(|g| g.get_body_module())
-                        .and_then(|b| {
-                            b.lock().ok().map(|body| {
-                                body.get_max_health() > 0.0
-                                    && body.get_health() >= body.get_max_health() - 0.01
-                            })
+                        .and_then(|guard| guard.get_body_module())
+                        .and_then(|body| {
+                            body.lock()
+                                .ok()
+                                .map(|body| body.get_health() == body.get_max_health())
                         })
                         .unwrap_or(false);
-                    if full {
+                    if already_full {
+                        let message = crate::helpers::TheGameText::fetch("DOZER:RepairComplete");
+                        crate::helpers::TheInGameUI::display_message(&message);
                         if target_is_bridge_tower {
                             self.remove_bridge_scaffolding(task.target_id);
                         }
                         self.internal_task_complete(DozerTask::Repair);
                         return;
+                    }
+                    if let Ok(mut owner_write) = owner.write() {
+                        owner_write.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+                    }
+                    let can_heal = !target_is_bridge_tower
+                        || !self.bridge_scaffold_blocks_heal(task.target_id);
+                    if can_heal {
+                        let health = target_body_max
+                            * self.get_repair_health_per_second()
+                            * SECONDS_PER_LOGICFRAME_REAL;
+                        let healed = if let Ok(mut target_write) = target.write() {
+                            match target_write.attempt_healing_from_sole_benefactor_id(
+                                health,
+                                self.object_id,
+                                2,
+                            ) {
+                                Ok(ok) => ok,
+                                Err(_) => false,
+                            }
+                        } else {
+                            false
+                        };
+                        if !healed {
+                            self.internal_cancel_task(DozerTask::Repair);
+                            return;
+                        }
                     }
                 }
                 DozerTask::Build => {
@@ -1262,18 +1301,31 @@ impl DozerAIUpdate {
                             return;
                         }
                     };
+                    let player = owner
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_controlling_player());
+                    let frames = if let Ok(target_guard) = target.read() {
+                        if let Some(player) = player.as_ref() {
+                            if let Ok(player_guard) = player.read() {
+                                target_guard
+                                    .get_template()
+                                    .calc_time_to_build(Some(&*player_guard))
+                                    .max(1) as u32
+                            } else {
+                                target_guard.get_template().calc_time_to_build(None).max(1) as u32
+                            }
+                        } else {
+                            target_guard.get_template().calc_time_to_build(None).max(1) as u32
+                        }
+                    } else {
+                        1
+                    };
                     if !task.started_construction {
                         let max_health = if task.build_max_health > 0.0 {
                             task.build_max_health
                         } else {
                             target_body_max
-                        };
-                        let frames = if task.build_total_frames > 0 {
-                            task.build_total_frames
-                        } else if let Ok(tg) = target.read() {
-                            tg.get_template().calc_time_to_build(None).max(1) as u32
-                        } else {
-                            1
                         };
                         let _ = manager.start_construction(
                             task.target_id,
@@ -1283,11 +1335,16 @@ impl DozerAIUpdate {
                             task.is_rebuild,
                         );
                         task.started_construction = true;
-                        if let Ok(mut owner_write) = owner.write() {
-                            owner_write
-                                .set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+                        if let Some(sound) = target.read().ok().and_then(|guard| {
+                            guard.get_template().get_per_unit_sound("UnderConstruction")
+                        }) {
+                            self.start_building_sound(&sound, task.target_id);
                         }
                     }
+                    if let Ok(mut owner_write) = owner.write() {
+                        owner_write.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+                    }
+                    manager.set_build_frames(task.target_id, frames);
                     let completed = manager.update_for_dozer(self.object_id);
                     let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
                     let current_health = manager.get_current_health(task.target_id);
@@ -1296,6 +1353,8 @@ impl DozerAIUpdate {
                         if let Some(health) = current_health {
                             let _ = target_write.set_health(health);
                         }
+                        target_write.set_producer_id(self.object_id);
+                        target_write.set_builder_id(self.object_id);
                     }
                     if completed.contains(&task.target_id) {
                         self.handle_build_completion(&owner, &target, task.is_rebuild);
@@ -1337,6 +1396,42 @@ impl DozerAIUpdate {
         INVALID_ID
     }
 
+    fn bridge_scaffold_blocks_heal(&self, tower_id: ObjectID) -> bool {
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+        let Some(tower_obj) = TheGameLogic::find_object_by_id(tower_id) else {
+            return false;
+        };
+        let bridge_id = {
+            let Ok(tower_guard) = tower_obj.read() else {
+                return false;
+            };
+            Self::get_bridge_id_for_tower(&tower_guard)
+        };
+        if bridge_id == INVALID_ID {
+            return false;
+        }
+        let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
+            return false;
+        };
+        let Ok(bridge_guard) = bridge_obj.read() else {
+            return false;
+        };
+        let behaviors = bridge_guard.get_behavior_modules();
+        drop(bridge_guard);
+        for behavior in behaviors {
+            let Ok(mut behavior_guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
+                interface.create_scaffolding();
+                return interface.is_scaffold_in_motion();
+            }
+        }
+        false
+    }
+
     fn remove_bridge_scaffolding(&self, bridge_tower_id: ObjectID) {
         // Wave 351: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
@@ -1346,71 +1441,31 @@ impl DozerAIUpdate {
         let Some(tower_obj) = TheGameLogic::find_object_by_id(bridge_tower_id) else {
             return;
         };
-        let Ok(tower_guard) = tower_obj.read() else {
-            return;
+        let bridge_id = {
+            let Ok(tower_guard) = tower_obj.read() else {
+                return;
+            };
+            Self::get_bridge_id_for_tower(&tower_guard)
         };
-        let mut bridge_id: Option<ObjectID> = None;
-        for module_handle in tower_guard.behavior_modules() {
-            bridge_id = module_handle.with_module(|module| {
-                module
-                    .get_bridge_tower_control_interface()
-                    .map(|tower| tower.bridge_id())
-            });
-            if bridge_id.is_some() {
-                break;
-            }
+        if bridge_id == INVALID_ID {
+            return;
         }
 
-        if bridge_id.is_none() {
-            for behavior in tower_guard.get_behavior_modules() {
-                let Ok(mut behavior_guard) = behavior.lock() else {
-                    continue;
-                };
-                if let Some(interface) = behavior_guard.get_bridge_tower_behavior_interface() {
-                    bridge_id = Some(interface.get_bridge_id());
-                    break;
-                }
-            }
-        }
-        let Some(bridge_id) = bridge_id else {
-            return;
-        };
         let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
             return;
         };
         let Ok(bridge_guard) = bridge_obj.read() else {
             return;
         };
-        let mut removed = false;
-        for module_handle in bridge_guard.behavior_modules() {
-            let matched = module_handle.with_module(|module| {
-                if let Some(bridge) = module.get_bridge_control_interface() {
-                    if let Err(err) = bridge.remove_scaffolding() {
-                        log::debug!(
-                            "DozerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
-                            bridge_id,
-                            err
-                        );
-                    }
-                    true
-                } else {
-                    false
-                }
-            });
-            if matched {
-                removed = true;
+        let behaviors = bridge_guard.get_behavior_modules();
+        drop(bridge_guard);
+        for behavior in behaviors {
+            let Ok(mut behavior_guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
+                interface.remove_scaffolding();
                 break;
-            }
-        }
-        if !removed {
-            for behavior in bridge_guard.get_behavior_modules() {
-                let Ok(mut behavior_guard) = behavior.lock() else {
-                    continue;
-                };
-                if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
-                    interface.remove_scaffolding();
-                    break;
-                }
             }
         }
     }

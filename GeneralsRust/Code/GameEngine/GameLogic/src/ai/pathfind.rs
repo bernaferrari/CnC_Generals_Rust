@@ -1177,11 +1177,11 @@ impl Pathfinder {
 
     /// Treat the object's footprint as an obstacle wall (matches createAWallFromMyFootprint).
     pub fn create_wall_from_object(&mut self, obj: &Object) {
+        if self.stamp_box_wall(obj, true) {
+            return;
+        }
         let pos = obj.get_position();
-        let radius = obj
-            .get_geometry_info()
-            .get_major_radius()
-            .max(self.cell_size * 0.5);
+        let radius = obj.get_geometry_info().get_major_radius() + self.cell_size * 0.4;
         let center = self.world_to_grid(pos);
         let radius_cells = (radius / self.cell_size).ceil() as i32;
 
@@ -1218,11 +1218,11 @@ impl Pathfinder {
 
     /// Remove a previously created wall from this object's footprint.
     pub fn remove_wall_from_object(&mut self, obj: &Object) {
+        if self.stamp_box_wall(obj, false) {
+            return;
+        }
         let pos = obj.get_position();
-        let radius = obj
-            .get_geometry_info()
-            .get_major_radius()
-            .max(self.cell_size * 0.5);
+        let radius = obj.get_geometry_info().get_major_radius() + self.cell_size * 0.4;
         let center = self.world_to_grid(pos);
         let radius_cells = (radius / self.cell_size).ceil() as i32;
         let obj_id = obj.get_id();
@@ -1252,6 +1252,61 @@ impl Pathfinder {
                 }
             }
         }
+    }
+
+    fn stamp_box_wall(&mut self, obj: &Object, insert: bool) -> bool {
+        let geom = obj.get_geometry_info();
+        if geom.get_geometry_type() != game_engine::system::geometry::GeometryType::Box {
+            return false;
+        }
+        let pos = obj.get_position();
+        let angle = obj.get_orientation();
+        let half_x = geom.get_major_radius();
+        let half_y = geom.get_minor_radius();
+        let (s, c) = angle.sin_cos();
+        let step = self.cell_size * 0.5;
+        if step <= 0.0 {
+            return true;
+        }
+        let ydx = s * step;
+        let ydy = -c * step;
+        let xdx = c * step;
+        let xdy = s * step;
+        let num_x = (2.0 * half_x / step).ceil().max(0.0) as i32;
+        let num_y = (2.0 * half_y / step).ceil().max(0.0) as i32;
+        let mut tl_x = pos.x - half_x * c - half_y * s;
+        let mut tl_y = pos.y + half_y * c - half_x * s;
+        let obj_id = obj.get_id();
+        for _iy in 0..num_y {
+            let mut x = tl_x;
+            let mut y = tl_y;
+            for _ix in 0..num_x {
+                let cx = ((x + 0.5) / self.cell_size).floor() as i32;
+                let cy = ((y + 0.5) / self.cell_size).floor() as i32;
+                if cx >= 0 && cy >= 0 {
+                    let ux = cx as usize;
+                    let uy = cy as usize;
+                    if ux < self.width && uy < self.height {
+                        if let Some(cell) = self.get_cell_mut(ux, uy) {
+                            if insert {
+                                cell.set_type_as_obstacle_for_object(
+                                    obj,
+                                    false,
+                                    &ICoord2D::new(cx, cy),
+                                );
+                            } else {
+                                cell.remove_obstacle_by_id(obj_id);
+                            }
+                        }
+                    }
+                }
+                x += xdx;
+                y += xdy;
+            }
+            tl_x += ydx;
+            tl_y += ydy;
+        }
+        true
     }
 
     /// Get cell at grid position

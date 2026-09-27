@@ -147,6 +147,7 @@ struct RailroadPhysicsHandle {
     turning: i32,
     bounce_sound: Option<AudioEventRts>,
     last_collidee: ObjectID,
+    ignore_collisions_with: ObjectID,
 }
 
 impl RailroadPhysicsHandle {
@@ -165,23 +166,59 @@ impl RailroadPhysicsHandle {
             turning: 0,
             bounce_sound: None,
             last_collidee: INVALID_ID,
+            ignore_collisions_with: INVALID_ID,
         }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
-        xfer.xfer_coord3d(&mut self.velocity);
-        xfer_io(xfer.xfer_real(&mut self.mass))?;
-        xfer_io(xfer.xfer_bool(&mut self.allow_bouncing))?;
-        xfer_io(xfer.xfer_bool(&mut self.allow_airborne_friction))?;
-        xfer_io(xfer.xfer_bool(&mut self.allow_to_fall))?;
+        let mut version: u8 = 2;
+        xfer_io(xfer.xfer_version(&mut version, 2))?;
+        for _ in 0..4 {
+            let mut base_version: u8 = 1;
+            xfer_io(xfer.xfer_version(&mut base_version, 1))?;
+        }
         xfer_io(xfer.xfer_real(&mut self.yaw_rate))?;
-        xfer_io(xfer.xfer_real(&mut self.pitch_rate))?;
         xfer_io(xfer.xfer_real(&mut self.roll_rate))?;
-        xfer_io(xfer.xfer_real(&mut self.extra_friction))?;
-        xfer_io(xfer.xfer_real(&mut self.extra_bounciness))?;
-        xfer_io(xfer.xfer_object_id(&mut self.last_collidee))?;
+        xfer_io(xfer.xfer_real(&mut self.pitch_rate))?;
+        let mut accel = Coord3D::ZERO;
+        let mut prev_accel = Coord3D::ZERO;
+        xfer.xfer_coord3d(&mut accel);
+        xfer.xfer_coord3d(&mut prev_accel);
+        xfer.xfer_coord3d(&mut self.velocity);
+        if version < 2 {
+            let mut removed_prev_pos = Coord3D::ZERO;
+            xfer.xfer_coord3d(&mut removed_prev_pos);
+        }
         xfer_io(xfer.xfer_int(&mut self.turning))?;
+        xfer_io(xfer.xfer_object_id(&mut self.ignore_collisions_with))?;
+        let mut flags: i32 = 0;
+        if self.allow_bouncing {
+            flags |= 0x0002;
+        }
+        if self.allow_airborne_friction {
+            flags |= 0x0004;
+        }
+        if self.allow_to_fall {
+            flags |= 0x0040;
+        }
+        xfer_io(xfer.xfer_int(&mut flags))?;
+        if xfer.is_loading() {
+            self.allow_bouncing = (flags & 0x0002) != 0;
+            self.allow_airborne_friction = (flags & 0x0004) != 0;
+            self.allow_to_fall = (flags & 0x0040) != 0;
+        }
+        xfer_io(xfer.xfer_real(&mut self.mass))?;
+        let mut current_overlap = INVALID_ID;
+        let mut previous_overlap = INVALID_ID;
+        xfer_io(xfer.xfer_object_id(&mut current_overlap))?;
+        xfer_io(xfer.xfer_object_id(&mut previous_overlap))?;
+        let mut motive_force_expires: u32 = 0;
+        xfer_io(xfer.xfer_u32(&mut motive_force_expires))?;
+        xfer_io(xfer.xfer_real(&mut self.extra_bounciness))?;
+        xfer_io(xfer.xfer_real(&mut self.extra_friction))?;
+        let mut vel_mag = self.velocity.length();
+        xfer_io(xfer.xfer_real(&mut vel_mag))?;
         Ok(())
     }
 }
@@ -335,12 +372,14 @@ impl PullInfo {
 
     fn xfer_pull_info(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
-        let mut version: u32 = 1;
-        xfer_io(xfer.xfer_u32(&mut version))?;
+        let mut version: u8 = 1;
+        xfer_io(xfer.xfer_version(&mut version, 1))?;
         xfer_io(xfer.xfer_real(&mut self.direction))?;
         xfer_io(xfer.xfer_real(&mut self.speed))?;
         xfer_io(xfer.xfer_real(&mut self.track_distance))?;
-        xfer.xfer_coord3d(&mut self.tow_hitch_position);
+        xfer_io(xfer.xfer_real(&mut self.tow_hitch_position.x))?;
+        xfer_io(xfer.xfer_real(&mut self.tow_hitch_position.y))?;
+        xfer_io(xfer.xfer_real(&mut self.tow_hitch_position.z))?;
         let mut handle = self.most_recent_special_point_handle as u32;
         xfer_io(xfer.xfer_u32(&mut handle))?;
         self.most_recent_special_point_handle = handle as WaypointID;
@@ -689,6 +728,12 @@ impl RailroadBehavior {
         let physics_handle = Arc::new(Mutex::new(RailroadPhysicsHandle::new(
             specific_data.base.mass,
         )));
+        // Publish before install takes the object write guard. on_object_created
+        // runs under that guard, and std RwLock does not reenter.
+        if let Ok(mut obj_guard) = object.try_write() {
+            let physics: Arc<Mutex<dyn PhysicsBehavior>> = physics_handle.clone();
+            obj_guard.set_physics(Some(physics));
+        }
 
         Ok(Self {
             object_id: object
@@ -760,13 +805,7 @@ impl RailroadBehavior {
     }
 
     fn is_railroad(&self) -> Bool {
-        let Some(track) = &self.track else {
-            return false;
-        };
-        let Ok(track_guard) = track.lock() else {
-            return false;
-        };
-        if track_guard.point_list.is_empty() {
+        if self.track.is_none() {
             return false;
         }
         if self.waiting_in_wings || self.end_of_line {
@@ -786,18 +825,20 @@ impl RailroadBehavior {
         let mut has_bounce_sound = false;
 
         if let Some(physics) = victim.get_physics() {
-            if let Ok(phys_guard) = physics.lock() {
-                if let Some(sound) = phys_guard.get_bounce_sound() {
-                    impact = sound.clone();
-                    has_bounce_sound = true;
-                }
+            let phys_guard = match physics.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if let Some(sound) = phys_guard.get_bounce_sound() {
+                impact = sound.clone();
+                has_bounce_sound = true;
             }
         }
 
         if !has_bounce_sound {
             if victim.is_kind_of(crate::common::KindOf::Infantry) {
                 impact = self.module_data.meaty_impact_default_sound.clone();
-            } else if victim.is_kind_of(crate::common::KindOf::Vehicle)
+            } else if victim.is_kind_of(crate::common::KindOf::HugeVehicle)
                 || victim.is_kind_of(crate::common::KindOf::Structure)
             {
                 impact = self.module_data.big_metal_impact_default_sound.clone();
@@ -816,14 +857,16 @@ impl RailroadBehavior {
         impact.set_position(&(impact_position.x, impact_position.y, impact_position.z));
 
         if let Some(physics) = victim.get_physics() {
-            if let Ok(phys_guard) = physics.lock() {
-                vel += phys_guard.get_velocity().length();
-                mass += phys_guard.get_mass();
-                vel *= 0.5;
-                mass *= 0.5;
-                let pos = victim.get_position();
-                impact.set_position(&(pos.x, pos.y, pos.z));
-            }
+            let phys_guard = match physics.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            vel += phys_guard.get_velocity().length().abs();
+            mass += phys_guard.get_mass().abs();
+            vel *= 0.5;
+            mass *= 0.5;
+            let pos = victim.get_position();
+            impact.set_position(&(pos.x, pos.y, pos.z));
         }
 
         vel = vel.clamp(0.0, NORMAL_VEL_Z);
@@ -860,7 +903,7 @@ impl RailroadBehavior {
 
         let mut anchor_waypoint_id = None;
         if self.anchor_waypoint_id == INVALID_WAYPOINT_ID {
-            let mut best_distance = Real::MAX;
+            let mut best_distance = 99999.9;
             let mut scanner = terrain_guard.get_first_waypoint();
             while let Some(waypoint) = scanner {
                 let delta = my_pos - *waypoint.get_location();
@@ -977,14 +1020,15 @@ impl RailroadBehavior {
 
         if self.trailer_id != INVALID_ID {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                if let Ok(trailer_guard) = trailer.read() {
-                    if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        module.with_module(|module| {
-                            if let Some(train) = module.get_train_control_interface() {
-                                train.set_train_wall(on);
-                            }
-                        });
-                    }
+                let module = trailer.read().ok().and_then(|trailer_guard| {
+                    trailer_guard.find_update_module("RailroadBehavior")
+                });
+                if let Some(module) = module {
+                    module.with_module(|module| {
+                        if let Some(train) = module.get_train_control_interface() {
+                            train.set_train_wall(on);
+                        }
+                    });
                 }
             }
         }
@@ -1005,14 +1049,15 @@ impl RailroadBehavior {
 
         if self.trailer_id != INVALID_ID {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                if let Ok(trailer_guard) = trailer.read() {
-                    if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        module.with_module(|module| {
-                            if let Some(train) = module.get_train_control_interface() {
-                                train.disembark_passengers();
-                            }
-                        });
-                    }
+                let module = trailer.read().ok().and_then(|trailer_guard| {
+                    trailer_guard.find_update_module("RailroadBehavior")
+                });
+                if let Some(module) = module {
+                    module.with_module(|module| {
+                        if let Some(train) = module.get_train_control_interface() {
+                            train.disembark_passengers();
+                        }
+                    });
                 }
             }
         }
@@ -1042,11 +1087,18 @@ impl RailroadBehavior {
         };
 
         // Partition relationship checks still need a short-lived owner Arc.
-        let close_carriage = if self.trailer_id != INVALID_ID {
+        let saved_trailer_id = if self.trailer_id != INVALID_ID
+            && TheGameLogic::find_object_by_id(self.trailer_id).is_some()
+        {
             Some(self.trailer_id)
         } else {
+            None
+        };
+        let close_carriage = if saved_trailer_id.is_some() {
+            saved_trailer_id
+        } else {
             ThePartitionManager::get().and_then(|pm| {
-                pm.get_closest_object(&my_hitch_loc, max_radius, |candidate| {
+                pm.get_closest_object_2d(&my_hitch_loc, max_radius, |candidate| {
                     if candidate.get_id() == owner_id {
                         return false;
                     }
@@ -1055,7 +1107,7 @@ impl RailroadBehavior {
                     };
                     let allied = self
                         .with_object(|obj_guard| {
-                            candidate.get_relationship_to(obj_guard) == ObjectRelationship::Ally
+                            obj_guard.get_relationship_to(candidate) == ObjectRelationship::Ally
                         })
                         .unwrap_or(false);
                     module.with_module(|module| {
@@ -1072,6 +1124,10 @@ impl RailroadBehavior {
             self.carriages_created = true;
             return;
         };
+        if TheThingFactory::find_template(first_template_name.as_str()).is_none() {
+            self.carriages_created = true;
+            return;
+        }
 
         let first_carriage = if let Some(close_id) = close_carriage {
             TheGameLogic::find_object_by_id(close_id)
@@ -1093,27 +1149,28 @@ impl RailroadBehavior {
                 self.trailer_id = carriage_guard.get_id();
             }
 
-            if let Ok(carriage_guard) = first_carriage.read() {
-                if let Some(module) = carriage_guard.find_update_module("RailroadBehavior") {
-                    let _ = module.with_module_downcast::<
-                        crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                        _,
-                        _,
-                    >(|module| {
-                        if close_carriage.is_some() {
-                            module.behavior_mut().hitch_new_carriage_by_proximity(
-                                owner_id,
-                                self.track.clone(),
-                            );
-                        } else {
-                            module.behavior_mut().hitch_new_carriage_by_template(
-                                owner_id,
-                                template_iter.map(|s| s.clone()).collect(),
-                                self.track.clone(),
-                            );
-                        }
-                    });
-                }
+            let module = first_carriage.read().ok().and_then(|carriage_guard| {
+                carriage_guard.find_update_module("RailroadBehavior")
+            });
+            if let Some(module) = module {
+                let _ = module.with_module_downcast::<
+                    crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
+                    _,
+                    _,
+                >(|module| {
+                    if close_carriage.is_some() {
+                        module.behavior_mut().hitch_new_carriage_by_proximity(
+                            owner_id,
+                            self.track.clone(),
+                        );
+                    } else {
+                        module.behavior_mut().hitch_new_carriage_by_template(
+                            owner_id,
+                            template_iter.map(|s| s.clone()).collect(),
+                            self.track.clone(),
+                        );
+                    }
+                });
             }
         }
 
@@ -1144,8 +1201,9 @@ impl RailroadBehavior {
 
         self.track = track.clone();
         if let Some(track) = &self.track {
-            if let Ok(mut guard) = track.lock() {
-                guard.inc_reference();
+            match track.lock() {
+                Ok(mut guard) => guard.inc_reference(),
+                Err(poisoned) => poisoned.into_inner().inc_reference(),
             }
         }
         self.has_ever_been_hitched = true;
@@ -1173,7 +1231,7 @@ impl RailroadBehavior {
             guard.set_producer(Some(&*locomotive_guard));
             self.trailer_id = guard.get_id();
         }
-
+        drop(locomotive_guard);
         let remaining_templates: Vec<AsciiString> = iter.collect();
         let next_track = track.clone();
         let module = {
@@ -1212,14 +1270,15 @@ impl RailroadBehavior {
         let Some(locomotive) = TheGameLogic::find_object_by_id(loco_id) else {
             return;
         };
-        let Ok(_locomotive_guard) = locomotive.read() else {
+        if locomotive.read().is_err() {
             return;
-        };
+        }
 
         self.track = track.clone();
         if let Some(track) = &self.track {
-            if let Ok(mut guard) = track.lock() {
-                guard.inc_reference();
+            match track.lock() {
+                Ok(mut guard) => guard.inc_reference(),
+                Err(poisoned) => poisoned.into_inner().inc_reference(),
             }
         }
         self.has_ever_been_hitched = true;
@@ -1238,18 +1297,20 @@ impl RailroadBehavior {
         };
 
         // Producer assignment and ally checks still need a short-lived owner Arc.
-        let close_carriage = if self.trailer_id != INVALID_ID {
+        let close_carriage = if self.trailer_id != INVALID_ID
+            && TheGameLogic::find_object_by_id(self.trailer_id).is_some()
+        {
             Some(self.trailer_id)
         } else {
             ThePartitionManager::get().and_then(|pm| {
-                pm.get_closest_object(&my_hitch_loc, max_radius, |candidate| {
+                pm.get_closest_object_2d(&my_hitch_loc, max_radius, |candidate| {
                     if candidate.get_id() == owner_id {
                         return false;
                     }
                     if let Some(module) = candidate.find_update_module("RailroadBehavior") {
                         let allied = self
                             .with_object(|obj_guard| {
-                                candidate.get_relationship_to(obj_guard) == ObjectRelationship::Ally
+                                obj_guard.get_relationship_to(candidate) == ObjectRelationship::Ally
                             })
                             .unwrap_or(false);
                         return module.with_module(|module| {
@@ -1269,19 +1330,20 @@ impl RailroadBehavior {
                     close_guard.set_producer_id(owner_id);
                     self.trailer_id = close_guard.get_id();
                 }
-                if let Ok(close_guard) = close.read() {
-                    if let Some(module) = close_guard.find_update_module("RailroadBehavior") {
-                        let _ = module.with_module_downcast::<
-                            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().hitch_new_carriage_by_proximity(
-                                owner_id,
-                                track,
-                            );
-                        });
-                    }
+                let module = close.read().ok().and_then(|close_guard| {
+                    close_guard.find_update_module("RailroadBehavior")
+                });
+                if let Some(module) = module {
+                    let _ = module.with_module_downcast::<
+                        crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
+                        _,
+                        _,
+                    >(|module| {
+                        module.behavior_mut().hitch_new_carriage_by_proximity(
+                            owner_id,
+                            track,
+                        );
+                    });
                 }
             }
         }
@@ -1307,16 +1369,18 @@ impl RailroadBehavior {
 
         if self.trailer_id != INVALID_ID {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                if let Ok(trailer_guard) = trailer.read() {
-                    if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        module.with_module(|module| {
-                            if let Some(train) = module.get_train_control_interface() {
-                                let mut pull_info = self.pull_info.to_train_pull_info();
-                                train.get_pulled(&mut pull_info);
-                                self.pull_info.copy_from_train_pull_info(pull_info);
-                            }
-                        });
-                    }
+                let module = trailer
+                    .read()
+                    .ok()
+                    .and_then(|trailer_guard| trailer_guard.find_update_module("RailroadBehavior"));
+                if let Some(module) = module {
+                    module.with_module(|module| {
+                        if let Some(train) = module.get_train_control_interface() {
+                            let mut pull_info = self.pull_info.to_train_pull_info();
+                            train.get_pulled(&mut pull_info);
+                            self.pull_info.copy_from_train_pull_info(pull_info);
+                        }
+                    });
                 }
             }
         } else {
@@ -1331,7 +1395,7 @@ impl RailroadBehavior {
         let Some(track) = &self.track else {
             return;
         };
-        let Some((hitch_radius, pos, dir_x, dir_y, orientation, transform)) =
+        let Some((hitch_radius, pos, dir_x, dir_y, transform)) =
             self.with_object(|obj_guard| {
                 let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
                 (
@@ -1339,7 +1403,6 @@ impl RailroadBehavior {
                     *obj_guard.get_position(),
                     dir_x,
                     dir_y,
-                    obj_guard.get_orientation(),
                     obj_guard.get_transform_matrix(),
                 )
             })
@@ -1351,7 +1414,10 @@ impl RailroadBehavior {
         my_info.speed = puller_info.speed;
         my_info.direction = puller_info.direction;
 
-        let track_length = track.lock().map(|t| t.length).unwrap_or(0.0);
+        let track_length = match track.lock() {
+            Ok(track_guard) => track_guard.length,
+            Err(poisoned) => poisoned.into_inner().length,
+        };
         self.find_pos_by_path_distance(
             &mut my_info.tow_hitch_position,
             my_info.track_distance,
@@ -1386,62 +1452,69 @@ impl RailroadBehavior {
         let dx = puller_info.tow_hitch_position.x - turn_pos.x;
         let dy = puller_info.tow_hitch_position.y - turn_pos.y;
         let desired_angle = dy.atan2(dx);
-        let rel_angle = std_angle_diff(desired_angle, orientation);
+        let z_rot = transform.x_axis.y.atan2(transform.x_axis.x);
+        let rel_angle = std_angle_diff(desired_angle, z_rot);
 
         let mut tmp = Mat4::from_translation(Vec3::new(turn_pos.x, turn_pos.y, 0.0));
         tmp *= Mat4::from_translation(Vec3::new(track_pos_delta.x, track_pos_delta.y, 0.0));
         tmp *= Mat4::from_rotation_z(rel_angle);
         tmp *= Mat4::from_translation(Vec3::new(-turn_pos.x, -turn_pos.y, 0.0));
-        let mtx = tmp * transform;
-
+        let mut mtx = tmp * transform;
         let ground_z = if !self.in_tunnel {
-            TheTerrainLogic::get()
-                .map(|terrain| terrain.get_ground_height(turn_pos.x, turn_pos.y, None))
+            TheTerrainLogic::get().map(|terrain| terrain.get_ground_height(turn_pos.x, turn_pos.y, None))
         } else {
             None
         };
-        let speed = my_info.speed;
-
         let _ = self.with_object_mut(|obj_guard| {
-            obj_guard.set_transform_matrix(&mtx);
-            if let Some(z) = ground_z {
-                let mut pos = *obj_guard.get_position();
-                pos.z = z;
-                let _ = obj_guard.set_position(&pos);
+            if obj_guard.is_kind_of(crate::common::KindOf::StickToTerrainSlope) {
+                obj_guard.set_transform_matrix(&mtx);
+                if let Some(z) = ground_z {
+                    let mut pos = *obj_guard.get_position();
+                    pos.z = z;
+                    let _ = obj_guard.set_position(&pos);
+                }
+            } else {
+                if let Some(z) = ground_z {
+                    mtx.w_axis.z = z;
+                }
+                obj_guard.set_transform_matrix(&mtx);
             }
             obj_guard.handle_partition_cell_maintenance();
         });
-        if let Ok(mut phys_guard) = self.physics_handle.lock() {
-            if let Some((dir_x, dir_y)) =
-                self.with_object(|obj_guard| obj_guard.get_unit_direction_vector_2d())
-            {
-                let velocity = Coord3D::new(dir_x * speed, dir_y * speed, 0.0);
-                phys_guard.set_velocity(&velocity);
-            }
-        }
     }
 
     #[allow(dead_code)]
     fn destroy_whole_train_now(&mut self) {
-        // Wave 357: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
         }
 
-        let _ = TheGameLogic::destroy_object_by_id(self.object_id);
+        let mut ids = vec![self.object_id];
+        let mut next = self.trailer_id;
+        while next != INVALID_ID {
+            ids.push(next);
+            let Some(trailer) = TheGameLogic::find_object_by_id(next) else {
+                break;
+            };
+            let module = trailer.read().ok().and_then(|trailer_guard| {
+                trailer_guard.find_update_module("RailroadBehavior")
+            });
+            let Some(module) = module else {
+                break;
+            };
+            let mut following = INVALID_ID;
+            let _ = module.with_module_downcast::<
+                crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
+                _,
+                _,
+            >(|module| {
+                following = module.behavior().trailer_id;
+            });
+            next = following;
+        }
 
-        if self.trailer_id != INVALID_ID {
-            if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                if let Ok(trailer_guard) = trailer.read() {
-                    if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        module.with_module(|module| {
-                            if let Some(train) = module.get_train_control_interface() {
-                                train.destroy_whole_train_now();
-                            }
-                        });
-                    }
-                }
-            }
+        for id in ids {
+            let _ = TheGameLogic::destroy_object_by_id(id);
         }
     }
 
@@ -1463,7 +1536,8 @@ impl RailroadBehavior {
         self.waiting_in_wings = false;
 
         let mut actual_distance = dist;
-        if let Ok(track_guard) = track.lock() {
+        let track_guard = track.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        {
             if track_guard.is_looping {
                 while actual_distance < 0.0 {
                     actual_distance += length;
@@ -1638,10 +1712,12 @@ impl RailroadBehavior {
             && self.pull_info.speed < self.module_data.running_garrison_speed_max
         {
             if let Some(ai) = other.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if ai_guard.get_enter_target() == Some(my_id) {
-                        return;
-                    }
+                let enter_target = match ai.lock() {
+                    Ok(ai_guard) => ai_guard.get_enter_target(),
+                    Err(poisoned) => poisoned.into_inner().get_enter_target(),
+                };
+                if enter_target == Some(my_id) {
+                    return;
                 }
             }
         }
@@ -1683,24 +1759,34 @@ impl RailroadBehavior {
             return;
         }
 
-        let delta = (their_loc - my_loc).normalize();
+        let pushed_loc = *other.get_position();
+        let delta = (pushed_loc - my_loc).normalize();
         let dot = delta.x * my_dir.x + delta.y * my_dir.y + delta.z * my_dir.z;
 
-        if other.is_effectively_dead() {
-            let vel = delta * (self.pull_info.speed * 0.66).min(0.3);
-            if let Ok(mut phys_guard) = physics.lock() {
-                phys_guard.add_velocity_to(&vel);
-            }
+        let mut delta_vel = if other.is_effectively_dead() {
+            delta * (self.pull_info.speed * 0.66).min(0.3)
         } else {
+            let scaled = delta * (self.pull_info.speed * 0.66).min(1.4);
             if self.pull_info.speed >= self.module_data.kill_speed_min {
                 other.kill(None, None);
-                if let Ok(mut phys_guard) = physics.lock() {
-                    phys_guard.set_pitch_rate(crate::helpers::get_game_logic_random_value_real(
-                        -0.03, 0.03,
-                    ));
-                    phys_guard.set_roll_rate(crate::helpers::get_game_logic_random_value_real(
-                        -0.03, 0.03,
-                    ));
+                match physics.lock() {
+                    Ok(mut phys_guard) => {
+                        phys_guard.set_pitch_rate(
+                            crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
+                        );
+                        phys_guard.set_roll_rate(
+                            crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
+                        );
+                    }
+                    Err(poisoned) => {
+                        let mut phys_guard = poisoned.into_inner();
+                        phys_guard.set_pitch_rate(
+                            crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
+                        );
+                        phys_guard.set_roll_rate(
+                            crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
+                        );
+                    }
                 }
             } else {
                 self.play_impact_sound(other, loc);
@@ -1712,43 +1798,73 @@ impl RailroadBehavior {
                 damage_info.sync_from_input();
                 let _ = other.attempt_damage(&mut damage_info);
             }
+            scaled
+        };
 
-            let mut heft = their_loc;
-            if let Some(terrain) = TheTerrainLogic::get() {
-                let ground = terrain.get_ground_height(heft.x, heft.y, None);
-                heft.z = ground + 2.0;
+        let mut heft = pushed_loc;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            let ground = terrain.get_ground_height(heft.x, heft.y, None);
+            heft.z = heft.z.max(ground + 2.0);
+        }
+        let _ = other.set_position(&heft);
+
+        delta_vel.z =
+            crate::helpers::get_game_logic_random_value_real(0.05, self.pull_info.speed / 10.0);
+        delta_vel *= dot;
+
+        let already_fast_infantry = victim_is_infantry
+            && match physics.lock() {
+                Ok(phys_guard) => phys_guard.get_velocity().length() > 5.0,
+                Err(poisoned) => poisoned.into_inner().get_velocity().length() > 5.0,
+            };
+        if !already_fast_infantry {
+            match physics.lock() {
+                Ok(mut phys_guard) => phys_guard.add_velocity_to(&delta_vel),
+                Err(poisoned) => poisoned.into_inner().add_velocity_to(&delta_vel),
             }
-            let _ = other.set_position(&heft);
+        }
 
-            let mut delta_vel = delta;
-            delta_vel.z =
-                crate::helpers::get_game_logic_random_value_real(0.05, self.pull_info.speed / 10.0);
-            delta_vel *= dot;
-
-            if !(victim_is_infantry
-                && physics
-                    .lock()
-                    .ok()
-                    .map(|p| p.get_velocity().length())
-                    .unwrap_or(0.0)
-                    > 5.0)
-            {
-                if let Ok(mut phys_guard) = physics.lock() {
-                    phys_guard.add_velocity_to(&delta_vel);
-                }
-            }
-
-            if let Ok(mut phys_guard) = physics.lock() {
+        match physics.lock() {
+            Ok(mut phys_guard) => {
                 phys_guard.set_allow_to_fall(true);
                 phys_guard.set_allow_bouncing(true);
                 phys_guard.set_allow_airborne_friction(true);
-
                 let cross = my_dir.cross(Coord3D::new(0.0, 0.0, 1.0));
-                let delta_norm = delta.normalize();
+                let delta_norm = delta_vel.normalize();
                 let deviation_cog =
                     cross.x * delta_norm.x + cross.y * delta_norm.y + cross.z * delta_norm.z;
                 if dot > 0.0 {
                     phys_guard.set_yaw_rate(deviation_cog * -0.06 * self.pull_info.speed);
+                }
+            }
+            Err(poisoned) => {
+                let mut phys_guard = poisoned.into_inner();
+                phys_guard.set_allow_to_fall(true);
+                phys_guard.set_allow_bouncing(true);
+                phys_guard.set_allow_airborne_friction(true);
+                let cross = my_dir.cross(Coord3D::new(0.0, 0.0, 1.0));
+                let delta_norm = delta_vel.normalize();
+                let deviation_cog =
+                    cross.x * delta_norm.x + cross.y * delta_norm.y + cross.z * delta_norm.z;
+                if dot > 0.0 {
+                    phys_guard.set_yaw_rate(deviation_cog * -0.06 * self.pull_info.speed);
+                }
+            }
+        }
+    }
+}
+impl Drop for RailroadBehavior {
+    fn drop(&mut self) {
+        if let Some(audio) = TheAudio::get() {
+            audio.remove_audio_event(self.running_sound.get_playing_handle());
+        }
+        if let Some(track) = self.track.take() {
+            match track.lock() {
+                Ok(mut guard) => {
+                    let _ = guard.release_reference();
+                }
+                Err(poisoned) => {
+                    let _ = poisoned.into_inner().release_reference();
                 }
             }
         }
@@ -1841,45 +1957,54 @@ impl UpdateModuleInterface for RailroadBehavior {
             }
 
             if let Some(track_arc) = self.track.clone() {
-                if let Ok(track_guard) = track_arc.lock() {
-                    self.conductor_pull_info.track_distance += self.conductor_pull_info.speed;
-                    if track_guard.is_looping {
-                        while self.conductor_pull_info.track_distance > track_guard.length {
-                            self.conductor_pull_info.track_distance -= track_guard.length;
-                        }
-                        while self.conductor_pull_info.track_distance < 0.0 {
-                            self.conductor_pull_info.track_distance += track_guard.length;
-                        }
+                let (is_looping, length) = match track_arc.lock() {
+                    Ok(track_guard) => (track_guard.is_looping, track_guard.length),
+                    Err(poisoned) => {
+                        let track_guard = poisoned.into_inner();
+                        (track_guard.is_looping, track_guard.length)
                     }
-
-                    let mut tow_hitch = self.conductor_pull_info.tow_hitch_position;
-                    self.find_pos_by_path_distance(
-                        &mut tow_hitch,
-                        self.conductor_pull_info.track_distance,
-                        track_guard.length,
-                        false,
-                    );
-                    self.conductor_pull_info.tow_hitch_position = tow_hitch;
-
-                    let conductor_info = self.conductor_pull_info.clone();
-                    let mut next_pull = self.pull_info.clone();
-                    self.update_position_track_distance(&conductor_info, &mut next_pull);
-                    self.pull_info = next_pull;
+                };
+                self.conductor_pull_info.track_distance += self.conductor_pull_info.speed;
+                if is_looping {
+                    while self.conductor_pull_info.track_distance > length {
+                        self.conductor_pull_info.track_distance -= length;
+                    }
+                    while self.conductor_pull_info.track_distance < 0.0 {
+                        self.conductor_pull_info.track_distance += length;
+                    }
                 }
+
+                let mut tow_hitch = self.conductor_pull_info.tow_hitch_position;
+                self.find_pos_by_path_distance(
+                    &mut tow_hitch,
+                    self.conductor_pull_info.track_distance,
+                    length,
+                    false,
+                );
+                self.conductor_pull_info.tow_hitch_position = tow_hitch;
+
+                let conductor_info = self.conductor_pull_info.clone();
+                let mut next_pull = self.pull_info.clone();
+                self.update_position_track_distance(&conductor_info, &mut next_pull);
+                self.pull_info = next_pull;
             }
 
             if self.trailer_id != INVALID_ID {
                 if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                    if let Ok(trailer_guard) = trailer.read() {
-                        if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                            module.with_module(|module| {
-                                if let Some(train) = module.get_train_control_interface() {
-                                    let mut pull_info = self.pull_info.to_train_pull_info();
-                                    train.get_pulled(&mut pull_info);
-                                    self.pull_info.copy_from_train_pull_info(pull_info);
-                                }
-                            });
-                        }
+                    let module = trailer
+                        .read()
+                        .ok()
+                        .and_then(|trailer_guard| {
+                            trailer_guard.find_update_module("RailroadBehavior")
+                        });
+                    if let Some(module) = module {
+                        module.with_module(|module| {
+                            if let Some(train) = module.get_train_control_interface() {
+                                let mut pull_info = self.pull_info.to_train_pull_info();
+                                train.get_pulled(&mut pull_info);
+                                self.pull_info.copy_from_train_pull_info(pull_info);
+                            }
+                        });
                     }
                 }
             } else {
@@ -1893,11 +2018,13 @@ impl UpdateModuleInterface for RailroadBehavior {
         }
 
         let waiting = self.waiting_in_wings || self.end_of_line;
-        let hide_non_looping = self
-            .track
-            .as_ref()
-            .and_then(|track| track.lock().ok().map(|g| !g.is_looping))
-            .unwrap_or(false);
+        let hide_non_looping = self.track.as_ref().is_some_and(|track| {
+            let looping = match track.lock() {
+                Ok(track_guard) => track_guard.is_looping,
+                Err(poisoned) => poisoned.into_inner().is_looping,
+            };
+            !looping
+        });
         let _ = self.with_object_mut(|obj_guard| {
             if let Some(drawable) = obj_guard.get_drawable() {
                 if let Ok(mut draw_guard) = drawable.write() {
@@ -1938,9 +2065,12 @@ impl BehaviorModuleInterface for RailroadBehavior {
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let physics: Arc<Mutex<dyn PhysicsBehavior>> = self.physics_handle.clone();
-        let _ = self.with_object_mut(|obj_guard| {
-            obj_guard.set_physics(Some(physics));
-        });
+        // Already inside Object's write guard during install. Do not lock again.
+        if let Some(obj_arc) = self.get_object() {
+            if let Ok(mut obj_guard) = obj_arc.try_write() {
+                obj_guard.set_physics(Some(physics));
+            }
+        }
         Ok(())
     }
 
@@ -1980,20 +2110,18 @@ impl CollideModuleInterface for RailroadBehavior {
 }
 
 impl Snapshotable for RailroadBehavior {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
-        let mut version: u32 = 3;
-        xfer_io(xfer.xfer_u32(&mut version))?;
+        let mut version: u8 = 3;
+        xfer_io(xfer.xfer_version(&mut version, 3))?;
         if version >= 2 {
-            if let Ok(mut phys_guard) = self.physics_handle.lock() {
-                phys_guard.xfer(xfer)?;
+            match self.physics_handle.lock() {
+                Ok(mut phys_guard) => phys_guard.xfer(xfer)?,
+                Err(poisoned) => poisoned.into_inner().xfer(xfer)?,
             }
 
             let mut next_station_task = self.next_station_task as i32;
@@ -2054,9 +2182,6 @@ impl Snapshotable for RailroadBehavior {
         self.running_sound = self.module_data.running_sound.clone();
         self.clickety_clack_sound = self.module_data.clickety_clack_sound.clone();
         self.whistle_sound = self.module_data.whistle_sound.clone();
-        if let Ok(mut phys_guard) = self.physics_handle.lock() {
-            phys_guard.set_mass(self.module_data.base.mass);
-        }
         let obj_id = self.object_id;
         if obj_id != INVALID_ID {
             self.running_sound.set_object_id(obj_id);

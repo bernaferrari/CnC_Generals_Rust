@@ -684,11 +684,10 @@ impl AutoHealPlayerScanHelper {
                 if let Some(healer_id) = self.the_healer {
                     let test_player = test_obj_read.get_controlling_player_id();
                     let healer_player = OBJECT_REGISTRY
-                        .with_object(healer_id, |healer| healer.get_controlling_player_id());
-                    if let (Some(tp), Some(Some(hp))) = (test_player, healer_player) {
-                        if tp != hp {
-                            return Ok(false);
-                        }
+                        .with_object(healer_id, |healer| healer.get_controlling_player_id())
+                        .flatten();
+                    if test_player != healer_player {
+                        return Ok(false);
                     }
 
                     if self.skip_self_for_healing && healer_id == test_obj_id {
@@ -795,7 +794,8 @@ impl AutoHealBehavior {
             behavior.give_self_upgrade();
             let delay = behavior.module_data.healing_delay;
             if delay > 0 {
-                let random_delay = GameLogicRandomValue(1, delay as Int) as UnsignedInt;
+                let high = i32::try_from(delay).unwrap_or(i32::MAX);
+                let random_delay = GameLogicRandomValue(1, high) as UnsignedInt;
                 behavior.set_wake_frame(update_sleep_time(random_delay));
             } else {
                 behavior.set_wake_frame(UPDATE_SLEEP_NONE);
@@ -893,28 +893,20 @@ impl AutoHealBehavior {
             .unwrap_or(crate::common::INVALID_ID);
         let healer_id = self.owner_object_id();
 
-        // Prefer nested ID resolves; fall back to Arc healer only when target != healer.
-        if target_id != crate::common::INVALID_ID && target_id != healer_id {
+        // Heal by id so the target write does not lock the healer.
+        if target_id != crate::common::INVALID_ID {
             let _ =
                 crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |obj_write| {
-                    crate::object::registry::OBJECT_REGISTRY.with_object(healer_id, |healer| {
-                        if data.radius == 0.0 {
-                            let _ = obj_write.attempt_healing(amount, Some(healer));
-                        } else {
-                            let _ = obj_write.attempt_healing_from_sole_benefactor(
-                                amount,
-                                Some(healer),
-                                delay,
-                            );
-                        }
-                    })
+                    if data.radius == 0.0 {
+                        let _ = obj_write.attempt_healing_from_source_id(amount, healer_id);
+                    } else {
+                        let _ = obj_write.attempt_healing_from_sole_benefactor_id(
+                            amount,
+                            healer_id,
+                            delay,
+                        );
+                    }
                 });
-        } else if let Ok(mut obj_write) = obj.write() {
-            if data.radius == 0.0 {
-                obj_write.attempt_healing(amount, None)?;
-            } else {
-                obj_write.attempt_healing_from_sole_benefactor(amount, None, delay)?;
-            }
         }
 
         // Create heal pulse particle effect
@@ -930,10 +922,9 @@ impl AutoHealBehavior {
             }
         }
 
-        // Update soonest heal frame
-        if let Ok(current_frame) = self.get_current_frame() {
-            self.soonest_heal_frame = current_frame + data.healing_delay;
-        }
+        // C++ always stamps m_soonestHealFrame from TheGameLogic frame.
+        self.soonest_heal_frame =
+            crate::helpers::TheGameLogic::get_frame().saturating_add(data.healing_delay);
 
         Ok(())
     }
@@ -1003,7 +994,21 @@ impl AutoHealBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return;
         }
-        TheGameLogic::set_wake_frame(self.object_id, sleep_time);
+        let now = TheGameLogic::get_frame();
+        let wake_frame = match sleep_time {
+            UpdateSleepTime::None => now.saturating_add(1),
+            UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+            UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+        };
+        let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
+            return;
+        };
+        let Ok(object) = object_arc.read() else {
+            return;
+        };
+        object.reschedule_named_update("AutoHealBehavior", wake_frame);
     }
 
     /// Last `setWakeFrame` requested by ctor / onDamage / update.
@@ -1062,13 +1067,8 @@ impl DamageModuleInterface for AutoHealBehavior {
             // If we have a start healing delay, getting damaged resets our healing process
             if data.start_healing_delay > 0 {
                 self.set_wake_frame(update_sleep_time(data.start_healing_delay));
-            } else {
-                // Check if we can wake up immediately
-                if let Ok(current_frame) = self.get_current_frame() {
-                    if current_frame > self.soonest_heal_frame {
-                        self.set_wake_frame(UPDATE_SLEEP_NONE);
-                    }
-                }
+            } else if crate::helpers::TheGameLogic::get_frame() > self.soonest_heal_frame {
+                self.set_wake_frame(UPDATE_SLEEP_NONE);
             }
         }
 
@@ -1177,28 +1177,28 @@ impl AutoHealBehavior {
             return Ok(UPDATE_SLEEP_FOREVER);
         };
 
-        if let Some(player) = controlling_player {
-            let mut helper = AutoHealPlayerScanHelper::new();
-            helper.kind_of_to_test = kind_of_to_test;
-            helper.forbidden_kind_of = forbidden_kind_of;
-            helper.the_healer = Some(healer_id);
-            helper.skip_self_for_healing = skip_self;
+        let Some(player) = controlling_player else {
+            return Ok(UPDATE_SLEEP_FOREVER);
+        };
+        let mut helper = AutoHealPlayerScanHelper::new();
+        helper.kind_of_to_test = kind_of_to_test;
+        helper.forbidden_kind_of = forbidden_kind_of;
+        helper.the_healer = Some(healer_id);
+        helper.skip_self_for_healing = skip_self;
 
-            player
-                .read()
-                .map_err(|e| format!("auto-heal player lock poisoned: {}", e))?
-                .iterate_object_ids(|candidate_id| {
-                    helper
-                        .check_for_auto_heal(candidate_id)
-                        .map_err(|e| crate::common::GameError::ModuleError(e.to_string()))?;
-                    Ok(())
-                })
-                .map_err(|e| format!("auto-heal iterate_objects failed: {:?}", e))?;
+        player
+            .read()
+            .map_err(|e| format!("auto-heal player lock poisoned: {}", e))?
+            .iterate_object_ids(|candidate_id| {
+                helper
+                    .check_for_auto_heal(candidate_id)
+                    .map_err(|e| crate::common::GameError::ModuleError(e.to_string()))?;
+                Ok(())
+            })
+            .map_err(|e| format!("auto-heal iterate_objects failed: {:?}", e))?;
 
-            // Heal all qualifying objects
-            for heal_id in helper.object_list {
-                self.pulse_heal_object_id(heal_id)?;
-            }
+        for heal_id in helper.object_list {
+            self.pulse_heal_object_id(heal_id)?;
         }
 
         Ok(update_sleep_time(healing_delay))
@@ -1240,9 +1240,13 @@ impl AutoHealBehavior {
         &mut self,
     ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         let data = &self.module_data;
-        let Some((position, healer_team)) =
-            self.with_object(|obj_read| (*obj_read.get_position(), obj_read.get_team()))
-        else {
+        let Some((position, healer_team, healer_off_map)) = self.with_object(|obj_read| {
+            (
+                *obj_read.get_position(),
+                obj_read.get_team(),
+                obj_read.is_off_map(),
+            )
+        }) else {
             return Ok(UPDATE_SLEEP_FOREVER);
         };
 
@@ -1276,7 +1280,9 @@ impl AutoHealBehavior {
                 let Ok(candidate_read) = candidate.read() else {
                     continue;
                 };
-                if candidate_read.is_effectively_dead() || candidate_read.is_off_map() {
+                if candidate_read.is_effectively_dead()
+                    || candidate_read.is_off_map() != healer_off_map
+                {
                     continue;
                 }
 
@@ -1402,30 +1408,12 @@ impl BehaviorModuleInterface for AutoHealBehavior {
 
 impl Snapshotable for AutoHealBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("AutoHealBehavior version xfer failed: {:?}", e))?;
-
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
-            .map_err(|e| format!("AutoHealBehavior update module base state: {}", e))?;
-
         let mut upgrade_mux_version: XferVersion = 1;
         xfer.xfer_version(&mut upgrade_mux_version, 1)
             .map_err(|e| format!("AutoHealBehavior upgrade mux version: {:?}", e))?;
         let mut upgrade_executed = self.upgrade_executed;
         xfer.xfer_bool(&mut upgrade_executed)
             .map_err(|e| e.to_string())?;
-
-        let mut radius_particle_system_id = self.radius_particle_system_id;
-        xfer.xfer_unsigned_int(&mut radius_particle_system_id)
-            .map_err(|e| e.to_string())?;
-        let mut soonest_heal_frame = self.soonest_heal_frame;
-        xfer.xfer_unsigned_int(&mut soonest_heal_frame)
-            .map_err(|e| e.to_string())?;
-        let mut stopped = self.stopped;
-        xfer.xfer_bool(&mut stopped).map_err(|e| e.to_string())?;
-
         Ok(())
     }
 

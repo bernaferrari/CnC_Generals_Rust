@@ -84,7 +84,10 @@ impl TunnelTracker {
     /// Update the current nemesis (enemy unit being targeted).
     /// Matches C++ TunnelTracker::updateNemesis (TunnelTracker.cpp:87-100)
     pub fn update_nemesis(&mut self, target: Option<&Object>) -> GameResult<()> {
-        let current_frame = get_current_frame()?;
+        let Ok(current_frame) = get_current_frame() else {
+            log::warn!("TunnelTracker::updateNemesis frame unavailable");
+            return Ok(());
+        };
 
         if self.get_cur_nemesis_id()?.is_none() {
             if let Some(target_ref) = target {
@@ -117,7 +120,9 @@ impl TunnelTracker {
             return Ok(None);
         }
 
-        let current_frame = get_current_frame()?;
+        let Ok(current_frame) = get_current_frame() else {
+            return Ok(Some(self.cur_nemesis_id));
+        };
         const LOGICFRAMES_PER_SECOND: u32 = 30; // Standard game logic update rate
 
         // Nemesis expires after 4 seconds (matches C++ line 108)
@@ -127,8 +132,17 @@ impl TunnelTracker {
         }
 
         // Find the target object
-        if let Some(target) = find_object_by_id(self.cur_nemesis_id)? {
-            let target_read = target.read().map_err(|_| "Target lock poisoned")?;
+        let target = match find_object_by_id(self.cur_nemesis_id) {
+            Ok(target) => target,
+            Err(err) => {
+                log::warn!("TunnelTracker::getCurNemesis lookup failed: {}", err);
+                return Ok(Some(self.cur_nemesis_id));
+            }
+        };
+        if let Some(target) = target {
+            let Ok(target_read) = target.try_read() else {
+                return Ok(Some(self.cur_nemesis_id));
+            };
 
             // If the enemy unit is stealthed and not detected, can't attack it
             if target_read.test_status(ObjectStatusTypes::Stealthed)
@@ -297,7 +311,9 @@ impl TunnelTracker {
     pub fn heal_objects(&mut self, frames: f32) -> GameResult<()> {
         let ids = self.contained_ids.clone();
         for object_id in ids {
-            self.heal_object(object_id, frames)?;
+            if let Err(err) = self.heal_object(object_id, frames) {
+                log::warn!("TunnelTracker::healObjects skipped {}: {}", object_id, err);
+            }
         }
         Ok(())
     }
@@ -305,53 +321,58 @@ impl TunnelTracker {
     /// Heal one object within the tunnel network.
     /// Matches C++ TunnelTracker::healObject (TunnelTracker.cpp:231-271)
     fn heal_object(&self, object_id: ObjectID, frames_for_full_heal: f32) -> GameResult<()> {
-        let Some(obj) = find_object_by_id(object_id)? else {
+        let Some(obj) = (match find_object_by_id(object_id) {
+            Ok(obj) => obj,
+            Err(err) => {
+                log::warn!("TunnelTracker::healObject lookup {}: {}", object_id, err);
+                return Ok(());
+            }
+        }) else {
             return Ok(());
         };
 
-        let obj_read = obj.read().map_err(|_| "Object lock poisoned")?;
-
+        let Ok(obj_read) = obj.try_read() else {
+            return Ok(());
+        };
         let body_module = match obj_read.get_body_module() {
             Some(body) => body,
-            None => return Ok(()), // No body module, nothing to heal
+            None => return Ok(()),
         };
-
-        // C++ line 248: TheGameLogic->getFrame() - obj->getContainedByFrame()
-        let current_frame = get_current_frame()?;
+        let Ok(current_frame) = get_current_frame() else {
+            log::warn!("TunnelTracker::healObject frame unavailable for {}", object_id);
+            return Ok(());
+        };
         let contained_by_frame = obj_read.get_contained_by_frame();
         let frames_contained = current_frame.saturating_sub(contained_by_frame);
-
-        let body_guard = body_module
-            .lock()
-            .map_err(|_| "Body module lock poisoned")?;
+        let Ok(body_guard) = body_module.try_lock() else {
+            return Ok(());
+        };
         let max_health = body_guard.get_max_health();
         drop(body_guard);
         drop(obj_read);
 
-        // Prepare healing damage info
         let mut heal_info = DamageInfo::new();
         heal_info.input.damage_type = crate::damage::DamageType::Healing;
         heal_info.input.death_type = crate::damage::DeathType::None;
-
         if frames_contained as f32 >= frames_for_full_heal {
-            // Been in long enough - set to max health (matches C++ lines 248-256)
             heal_info.input.amount = max_health;
         } else {
-            // Gradual healing based on time contained (matches C++ lines 258-269)
             heal_info.input.amount = max_health / frames_for_full_heal;
         }
         heal_info.sync_from_input();
 
-        // Apply healing
-        if let Some(body_module) = obj
-            .read()
-            .map_err(|_| "Object lock poisoned")?
-            .get_body_module()
-        {
-            let mut body_guard = body_module
-                .lock()
-                .map_err(|_| "Body module lock poisoned")?;
-            body_guard.attempt_healing(&mut heal_info)?;
+        let Ok(obj_read) = obj.try_read() else {
+            return Ok(());
+        };
+        let Some(body_module) = obj_read.get_body_module() else {
+            return Ok(());
+        };
+        drop(obj_read);
+        let Ok(mut body_guard) = body_module.try_lock() else {
+            return Ok(());
+        };
+        if let Err(err) = body_guard.attempt_healing(&mut heal_info) {
+            log::warn!("TunnelTracker::healObject heal {}: {}", object_id, err);
         }
 
         Ok(())

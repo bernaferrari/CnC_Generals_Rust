@@ -960,7 +960,9 @@ impl GameLogic {
         if let Some(obj) = self.objects.get_mut(&hacker_id) {
             obj.set_status_moving(false);
             obj.stop_moving();
-            obj.set_ai_state(AIState::Idle);
+            if obj.ai_state != AIState::Idle {
+                obj.set_ai_state(AIState::Idle);
+            }
         }
         self.leftover_sa_set_pack_model(hacker_id, true, false, false);
         self.queue_resolved_per_unit_sound(

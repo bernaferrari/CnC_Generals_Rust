@@ -125,6 +125,7 @@ pub struct DecalVertex {
 
 const SHADOW_DECAL_TYPE: u32 = 0x0000_0001;
 const SHADOW_ADDITIVE_DECAL_TYPE: u32 = 0x0000_0040;
+const SHADOW_PROJECTION_TYPE: u32 = 0x0000_0004;
 const DECAL_DRAPE_GRID: usize = 4;
 const DECAL_HEIGHT_LIFT: f32 = 0.15;
 
@@ -206,22 +207,22 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
                 DecalVertex {
                     position: world[0],
                     color,
-                    uv: [corners[0].0, corners[0].1],
+                    uv: [corners[0].0 + decal.uv_offset[0], corners[0].1 + decal.uv_offset[1]],
                 },
                 DecalVertex {
                     position: world[1],
                     color,
-                    uv: [corners[1].0, corners[1].1],
+                    uv: [corners[1].0 + decal.uv_offset[0], corners[1].1 + decal.uv_offset[1]],
                 },
                 DecalVertex {
                     position: world[2],
                     color,
-                    uv: [corners[2].0, corners[2].1],
+                    uv: [corners[2].0 + decal.uv_offset[0], corners[2].1 + decal.uv_offset[1]],
                 },
                 DecalVertex {
                     position: world[3],
                     color,
-                    uv: [corners[3].0, corners[3].1],
+                    uv: [corners[3].0 + decal.uv_offset[0], corners[3].1 + decal.uv_offset[1]],
                 },
             ];
             vertices
@@ -1239,7 +1240,7 @@ impl ParticleRenderer {
         // Create default white texture
         let default_texture = Self::create_default_texture(&device, &queue);
         let default_bind_group =
-            Self::create_texture_bind_group(&device, &texture_bind_group_layout, &default_texture);
+            Self::create_texture_bind_group(&device, &texture_bind_group_layout, &default_texture, false);
         let heat_haze_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Heat Haze Scene Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -1717,10 +1718,18 @@ impl ParticleRenderer {
             if verts.is_empty() {
                 continue;
             }
-            if !decal.texture_name.is_empty() {
-                self.ensure_authored_texture_loaded(&decal.texture_name);
+            let texture_name = if decal.texture_name.is_empty()
+                || decal.texture_name.contains('.')
+                || decal.shadow_type == SHADOW_PROJECTION_TYPE
+            {
+                decal.texture_name.clone()
+            } else {
+                format!("{}.tga", decal.texture_name)
+            };
+            if !texture_name.is_empty() {
+                self.ensure_clamped_decal_texture(&texture_name);
             }
-            let key = (decal.texture_name.clone(), decal.shadow_type);
+            let key = (texture_name, decal.shadow_type);
             if let Some((_, _, existing)) = groups
                 .iter_mut()
                 .find(|(tex, kind, _)| tex == &key.0 && *kind == key.1)
@@ -1868,7 +1877,7 @@ impl ParticleRenderer {
         }
 
         let image = image::load_from_memory(texture_data)?;
-        self.load_texture_image(name, &image)
+        self.load_texture_image(name, &image, false)
     }
 
     /// Upload an already decoded texture.  The engine filesystem resolver
@@ -1878,6 +1887,7 @@ impl ParticleRenderer {
         &mut self,
         name: &str,
         image: &DynamicImage,
+        clamp: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let rgba = image.to_rgba8();
         let (width, height) = image.dimensions();
@@ -1921,6 +1931,7 @@ impl ParticleRenderer {
             &self.device,
             &self.texture_bind_group_layout,
             &texture,
+            clamp,
         );
 
         self.texture_atlas.insert(name.to_string(), texture);
@@ -1950,13 +1961,35 @@ impl ParticleRenderer {
 
         match crate::display::image::load_image_from_engine_filesystem(name) {
             Ok(image) => {
-                if let Err(error) = self.load_texture_image(name, &image) {
+                if let Err(error) = self.load_texture_image(name, &image, false) {
                     log::warn!("failed to upload particle texture {name}: {error}");
                     self.unavailable_textures.insert(name.to_string());
                 }
             }
             Err(error) => {
                 log::debug!("particle texture {name} is unavailable: {error}");
+                self.unavailable_textures.insert(name.to_string());
+            }
+        }
+    }
+
+    /// C++ decal textures use clamp and no mip filtering.
+    fn ensure_clamped_decal_texture(&mut self, name: &str) {
+        if name == "default"
+            || self.texture_bind_groups.contains_key(name)
+            || self.unavailable_textures.contains(name)
+        {
+            return;
+        }
+        match crate::display::image::load_image_from_engine_filesystem(name) {
+            Ok(image) => {
+                if let Err(error) = self.load_texture_image(name, &image, true) {
+                    log::warn!("failed to upload decal texture {name}: {error}");
+                    self.unavailable_textures.insert(name.to_string());
+                }
+            }
+            Err(error) => {
+                log::debug!("decal texture {name} is unavailable: {error}");
                 self.unavailable_textures.insert(name.to_string());
             }
         }
@@ -2026,16 +2059,30 @@ impl ParticleRenderer {
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         texture: &wgpu::Texture,
+        clamp: bool,
     ) -> wgpu::BindGroup {
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let address = if clamp {
+            wgpu::AddressMode::ClampToEdge
+        } else {
+            wgpu::AddressMode::Repeat
+        };
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Particle Texture Sampler"),
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
+            label: Some(if clamp {
+                "Decal Texture Sampler"
+            } else {
+                "Particle Texture Sampler"
+            }),
+            address_mode_u: address,
+            address_mode_v: address,
+            address_mode_w: address,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            mipmap_filter: if clamp {
+                wgpu::MipmapFilterMode::Nearest
+            } else {
+                wgpu::MipmapFilterMode::Linear
+            },
             ..Default::default()
         });
 

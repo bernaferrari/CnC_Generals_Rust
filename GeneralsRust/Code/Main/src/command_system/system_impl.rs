@@ -981,14 +981,34 @@ impl CommandSystem {
                 // Wave 232 residual path has no authored facing.
                 0.0,
             );
-            if created.is_none() {
+            let Some(created_id) = created else {
                 game_logic.player_refund_supplies(player_id, build_cost.supplies);
                 return CommandResult::InvalidCommand;
-            }
+            };
 
+            let under_construction = game_logic
+                .host_object(created_id)
+                .is_some_and(|st| st.is_alive() && st.status.under_construction);
+            if under_construction {
+                if let Some(dozer) = game_logic.host_object_mut(unit_id) {
+                    dozer.target = Some(created_id);
+                    dozer.target_location = None;
+                    dozer.record_host_target_location();
+                    dozer.set_status_force_attack(false);
+                    dozer.set_status_attacking(false);
+                }
+            }
             // Wave 232: dozer construct last-writes via GameLogic authority API.
             if !game_logic.unit_command_begin_construct(unit_id, location) {
                 game_logic.player_refund_supplies(player_id, build_cost.supplies);
+                game_logic.destroy_object(created_id);
+                if let Some(dozer) = game_logic.host_object_mut(unit_id) {
+                    if dozer.target == Some(created_id) {
+                        dozer.target = None;
+                        dozer.target_location = None;
+                        dozer.record_host_target_location();
+                    }
+                }
                 return CommandResult::InvalidCommand;
             }
 

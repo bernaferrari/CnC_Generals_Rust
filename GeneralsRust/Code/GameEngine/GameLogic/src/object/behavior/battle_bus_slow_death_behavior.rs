@@ -789,7 +789,17 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
                 self.damage_passengers(data.percent_damage_to_passengers)?;
             }
 
-            TheGameLogic::set_wake_frame(self.object_id, UpdateSleepTime::None);
+            let now = TheGameLogic::get_frame();
+            if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            {
+                if let Ok(guard) = object.read() {
+                    guard.reschedule_named_update(
+                        "BattleBusSlowDeathBehavior",
+                        now.saturating_add(1),
+                    );
+                }
+            }
         } else {
             // C++ lines 159-163: If a real death, delegate to base SlowDeathBehavior
             self.is_in_first_death = false;

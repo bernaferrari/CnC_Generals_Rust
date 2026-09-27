@@ -11,7 +11,6 @@ pub struct Unit {
 
     /// Movement and pathfinding
     pub(super) locomotor_set: LocomotorSet,
-    pub(super) current_locomotor: Option<Arc<Mutex<Locomotor>>>,
     pub(super) movement_state: MovementState,
     pub(super) target_position: Option<Coord3D>,
     pub(super) waypoint_queue: Vec<Waypoint>,
@@ -105,7 +104,6 @@ impl Unit {
         thing_template: &dyn ThingTemplate,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let locomotor_set = LocomotorSet::new();
-        let current_locomotor = locomotor_set.get_default_locomotor();
 
         Ok(Unit {
             object_id: {
@@ -121,7 +119,6 @@ impl Unit {
                 id
             },
             locomotor_set,
-            current_locomotor,
             movement_state: MovementState::Idle,
             target_position: None,
             waypoint_queue: Vec::new(),

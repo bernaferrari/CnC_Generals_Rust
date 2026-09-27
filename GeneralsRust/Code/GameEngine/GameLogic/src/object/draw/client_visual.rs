@@ -18,6 +18,9 @@ pub struct TerrainDecalDesc {
     pub size_x: Real,
     pub size_y: Real,
     pub opacity: Real,
+    /// Template `ShadowOffsetX/Y`. Scaled to UV in `addDecal`, not a world move.
+    pub offset_x: Real,
+    pub offset_y: Real,
     pub position: Coord3D,
     pub angle: Real,
     pub hidden: bool,
@@ -25,6 +28,8 @@ pub struct TerrainDecalDesc {
     pub shadow_enabled: bool,
     /// C++ `allocateShadows` / `addShadow` blob, not `setTerrainDecal` addDecal.
     pub is_unit_blob: bool,
+    /// Template `getShadowType()` for `addShadow` only. Terrain decals stay alpha.
+    pub shadow_type: u32,
 }
 
 /// GameClient implementation of projected terrain decals.
@@ -36,6 +41,11 @@ pub trait TerrainDecalClient: Send + Sync {
     fn set_shrouded(&self, object_id: ObjectID, shrouded: bool);
     fn set_shadow_enabled(&self, object_id: ObjectID, enabled: bool);
     fn release(&self, object_id: ObjectID);
+    /// C++ `allocateShadows` → `addShadow`. Separate from `m_terrainDecal`.
+    fn add_unit_shadow(&self, _desc: &TerrainDecalDesc) {}
+    fn release_unit_shadow(&self, _object_id: ObjectID) {}
+    /// C++ `m_shadow->enableShadowRender`. Does not touch `m_terrainDecal`.
+    fn set_blob_render(&self, _object_id: ObjectID, _enabled: bool) {}
 }
 
 /// GameClient implementation of `TheTerrainTracksRenderObjClassSystem`.
@@ -50,7 +60,9 @@ pub trait TerrainTrackClient: Send + Sync {
 /// C++ `TerrainDecalTextureName` table in W3DModelDraw.cpp.
 pub fn terrain_decal_texture_name(decal_type: TerrainDecalType) -> &'static str {
     match decal_type {
-        TerrainDecalType::Demoralized => "DM_RING",
+        // `ALLOW_DEMORALIZE` is not defined in this build, so slot 0 is the
+        // obsolete placeholder, not `DM_RING`.
+        TerrainDecalType::Demoralized => "TERRAIN_DECAL_DEMORALIZED_OBSOLETE",
         TerrainDecalType::Horde => "EXHorde",
         TerrainDecalType::HordeWithNationalismUpgrade => "EXHorde_UP",
         TerrainDecalType::HordeVehicle => "EXHordeB",

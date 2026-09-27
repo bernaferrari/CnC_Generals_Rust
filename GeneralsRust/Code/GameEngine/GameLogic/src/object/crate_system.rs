@@ -48,7 +48,7 @@ pub struct CrateDieEval<'a> {
     /// Dying object's veterancy (`getVeterancyLevel`).
     pub victim_veterancy: VeterancyLevel,
     /// Killer template KindOf mask; `None` if there is no killer.
-    pub killer_kindof: Option<u64>,
+    pub killer_kindof: Option<u128>,
     /// Direct `Player::hasScience` result when ScienceType resolved.
     pub killer_has_science: bool,
     /// Killer player science names (host residual / unresolved ScienceStore).
@@ -95,8 +95,8 @@ pub struct CrateTemplate {
     pub veterancy_level: Option<VeterancyLevel>,
 
     /// Must be killed by something with all these bits set.
-    /// Matches C++ `m_killedByTypeKindof` (KindOfMaskType = u64)
-    pub killed_by_type_kindof: u64,
+    /// Matches C++ `m_killedByTypeKindof` (`KindOfMaskType`, wider than 64 bits).
+    pub killed_by_type_kindof: u128,
 
     /// Must be killed by something possessing this science.
     /// Matches C++ `m_killerScience`
@@ -204,7 +204,7 @@ impl CrateTemplate {
     ///
     /// `isKindOfMulti(killedBy, KINDOFMASK_NONE)` — killer must have every bit
     /// in `m_killedByTypeKindof`. Missing killer fails the gate.
-    pub fn test_killer_type(&self, killer_kindof: Option<u64>) -> bool {
+    pub fn test_killer_type(&self, killer_kindof: Option<u128>) -> bool {
         if self.killed_by_type_kindof == 0 {
             return true;
         }
@@ -250,7 +250,7 @@ impl CrateTemplate {
         &self,
         chance_roll: f32,
         victim_veterancy: VeterancyLevel,
-        killer_kindof: Option<u64>,
+        killer_kindof: Option<u128>,
         killer_has_science: bool,
     ) -> bool {
         if !self.test_creation_chance(chance_roll) {
@@ -663,14 +663,14 @@ pub fn veterancy_level_from_ini_name(name: &str) -> VeterancyLevel {
 }
 
 /// Public C++ `KindOfMaskType::parseFromINI` for host CreateCrateDie.
-pub fn killed_by_type_mask_from_ini(token: &str) -> u64 {
+pub fn killed_by_type_mask_from_ini(token: &str) -> u128 {
     parse_kind_of_mask(token)
 }
 
 /// Parse a KindOf mask from a string token.
 /// C++ uses `KindOfMaskType::parseFromINI` which processes flag names into
 /// the engine bit layout. Hex masks are accepted for compatibility.
-fn parse_kind_of_mask(token: &str) -> u64 {
+fn parse_kind_of_mask(token: &str) -> u128 {
     let trimmed = token.trim();
     if trimmed.is_empty() {
         return 0;
@@ -680,17 +680,17 @@ fn parse_kind_of_mask(token: &str) -> u64 {
         .strip_prefix("0x")
         .or_else(|| trimmed.strip_prefix("0X"))
     {
-        return u64::from_str_radix(hex, 16).unwrap_or(0);
+        return u128::from_str_radix(hex, 16).unwrap_or(0);
     }
 
-    let mut mask = 0u64;
+    let mut mask = 0u128;
     for part in trimmed.split(|ch: char| ch.is_whitespace() || ch == '|') {
         let name = part.trim();
         if name.is_empty() {
             continue;
         }
         if let Some(index) = kind_of_bit_index_from_name(name) {
-            mask |= 1u64 << index;
+            mask |= 1u128 << index;
         }
     }
     mask
@@ -702,14 +702,14 @@ fn kind_of_bit_index_from_name(name: &str) -> Option<u32> {
         .iter()
         .position(|bit_name| *bit_name == upper.as_str())
     {
-        return (index < u64::BITS as usize).then_some(index as u32);
+        return (index < u128::BITS as usize).then_some(index as u32);
     }
 
     kindof_from_name(&upper).and_then(|kind| {
         kind_of_indices(kind)
             .iter()
             .copied()
-            .find(|index| *index < u64::BITS)
+            .find(|index| *index < u128::BITS)
     })
 }
 
@@ -770,20 +770,20 @@ mod tests {
 
     #[test]
     fn killed_by_type_kindof_parser_uses_cpp_bit_positions() {
-        assert_eq!(parse_kind_of_mask("INFANTRY"), 1u64 << 8);
-        assert_eq!(parse_kind_of_mask("VEHICLE"), 1u64 << 9);
-        assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u64 << 7);
-        assert_eq!(parse_kind_of_mask("DOZER"), 1u64 << 12);
-        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u64 << 55);
+        assert_eq!(parse_kind_of_mask("INFANTRY"), 1u128 << 8);
+        assert_eq!(parse_kind_of_mask("VEHICLE"), 1u128 << 9);
+        assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u128 << 7);
+        assert_eq!(parse_kind_of_mask("DOZER"), 1u128 << 12);
+        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u128 << 55);
     }
 
     #[test]
     fn killed_by_type_kindof_parser_accepts_multiple_names_and_hex() {
         assert_eq!(
             parse_kind_of_mask("INFANTRY VEHICLE|STRUCTURE"),
-            (1u64 << 8) | (1u64 << 9) | (1u64 << 7)
+            (1u128 << 8) | (1u128 << 9) | (1u128 << 7)
         );
-        assert_eq!(parse_kind_of_mask("0x180"), (1u64 << 8) | (1u64 << 7));
+        assert_eq!(parse_kind_of_mask("0x180"), (1u128 << 8) | (1u128 << 7));
     }
 
     #[test]
@@ -1016,7 +1016,7 @@ mod tests {
     #[test]
     fn salvage_killed_by_type_uses_salvager_bit() {
         // C++ KindOf.cpp s_bitNameList: SALVAGER is index 16 when ALLOW_SURRENDER is off.
-        assert_eq!(parse_kind_of_mask("SALVAGER"), 1u64 << 16);
+        assert_eq!(parse_kind_of_mask("SALVAGER"), 1u128 << 16);
     }
 
     #[test]
@@ -1028,14 +1028,14 @@ mod tests {
         salvage.add_possible_crate("SalvageCrate".into(), 1.0);
 
         assert!(!salvage.test_killer_type(None));
-        assert!(!salvage.test_killer_type(Some(1u64 << 8))); // INFANTRY only
-        assert!(salvage.test_killer_type(Some(1u64 << 16)));
+        assert!(!salvage.test_killer_type(Some(1u128 << 8))); // INFANTRY only
+        assert!(salvage.test_killer_type(Some(1u128 << 16)));
 
         let salvager_eval = CrateDieEval {
             chance_roll: 0.5,
             pick_roll: 0.0,
             victim_veterancy: VeterancyLevel::Regular,
-            killer_kindof: Some(1u64 << 16),
+            killer_kindof: Some(1u128 << 16),
             killer_has_science: false,
             killer_sciences: &[],
         };
@@ -1046,7 +1046,7 @@ mod tests {
         assert!(!pick.is_owned_by_maker);
 
         let infantry_eval = CrateDieEval {
-            killer_kindof: Some(1u64 << 8),
+            killer_kindof: Some(1u128 << 8),
             ..salvager_eval.clone()
         };
         assert!(
@@ -1143,7 +1143,7 @@ mod tests {
         let tmpl = system
             .find_crate_template("SalvageCrateData")
             .expect("imported");
-        assert_eq!(tmpl.killed_by_type_kindof, 1u64 << 16);
+        assert_eq!(tmpl.killed_by_type_kindof, 1u128 << 16);
         assert_eq!(tmpl.creation_chance, 1.0);
     }
 }

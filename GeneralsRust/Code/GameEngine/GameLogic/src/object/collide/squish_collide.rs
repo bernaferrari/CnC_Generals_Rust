@@ -405,7 +405,9 @@ fn collision_geometry_from_logic(info: &crate::common::GeometryInfo) -> Collisio
         EngineGeometryType::Cylinder => {
             CollisionGeometryInfo::new_cylinder(radius, dz, info.is_small)
         }
-        EngineGeometryType::Box => CollisionGeometryInfo::new_box(dx, dy, info.is_small),
+        EngineGeometryType::Box => {
+            CollisionGeometryInfo::new_box(dx, dy, info.is_small).with_z_height(dz)
+        }
     }
 }
 

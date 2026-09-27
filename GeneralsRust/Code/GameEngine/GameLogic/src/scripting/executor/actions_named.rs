@@ -776,11 +776,13 @@ impl ScriptActionDispatcher {
         let Ok(ai_guard) = ai_arc.lock() else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(loco_arc) = ai_guard.get_cur_locomotor() else {
+        let mut has_loco = false;
+        ai_guard.with_cur_locomotor(&mut |loco| {
+            has_loco = true;
+            loco.set_close_enough_dist(distance);
+        });
+        if !has_loco {
             return Ok(ScriptActionResult::Success);
-        };
-        if let Ok(mut loco_guard) = loco_arc.lock() {
-            loco_guard.set_close_enough_dist(distance);
         }
 
         Ok(ScriptActionResult::Success)
@@ -1898,9 +1900,53 @@ impl ScriptActionDispatcher {
             return false;
         };
         let mut initialized = false;
+        let placed = target_obj.read().ok().map(|obj| {
+            let geom = obj.get_geometry_info();
+            let mut local = crate::common::Coord3D::new(0.0, 0.0, 0.0);
+            if let Some((x, y)) = obj.get_template().random_offset_on_perimeter() {
+                local.x = x;
+                local.y = y;
+            } else if crate::common::types::geometry_type_to_u32(geom.geometry_type) == 2 {
+                let major = (geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5;
+                let minor = (geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5;
+                if crate::helpers::get_game_logic_random_value_real(0.0, 1.0) < 0.5 {
+                    local.x = crate::helpers::get_game_logic_random_value_real(-major, major);
+                    local.y = if crate::helpers::get_game_logic_random_value_real(0.0, 1.0) < 0.5 {
+                        -minor
+                    } else {
+                        minor
+                    };
+                } else {
+                    local.y = crate::helpers::get_game_logic_random_value_real(-minor, minor);
+                    local.x = if crate::helpers::get_game_logic_random_value_real(0.0, 1.0) < 0.5 {
+                        -major
+                    } else {
+                        major
+                    };
+                }
+            }
+            let angle = obj.get_orientation();
+            let (sin_a, cos_a) = angle.sin_cos();
+            let origin = *obj.get_position();
+            crate::common::Coord3D::new(
+                origin.x + local.x * cos_a - local.y * sin_a,
+                origin.y + local.x * sin_a + local.y * cos_a,
+                0.0,
+            )
+        });
         module.with_module(|module| {
             if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
-                sticky_bomb.init_sticky_bomb(target_object_id, INVALID_ID);
+                if let Some(pos) = placed {
+                    sticky_bomb.init_sticky_bomb_at(
+                        target_object_id,
+                        INVALID_ID,
+                        pos.x,
+                        pos.y,
+                        pos.z,
+                    );
+                } else {
+                    sticky_bomb.init_sticky_bomb(target_object_id, INVALID_ID);
+                }
                 initialized = true;
             }
         });

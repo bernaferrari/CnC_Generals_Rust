@@ -8,6 +8,9 @@ impl GameLogic {
         // Get object state for AI processing
         let (ai_state, target_id, _position) = {
             if let Some(obj) = self.objects.get(&object_id) {
+                if obj.temporary_move_frames > 0 {
+                    return;
+                }
                 (obj.ai_state.clone(), obj.target, obj.get_position())
             } else {
                 return;

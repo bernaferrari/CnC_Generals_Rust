@@ -45,13 +45,7 @@ impl BodyModuleInterface for HighlanderBody {
         // Limit damage to leave at least 1 health, unless it's unresistable damage
         if damage_info.input.damage_type != DamageType::Unresistable {
             let current_health = self.get_health();
-            if current_health > 1.0 {
-                // Limit damage to (current_health - 1) to ensure at least 1 health remains
-                damage_info.input.amount = damage_info.input.amount.min(current_health - 1.0);
-            } else {
-                // If already at or below 1 health, no damage allowed
-                damage_info.input.amount = 0.0;
-            }
+            damage_info.input.amount = damage_info.input.amount.min(current_health - 1.0);
         }
 
         // Let the base ActiveBody handle the damage with the modified amount
@@ -68,11 +62,7 @@ impl BodyModuleInterface for HighlanderBody {
 
         if damage_info.damage_type != DamageType::Unresistable {
             let current_health = self.get_health();
-            if current_health > 1.0 {
-                Ok(estimated.min(current_health - 1.0))
-            } else {
-                Ok(0.0)
-            }
+            Ok(estimated.min(current_health - 1.0))
         } else {
             Ok(estimated)
         }

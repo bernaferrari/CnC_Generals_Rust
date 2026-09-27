@@ -45,6 +45,8 @@ impl GameLogic {
                         | AIState::ReturningResources
                         | AIState::SeekingRepair
                         | AIState::SeekingHealing
+                        | AIState::FacingObject
+                        | AIState::FacingPosition
                 ) {
                     continue;
                 }
@@ -358,18 +360,13 @@ impl GameLogic {
                     // C++ AIStates AcceptableAimDelta residual: do not fire until facing
                     // is within aim delta; turn in place toward the target instead.
                     {
-                        let decision_auth =
-                            crate::gameworld_shadow::gameworld_ai_decision_authority_live();
                         let aim_ok = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                            if !decision_auth {
-                                if !matches!(
-                                    attacker.ai_state,
-                                    AIState::Patrolling | AIState::AttackMoving
-                                ) {
-                                    attacker.set_ai_state(AIState::Attacking);
-                                }
-                                attacker.set_status_attacking(true);
-                                attacker.target = Some(target_id);
+                            attacker.note_attack_target(target_id);
+                            if !matches!(
+                                attacker.ai_state,
+                                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                            ) {
+                                attacker.set_ai_state(AIState::Attacking);
                             }
                             // Stationary / can-turn-in-place residual: complete the yaw
                             // this frame (fail-closed vs loco turn-rate matrix). Moving
@@ -426,20 +423,30 @@ impl GameLogic {
                         if !pitch_ok {
                             // Out of pitch: keep engagement but do not fire this frame
                             // (C++ AI continues aiming / repositioning).
+                            let mut entered_attack = false;
                             if let Some(attacker) = self.objects.get_mut(&attacker_id) {
-                                attacker.set_ai_state(AIState::Attacking);
-                                attacker.set_status_attacking(true);
-                                attacker.set_target(Some(target_id));
+                                attacker.note_attack_target(target_id);
+                                if !matches!(
+                                    attacker.ai_state,
+                                    AIState::Patrolling
+                                        | AIState::AttackMoving
+                                        | AIState::Attacking
+                                ) {
+                                    attacker.set_ai_state(AIState::Attacking);
+                                    entered_attack = true;
+                                }
                             }
                             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                                 crate::game_logic::host_ai_decision_log::record_attack(
                                     attacker_id,
                                     target_id,
                                 );
-                                crate::game_logic::host_ai_decision_log::record_set_state(
-                                    attacker_id,
-                                    2,
-                                );
+                                if entered_attack {
+                                    crate::game_logic::host_ai_decision_log::record_set_state(
+                                        attacker_id,
+                                        2,
+                                    );
+                                }
                             }
                             continue;
                         }
@@ -474,8 +481,16 @@ impl GameLogic {
                                     attacker.activate_leech_range_for_slot(slot);
                                 }
                                 if current_time + 1e-6 < attacker.pre_attack_ready_at {
-                                    attacker.set_target(Some(target_id));
-                                    attacker.set_ai_state(AIState::Attacking);
+                                    attacker.note_attack_target(target_id);
+                                    let entered_attack = !matches!(
+                                        attacker.ai_state,
+                                        AIState::Patrolling
+                                            | AIState::AttackMoving
+                                            | AIState::Attacking
+                                    );
+                                    if entered_attack {
+                                        attacker.set_ai_state(AIState::Attacking);
+                                    }
                                     attacker.set_status_attacking(true);
                                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live(
                                     ) {
@@ -483,10 +498,12 @@ impl GameLogic {
                                             attacker_id,
                                             target_id,
                                         );
-                                        crate::game_logic::host_ai_decision_log::record_set_state(
-                                            attacker_id,
-                                            2,
-                                        );
+                                        if entered_attack {
+                                            crate::game_logic::host_ai_decision_log::record_set_state(
+                                                attacker_id,
+                                                2,
+                                            );
+                                        }
                                     }
                                     true
                                 } else {

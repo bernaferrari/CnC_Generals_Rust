@@ -138,81 +138,181 @@ impl AIIdleState {
         self.inited = false;
 
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        // Pathfinder grid restake (C++ AIStates.cpp:1320-1358):
-                        // first updateGoal always runs; ultraAccurate only gates the snap.
-                        let ultra_accurate = ai_guard
-                            .get_cur_locomotor()
-                            .and_then(|loco| loco.lock().ok().map(|l| l.is_ultra_accurate()))
-                            .unwrap_or(false);
-                        let pos = *owner_guard.get_position();
-                        let plan = idle_pathfinder_restake_plan(
-                            ai_guard.is_idle(),
-                            ai_guard.is_doing_ground_movement(),
-                            pos,
-                            ultra_accurate,
-                        );
-                        if plan.first_restake {
-                            let owner_id = owner_guard.get_id();
-                            let layer = match owner_guard.get_layer() {
-                                PathfindLayerEnum::Invalid | PathfindLayerEnum::Last => {
-                                    crate::ai::pathfind::PathfindLayerEnum::Invalid
-                                }
-                                PathfindLayerEnum::Wall => {
-                                    crate::ai::pathfind::PathfindLayerEnum::Wall
-                                }
-                                PathfindLayerEnum::Ground
-                                | PathfindLayerEnum::Tunnel
-                                | PathfindLayerEnum::Water
-                                | PathfindLayerEnum::Air => {
-                                    crate::ai::pathfind::PathfindLayerEnum::Ground
-                                }
-                                _ => crate::ai::pathfind::PathfindLayerEnum::Top,
-                            };
-                            let _ =
-                                crate::ai::pathfind::update_goal_for_object(owner_id, &pos, layer);
-                            if plan.snap {
-                                if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
-                                    let frame = TheGameLogic::get_frame();
-                                    if frame <= 1 {
-                                        drop(owner_guard);
-                                        if let Ok(mut obj_w) = owner.write() {
-                                            if let Err(err) = obj_w.set_position(&snapped) {
-                                                log::warn!(
-                                                    "Failed to snap AI owner position: {}",
-                                                    err
-                                                );
-                                            }
-                                        }
-                                    }
-                                    let _ = crate::ai::pathfind::update_goal_for_object(
-                                        owner_id, &snapped, layer,
-                                    );
+            if let Ok(mut owner_guard) = owner.write() {
+                let ultra_accurate = owner_guard.ai_fire_ultra_accurate;
+                let pos = *owner_guard.get_position();
+                let plan = idle_pathfinder_restake_plan(
+                    owner_guard.ai_fire_is_idle,
+                    owner_guard.ai_fire_ground_movement,
+                    pos,
+                    ultra_accurate,
+                );
+                if plan.first_restake {
+                    let owner_id = owner_guard.get_id();
+                    let layer = match owner_guard.get_layer() {
+                        PathfindLayerEnum::Invalid | PathfindLayerEnum::Last => {
+                            crate::ai::pathfind::PathfindLayerEnum::Invalid
+                        }
+                        PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
+                        PathfindLayerEnum::Ground
+                        | PathfindLayerEnum::Tunnel
+                        | PathfindLayerEnum::Water
+                        | PathfindLayerEnum::Air => {
+                            crate::ai::pathfind::PathfindLayerEnum::Ground
+                        }
+                        _ => crate::ai::pathfind::PathfindLayerEnum::Top,
+                    };
+                    let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &pos, layer);
+                    if plan.snap {
+                        if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
+                            let frame = TheGameLogic::get_frame();
+                            if frame <= 1 {
+                                if let Err(err) = owner_guard.set_position(&snapped) {
+                                    log::warn!("Failed to snap AI owner position: {}", err);
                                 }
                             }
+                            let _ = crate::ai::pathfind::update_goal_for_object(
+                                owner_id, &snapped, layer,
+                            );
                         }
+                    }
+                }
+                owner_guard.ai_pending_goal_none = true;
+                owner_guard.ai_pending_clear_victim = true;
+            }
+        }
+    }
+    fn update_idle(
+        &mut self,
+        machine_locked: Option<bool>,
+    ) -> Result<StateReturnType, String> {
+        if dual_world_registry_unavailable() {
+            return Ok(StateReturnType::Failure);
+        }
+        self.do_init_idle_state();
+        let mut time_to_sleep = 60u32 + self.initial_sleep_offset as u32;
+        let old_sleep_offset = self.initial_sleep_offset;
+        self.initial_sleep_offset = 0;
+        if self.should_look_for_targets {
+            let locked = if let Some(flag) = machine_locked {
+                flag
+            } else if let Ok(machine) = self.base.get_machine() {
+                machine.try_lock().map(|guard| guard.is_locked()).unwrap_or(false)
+            } else {
+                false
+            };
+            if locked {
+                return Ok(StateReturnType::Sleep(time_to_sleep));
+            }
 
-                        // C++ line 1361: ai->setLocomotorGoalNone()
-                        ai_guard.set_locomotor_goal_none();
+            // Object *obj = getMachineOwner();
+            // AIUpdateInterface *ai = obj->getAI();
 
-                        // C++ line 1362: ai->setCurrentVictim(NULL)
-                        ai_guard.set_current_victim(None);
+            // Repulsor logic (C++ line 1388)
+            // if (obj->isKindOf(KINDOF_CAN_BE_REPULSED) && ai->isIdle())
+            // {
+            //     Object* enemy = TheAI->findClosestRepulsor(obj, obj->getVisionRange());
+            //     if (enemy) {
+            //         getMachine()->setState(AI_MOVE_AWAY_FROM_REPULSORS);
+            //         return Ok(StateReturnType::Continue);
+            //     }
+            // }
+
+            // Check for crate to pickup (C++ line 1399)
+            // Object* crate = ai->checkForCrateToPickup();
+            // if (crate) {
+            //     ai->aiMoveToObject(crate, CMD_FROM_AI);
+            //     return Ok(StateReturnType::Continue);
+            // }
+
+            // Mood targeting - attack enemies based on mood settings (C++ line 1415)
+            // if not disabled by paralysis/emp/etc
+            // {
+            //     UnsignedInt moodAdjust = ai->getMoodMatrixActionAdjustment(MM_Action_Idle);
+            //     if ((moodAdjust & MAA_Affect_Range_IgnoreAll) == 0)
+            //     {
+            //         Object* enemy = ai->getNextMoodTarget(true, true);
+            //         if (enemy) {
+            //             ai->aiAttackObject(enemy, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
+            //             return Ok(StateReturnType::Continue);
+            //         }
+            //     }
+            // }
+            if let Some(owner) = self.base.get_machine_owner() {
+                if let Ok(mut owner_guard) = owner.write() {
+                    if owner_guard.is_kind_of(KindOf::CanBeRepulsed) && owner_guard.ai_fire_is_idle {
+                        let ai_store = the_ai();
+                        let enemy = ai_store
+                            .read()
+                            .ok()
+                            .and_then(|ai| {
+                                ai.find_closest_repulsor(
+                                    owner_guard.get_id(),
+                                    owner_guard.get_vision_range(),
+                                )
+                                .ok()
+                                .flatten()
+                            })
+                            .and_then(get_legacy_object);
+                        if enemy.is_some() {
+                            owner_guard.ai_pending_state_id =
+                                Some(AIStateType::MoveAwayFromRepulsors as u32);
+                            return Ok(StateReturnType::Continue);
+                        }
+                    }
+                    if owner_guard.ai_fire_crate_id != crate::common::INVALID_ID {
+                        owner_guard.ai_pending_move_crate = Some(owner_guard.ai_fire_crate_id);
+                        return Ok(StateReturnType::Continue);
+                    }
+                    if !owner_guard.is_disabled_by_type(DisabledType::Paralyzed)
+                        && !owner_guard.is_disabled_by_type(DisabledType::DisabledUnmanned)
+                        && !owner_guard.is_disabled_by_type(DisabledType::DisabledEmp)
+                        && !owner_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
+                        && !owner_guard.is_disabled_by_type(DisabledType::DisabledHacked)
+                        && (owner_guard.ai_fire_idle_mood_adjust
+                            & mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL)
+                            == 0
+                    {
+                        if let Some(enemy_id) = owner_guard.ai_fire_idle_attack_target {
+                            owner_guard.ai_pending_attack_id = Some(enemy_id);
+                            return Ok(StateReturnType::Continue);
+                        }
+                    }
+                    let now = TheGameLogic::get_frame();
+                    if owner_guard.ai_fire_next_mood_check > now {
+                        let mood_sleep = owner_guard.ai_fire_next_mood_check - now;
+                        if mood_sleep < time_to_sleep {
+                            time_to_sleep = mood_sleep;
+                            self.initial_sleep_offset = old_sleep_offset;
+                        }
                     }
                 }
             }
         }
+
+        // Sleep until next check (C++ line 1446)
+        // STATE_SLEEP(timeToSleep) macro
+        Ok(StateReturnType::Sleep(time_to_sleep))
     }
 }
 
 impl StateImplementation for AIIdleState {
+
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_ai_held(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        machine_locked: bool,
+    ) -> StateReturnType {
+        self.update_idle(Some(machine_locked))
+            .unwrap_or(StateReturnType::Failure)
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -251,12 +351,8 @@ impl ClassicState for AIIdleState {
             get_game_logic_random_value(0, (LOGICFRAMES_PER_SECOND * 2) as i32) as u16;
 
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.reset_next_mood_check_time();
-                    }
-                }
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_reset_mood = true;
             }
         }
 
@@ -264,141 +360,9 @@ impl ClassicState for AIIdleState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        // Wave 257: empty dual-world → fail-closed state.
-        if dual_world_registry_unavailable() {
-            return Ok(StateReturnType::Failure);
-        }
-
-        // C++ AIIdleState::update() from AIStates.cpp line 1369
-
-        // Do initialization on first update (C++ line 1373)
-        self.do_init_idle_state();
-
-        let mut time_to_sleep = 60u32 + self.initial_sleep_offset as u32; // IDLE_COUNTDOWN_DELAY
-        let old_sleep_offset = self.initial_sleep_offset;
-        self.initial_sleep_offset = 0;
-
-        // Check if we should look for targets (C++ line 1381)
-        if self.should_look_for_targets {
-            if let Ok(machine) = self.base.get_machine() {
-                if let Ok(machine_guard) = machine.lock() {
-                    if machine_guard.is_locked() {
-                        return Ok(StateReturnType::Sleep(time_to_sleep));
-                    }
-                }
-            }
-
-            // Object *obj = getMachineOwner();
-            // AIUpdateInterface *ai = obj->getAI();
-
-            // Repulsor logic (C++ line 1388)
-            // if (obj->isKindOf(KINDOF_CAN_BE_REPULSED) && ai->isIdle())
-            // {
-            //     Object* enemy = TheAI->findClosestRepulsor(obj, obj->getVisionRange());
-            //     if (enemy) {
-            //         getMachine()->setState(AI_MOVE_AWAY_FROM_REPULSORS);
-            //         return Ok(StateReturnType::Continue);
-            //     }
-            // }
-
-            // Check for crate to pickup (C++ line 1399)
-            // Object* crate = ai->checkForCrateToPickup();
-            // if (crate) {
-            //     ai->aiMoveToObject(crate, CMD_FROM_AI);
-            //     return Ok(StateReturnType::Continue);
-            // }
-
-            // Mood targeting - attack enemies based on mood settings (C++ line 1415)
-            // if not disabled by paralysis/emp/etc
-            // {
-            //     UnsignedInt moodAdjust = ai->getMoodMatrixActionAdjustment(MM_Action_Idle);
-            //     if ((moodAdjust & MAA_Affect_Range_IgnoreAll) == 0)
-            //     {
-            //         Object* enemy = ai->getNextMoodTarget(true, true);
-            //         if (enemy) {
-            //             ai->aiAttackObject(enemy, NO_MAX_SHOTS_LIMIT, CMD_FROM_AI);
-            //             return Ok(StateReturnType::Continue);
-            //         }
-            //     }
-            // }
-            if let Some(owner) = self.base.get_machine_owner() {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            if owner_guard.is_kind_of(KindOf::CanBeRepulsed) && ai_guard.is_idle() {
-                                let ai_store = the_ai();let enemy = ai_store
-                                    .read()
-                                    .ok()
-                                    .and_then(|ai| {
-                                        ai.find_closest_repulsor(
-                                            owner_guard.get_id(),
-                                            owner_guard.get_vision_range(),
-                                        )
-                                        .ok()
-                                        .flatten()
-                                    })
-                                    .and_then(get_legacy_object);
-                                if enemy.is_some() {
-                                    if let Ok(machine) = self.base.get_machine() {
-                                        machine.lock().ok().map(|mut guard| {
-                                            guard.set_current_state(
-                                                AIStateType::MoveAwayFromRepulsors.into(),
-                                            );
-                                        });
-                                    }
-                                    return Ok(StateReturnType::Continue);
-                                }
-                            }
-
-                            if let Some(crate_obj) = ai_guard.check_for_crate_to_pickup() {
-                                let crate_id = crate_obj.read().ok().map(|c| c.get_id());
-                                if let Some(crate_id) = crate_id {
-                                    ai.ai_move_to_object(crate_id, CommandSourceType::FromAi);
-                                    return Ok(StateReturnType::Continue);
-                                }
-                            }
-
-                            if !owner_guard.is_disabled_by_type(DisabledType::Paralyzed)
-                                && !owner_guard.is_disabled_by_type(DisabledType::DisabledUnmanned)
-                                && !owner_guard.is_disabled_by_type(DisabledType::DisabledEmp)
-                                && !owner_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
-                                && !owner_guard.is_disabled_by_type(DisabledType::DisabledHacked)
-                            {
-                                let mood_adjust = ai_guard
-                                    .get_mood_matrix_action_adjustment(MoodMatrixAction::Idle);
-                                if (mood_adjust & mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL)
-                                    == 0
-                                {
-                                    if let Some(enemy) = ai_guard.get_next_mood_target(true, true) {
-                                        ai.ai_attack_object(
-                                            enemy.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                            NO_MAX_SHOTS_LIMIT,
-                                            CommandSourceType::FromAi,
-                                        );
-                                        return Ok(StateReturnType::Continue);
-                                    }
-                                }
-                            }
-
-                            let now = TheGameLogic::get_frame();
-                            let next_mood_check = ai_guard.get_next_mood_check_time();
-                            if next_mood_check > now {
-                                let mood_sleep = next_mood_check - now;
-                                if mood_sleep < time_to_sleep {
-                                    time_to_sleep = mood_sleep;
-                                    self.initial_sleep_offset = old_sleep_offset;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Sleep until next check (C++ line 1446)
-        // STATE_SLEEP(timeToSleep) macro
-        Ok(StateReturnType::Sleep(time_to_sleep))
+        self.update_idle(None)
     }
+
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         // Idle state has no cleanup

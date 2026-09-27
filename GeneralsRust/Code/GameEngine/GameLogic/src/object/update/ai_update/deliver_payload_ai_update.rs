@@ -3,7 +3,7 @@
 //! Ported from GameLogic/Object/Update/AIUpdate/DeliverPayloadAIUpdate.cpp.
 
 use std::any::Any;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::xfer::XferExt;
@@ -16,7 +16,6 @@ use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
     get_game_logic_random_value_real,
 };
-use crate::locomotor::Locomotor;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,
     DeliverPayloadAIUpdateInterface,
@@ -541,18 +540,6 @@ impl DeliverPayloadAIUpdate {
         }
     }
 
-    fn ai_get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        // Wave 352: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
-        let owner_guard = owner.read().ok()?;
-        let ai = owner_guard.get_ai_update_interface()?;
-        ai.lock().ok().and_then(|guard| guard.get_cur_locomotor())
-    }
-
     fn ai_is_moving(&self) -> bool {
         // Wave 352: empty dual-world → false.
         if dual_world_registry_unavailable() {
@@ -599,33 +586,43 @@ impl DeliverPayloadAIUpdate {
         }
 
         let owner = TheGameLogic::find_object_by_id(self.owner_id);
-        let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
-        let Some(owner_guard) = owner_guard else {
-            return 999999.0;
+        let (body, ai) = {
+            let Some(owner_guard) = owner.as_ref().and_then(|obj| obj.read().ok()) else {
+                return 999999.0;
+            };
+            (
+                owner_guard.get_body_module(),
+                owner_guard.get_ai_update_interface(),
+            )
         };
-        let body = owner_guard.get_body_module();
-        let locomotor = self.ai_get_cur_locomotor();
-        let (Some(body), Some(locomotor)) = (body, locomotor) else {
+        let (Some(body), Some(ai)) = (body, ai) else {
             return 999999.0;
         };
         let Ok(body_guard) = body.lock() else {
             return 999999.0;
         };
-        let Ok(loco_guard) = locomotor.lock() else {
+        let condition = Self::to_locomotor_damage(body_guard.get_damage_state());
+        drop(body_guard);
+        let mut min_turn_radius = None;
+        let mut travel = None;
+        ai.with_cur_locomotor(&mut |loco| {
+            let max_speed = loco.get_max_speed_for_condition(condition);
+            let max_turn_rate = loco.get_max_turn_rate(condition);
+            let radius = if max_turn_rate > 0.0 {
+                max_speed / max_turn_rate
+            } else {
+                999999.0
+            };
+            if max_speed > 0.0 {
+                travel = Some(radius / max_speed);
+            }
+            min_turn_radius = Some(radius);
+        });
+        let Some(min_turn_radius) = min_turn_radius else {
             return 999999.0;
         };
-        let condition = Self::to_locomotor_damage(body_guard.get_damage_state());
-        let max_speed = loco_guard.get_max_speed_for_condition(condition);
-        let max_turn_rate = loco_guard.get_max_turn_rate(condition);
-        let min_turn_radius = if max_turn_rate > 0.0 {
-            max_speed / max_turn_rate
-        } else {
-            999999.0
-        };
-        if let Some(out) = time_to_travel {
-            if max_speed > 0.0 {
-                *out = min_turn_radius / max_speed;
-            }
+        if let (Some(out), Some(secs)) = (time_to_travel, travel) {
+            *out = secs;
         }
         min_turn_radius
     }
@@ -1412,11 +1409,7 @@ impl DeliverPayloadAIUpdate {
             );
             if current_distance_sqr <= start_dive_distance_sqr {
                 self.dive_state = DiveState::Diving;
-                if let Some(loco) = ai.get_cur_locomotor() {
-                    if let Ok(mut loco_guard) = loco.lock() {
-                        loco_guard.set_precise_z_pos(true);
-                    }
-                }
+                ai.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(true));
 
                 if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("StartDive")
                 {
@@ -1436,11 +1429,7 @@ impl DeliverPayloadAIUpdate {
             );
             if current_distance_sqr <= end_dive_distance_sqr {
                 self.dive_state = DiveState::PostDive;
-                if let Some(loco) = ai.get_cur_locomotor() {
-                    if let Ok(mut loco_guard) = loco.lock() {
-                        loco_guard.set_precise_z_pos(false);
-                    }
-                }
+                ai.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(false));
             }
 
             if let Some(slot) = self.data.strafing_weapon_slot {

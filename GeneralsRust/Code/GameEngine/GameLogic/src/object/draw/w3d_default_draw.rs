@@ -156,15 +156,25 @@ impl DrawModule for W3DDefaultDraw {
 
 impl Snapshotable for W3DDefaultDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|err| err.to_string())
+        // DrawModule::crc -> DrawableModule::crc -> Module::crc writes nothing.
+        let _ = xfer;
+        Ok(())
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())

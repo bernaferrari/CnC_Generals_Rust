@@ -70,7 +70,7 @@ impl EngineThingTemplateAdapter {
         }
     }
 
-    fn build_facility_context(
+    pub(crate) fn build_facility_context(
         &self,
         player: &crate::player::Player,
     ) -> Option<crate::object::production::build_cost_calculator::BuildFacilityContext> {
@@ -124,6 +124,13 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
 
     fn get_template_geometry_type(&self) -> Option<game_engine::system::geometry::GeometryType> {
         Some(self.inner.get_template_geometry_info().geometry_type)
+    }
+    fn random_offset_on_perimeter(&self) -> Option<(crate::common::Real, crate::common::Real)> {
+        let offset = self
+            .inner
+            .get_template_geometry_info()
+            .make_random_offset_on_perimeter();
+        Some((offset.x, offset.y))
     }
 
     fn calc_vision_range(&self) -> crate::common::Real {
@@ -218,6 +225,20 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
     fn get_voice_created(&self) -> crate::common::audio::AudioEventRts {
         self.inner
             .get_voice_created()
+            .map(|sound| {
+                let event_name = if !sound.event_name.is_empty() {
+                    sound.event_name.clone()
+                } else {
+                    sound.filename_to_load.clone()
+                };
+                crate::common::audio::AudioEventRts::new(event_name)
+            })
+            .unwrap_or_default()
+    }
+
+    fn get_voice_task_complete(&self) -> crate::common::audio::AudioEventRts {
+        self.inner
+            .get_voice_task_complete()
             .map(|sound| {
                 let event_name = if !sound.event_name.is_empty() {
                     sound.event_name.clone()
@@ -347,6 +368,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
 
     fn get_experience_value(&self, level: usize) -> crate::common::Int {
         self.inner.get_experience_value(level)
+    }
+
+    fn get_skill_point_value(&self, level: usize) -> crate::common::Int {
+        self.inner.get_skill_point_value(level)
     }
 
     fn get_experience_required(&self, level: usize) -> crate::common::Int {
@@ -614,6 +639,52 @@ impl TheThingFactory {
         }
 
         None
+    }
+
+    pub fn build_facility_context_for(
+        name: &str,
+        player: &crate::player::Player,
+    ) -> Option<crate::object::production::build_cost_calculator::BuildFacilityContext> {
+        let factory_guard = get_thing_factory().ok()?;
+        let factory = factory_guard.as_ref()?;
+        let template = factory.find_template(name, false)?;
+        if template.get_build_completion() != BuildCompletionType::AppearsAtRallyPoint {
+            return None;
+        }
+        if template.get_prereq_count() == 0 {
+            return None;
+        }
+        let prereq = template.get_prereq(0)?;
+        let handle = prereq.get_existing_build_facility_template_with_counter(
+            |handles, ignore_dead, counts| {
+                for (index, handle) in handles.iter().enumerate() {
+                    counts[index] = 0;
+                    let Some(facility) = Self::find_template_by_id(handle.value()) else {
+                        continue;
+                    };
+                    let mut one = [0i32; 1];
+                    player.count_objects_by_thing_template(
+                        &[facility],
+                        ignore_dead,
+                        false,
+                        &mut one,
+                    );
+                    counts[index] = one[0];
+                }
+            },
+        )?;
+        let facility = Self::find_template_by_id(handle.value())?;
+        let mut counts = [0i32; 1];
+        player.count_objects_by_thing_template(&[facility], false, false, &mut counts);
+        if counts[0] <= 0 {
+            return None;
+        }
+        Some(
+            crate::object::production::build_cost_calculator::BuildFacilityContext {
+                facility_count: counts[0],
+                appears_at_rally_point: true,
+            },
+        )
     }
 
     /// Find template by name WITHOUT lazy-initializing the shared factory.

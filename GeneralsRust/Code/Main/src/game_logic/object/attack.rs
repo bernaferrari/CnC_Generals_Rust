@@ -152,22 +152,38 @@ impl Object {
                 self.activate_leech_range_for_slot(slot);
             }
             if current_time + 1e-6 < self.pre_attack_ready_at {
-                // Decision authority: engagement state is GameWorld last-writer.
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_attack(self.id, target_id);
-                    crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
-                // Attacking
-                } else {
-                    self.target = Some(target_id);
+                self.note_attack_target(target_id);
+                let entered_attack = !matches!(
+                    self.ai_state,
+                    AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+                );
+                if entered_attack {
                     self.set_ai_state(AIState::Attacking);
                 }
-                self.status.attacking = true;
+                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+                    crate::game_logic::host_ai_decision_log::record_attack(self.id, target_id);
+                    if entered_attack {
+                        crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
+                    }
+                }
                 return None;
             }
             // Delay complete — fall through to fire; record_shot clears ready_at.
         } else {
             self.pre_attack_target = Some(target_id);
             self.record_host_combat_attack();
+        }
+
+        self.note_attack_target(target_id);
+        let entered_attack = !matches!(
+            self.ai_state,
+            AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+        );
+        if entered_attack {
+            self.set_ai_state(AIState::Attacking);
+        }
+        if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_set_state(self.id, 2);
         }
 
         let fire_weapon_name = self.weapon_name_for_slot(slot).map(str::to_owned);
@@ -508,8 +524,32 @@ impl Object {
             );
         }
     }
+    /// Drop a `setTemporaryState` move without `onExit` of the underlying state.
+    pub fn end_temporary_move_overlay(&mut self) {
+        self.temporary_move_frames = 0;
+        if let Some(name) = self.move_loop_audio.take() {
+            crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
+                self.id,
+                name,
+                self.get_position(),
+            );
+        }
+        self.movement.velocity = glam::Vec3::ZERO;
+        self.movement.path.clear();
+        self.movement.current_path_index = 0;
+        self.movement.target_position = None;
+        self.set_status_moving(false);
+        if let Some(dest) = self.temporary_move_saved_dest.take() {
+            self.requested_destination = Some(dest);
+        }
+        if let Some(goal) = self.temporary_move_saved_path_goal.take() {
+            self.path_goal_position = Some(goal);
+        }
+    }
 
     pub fn stop_moving(&mut self) {
+        let overlay = self.temporary_move_frames > 0;
+        self.end_temporary_move_overlay();
         if let Some(name) = self.move_loop_audio.take() {
             crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
                 self.id,
@@ -518,20 +558,23 @@ impl Object {
             );
         }
         self.movement.target_position = None;
+        self.temporary_move_frames = 0;
         self.movement.velocity = Vec3::ZERO;
-        crate::game_logic::host_move_log::record(self.id, None);
+        self.set_status_moving(false);
+        self.queue_for_path_frames = 0;
         self.movement.path.clear();
         self.movement.current_path_index = 0;
         self.set_status_moving(false);
+        self.requested_destination = None;
         self.waiting_for_path = false;
         self.is_attack_path = false;
         self.is_approach_path = false;
         self.record_host_locomotor();
         self.is_safe_path = false;
-        self.temporary_move_frames = 0;
-        // C++ AIFollowPathState::onExit — setCanPathThroughUnits(false)
-        // (AIStates.cpp:3298). Live only set this on factory exit.
-        self.can_path_through_units = false;
+        self.path_extra_distance = 0.0;
+        if self.is_kind_of(crate::game_logic::KindOf::Projectile) {
+            self.set_precise_z_pos(false);
+        }
         self.record_host_combat_attack();
         self.is_blocked = false;
         self.is_blocked_and_stuck = false;
@@ -539,7 +582,7 @@ impl Object {
         // Interaction states (Capturing, Repairing, SpecialAbility, Entering, …)
         // set a destination while remaining in-state; clobbering them to Idle
         // aborted capture/repair on arrival before support-state resolution.
-        if matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
+        if !overlay && matches!(self.ai_state, AIState::Moving | AIState::AttackMoving) {
             self.set_ai_state(AIState::Idle);
         }
         self.record_host_movement();
@@ -676,9 +719,15 @@ impl Object {
         } else if stay_hunt {
             self.set_ai_state(AIState::Patrolling);
         } else if stay_attack_move {
-            // Parent dest/path stay. Re-point at the original attack-move
-            // goal if a nested chase replaced the live path.
+            // Nested attack just went idle. The next getNextMoodTarget must
+            // not wait out the check rate (forceRetargetThisFrame).
+            self.next_mood_check_time = 0;
+            if let Some(src) = self.attack_move_command_src.take() {
+                self.last_command_source = src;
+            }
             if let Some(dest) = self.requested_destination {
+                self.movement.path.clear();
+                self.movement.current_path_index = 0;
                 self.movement.target_position = Some(dest);
                 self.set_status_moving(true);
             }
@@ -803,7 +852,7 @@ impl Object {
         // ScaleWeaponSpeed clamp, not a launch-speed floor.
         let speed = template.weapon_speed;
         let bonus = self.leftover_weapon_bonus_snapshot();
-        let weapon = gamelogic::Weapon::new(template, gamelogic::WeaponSlotType::Primary);
+        let mut weapon = gamelogic::Weapon::new(template, gamelogic::WeaponSlotType::Primary);
         if let Err(err) = weapon.handle_projectileless_flight_damage(
             self.id.0,
             &source,

@@ -205,7 +205,23 @@ impl PathfindingGrid {
         Vec3::new(x, self.cell_world_height(pos, x, z), z)
     }
 
-    /// `adjustCoordToCell` on a known pathfind layer.
+    /// C++ `Pathfinder::snapPosition`: adjust this cell only. No neighbor walk.
+    pub fn snap_position(&self, pos: Vec3, center_in_cell: bool) -> Vec3 {
+        let mut adjust = pos;
+        if !center_in_cell {
+            let half = self.grid_size * 0.5;
+            adjust.x += half;
+            adjust.z += half;
+        }
+        let cell = self.world_to_grid(adjust);
+        self.adjust_coord_to_cell_on_layer(cell, center_in_cell, PathfindLayerEnum::Ground)
+    }
+
+    /// C++ `adjustCoordToCell(..., LAYER_GROUND)`.
+    pub fn adjust_coord_to_ground_cell(&self, pos: GridPos, center_in_cell: bool) -> Vec3 {
+        self.adjust_coord_to_cell_on_layer(pos, center_in_cell, PathfindLayerEnum::Ground)
+    }
+
     pub fn adjust_coord_to_cell_on_layer(
         &self,
         pos: GridPos,
@@ -413,6 +429,26 @@ impl PathfindingGrid {
         Some((id, owner, team))
     }
 
+    /// C++ `Pathfinder::validMovementPosition` / `isObstaclePresent`.
+    /// A nonzero ignore id opens the cell only when it is `CELL_OBSTACLE` and that id owns it.
+    pub fn valid_movement_position(
+        &self,
+        pos: GridPos,
+        layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        ignore_id: u32,
+    ) -> bool {
+        if ignore_id != 0
+            && self.resolved_cell_type(layer, pos) == PathfindCellType::Obstacle
+            && self
+                .obstacle_owner(pos)
+                .is_some_and(|(id, _, _)| id == ignore_id)
+        {
+            return true;
+        }
+        self.cell_passable_for_layer(pos, layer, surfaces, is_crusher)
+    }
     pub fn is_obstacle_fence(&self, pos: GridPos) -> bool {
         self.bit_index(pos)
             .is_some_and(|idx| Self::bit_test(&self.fence_bits, idx))

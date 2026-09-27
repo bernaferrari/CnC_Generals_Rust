@@ -343,6 +343,12 @@ impl SabotageMilitaryFactoryCrateCollide {
         }
         drop(object_lock);
 
+        let Ok(module_data) = self.module_data.lock() else {
+            return Ok(false);
+        };
+        let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
+        drop(module_data);
+
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());
 
@@ -350,21 +356,13 @@ impl SabotageMilitaryFactoryCrateCollide {
             .base
             .do_sabotage_feedback_fx(&other, SabotageVictimType::MilitaryFactory);
 
-        // Play eva sound if locally controlled
-        {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
+        if let Ok(other_lock) = other.read() {
             if other_lock.is_locally_controlled() {
                 let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
             }
         }
 
-        // Calculate disable frame and disable the factory
-        let module_data = self.module_data.lock().map_err(|_| GameError::LockError)?;
-        let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
-        drop(module_data);
-
-        {
-            let mut other_lock = other.write().map_err(|_| GameError::LockError)?;
+        if let Ok(mut other_lock) = other.write() {
             other_lock.set_disabled_until(DisabledType::DisabledHacked, disable_frame);
         }
 

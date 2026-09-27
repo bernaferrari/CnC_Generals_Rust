@@ -169,7 +169,7 @@ impl AreaDamageApplicator {
                     template = Some(attacker_guard.get_template().clone());
                     off_map = Some(attacker_guard.is_off_map());
                     if let Some(player_id) = attacker_guard.get_controlling_player_id() {
-                        if player_id < 8 {
+                        if (0..16).contains(&player_id) {
                             mask = PlayerMaskType::from_bits_truncate(1u32 << player_id);
                         }
                     }
@@ -235,7 +235,6 @@ impl AreaDamageApplicator {
 
             let mut damage_info =
                 DamageInfo::with_simple(damage, attacker_id, damage_type, DeathType::Normal);
-            damage_info.input.damage_fx_override = damage_type;
             damage_info.input.source_template = source_template.clone();
             damage_info.input.source_player_mask = source_player_mask;
             damage_info.sync_from_input();

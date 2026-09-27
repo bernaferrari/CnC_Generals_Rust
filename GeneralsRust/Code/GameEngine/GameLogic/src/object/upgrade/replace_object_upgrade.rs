@@ -273,23 +273,20 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             replacement_guard.on_build_complete();
         }
 
-        if let Ok(replacement_guard) = replacement_object.read() {
-            if let Some(player) = replacement_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player.write() {
-                    let builder_id = constructor_arc
-                        .as_ref()
-                        .and_then(|b| b.read().ok().map(|g| g.get_id()));
-                    let structure_id = replacement_object
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID);
-                    player_guard.on_structure_construction_complete_id(
-                        builder_id,
-                        structure_id,
-                        false,
-                    );
-                }
+        let player = replacement_object
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_controlling_player());
+        if let Some(player) = player {
+            if let Ok(mut player_guard) = player.write() {
+                let builder_id = constructor_arc
+                    .as_ref()
+                    .and_then(|b| b.read().ok().map(|g| g.get_id()));
+                player_guard.on_structure_construction_complete_id(
+                    builder_id,
+                    replacement_id,
+                    false,
+                );
             }
         }
 

@@ -475,7 +475,14 @@ impl W3DLaserDraw {
 
         let mut update_positions = None;
         let mut width_scale = None;
-        for module in drawable.get_draw_modules() {
+        let mut modules = drawable.get_draw_modules();
+        let client_modules = obj_guard.client_update_modules();
+        if modules.is_empty() {
+            modules = client_modules;
+        } else {
+            modules.extend(client_modules);
+        }
+        for module in modules {
             let mut matched = false;
             module.with_module(|module| {
                 if let Some(laser_update) = module.get_laser_update_interface() {
@@ -767,18 +774,24 @@ impl LaserDrawInterface for W3DLaserDraw {
 
 impl Snapshotable for W3DLaserDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ parity: W3DLaserDraw::xfer version stamp with no persistent payload.
+        // C++ W3DLaserDraw::xfer: version 1, DrawModule::xfer, no payload.
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1)
             .map_err(|e| e.to_string())?;
         Ok(())
     }

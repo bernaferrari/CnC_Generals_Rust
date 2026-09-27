@@ -14,17 +14,32 @@ use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::KindOfMaskType;
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleData as EngineModuleData, NameKeyType, SpyVisionControlInterface,
 };
 use log::{debug, warn};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// Wave 434: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
+}
+
+/// C++ `UpdateModule.h`: `UPDATE_SLEEP_FOREVER` is `0x3fffffff`, `PHASE_NORMAL` is 2.
+const UPDATE_SLEEP_FOREVER_FRAMES: UnsignedInt = 0x3fff_ffff;
+const PHASE_NORMAL: UnsignedInt = 2;
+
+/// C++ `UPDATE_SLEEP(n)`. GameLogic turns a 0 return into `UPDATE_SLEEP_NONE` (1).
+/// Values at or above `UPDATE_SLEEP_FOREVER` clamp to the forever wake.
+fn cpp_update_sleep(frames: UnsignedInt) -> UpdateSleepTime {
+    if frames == 0 {
+        UpdateSleepTime::None
+    } else if frames >= UPDATE_SLEEP_FOREVER_FRAMES {
+        UpdateSleepTime::Forever
+    } else {
+        UpdateSleepTime::Frames(frames)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -42,7 +57,7 @@ impl Default for SpyVisionUpdateModuleData {
     fn default() -> Self {
         Self {
             module_tag_name_key: 0,
-            spy_on_kind_of: u64::MAX,
+            spy_on_kind_of: !0u128,
             self_powered: false,
             self_powered_duration: 0,
             self_powered_interval: 0,
@@ -73,10 +88,7 @@ impl ModuleData for SpyVisionUpdateModuleData {
 }
 
 impl Snapshotable for SpyVisionUpdateModuleData {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
 
@@ -84,12 +96,8 @@ impl Snapshotable for SpyVisionUpdateModuleData {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
-        let mut spy_on_kind_of = self.spy_on_kind_of as u32;
-        xfer.xfer_unsigned_int(&mut spy_on_kind_of)
+        xfer.xfer_u128(&mut self.spy_on_kind_of)
             .map_err(|e| e.to_string())?;
-        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
-            self.spy_on_kind_of = spy_on_kind_of as u64;
-        }
         xfer.xfer_bool(&mut self.self_powered)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut self.self_powered_duration)
@@ -133,7 +141,7 @@ impl SpyVisionController {
         if duration == 0 {
             self.deactivate_frame = u32::MAX;
         } else {
-            self.deactivate_frame = current_frame + duration;
+            self.deactivate_frame = current_frame.wrapping_add(duration);
         }
 
         // Simulating doActivationWork with object ID lookup inside update or specialized method
@@ -155,8 +163,16 @@ impl SpyVisionController {
             if target_player_read.get_player_index() == spying_player_index {
                 continue;
             }
-            let is_enemy = owner.is_enemy_with_player(&*target_player_read);
+            // C++ getRelationship(player->getDefaultTeam()) == ENEMIES, not the player-only map.
+            let default_team = target_player_read.get_default_team();
             drop(target_player_read);
+            let is_enemy = default_team
+                .as_ref()
+                .and_then(|team_arc| team_arc.read().ok())
+                .is_some_and(|team| {
+                    owner.get_relationship_with_team(&team)
+                        == Relationship::Enemies
+                });
 
             if !is_enemy {
                 continue;
@@ -165,7 +181,7 @@ impl SpyVisionController {
             if let Ok(mut target_player_write) = target_player_arc.write() {
                 target_player_write.set_units_vision_spied(
                     setting,
-                    self.data.spy_on_kind_of as crate::common::KindOfMaskType,
+                    self.data.spy_on_kind_of,
                     spying_player_index,
                 );
             }
@@ -189,13 +205,18 @@ impl SpyVisionController {
             return;
         };
 
-        let Ok(list_guard) = player_list().read() else {
-            return;
-        };
-        let Some(spying_player_arc) =
-            list_guard.get_player(spying_player_id as crate::player::PlayerIndex)
-        else {
-            return;
+        // Clone the player out and drop the list lock. do_activation_work locks
+        // the same list again; std::sync::RwLock does not reenter.
+        let spying_player_arc = {
+            let Ok(list_guard) = player_list().read() else {
+                return;
+            };
+            let Some(player) =
+                list_guard.get_player(spying_player_id as crate::player::PlayerIndex)
+            else {
+                return;
+            };
+            Arc::clone(player)
         };
         let Ok(spying_player_guard) = spying_player_arc.read() else {
             return;
@@ -240,48 +261,42 @@ impl SpyVisionController {
     }
 
     pub fn update(&mut self) -> UpdateSleepTime {
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        let now = crate::helpers::TheGameLogic::get_frame();
 
-        if self.disabled_until_frame > current_frame {
-            return UpdateSleepTime::frames(self.disabled_until_frame - current_frame);
-        }
-
-        // Handle reset timers (e.g. after being disabled)
+        // C++ update() does not re-read m_disabledUntilFrame. The wake was
+        // already programmed by setDisabledUntilFrame.
         if self.reset_timers_next_update {
             self.reset_timers_next_update = false;
 
             if self.data.self_powered {
                 if self.data.self_powered_interval == 0 {
-                    // Always on self-powered
+                    // Always-on self-powered: turn back on and sleep forever.
+                    // C++ returns UPDATE_SLEEP(UPDATE_SLEEP_FOREVER).
                     self.do_activation_work_for_current_owner(true);
                     return UpdateSleepTime::Forever;
                 } else {
-                    // Reset interval timer via sleeping before reactivation
-                    return UpdateSleepTime::frames(self.data.self_powered_interval);
+                    return cpp_update_sleep(self.data.self_powered_interval);
                 }
             }
         }
 
-        // Handle deactivation
-        if self.currently_active && current_frame >= self.deactivate_frame {
+        if self.currently_active && self.deactivate_frame <= now {
             self.do_activation_work_for_current_owner(false);
             self.deactivate_frame = 0;
         } else if !self.currently_active && self.data.self_powered {
-            // Turn on self-powered
             self.do_activation_work_for_current_owner(true);
             if self.data.self_powered_duration == 0 {
                 self.deactivate_frame = u32::MAX;
             } else {
-                self.deactivate_frame = current_frame + self.data.self_powered_duration;
+                self.deactivate_frame = now.wrapping_add(self.data.self_powered_duration);
             }
         }
 
-        // Handle self-powered cycling (active -> inactive -> active)
         if self.data.self_powered {
             if self.currently_active {
-                return UpdateSleepTime::from_u32(self.data.self_powered_duration);
+                return cpp_update_sleep(self.data.self_powered_duration);
             } else {
-                return UpdateSleepTime::from_u32(self.data.self_powered_interval);
+                return cpp_update_sleep(self.data.self_powered_interval);
             }
         }
 
@@ -292,10 +307,11 @@ impl SpyVisionController {
 pub struct SpyVisionUpdate {
     module_name_key: NameKeyType,
     data: Arc<SpyVisionUpdateModuleData>,
-    controller: Arc<Mutex<SpyVisionController>>,
+    controller: SpyVisionController,
     next_call_frame_and_phase: UnsignedInt,
     object_id: ObjectID,
     upgrade_mux: UpgradeMux,
+    update_proxy: Option<crate::object::UpdateModulePtr>,
 }
 
 impl SpyVisionUpdate {
@@ -305,45 +321,93 @@ impl SpyVisionUpdate {
         object_id: ObjectID,
     ) -> Self {
         let upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
-        let controller = Arc::new(Mutex::new(SpyVisionController::new(
-            data.clone(),
-            object_id,
-        )));
+        let controller = SpyVisionController::new(data.clone(), object_id);
         Self {
             module_name_key,
             data,
             controller,
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: (UPDATE_SLEEP_FOREVER_FRAMES << 2) | PHASE_NORMAL,
             object_id,
             upgrade_mux,
+            update_proxy: None,
         }
     }
 
-    pub fn activate_spy_vision(&self, duration: UnsignedInt) {
-        if let Ok(mut controller) = self.controller.lock() {
-            controller.activate_spy_vision(duration);
+    pub fn activate_spy_vision(&mut self, duration: UnsignedInt) {
+        self.controller.activate_spy_vision(duration);
+        // C++ setWakeFrame: absolute wake is now + delay, clamped to FOREVER.
+        // Duration 0 is UPDATE_SLEEP_FOREVER, not now+0.
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let wake = if duration == 0 {
+            UPDATE_SLEEP_FOREVER_FRAMES
+        } else {
+            let summed = now.wrapping_add(duration);
+            if summed > UPDATE_SLEEP_FOREVER_FRAMES {
+                UPDATE_SLEEP_FOREVER_FRAMES
+            } else {
+                summed
+            }
+        };
+        let stored_phase = self.next_call_frame_and_phase & 3;
+        let phase = if stored_phase == 0 {
+            PHASE_NORMAL
+        } else {
+            stored_phase
+        };
+        self.next_call_frame_and_phase = (wake << 2) | phase;
+        self.awaken_if_not_current(wake);
+    }
+
+    fn awaken_if_not_current(&self, wake: UnsignedInt) {
+        let Some(proxy) = self.update_proxy.clone() else {
+            return;
+        };
+        // process_sleepy_updates already holds the GameLogic mutex. C++ ignores
+        // setWakeFrame when this module is the current update and uses the return.
+        if crate::system::game_logic::is_cur_update_module(&proxy) {
+            return;
         }
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.friend_awaken_update_module(&proxy, wake);
+        }
+    }
+    pub(crate) fn bind_update_proxy(&mut self, proxy: crate::object::UpdateModulePtr) {
+        self.update_proxy = Some(proxy);
     }
 
     /// C++ `SpyVisionUpdate::upgradeImplementation`.
-    pub fn upgrade_implementation(&self) {
+    pub fn upgrade_implementation(&mut self) {
         if self.data.needs_upgrade && !self.upgrade_mux.is_already_upgraded() {
             self.activate_spy_vision(self.data.self_powered_duration);
         }
     }
 
     pub fn set_disabled_until_frame(&mut self, frame: UnsignedInt) {
-        if let Ok(mut controller) = self.controller.lock() {
-            controller.set_disabled_until_frame(frame);
-        }
+        let now = crate::helpers::TheGameLogic::get_frame();
+        self.controller.set_disabled_until_frame(frame);
+        // C++ setWakeFrame(disabledUntil - now), or UPDATE_SLEEP_NONE (1) on the wakeup branch.
+
+        let wake = if frame > now {
+            frame.min(UPDATE_SLEEP_FOREVER_FRAMES)
+        } else {
+            now.saturating_add(1).min(UPDATE_SLEEP_FOREVER_FRAMES)
+        };
+        let stored_phase = self.next_call_frame_and_phase & 3;
+        let phase = if stored_phase == 0 { 2 } else { stored_phase };
+        self.next_call_frame_and_phase = (wake << 2) | phase;
+        self.awaken_if_not_current(wake);
     }
 
     fn handle_on_delete(&mut self) {
-        if let Ok(mut controller) = self.controller.lock() {
-            if controller.currently_active {
-                controller.do_activation_work_for_current_owner(false);
-            }
+        if self.controller.currently_active {
+            self.controller
+                .do_activation_work_for_current_owner(false);
         }
+    }
+
+    /// Unpacked C++ `friend_getNextCallFrame`.
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.next_call_frame_and_phase >> 2
     }
 
     fn build_upgrade_mask(&self, obj: &Object) -> UpgradeMask {
@@ -409,34 +473,18 @@ impl Module for SpyVisionUpdate {
     fn on_delete(&mut self) {
         self.handle_on_delete();
     }
+
+    fn on_object_created(&mut self) {
+        // C++ ctor setWakeFrame runs before registerObject. If registration
+        // used wake 0, push the packed forever (or later) frame now.
+        let wake = self.initial_wake_frame();
+        self.awaken_if_not_current(wake);
+    }
 }
 
 impl Snapshotable for SpyVisionUpdate {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 2;
-        xfer.xfer_version(&mut version, 2)
-            .map_err(|e| format!("SpyVisionUpdate crc version failed: {:?}", e))?;
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
-        if let Ok(mut controller) = self.controller.lock() {
-            xfer.xfer_unsigned_int(&mut controller.deactivate_frame)
-                .map_err(|e| format!("SpyVisionUpdate crc deactivate_frame failed: {:?}", e))?;
-            xfer.xfer_bool(&mut controller.currently_active)
-                .map_err(|e| format!("SpyVisionUpdate crc currently_active failed: {:?}", e))?;
-            if version >= 2 {
-                xfer.xfer_bool(&mut controller.reset_timers_next_update)
-                    .map_err(|e| {
-                        format!(
-                            "SpyVisionUpdate crc reset_timers_next_update failed: {:?}",
-                            e
-                        )
-                    })?;
-                xfer.xfer_unsigned_int(&mut controller.disabled_until_frame)
-                    .map_err(|e| {
-                        format!("SpyVisionUpdate crc disabled_until_frame failed: {:?}", e)
-                    })?;
-            }
-        }
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ SpyVisionUpdate::crc only calls UpdateModule::crc, which is empty.
         Ok(())
     }
 
@@ -445,24 +493,22 @@ impl Snapshotable for SpyVisionUpdate {
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("SpyVisionUpdate xfer version failed: {:?}", e))?;
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
-        if let Ok(mut controller) = self.controller.lock() {
-            xfer.xfer_unsigned_int(&mut controller.deactivate_frame)
-                .map_err(|e| format!("SpyVisionUpdate xfer deactivate_frame failed: {:?}", e))?;
-            xfer.xfer_bool(&mut controller.currently_active)
-                .map_err(|e| format!("SpyVisionUpdate xfer currently_active failed: {:?}", e))?;
-            if version >= 2 {
-                xfer.xfer_bool(&mut controller.reset_timers_next_update)
-                    .map_err(|e| {
-                        format!(
-                            "SpyVisionUpdate xfer reset_timers_next_update failed: {:?}",
-                            e
-                        )
-                    })?;
-                xfer.xfer_unsigned_int(&mut controller.disabled_until_frame)
-                    .map_err(|e| {
-                        format!("SpyVisionUpdate xfer disabled_until_frame failed: {:?}", e)
-                    })?;
-            }
+        xfer.xfer_unsigned_int(&mut self.controller.deactivate_frame)
+            .map_err(|e| format!("SpyVisionUpdate xfer deactivate_frame failed: {:?}", e))?;
+        xfer.xfer_bool(&mut self.controller.currently_active)
+            .map_err(|e| format!("SpyVisionUpdate xfer currently_active failed: {:?}", e))?;
+        if version >= 2 {
+            xfer.xfer_bool(&mut self.controller.reset_timers_next_update)
+                .map_err(|e| {
+                    format!(
+                        "SpyVisionUpdate xfer reset_timers_next_update failed: {:?}",
+                        e
+                    )
+                })?;
+            xfer.xfer_unsigned_int(&mut self.controller.disabled_until_frame)
+                .map_err(|e| {
+                    format!("SpyVisionUpdate xfer disabled_until_frame failed: {:?}", e)
+                })?;
         }
         Ok(())
     }
@@ -536,16 +582,20 @@ impl Module for SpyVisionUpdateModule {
     fn get_spy_vision_control_interface(&mut self) -> Option<&mut dyn SpyVisionControlInterface> {
         Some(self.behavior_mut())
     }
+
+    fn on_object_created(&mut self) {
+        Module::on_object_created(&mut self.behavior);
+    }
 }
 
 impl UpdateModuleInterface for SpyVisionUpdate {
-    fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+    fn update_simple(&mut self) -> UpdateSleepTime {
         self.maybe_trigger_upgrade();
-        if let Ok(mut controller) = self.controller.lock() {
-            let sleep = controller.update();
-            return Ok(sleep);
-        }
-        Ok(UpdateSleepTime::None)
+        self.controller.update()
+    }
+
+    fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.update_simple())
     }
 }
 
@@ -563,18 +613,15 @@ impl BehaviorModuleInterface for SpyVisionUpdate {
         old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
         new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
     ) {
-        if let Ok(mut controller) = self.controller.lock() {
-            controller.on_capture(old_owner, new_owner);
-        }
+        self.controller.on_capture(old_owner, new_owner);
     }
 
     fn on_disabled_edge(&mut self, now_disabled: bool) {
-        if let Ok(mut controller) = self.controller.lock() {
-            if now_disabled {
-                controller.set_disabled_until_frame(u32::MAX);
-            } else {
-                controller.set_disabled_until_frame(0);
-            }
+        // C++ onDisabledEdge calls setDisabledUntilFrame, which setWakeFrame's.
+        if now_disabled {
+            SpyVisionUpdate::set_disabled_until_frame(self, u32::MAX);
+        } else {
+            SpyVisionUpdate::set_disabled_until_frame(self, 0);
         }
     }
 
@@ -682,11 +729,11 @@ fn parse_spy_on_kind_of(
 
     let mut mask: KindOfMaskType = 0;
     for token in tokens.iter().copied().filter(|t| *t != "=") {
-        if token.eq_ignore_ascii_case("SpyOnKindOf") {
+        if token.eq_ignore_ascii_case("SpyOnKindof") {
             continue;
         }
         if token.eq_ignore_ascii_case("ALL") {
-            mask = u64::MAX;
+            mask = !0u128;
             break;
         }
         if token.eq_ignore_ascii_case("NONE") {
@@ -694,7 +741,7 @@ fn parse_spy_on_kind_of(
             continue;
         }
         if let Some(kind) = parse_kind(token) {
-            mask |= kind.cpp_mask() as u64;
+            mask |= kind.cpp_mask();
         }
     }
 
@@ -815,7 +862,7 @@ fn parse_requires_all_triggers(
 
 const SPY_VISION_UPDATE_FIELDS: &[FieldParse<SpyVisionUpdateModuleData>] = &[
     FieldParse {
-        token: "SpyOnKindOf",
+        token: "SpyOnKindof",
         parse: parse_spy_on_kind_of,
     },
     FieldParse {
@@ -851,3 +898,38 @@ const SPY_VISION_UPDATE_FIELDS: &[FieldParse<SpyVisionUpdateModuleData>] = &[
         parse: parse_requires_all_triggers,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ctor_packs_forever_wake_like_cpp() {
+        let update = SpyVisionUpdate::new(0, Arc::new(SpyVisionUpdateModuleData::default()), 1);
+        assert_eq!(update.initial_wake_frame(), UPDATE_SLEEP_FOREVER_FRAMES);
+        assert_eq!(update.next_call_frame_and_phase & 3, PHASE_NORMAL);
+    }
+
+    #[test]
+    fn update_sleep_matches_cpp_update_sleep_range() {
+        assert_eq!(cpp_update_sleep(0), UpdateSleepTime::None);
+        assert_eq!(cpp_update_sleep(1), UpdateSleepTime::Frames(1));
+        assert_eq!(cpp_update_sleep(90), UpdateSleepTime::Frames(90));
+        assert_eq!(
+            cpp_update_sleep(UPDATE_SLEEP_FOREVER_FRAMES),
+            UpdateSleepTime::Forever
+        );
+        assert_eq!(cpp_update_sleep(u32::MAX), UpdateSleepTime::Forever);
+    }
+
+    #[test]
+    fn update_does_not_resleep_on_disabled_until_frame() {
+        // C++ update() ignores m_disabledUntilFrame; only reset-timers / deactivate run.
+        let mut controller =
+            SpyVisionController::new(Arc::new(SpyVisionUpdateModuleData::default()), 1);
+        controller.disabled_until_frame = u32::MAX;
+        assert_eq!(controller.update(), UpdateSleepTime::Forever);
+        assert!(!controller.currently_active);
+        assert!(!controller.reset_timers_next_update);
+    }
+}

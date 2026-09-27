@@ -489,6 +489,17 @@ impl Weapon {
         let now = current_frame;
         let mut reloaded = false;
 
+        self.barrel_count = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_id, |obj| {
+                obj.get_drawable().and_then(|drawable| {
+                    drawable
+                        .read()
+                        .ok()
+                        .map(|draw| draw.get_barrel_count(self.wslot).max(1))
+                })
+            })
+            .flatten()
+            .unwrap_or(1);
         // Update barrel tracking (matches C++ lines 2577-2582)
         // barrel_count is set externally from drawable->getBarrelCount(m_wslot)
         if self.cur_barrel >= self.barrel_count {
@@ -924,18 +935,19 @@ impl Weapon {
             return;
         }
 
-        let new_ammo = (clip_size as Real * percent.clamp(0.0, 1.0)) as UnsignedInt;
-
-        // Only reduce if allowed, or increase
-        if allow_reduction || new_ammo > self.ammo_in_clip {
+        let new_ammo = (clip_size as Real * percent) as UnsignedInt;
+        let old_ammo = self.ammo_in_clip;
+        if new_ammo > old_ammo || (allow_reduction && new_ammo < old_ammo) {
             self.ammo_in_clip = new_ammo;
-
-            // Update status based on new ammo count
-            if self.ammo_in_clip > 0 {
-                self.status = WeaponStatus::ReadyToFire;
+            self.status = if new_ammo > 0 {
+                WeaponStatus::OutOfAmmo
             } else {
-                self.status = WeaponStatus::OutOfAmmo;
-            }
+                WeaponStatus::ReadyToFire
+            };
+            let now = TheGameLogic::get_frame();
+            self.when_last_reload_started = now;
+            self.when_we_can_fire_again = now;
+            self.rebuild_scatter_targets();
         }
     }
 
@@ -1310,7 +1322,7 @@ impl Weapon {
     pub fn transfer_next_shot_stats_from(&mut self, other: &Weapon) {
         self.when_we_can_fire_again = other.when_we_can_fire_again;
         self.when_last_reload_started = other.when_last_reload_started;
-        self.status = other.status;
+        self.status = other.get_status_at_frame(TheGameLogic::get_frame());
     }
 
     pub fn new_projectile_fired(
@@ -1336,7 +1348,7 @@ impl Weapon {
             let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) else {
                 return;
             };
-            let Ok(source_guard) = source_arc.read() else {
+            let Ok(source_guard) = source_arc.try_read() else {
                 return;
             };
             let team_arc = source_guard
@@ -1377,6 +1389,13 @@ impl Weapon {
         let Ok(mut stream_guard) = stream_arc.write() else {
             return;
         };
+        if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
+            if let Ok(source_guard) = source_arc.try_read() {
+                let pos = *source_guard.get_position();
+                drop(source_guard);
+                let _ = stream_guard.set_position(&pos);
+            }
+        }
         for behavior in stream_guard.get_behavior_modules() {
             let Ok(mut behavior) = behavior.lock() else {
                 continue;
@@ -1384,11 +1403,6 @@ impl Weapon {
             let Some(update) = behavior.get_projectile_stream_update_interface() else {
                 continue;
             };
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
-                if let Ok(source_guard) = source_arc.read() {
-                    update.set_position(source_guard.get_position());
-                }
-            }
             update.add_projectile(
                 source_id,
                 projectile_id,
@@ -1412,7 +1426,7 @@ impl Weapon {
         let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) else {
             return;
         };
-        let Ok(source_guard) = source_arc.read() else {
+        let Ok(source_guard) = source_arc.try_read() else {
             return;
         };
         let team_arc = source_guard

@@ -458,7 +458,7 @@ impl Player {
     /// Returns the bounty amount awarded.
     pub fn do_bounty_for_kill_obj(
         &mut self,
-        _killer: &dyn game_engine::common::rts::player::BountyObject,
+        killer: &dyn game_engine::common::rts::player::BountyObject,
         victim: &dyn game_engine::common::rts::player::BountyObject,
     ) -> Int {
         // C++ Player.cpp:2406-2407: no bounty for under-construction victims.
@@ -466,10 +466,25 @@ impl Player {
             return 0;
         }
 
-        // C++ Player.cpp:2409 calcCostToBuild(victim controlling player).
         let killer_cost = victim.calc_cost_to_build();
-
-        self.do_bounty_for_kill(killer_cost)
+        let bounty = self.do_bounty_for_kill(killer_cost);
+        if bounty > 0 {
+            let (x, y, z) = killer.bounty_anchor();
+            let mut pos = crate::common::Coord3D::new(x, y, z);
+            pos.z += 10.0;
+            let text = crate::supply_system::format_gui_add_cash(bounty as u32);
+            let _ = crate::helpers::TheInGameUI::add_floating_text(
+                &text,
+                &pos,
+                crate::common::Color {
+                    r: 255,
+                    g: 255,
+                    b: 0,
+                    a: 255,
+                },
+            );
+        }
+        bounty
     }
 
     /// Add skill points for kill using object references.
@@ -485,9 +500,11 @@ impl Player {
         killer: &dyn game_engine::common::rts::player::SkillPointObject,
         victim: &dyn game_engine::common::rts::player::SkillPointObject,
     ) -> Bool {
-        let _victim_level = victim.get_veterancy_level();
         let skill_value = victim.get_skill_point_value(killer);
-        self.add_skill_points_for_kill(None, false, skill_value)
+        if victim.is_under_construction() {
+            return false;
+        }
+        self.add_skill_points(skill_value)
     }
 
     /// Retaliation mode

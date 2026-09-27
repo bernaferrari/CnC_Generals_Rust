@@ -20,6 +20,13 @@ pub(crate) struct FireWeaponWhenDamagedBundle {
     pub pending_weapon: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct PathFollowResidual {
+    pub(crate) path_extra_distance: f32,
+    pub(crate) is_exact_path: bool,
+    pub(crate) is_attack_path: bool,
+}
+
 pub(crate) fn encode_payload<T: Serialize>(
     value: &T,
 ) -> Result<Vec<u8>, EntityLifecycleCodecError> {
@@ -344,6 +351,16 @@ pub(crate) fn collect_module_states(
         TAG_RAILROAD,
         RailroadBehaviorResidual::present(object),
         &RailroadBehaviorResidual::from_object(object),
+    )?;
+    push_present(
+        &mut out,
+        TAG_PATH_EXTRA_DISTANCE,
+        object.path_extra_distance != 0.0 || object.is_exact_path || object.is_attack_path,
+        &PathFollowResidual {
+            path_extra_distance: object.path_extra_distance,
+            is_exact_path: object.is_exact_path,
+            is_attack_path: object.is_attack_path,
+        },
     )?;
     Ok(out)
 }

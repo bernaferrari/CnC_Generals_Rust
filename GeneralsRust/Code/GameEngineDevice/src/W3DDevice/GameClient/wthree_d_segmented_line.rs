@@ -133,7 +133,11 @@ impl SegmentedLine {
 
     pub fn advance_uv(&mut self, delta_time: f32) {
         let offset = self.uv_offset_rate.y * delta_time;
-        self.uv_offset = (self.uv_offset + offset) % 1.0;
+        let mut next = (self.uv_offset + offset) % 1.0;
+        if next < 0.0 {
+            next += 1.0;
+        }
+        self.uv_offset = next;
     }
 
     pub fn get_uv_offset(&self) -> f32 {

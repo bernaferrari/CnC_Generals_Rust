@@ -211,33 +211,124 @@ impl Object {
     /// Leftover unused `get_locomotor_distance_to_goal` metric to `goal`.
     /// 3D only when leftover flag or projectile; else 2D / aircraft flight-dist.
     pub fn host_locomotor_distance_to_goal(&self, current: Vec3, goal: Vec3) -> f32 {
+        let last = self.movement.path.last().copied().unwrap_or(goal);
         if self.host_uses_close_enough_dist_3d() {
-            return current.distance(goal);
+            return current.distance(last);
         }
-        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement(self)
-            || matches!(self.loco_appearance, LocomotorAppearance::Hover);
-        let dx = goal.x - current.x;
-        let dz = goal.z - current.z;
-        let dist_2d = (dx * dx + dz * dz).sqrt();
+        let treat_as_aircraft = !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
+            || matches!(self.loco_appearance, LocomotorAppearance::Hover)
+            || self.path_extra_distance > 1.0;
         if !treat_as_aircraft {
-            return dist_2d;
+            let last = self.movement.path.last().copied().unwrap_or(goal);
+            let ldx = last.x - current.x;
+            let ldz = last.z - current.z;
+            let straight = (ldx * ldx + ldz * ldz).sqrt();
+            let along = if self.movement.path.is_empty() {
+                straight
+            } else {
+                let start = self.movement.current_path_index.saturating_sub(1);
+                crate::game_logic::PathfindingSystem::dist_along_path(
+                    current,
+                    &self.movement.path[start..],
+                )
+            };
+            // C++ AIUpdate.cpp:2496-2499. Straight line is to the last node.
+            // Short or shorter-than-straight remainders use that line.
+            let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+            if along < cell || along * along < straight * straight {
+                return straight;
+            }
+            return along;
         }
+        let last = self.movement.path.last().copied().unwrap_or(goal);
+        let adx = last.x - current.x;
+        let adz = last.z - current.z;
+        let straight = (adx * adx + adz * adz).sqrt();
         let flight = if self.movement.path.is_empty() {
-            dist_2d
+            straight
         } else {
             crate::game_logic::PathfindingSystem::compute_flight_dist_to_goal(
                 current,
                 &self.movement.path[self.movement.current_path_index.saturating_sub(1)..],
             )
         };
-        if flight * flight > dist_2d * dist_2d {
-            dist_2d
+        // C++ overwrites goalPos with the last node before dx/dy (AIUpdate.cpp:2475-2488).
+        if flight * flight > straight * straight {
+            straight
         } else {
             flight
         }
+        
     }
 
+    /// C++ `AIFollowPathState`: length from the current goal to the next
+    /// point, plus 4 cells when another point follows. Contact's 10 cells
+    /// stay only while `is_attack_path` is still that approach.
+    pub fn refresh_follow_path_extra_distance(&mut self) {
+        self.note_projectile_last_segment_precise_z();
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        if self.is_attack_path && (self.path_extra_distance - 10.0 * cell).abs() < 0.01 {
+            return;
+        }
+        if self.is_exact_path {
+            self.path_extra_distance = self.waypoint_link_extra_distance();
+            return;
+        }
+        let path = &self.movement.path;
+        let i = self.movement.current_path_index;
+        self.path_extra_distance = match (path.get(i), path.get(i + 1)) {
+            (Some(goal), Some(next)) => {
+                let dx = next.x - goal.x;
+                let dz = next.z - goal.z;
+                let mut offset = (dx * dx + dz * dz).sqrt();
+                if path.get(i + 2).is_some() {
+                    offset += 4.0 * cell;
+                }
+                offset
+            }
+            _ => 0.0,
+        };
+    }
+
+    /// C++ `AIFollowPathState`: a projectile on the last segment uses precise Z.
+    fn note_projectile_last_segment_precise_z(&mut self) {
+        if !self.is_kind_of(crate::game_logic::KindOf::Projectile) {
+            return;
+        }
+        let on_last = !self.movement.path.is_empty()
+            && self
+                .movement
+                .path
+                .get(self.movement.current_path_index + 1)
+                .is_none();
+        if on_last {
+            self.set_precise_z_pos(true);
+        }
+    }
+
+    /// C++ `AIFollowWaypointPathState::calcExtraPathDistance`: one tenth of a
+    /// cell, plus the next five waypoint links.
+    pub(crate) fn waypoint_link_extra_distance(&self) -> f32 {
+        let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+        let path = &self.movement.path;
+        let mut i = self.movement.current_path_index;
+        let mut extra = cell / 10.0;
+        for _ in 0..5 {
+            let (Some(cur), Some(next)) = (path.get(i), path.get(i + 1)) else {
+                break;
+            };
+            let dx = next.x - cur.x;
+            let dz = next.z - cur.z;
+            extra += (dx * dx + dz * dz).sqrt();
+            i += 1;
+        }
+        extra
+    }
     pub fn update_movement(&mut self, dt: f32) {
+        // C++ AIUpdate::doLocomotor returns immediately for KINDOF_IMMOBILE.
+        if self.is_kind_of(KindOf::Immobile) {
+            return;
+        }
         if matches!(self.ai_state, AIState::Docked | AIState::Garrisoned) {
             self.movement.target_position = None;
             self.movement.velocity = Vec3::ZERO;
@@ -309,8 +400,24 @@ impl Object {
                     };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
+                    self.adjust_destinations = if self.movement.current_path_index + 1
+                        < self.movement.path.len()
+                    {
+                        false
+                    } else {
+                        crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
+                    };
+                    self.refresh_follow_path_extra_distance();
+                } else if matches!(self.ai_state, AIState::AttackMoving) {
+                    self.movement.path.clear();
+                    self.movement.current_path_index = 0;
+                    self.movement.target_position = None;
+                    self.set_status_moving(false);
                 } else {
                     self.commit_completed_waypoint_labels();
+                    self.ignored_obstacle_id = None;
+                    self.queue_for_path_frames = 0;
+                    self.set_locomotor_goal_none();
                     self.stop_moving();
                 }
                 return;
@@ -325,11 +432,15 @@ impl Object {
                 desired_speed = desired_speed.min(blocked_per_sec);
             }
 
-            // C++ getIsDownhillOnly residual: refuse uphill goals.
-            if self.downhill_only {
-                let us_y = current_pos.y;
-                let goal_y = target_pos.y;
-                if us_y < goal_y - 0.05 {
+            // C++ moveTowardsPositionLegs only (Locomotor.cpp:1596-1598).
+            if matches!(self.loco_appearance, LocomotorAppearance::LegsTwo) && self.downhill_only {
+                let goal_y = self
+                    .movement
+                    .path
+                    .get(self.movement.current_path_index)
+                    .map(|p| p.y)
+                    .unwrap_or(target_pos.y);
+                if self.downhill_only_blocks_goal(current_pos.y, goal_y) {
                     return;
                 }
             }
@@ -398,33 +509,55 @@ impl Object {
             };
 
             // Braking residual near destination (unless NO_SLOW_DOWN).
-            let actual_speed = self.forward_speed_2d().abs();
+            let signed_speed = self.forward_speed_2d();
+            let actual_speed = signed_speed.abs();
             let braking = self.braking.max(1.0e-3);
-            let slow_down_dist =
-                calc_slow_down_dist(actual_speed, self.min_speed.max(0.0), braking);
-            if !self.no_slow_down_as_approaching_dest {
-                if dist_2d < slow_down_dist && !self.is_braking {
-                    self.is_braking = true;
-                    self.braking_factor = 1.1;
-                }
-                if dist_2d > PATHFIND_CELL_SIZE_F_RESIDUAL && dist_2d > 2.0 * slow_down_dist {
-                    self.is_braking = false;
-                    self.braking_factor = 1.0;
-                }
-                if self.is_braking {
-                    let floor = self.min_speed.max(0.0);
-                    goal_speed = goal_speed
-                        .min(actual_speed * 0.85 / self.braking_factor.max(1.0))
-                        .max(floor);
-                }
-            }
-            // Treads near-goal tight turn residual.
+            let slow_down_dist = if matches!(self.loco_appearance, LocomotorAppearance::Treads) {
+                // Same signed actualSpeed as Locomotor.cpp:1186-1188.
+                (signed_speed / 1.5) * (signed_speed / braking)
+            } else {
+                calc_slow_down_dist(actual_speed, self.min_speed.max(0.0), braking)
+            };
+            let approach_dist = dist_2d + self.path_extra_distance.max(0.0);
+            // Treads near-goal tight turn (Locomotor.cpp:1190-1192), before IS_BRAKING.
             if matches!(self.loco_appearance, LocomotorAppearance::Treads)
                 && dist_2d < 2.0 * PATHFIND_CELL_SIZE_F_RESIDUAL
                 && angle_coeff > 0.05
             {
-                goal_speed = actual_speed * 0.6;
+                goal_speed = self.forward_speed_2d() * 0.6;
             }
+            if !self.no_slow_down_as_approaching_dest {
+                if approach_dist < slow_down_dist && !self.is_braking {
+                    self.is_braking = true;
+                    self.braking_factor = 1.1;
+                }
+                if approach_dist > PATHFIND_CELL_SIZE_F_RESIDUAL
+                    && approach_dist > 2.0 * slow_down_dist
+                {
+                    self.is_braking = false;
+                    self.braking_factor = 1.0;
+                }
+                if self.is_braking {
+                    if matches!(self.loco_appearance, LocomotorAppearance::Treads) {
+                        // C++ Locomotor.cpp:1212-1219 uses signed actualSpeed.
+                        let signed = signed_speed;
+                        let tread_slow = slow_down_dist;
+                        if tread_slow > approach_dist {
+                            goal_speed = (signed - braking).max(0.0);
+                        } else if tread_slow > approach_dist * 0.75 {
+                            goal_speed = (signed - braking / 2.0).max(0.0);
+                        } else {
+                            goal_speed = signed;
+                        }
+                    } else {
+                        let floor = self.min_speed.max(0.0);
+                        goal_speed = goal_speed
+                            .min(actual_speed * 0.85 / self.braking_factor.max(1.0))
+                            .max(floor);
+                    }
+                }
+            }
+
 
             // Wings/Thrust specialized residual (may set position itself).
             if matches!(self.loco_appearance, LocomotorAppearance::Thrust) {
@@ -476,9 +609,20 @@ impl Object {
                     };
                 if let Some(waypoint) = next_waypoint {
                     self.movement.target_position = Some(waypoint);
+                    self.adjust_destinations = if self.movement.current_path_index + 1
+                        < self.movement.path.len()
+                    {
+                        false
+                    } else {
+                        crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
+                    };
                     self.is_braking = false;
+                    self.refresh_follow_path_extra_distance();
                 } else {
                     self.commit_completed_waypoint_labels();
+                    self.ignored_obstacle_id = None;
+                    self.queue_for_path_frames = 0;
+                    self.set_locomotor_goal_none();
                     self.stop_moving();
                     self.is_braking = false;
                 }
@@ -938,11 +1082,20 @@ impl Object {
             return;
         }
         let scale = Self::veterancy_health_bonus_scale(previous_level, new_level);
-        let old_max = self.health.maximum.max(self.max_health).max(1.0);
+        let old_max = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health.max(1.0)
+        };
         let ratio = self.health.current / old_max;
         let new_max = (old_max * scale).max(1.0);
+        let before = self.health.current;
         self.set_body_max_health(new_max);
+        self.previous_health = before;
         self.health.current = (new_max * ratio).clamp(0.0, new_max);
+        if (self.health.current - before).abs() > 1e-4 {
+            self.refresh_model_condition_bits();
+        }
     }
 
     pub(crate) fn apply_veterancy_bonuses(

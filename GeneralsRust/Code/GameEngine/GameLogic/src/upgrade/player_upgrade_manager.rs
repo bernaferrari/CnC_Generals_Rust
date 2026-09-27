@@ -346,16 +346,13 @@ impl PlayerUpgradeManager {
 /// Serialization support
 impl Snapshotable for PlayerUpgradeManager {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version = 1u8;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-
-        // CRC active upgrades
+        // C++ xferUpgradeMask writes a version, then the raw mask bytes on CRC.
         let mut mask_bits = self.active_upgrades.to_bits();
-        xfer.xfer_u128(&mut mask_bits).map_err(|e| e.to_string())?;
-
+        xfer.xfer_upgrade_mask(&mut mask_bits)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
+
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version = 1u8;
@@ -366,9 +363,10 @@ impl Snapshotable for PlayerUpgradeManager {
         xfer.xfer_u32(&mut self.player_id)
             .map_err(|e| e.to_string())?;
 
-        // Serialize active upgrades mask
+        // C++ xferUpgradeMask: version, count, upgrade names. Not a raw bit dump.
         let mut mask_bits = self.active_upgrades.to_bits();
-        xfer.xfer_u128(&mut mask_bits).map_err(|e| e.to_string())?;
+        xfer.xfer_upgrade_mask(&mut mask_bits)
+            .map_err(|e| e.to_string())?;
         if xfer.is_reading() {
             self.active_upgrades = UpgradeMask::from_bits_value(mask_bits);
         }

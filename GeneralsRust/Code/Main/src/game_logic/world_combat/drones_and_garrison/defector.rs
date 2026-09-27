@@ -77,11 +77,10 @@ impl GameLogic {
 
         // C++ after switch: handlePartitionCellMaintenance + aiIdle.
         if let Some(victim) = self.objects.get_mut(&victim_id) {
-            victim.stop_moving();
+            victim.set_target(None);
             victim.set_status_moving(false);
             victim.set_status_attacking(false);
-            victim.set_target(None);
-            victim.set_ai_state(AIState::Idle);
+            victim.stop_moving();
             victim.flash_as_selected();
         }
         self.stop_attack_decision_aware(victim_id);

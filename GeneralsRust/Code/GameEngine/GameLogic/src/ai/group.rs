@@ -702,6 +702,28 @@ impl AIGroup {
                 let Some(ai) = obj.get_ai_update_interface() else {
                     return;
                 };
+                if matches!(cmd_source, CommandSourceType::FromPlayer)
+                    && obj.test_status(ObjectStatusTypes::CanStealth)
+                    && !obj.test_status(ObjectStatusTypes::Stealthed)
+                    && !obj.test_status(ObjectStatusTypes::Detected)
+                {
+                    if let Some(stealth) = obj.get_stealth() {
+                        if let (Ok(stealth_guard), Ok(mut ai_guard)) = (stealth.lock(), ai.lock())
+                        {
+                            if ai_guard.can_auto_acquire()
+                                && !stealth_guard.is_granted_by_special_power()
+                                && !ai_guard.can_auto_acquire_while_stealthed()
+                            {
+                                let stealth_frames = stealth_guard.get_stealth_delay();
+                                let random_frames =
+                                    GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
+                                ai_guard.set_next_mood_check_time(
+                                    TheGameLogic::get_frame() + stealth_frames + random_frames,
+                                );
+                            }
+                        }
+                    }
+                }
                 if !add_waypoint {
                     ai.ai_move_to_position(&dest, false, cmd_source);
                 } else {
@@ -1247,6 +1269,7 @@ impl AIGroup {
                     ai.ai_idle(cmd_source);
                     if matches!(cmd_source, CommandSourceType::FromPlayer)
                         && obj_ref.test_status(ObjectStatusTypes::CanStealth)
+
                         && !obj_ref.test_status(ObjectStatusTypes::Stealthed)
                         && !obj_ref.test_status(ObjectStatusTypes::Detected)
                     {
@@ -1254,12 +1277,22 @@ impl AIGroup {
                             if let (Ok(stealth_guard), Ok(mut ai_guard)) =
                                 (stealth.lock(), ai.lock())
                             {
-                                let stealth_frames = stealth_guard.get_stealth_delay();
-                                let random_frames =
-                                    GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
-                                ai_guard.set_next_mood_check_time(
-                                    TheGameLogic::get_frame() + stealth_frames + random_frames,
-                                );
+                                if ai_guard.can_auto_acquire()
+                                    && !stealth_guard.is_granted_by_special_power()
+                                    && !ai_guard.can_auto_acquire_while_stealthed()
+                                {
+                                    let stealth_frames = stealth_guard.get_stealth_delay();
+                                    let random_frames = GameLogicRandomValue(
+                                        0,
+                                        LOGICFRAMES_PER_SECOND as i32,
+                                    )
+                                        as u32;
+                                    ai_guard.set_next_mood_check_time(
+                                        TheGameLogic::get_frame()
+                                            + stealth_frames
+                                            + random_frames,
+                                    );
+                                }
                             }
                         }
                     }

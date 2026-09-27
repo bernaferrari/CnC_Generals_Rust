@@ -20,6 +20,80 @@ use super::wait_busy::*;
 use super::wander_panic::*;
 use super::waypoint::*;
 use super::*;
+use std::cell::Cell;
+
+enum PendingAiExit {
+    Quick(Vec<crate::common::Coord3D>),
+    Follow {
+        path: Vec<crate::common::Coord3D>,
+        ignore_id: crate::common::ObjectID,
+        end: crate::common::Coord3D,
+    },
+}
+
+thread_local! {
+    static OWNER_AI_MUTEX_HELD: Cell<bool> = const { Cell::new(false) };
+    static PENDING_AI_EXIT: std::cell::RefCell<Vec<PendingAiExit>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// `do_quick_exit` already holds the unit AI mutex. Follow enter must not lock it again.
+pub(crate) fn with_owner_ai_mutex_held<R>(body: impl FnOnce() -> R) -> R {
+    OWNER_AI_MUTEX_HELD.with(|held| held.set(true));
+    struct Clear;
+    impl Drop for Clear {
+        fn drop(&mut self) {
+            OWNER_AI_MUTEX_HELD.with(|held| held.set(false));
+        }
+    }
+    let _clear = Clear;
+    body()
+}
+
+pub(crate) fn owner_ai_mutex_held() -> bool {
+    OWNER_AI_MUTEX_HELD.with(|held| held.get())
+}
+
+/// Hurry exit runs inside `UnitAIUpdate::update`, which already holds the AI mutex.
+pub(crate) fn queue_quick_exit(path: Vec<crate::common::Coord3D>) {
+    PENDING_AI_EXIT.with(|slot| slot.borrow_mut().push(PendingAiExit::Quick(path)));
+}
+
+pub(crate) fn queue_follow_exit(
+    path: Vec<crate::common::Coord3D>,
+    ignore_id: crate::common::ObjectID,
+    end: crate::common::Coord3D,
+) {
+    PENDING_AI_EXIT.with(|slot| {
+        slot.borrow_mut().push(PendingAiExit::Follow {
+            path,
+            ignore_id,
+            end,
+        })
+    });
+}
+
+pub(crate) fn take_pending_ai_exits() -> Vec<(bool, Vec<crate::common::Coord3D>, crate::common::ObjectID, crate::common::Coord3D)> {
+    PENDING_AI_EXIT.with(|slot| {
+        slot.borrow_mut()
+            .drain(..)
+            .map(|item| match item {
+                PendingAiExit::Quick(path) => (
+                    true,
+                    path,
+                    crate::common::INVALID_ID,
+                    crate::common::Coord3D::new(0.0, 0.0, 0.0),
+                ),
+                PendingAiExit::Follow {
+                    path,
+                    ignore_id,
+                    end,
+                } => (false, path, ignore_id, end),
+            })
+            .collect()
+    })
+}
+
 
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::dock::AIDockMachine;
@@ -168,7 +242,7 @@ impl AIFollowPathState {
     pub(crate) fn set_goal_position(&mut self, pos: Coord3D) {
         self.base.goal_position = pos;
         if let Ok(machine) = self.base.base.get_machine() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(mut guard) = machine.try_lock() {
                 guard.set_goal_position(pos);
             }
         }
@@ -218,8 +292,109 @@ impl StateImplementation for AIFollowPathState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.bind_goal_position(pos);
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        _goal_pos: Coord3D,
+    ) -> StateReturnType {
+        if self.path.is_empty() {
+            return StateReturnType::Failure;
+        }
+        self.index = 0;
+        self.adjust_final = true;
+        self.adjust_final_override = true;
+        self.set_goal_position(self.path[0]);
+        if let Some(ignore_id) = self.ignore_object_id {
+            let _ = ai.ignore_obstacle_id(ignore_id);
+        }
+        let _ = ai.set_current_goal_path_index(self.index as i32);
+        if self.follow_exit_production {
+            let _ = ai.set_can_path_through_units(true);
+            self.base.set_adjusts_destination(false);
+        }
+        let started = self
+            .base
+            .on_enter_with_ai(ai, goal_id, self.base.goal_position);
+        if started != StateReturnType::Continue {
+            return started;
+        }
+        let Some(owner) = self.base.base.get_machine_owner() else {
+            return StateReturnType::Failure;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return StateReturnType::Failure;
+        };
+        if owner_guard.get_formation_id() != FormationID::NONE {
+            if let Some(group_id) = owner_guard.get_group_id() {
+                if let Ok(store) = the_ai().read() {
+                    if let Some(group) = store.find_group(group_id) {
+                        if let Ok(mut group_guard) = group.write() {
+                            ai.set_desired_speed(group_guard.get_speed());
+                        }
+                    }
+                }
+            }
+        }
+        if self.configure_segment(&owner_guard, ai, false).is_err() {
+            return StateReturnType::Failure;
+        }
+        StateReturnType::Continue
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        let status = self.base.update_with_ai(ai);
+        if status == StateReturnType::Continue {
+            return status;
+        }
+        let Some(owner) = self.base.base.get_machine_owner() else {
+            return StateReturnType::Failure;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return StateReturnType::Failure;
+        };
+        if status == StateReturnType::Failure && self.retry_count > 0 {
+            self.retry_count -= 1;
+        } else {
+            self.index = self.index.saturating_add(1);
+        }
+        while self.index < self.path.len() {
+            let pos = self.path[self.index];
+            let dx = pos.x - owner_guard.get_position().x;
+            let dy = pos.y - owner_guard.get_position().y;
+            if dx * dx + dy * dy >= PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
+                break;
+            }
+            self.index = self.index.saturating_add(1);
+        }
+        let Some(pos) = self.path.get(self.index).copied() else {
+            return StateReturnType::Success;
+        };
+        let _ = ai.set_current_goal_path_index(self.index as i32);
+        let _ = ai.ignore_obstacle(None);
+        ai.friend_starting_move();
+        self.set_goal_position(pos);
+        if self.configure_segment(&owner_guard, ai, true).is_err()
+            || self.base.compute_path(ai).is_err()
+        {
+            return StateReturnType::Failure;
+        }
+        StateReturnType::Continue
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -264,31 +439,39 @@ impl ClassicState for AIFollowPathState {
             let ai = owner_guard
                 .get_ai_update_interface()
                 .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
-            let mut ai_guard = ai
-                .lock()
-                .map_err(|_| "follow path AI lock poisoned".to_string())?;
-
             self.set_goal_position(self.path[0]);
-            if let Some(ignore_id) = self.ignore_object_id {
-                let _ = ai_guard.ignore_obstacle_id(ignore_id);
-            }
-            let _ = ai_guard.set_current_goal_path_index(self.index as i32);
-            if self.follow_exit_production {
-                let _ = ai_guard.set_can_path_through_units(true);
-                self.base.set_adjusts_destination(false);
+            if owner_ai_mutex_held() {
+                if self.follow_exit_production {
+                    self.base.set_adjusts_destination(false);
+                }
+            } else {
+                let mut ai_guard = ai
+                    .lock()
+                    .map_err(|_| "follow path AI lock poisoned".to_string())?;
+                if let Some(ignore_id) = self.ignore_object_id {
+                    let _ = ai_guard.ignore_obstacle_id(ignore_id);
+                }
+                let _ = ai_guard.set_current_goal_path_index(self.index as i32);
+                if self.follow_exit_production {
+                    let _ = ai_guard.set_can_path_through_units(true);
+                    self.base.set_adjusts_destination(false);
+                }
             }
         }
 
         let status = self.base.classic_on_enter()?;
-        if let Ok(owner_guard) = owner.read() {
-            if owner_guard.get_formation_id() != FormationID::NONE {
-                if let Some(group_id) = owner_guard.get_group_id() {
-                    let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
-                        if let Some(group) = ai_lock.find_group(group_id) {
-                            if let Ok(mut group_guard) = group.write() {
-                                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                                    if let Ok(mut ai_guard) = ai.lock() {
-                                        ai_guard.set_desired_speed(group_guard.get_speed());
+        if !owner_ai_mutex_held() {
+            if let Ok(owner_guard) = owner.read() {
+                if owner_guard.get_formation_id() != FormationID::NONE {
+                    if let Some(group_id) = owner_guard.get_group_id() {
+                        let ai_store = the_ai();
+                        if let Ok(ai_lock) = ai_store.read() {
+                            if let Some(group) = ai_lock.find_group(group_id) {
+                                if let Ok(mut group_guard) = group.write() {
+                                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                                        if let Ok(mut ai_guard) = ai.lock() {
+                                            ai_guard.set_desired_speed(group_guard.get_speed());
+                                        }
                                     }
                                 }
                             }
@@ -296,24 +479,100 @@ impl ClassicState for AIFollowPathState {
                     }
                 }
             }
-        }
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    self.configure_segment(&owner_guard, &mut *ai_guard, false)?;
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        self.configure_segment(&owner_guard, &mut *ai_guard, false)?;
+                    }
                 }
             }
         }
         Ok(status)
     }
 
+    fn classic_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        if self.path.is_empty() {
+            return Ok(StateReturnType::Failure);
+        }
+        self.index = 0;
+        self.adjust_final = true;
+        self.adjust_final_override = true;
+        self.set_goal_position(self.path[0]);
+        if let Some(ignore_id) = self.ignore_object_id {
+            let _ = ai.ignore_obstacle_id(ignore_id);
+        }
+        let _ = ai.set_current_goal_path_index(self.index as i32);
+        if self.follow_exit_production {
+            let _ = ai.set_can_path_through_units(true);
+            self.base.set_adjusts_destination(false);
+        }
+        let status = self.base.classic_on_enter_with_ai(ai)?;
+        let owner = self
+            .base
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "follow path missing owner".to_string())?;
+        if let Ok(owner_guard) = owner.read() {
+            if owner_guard.get_formation_id() != FormationID::NONE {
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_lock) = ai_store.read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                ai.set_desired_speed(group_guard.get_speed());
+                            }
+                        }
+                    }
+                }
+            }
+            self.configure_segment(&owner_guard, ai, false)?;
+        }
+        Ok(status)
+    }
+
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        self.follow_update(None)
+    }
+
+    fn classic_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.follow_update(Some(ai))
+    }
+
+    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+        self.base.classic_on_exit(_exit)?;
+        if let Some(owner) = self.base.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_path_through_units = Some(false);
+                owner_guard.ai_pending_precise_z = Some(false);
+                owner_guard.ai_pending_path_extra = Some(0.0);
+                owner_guard.ai_pending_goal_path_index = Some(-1);
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AIFollowPathState {
+    fn follow_update(
+        &mut self,
+        mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> Result<StateReturnType, String> {
         if let Ok(machine) = self.base.base.get_machine() {
-            if let Ok(mut guard) = machine.lock() {
+            if let Ok(mut guard) = machine.try_lock() {
                 guard.set_goal_position(self.base.goal_position);
             }
         }
-        let status = self.base.classic_on_update()?;
+        let status = if let Some(ai) = borrowed.as_mut() {
+            self.base.classic_on_update_with_ai(*ai)?
+        } else {
+            self.base.classic_on_update()?
+        };
 
         if status == StateReturnType::Continue {
             return Ok(status);
@@ -327,12 +586,20 @@ impl ClassicState for AIFollowPathState {
         let owner_guard = owner
             .read()
             .map_err(|_| "follow path owner lock poisoned".to_string())?;
-        let ai = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "follow path AI lock poisoned".to_string())?;
+        let ai_arc;
+        let mut locked_ai;
+        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
+        {
+            *ai
+        } else {
+            ai_arc = owner_guard
+                .get_ai_update_interface()
+                .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
+            locked_ai = ai_arc
+                .lock()
+                .map_err(|_| "follow path AI lock poisoned".to_string())?;
+            &mut *locked_ai
+        };
 
         if status == StateReturnType::Failure && self.retry_count > 0 {
             self.retry_count -= 1;
@@ -364,22 +631,6 @@ impl ClassicState for AIFollowPathState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        self.base.classic_on_exit(_exit)?;
-        if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_can_path_through_units(false);
-                        let _ = ai_guard.set_precise_z_pos(false);
-                        let _ = ai_guard.set_path_extra_distance(0.0);
-                        let _ = ai_guard.set_current_goal_path_index(-1);
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 }
 
 /// Follow exit-production path state
@@ -409,8 +660,32 @@ impl StateImplementation for AIFollowExitProductionPathState {
         self.base.on_enter()
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.bind_goal_position(pos);
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+    ) -> StateReturnType {
+        self.base.on_enter_with_ai(ai, goal_id, goal_pos)
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.base.update()
+    }
+
+    fn update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> StateReturnType {
+        self.base.update_with_ai(ai)
     }
 
     fn on_exit(&mut self, status: StateExitType) {
@@ -439,8 +714,22 @@ impl ClassicState for AIFollowExitProductionPathState {
         self.base.classic_on_enter()
     }
 
+    fn classic_on_enter_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.base.classic_on_enter_with_ai(ai)
+    }
+
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
         self.base.classic_on_update()
+    }
+
+    fn classic_on_update_with_ai(
+        &mut self,
+        ai: &mut dyn crate::modules::AIUpdateInterface,
+    ) -> Result<StateReturnType, String> {
+        self.base.classic_on_update_with_ai(ai)
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
@@ -486,6 +775,31 @@ impl AIFollowState {
 impl StateImplementation for AIFollowState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
+    fn on_enter_with_ai(
+        &mut self,
+        _ai: &mut dyn crate::modules::AIUpdateInterface,
+        goal_id: crate::common::ObjectID,
+        goal_pos: Coord3D,
+    ) -> StateReturnType {
+        if dual_world_registry_unavailable() || goal_id == INVALID_ID {
+            return StateReturnType::Failure;
+        }
+        self.target_id = goal_id;
+        self.last_target_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |guard| *guard.get_position())
+            .unwrap_or(goal_pos);
+        self.issued_move = false;
+        StateReturnType::Continue
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -581,18 +895,9 @@ impl ClassicState for AIFollowState {
         self.last_target_pos = target_pos;
 
         if !self.issued_move || target_moved {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let mut params = AiCommandParams::new(
-                            crate::ai::AiCommandType::MoveToPosition,
-                            crate::ai::CommandSourceType::FromAi,
-                        );
-                        params.pos = target_pos;
-                        let _ = ai_guard.execute_command(&params);
-                        self.issued_move = true;
-                    }
-                }
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_follow_pos = Some(target_pos);
+                self.issued_move = true;
             }
         }
 

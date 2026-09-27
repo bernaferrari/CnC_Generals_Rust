@@ -186,6 +186,7 @@ impl SmudgeManager {
                 color: [1.0, 1.0, 1.0, smudge.opacity],
                 texture_name: String::new(),
                 shadow_type: 0,
+                uv_offset: [0.0, 0.0],
             })
             .collect()
     }

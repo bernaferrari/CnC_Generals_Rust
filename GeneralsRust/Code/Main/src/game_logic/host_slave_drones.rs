@@ -813,8 +813,13 @@ pub fn apply_drone_armor_health(
 ) {
     let add = drone_armor_add_max_health(kind);
     *max_health = (*max_health + add).max(1.0);
-    *maximum = (*maximum + add).max(1.0);
-    *current = (*current + add).min(*maximum);
+    if *maximum > 0.0 {
+        *maximum = (*maximum + add).max(1.0);
+        *current = (*current + add).min(*maximum);
+    } else {
+        *maximum = *max_health;
+        *current = (*current + add).min(*max_health);
+    }
 }
 
 // --- Wave 61 residual honesty packs ---

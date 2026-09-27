@@ -195,9 +195,7 @@ impl RadarUpdate {
 
 impl Snapshotable for RadarUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -229,22 +227,23 @@ impl UpdateModuleInterface for RadarUpdate {
         }
 
         if current_frame > self.extend_done_frame {
-            self.extend_complete = true;
-            self.extend_done_frame = 0;
-
             if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
-                if let Ok(mut object) = object.write() {
-                    let _ = object.clear_and_set_model_condition_flags(
-                        ModelConditionFlags::RADAR_EXTENDING,
-                        ModelConditionFlags::RADAR_UPGRADED,
-                    );
-                }
+                let Ok(mut object) = object.write() else {
+                    return UpdateSleepTime::None;
+                };
+                let _ = object.clear_and_set_model_condition_flags(
+                    ModelConditionFlags::RADAR_EXTENDING,
+                    ModelConditionFlags::RADAR_UPGRADED,
+                );
             }
+
+            self.extend_complete = true;
+            self.extend_done_frame = 0;
         }
 
         UpdateSleepTime::None

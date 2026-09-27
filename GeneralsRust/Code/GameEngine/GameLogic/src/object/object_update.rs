@@ -274,7 +274,7 @@ impl Object {
         let wake_frame = match sleep {
             UpdateSleepTime::None => 0,
             UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
-            UpdateSleepTime::Frames(frames) => current_frame.saturating_add(frames.max(1)),
+            UpdateSleepTime::Frames(frames) => current_frame.saturating_add(frames),
         };
 
         for module in &self.update_module_registrations {
@@ -285,6 +285,46 @@ impl Object {
             );
         }
     }
+    /// Re-register one already-attached update module. C++ `setWakeFrame` does not touch the others.
+    pub fn reschedule_named_update(&self, module_name: &str, wake_frame: UnsignedInt) {
+        for module in &self.update_module_registrations {
+            let matches = module
+                .read()
+                .ok()
+                .map(|proxy| proxy.module_name() == module_name)
+                .unwrap_or(false);
+            if matches {
+                let _ = crate::helpers::TheGameLogic::register_update_module(
+                    self.id,
+                    module.clone(),
+                    wake_frame,
+                );
+            }
+        }
+    }
+    /// C++ `AIUpdateInterface::wakeUpNow` wakes that AI module, including subclasses.
+    pub fn reschedule_ai_update(&self, wake_frame: UnsignedInt) {
+        let now = wake_frame.saturating_sub(1);
+        if crate::helpers::TheGameLogic::ai_update_already_due(self.id, now) {
+            return;
+        }
+        for module in &self.update_module_registrations {
+            let matches = module
+                .read()
+                .ok()
+                .map(|proxy| proxy.module_name().contains("AIUpdate"))
+                .unwrap_or(false);
+            if matches {
+                let _ = crate::helpers::TheGameLogic::register_update_module(
+                    self.id,
+                    module.clone(),
+                    wake_frame,
+                );
+            }
+        }
+    }
+
+
 
     /// Live update-module proxies registered at object create (C++ behavior modules).
     pub fn update_module_registrations(&self) -> &[UpdateModulePtr] {
@@ -807,11 +847,7 @@ impl Object {
         }
 
         self.friend_set_undetected_defector(defection_type > 0);
-        if self.defection_helper.is_none() {
-            self.defection_helper = Some(Arc::new(Mutex::new(ObjectDefectionHelper::new(
-                ObjectDefectionHelperModuleData::new(),
-            ))));
-        }
+        // C++ starts the timer only if m_defectionHelper was already attached.
         if let Some(helper) = &self.defection_helper {
             if let Ok(mut helper_guard) = helper.lock() {
                 let current_frame = crate::helpers::TheGameLogic::get_frame();

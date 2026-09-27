@@ -35,10 +35,13 @@ impl GameLogic {
             }
             out
         };
-        for o in self.objects.values_mut() {
+        let mut expired_paths: Vec<ObjectId> = Vec::new();
+        for (id, o) in self.objects.iter_mut() {
             o.clear_blocked_frame_state();
             o.tick_move_away_state();
-            o.tick_path_queue();
+            if o.tick_path_queue() {
+                expired_paths.push(*id);
+            }
             // C++ DISABLED_HELD skips gravity/friction/Euler; accel still zeros.
             if o.is_physics_held() {
                 o.physics_accel = glam::Vec3::ZERO;
@@ -49,6 +52,18 @@ impl GameLogic {
             o.apply_frictional_forces();
             o.integrate_physics_accel();
         }
+        let snap_ids: Vec<ObjectId> = self
+            .objects
+            .iter()
+            .filter_map(|(id, o)| o.overlay_arrival_snap.then_some(*id))
+            .collect();
+        for id in snap_ids {
+            if let Some(o) = self.objects.get_mut(&id) {
+                o.overlay_arrival_snap = false;
+            }
+            self.apply_arrival_goal_snap(id, None);
+        }
+        self.requeue_expired_path_requests(&expired_paths);
         let mut landed: Vec<ObjectId> = Vec::new();
         for (id, ground_y) in ground_heights {
             if let Some(o) = self.objects.get_mut(&id) {
@@ -181,6 +196,9 @@ impl GameLogic {
             if let Some(o) = self.objects.get_mut(&id) {
                 o.advance_physics_overlap_frame();
             }
+        }
+        for o in self.objects.values_mut() {
+            o.landing_splat_done = false;
         }
         handled
     }
@@ -693,11 +711,16 @@ impl GameLogic {
             a.movement.current_path_index = 0;
             a.record_host_movement();
             a.movement.target_position = Some(dest);
-            a.set_ai_state(AIState::Attacking);
+            let entered_attack = !matches!(
+                a.ai_state,
+                AIState::Patrolling | AIState::AttackMoving | AIState::Attacking
+            );
+            if entered_attack {
+                a.set_ai_state(AIState::Attacking);
+            }
             a.set_status_attacking(true);
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if entered_attack && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
-                // Attacking
             }
             a.set_status_moving(true);
             crate::game_logic::host_move_log::record(attacker_id, Some([dest.x, dest.y, dest.z]));
@@ -844,11 +867,9 @@ impl GameLogic {
         else {
             return false;
         };
-        // Continue-attack residual: under AI decision authority, log AttackTarget
-        // (+ Attacking state) for GameWorld apply/writeback; host stays clean.
         if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_attack(attacker_id, next_id);
-            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2); // Attacking
+            crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
             return true;
         }
         if let Some(attacker) = self.objects.get_mut(&attacker_id) {

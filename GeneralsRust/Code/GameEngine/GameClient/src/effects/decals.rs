@@ -144,6 +144,8 @@ pub struct DecalRenderItem {
     pub color: [f32; 4],
     pub texture_name: String,
     pub shadow_type: u32,
+    /// C++ `m_decalOffsetU/V`.
+    pub uv_offset: [f32; 2],
 }
 
 /// Special radius-based decals
@@ -310,6 +312,7 @@ impl DecalManager {
                 color,
                 texture_name: String::new(),
                 shadow_type: 0,
+                uv_offset: [0.0, 0.0],
             });
         }
 
@@ -332,6 +335,7 @@ impl DecalManager {
                 color,
                 texture_name: String::new(),
                 shadow_type: 0,
+                uv_offset: [0.0, 0.0],
             });
         }
 

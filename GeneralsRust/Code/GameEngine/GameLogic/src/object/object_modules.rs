@@ -187,6 +187,7 @@ impl Object {
         F: FnMut(&mut dyn PowerPlantUpdateInterface) -> R,
     {
         let mut func = func;
+        let mut found = None;
         for entry in &self.modules {
             let result = entry.with_module(|module| {
                 module_behavior_utility_kind(module)
@@ -194,7 +195,7 @@ impl Object {
                     .map(&mut func)
             });
             if result.is_some() {
-                return result;
+                found = result;
             }
         }
 
@@ -206,10 +207,10 @@ impl Object {
                 guard.get_power_plant_update_interface().map(&mut func)
             };
             if result.is_some() {
-                return result;
+                found = result;
             }
         }
-        None
+        found
     }
 
     pub fn with_radar_update_interface<F, R>(&self, func: F) -> Option<R>
@@ -646,6 +647,38 @@ impl Object {
 
         None
     }
+    pub fn copy_module_entries(&self) -> Vec<Arc<ModuleEntry>> {
+        self.modules.clone()
+    }
+
+    pub fn enslave_first_in(
+        entries: &[Arc<ModuleEntry>],
+        master_id: ObjectID,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        for entry in entries {
+            let mut enslaved = false;
+            let mut error = None;
+            entry.with_module(|module| {
+                if let Some(mut slaved) = module_behavior_utility_kind(module)
+                    .and_then(BehaviorUtilityModuleKindMut::into_slaved_update_interface)
+                {
+                    if let Err(err) = slaved.on_enslave(master_id) {
+                        error = Some(err);
+                    } else {
+                        enslaved = true;
+                    }
+                }
+            });
+            if let Some(err) = error {
+                return Err(err);
+            }
+            if enslaved {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
 
     pub fn get_object_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
         for entry in &self.modules {
@@ -683,6 +716,15 @@ impl Object {
         }
 
         None
+    }
+
+    /// C++ ContainModuleInterface::getContainExitInterface. Not the production exit.
+    pub fn get_contain_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
+        self.contain.as_ref().map(|contain| {
+            Arc::new(Mutex::new(ContainExitInterfaceProxy {
+                contain: Arc::clone(contain),
+            })) as Arc<Mutex<dyn ExitInterface>>
+        })
     }
 
     pub fn get_physics(&self) -> Option<Arc<Mutex<dyn PhysicsBehavior>>> {
@@ -961,6 +1003,23 @@ impl Object {
                         crate::object::behavior::slow_death_behavior::SlowDeathBehavior,
                     >() {
                         slow_death.bind_update_proxy(proxy.clone());
+                    }
+                    if let Some(lifetime) = (module as &mut dyn Any).downcast_mut::<
+                        crate::object::behavior::lifetime_update::LifetimeUpdateModule,
+                    >() {
+                        lifetime.behavior_mut().bind_update_proxy(proxy.clone());
+                    }
+                    if let Some(deletion) = (module as &mut dyn Any).downcast_mut::<
+                        crate::contain_module_overrides::ActiveBehaviorModule<
+                            crate::object::behavior::deletion_update::DeletionUpdate,
+                        >,
+                    >() {
+                        deletion.behavior_mut().bind_update_proxy(proxy.clone());
+                    }
+                    if let Some(spy) = (module as &mut dyn Any).downcast_mut::<
+                        crate::object::update::spy_vision_update::SpyVisionUpdateModule,
+                    >() {
+                        spy.behavior_mut().bind_update_proxy(proxy.clone());
                     }
                 });
                 let wake_frame = initial_update_wake_frame(entry.as_ref());

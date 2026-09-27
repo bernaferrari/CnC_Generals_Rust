@@ -8,7 +8,7 @@
 
 use std::any::Any;
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use super::behavior_module::{
     BehaviorModuleInterface, CountermeasuresBehaviorInterface, xfer_update_module_base_state,
@@ -423,12 +423,12 @@ impl Default for CountermeasuresState {
     }
 }
 
-/// Thread-safe countermeasures behavior implementation
+/// Countermeasures behavior. Flare runtime state is owned here, matching the C++ members.
 #[derive(Debug)]
 pub struct CountermeasuresBehavior {
     module_data: Arc<CountermeasuresBehaviorModuleData>,
     object_id: ObjectID,
-    state: Arc<RwLock<CountermeasuresState>>,
+    state: CountermeasuresState,
     next_call_frame_and_phase: UnsignedInt,
     upgrade_mux: UpgradeMux,
 }
@@ -449,8 +449,8 @@ impl CountermeasuresBehavior {
         Self {
             module_data,
             object_id,
-            state: Arc::new(RwLock::new(state)),
-            next_call_frame_and_phase: 0,
+            state,
+            next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             upgrade_mux,
         }
     }
@@ -497,43 +497,35 @@ impl CountermeasuresBehavior {
         let is_airborne = obj_guard.is_airborne_target();
         drop(obj_guard);
 
-        let mut state = self.state.write().unwrap();
+        Self::cleanup_expired_countermeasures(&mut self.state)?;
 
-        self.cleanup_expired_countermeasures(&mut state)?;
+        if is_airborne && self.state.available_countermeasures > 0 {
+            let frames_between_volleys = self.module_data.frames_between_volleys;
+            if self.state.reaction_frame > 0 && self.state.reaction_frame == current_frame {
+                self.launch_volley(current_frame)?;
+                self.state.next_volley_frame = current_frame + frames_between_volleys;
+                self.state.reaction_frame = 0;
+            }
 
-        if is_airborne {
-            if state.available_countermeasures > 0 {
-                if state.reaction_frame > 0 && state.reaction_frame == current_frame {
-                    self.launch_volley(&mut state, current_frame)?;
-                    state.next_volley_frame =
-                        current_frame + self.module_data.frames_between_volleys;
-                    state.reaction_frame = 0;
-                }
-
-                if state.next_volley_frame > 0 && state.next_volley_frame == current_frame {
-                    self.launch_volley(&mut state, current_frame)?;
-                    state.next_volley_frame =
-                        current_frame + self.module_data.frames_between_volleys;
-                }
+            if self.state.next_volley_frame > 0 && self.state.next_volley_frame == current_frame {
+                self.launch_volley(current_frame)?;
+                self.state.next_volley_frame = current_frame + frames_between_volleys;
             }
         }
 
-        if state.available_countermeasures == 0 && self.module_data.reload_frames > 0 {
-            if state.reload_frame == 0 {
-                state.reload_frame = current_frame + self.module_data.reload_frames;
-            } else if state.reload_frame <= current_frame {
-                self.reload_countermeasures_internal(&mut state)?;
+        if self.state.available_countermeasures == 0 && self.module_data.reload_frames > 0 {
+            if self.state.reload_frame == 0 {
+                let reload_frames = self.module_data.reload_frames;
+                self.state.reload_frame = current_frame + reload_frames;
+            } else if self.state.reload_frame <= current_frame {
+                Self::reload_countermeasures_internal(self.module_data.as_ref(), &mut self.state)?;
             }
         }
 
         Ok(UpdateSleepTime::None)
     }
 
-    fn launch_volley(
-        &self,
-        state: &mut CountermeasuresState,
-        _current_frame: u32,
-    ) -> BehaviorResult<()> {
+    fn launch_volley(&mut self, _current_frame: u32) -> BehaviorResult<()> {
         let volley_size = self.module_data.volley_size;
         if volley_size == 0 {
             return Ok(());
@@ -547,9 +539,10 @@ impl CountermeasuresBehavior {
             };
             let angle = ratio * self.module_data.volley_arc_angle;
             if let Some(countermeasure_id) = self.create_countermeasure(angle)? {
-                state.countermeasures.push_back(countermeasure_id);
-                state.active_countermeasures += 1;
-                state.available_countermeasures = state.available_countermeasures.saturating_sub(1);
+                self.state.countermeasures.push_back(countermeasure_id);
+                self.state.active_countermeasures += 1;
+                self.state.available_countermeasures =
+                    self.state.available_countermeasures.saturating_sub(1);
             }
         }
 
@@ -623,13 +616,10 @@ impl CountermeasuresBehavior {
         Ok(Some(id))
     }
 
-    fn cleanup_expired_countermeasures(
-        &self,
-        state: &mut CountermeasuresState,
-    ) -> BehaviorResult<()> {
+    fn cleanup_expired_countermeasures(state: &mut CountermeasuresState) -> BehaviorResult<()> {
         let mut to_remove = Vec::new();
         for (index, &countermeasure_id) in state.countermeasures.iter().enumerate() {
-            if !self.is_object_valid(countermeasure_id) {
+            if !Self::object_is_valid(countermeasure_id) {
                 to_remove.push(index);
             }
         }
@@ -642,7 +632,7 @@ impl CountermeasuresBehavior {
         Ok(())
     }
 
-    fn is_object_valid(&self, object_id: ObjectId) -> bool {
+    fn object_is_valid(object_id: ObjectId) -> bool {
         // Wave 328: empty dual-world → false.
         if dual_world_registry_unavailable() {
             return false;
@@ -652,13 +642,13 @@ impl CountermeasuresBehavior {
     }
 
     fn reload_countermeasures_internal(
-        &self,
+        module_data: &CountermeasuresBehaviorModuleData,
         state: &mut CountermeasuresState,
     ) -> BehaviorResult<()> {
         state.available_countermeasures =
-            self.module_data
+            module_data
                 .number_of_volleys
-                .saturating_mul(self.module_data.volley_size) as u32;
+                .saturating_mul(module_data.volley_size) as u32;
         state.reload_frame = 0;
         Ok(())
     }
@@ -687,12 +677,11 @@ impl CountermeasuresBehavior {
 
     #[allow(dead_code)]
     fn get_statistics(&self) -> CountermeasuresStatistics {
-        let state = self.state.read().unwrap();
         CountermeasuresStatistics {
-            available_countermeasures: state.available_countermeasures,
-            active_countermeasures: state.active_countermeasures,
-            diverted_missiles: state.diverted_missiles,
-            incoming_missiles: state.incoming_missiles,
+            available_countermeasures: self.state.available_countermeasures,
+            active_countermeasures: self.state.active_countermeasures,
+            diverted_missiles: self.state.diverted_missiles,
+            incoming_missiles: self.state.incoming_missiles,
         }
     }
 
@@ -758,7 +747,7 @@ impl CountermeasuresBehavior {
         })?;
 
         if current_version >= 2 {
-            let mut state = self.state.write().unwrap();
+            let state = &mut self.state;
             let mut count: UnsignedInt = state.countermeasures.len() as UnsignedInt;
             xfer.xfer_unsigned_int(&mut count)?;
             if xfer.is_loading() {
@@ -809,49 +798,49 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
         if missile_id == OBJECT_INVALID_ID {
             return Ok(());
         }
-        let mut state = self.state.write().unwrap();
-        state.incoming_missiles += 1;
+        self.state.incoming_missiles += 1;
 
-        if state.available_countermeasures + state.active_countermeasures > 0 {
-            if self.random_value() < self.module_data.evasion_rate {
-                debug_assert!(
-                    self.module_data.countermeasure_reaction_frames
-                        < self.module_data.missile_decoy_frames,
-                    "MissileDecoyDelay must be larger than ReactionLaunchLatency"
-                );
+        let has_countermeasures =
+            self.state.available_countermeasures + self.state.active_countermeasures > 0;
+        if has_countermeasures && self.random_value() < self.module_data.evasion_rate {
+            debug_assert!(
+                self.module_data.countermeasure_reaction_frames
+                    < self.module_data.missile_decoy_frames,
+                "MissileDecoyDelay must be larger than ReactionLaunchLatency"
+            );
 
-                let Some(missile_arc) = TheGameLogic::find_object_by_id(missile_id) else {
-                    return Ok(());
+            let Some(missile_arc) = TheGameLogic::find_object_by_id(missile_id) else {
+                return Ok(());
+            };
+            let Ok(missile_guard) = missile_arc.read() else {
+                return Ok(());
+            };
+
+            let current_frame = self.get_current_frame();
+            let decoy_frames = self.module_data.missile_decoy_frames;
+            let reaction_frames = self.module_data.countermeasure_reaction_frames;
+            let modules = missile_guard.get_behavior_modules();
+
+            let mut diverted = false;
+            for behavior in modules {
+                let Ok(mut behavior) = behavior.lock() else {
+                    continue;
                 };
-                let Ok(missile_guard) = missile_arc.read() else {
-                    return Ok(());
-                };
-
-                let current_frame = self.get_current_frame();
-                let modules = missile_guard.get_behavior_modules();
-
-                let mut diverted = false;
-                for behavior in modules {
-                    let Ok(mut behavior) = behavior.lock() else {
-                        continue;
-                    };
-                    if let Some(projectile) = behavior.get_projectile_update_interface() {
-                        projectile.set_frames_till_countermeasure_diversion_occurs(
-                            self.module_data.missile_decoy_frames,
-                            current_frame,
-                        );
-                        diverted = true;
-                        break;
-                    }
+                if let Some(projectile) = behavior.get_projectile_update_interface() {
+                    projectile.set_frames_till_countermeasure_diversion_occurs(
+                        decoy_frames,
+                        current_frame,
+                    );
+                    diverted = true;
+                    break;
                 }
+            }
 
-                if diverted {
-                    state.diverted_missiles += 1;
+            if diverted {
+                self.state.diverted_missiles += 1;
 
-                    if state.active_countermeasures == 0 && state.reaction_frame == 0 {
-                        state.reaction_frame =
-                            current_frame + self.module_data.countermeasure_reaction_frames;
-                    }
+                if self.state.active_countermeasures == 0 && self.state.reaction_frame == 0 {
+                    self.state.reaction_frame = current_frame + reaction_frames;
                 }
             }
         }
@@ -863,28 +852,24 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
         &self,
         _victim_id: ObjectID,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
-        let state = self.state.read().unwrap();
         let max_check = std::cmp::max(self.module_data.volley_size as usize, 1);
-        let mut closest_distance_sq = f32::INFINITY;
-        let mut closest_countermeasure = INVALID_OBJECT_ID;
-
-        for &countermeasure_id in state.countermeasures.iter().rev().take(max_check) {
-            if self.is_object_valid(countermeasure_id) {
-                let distance_sq =
-                    self.calculate_distance_squared(self.object_id, countermeasure_id);
-                if distance_sq < closest_distance_sq {
-                    closest_distance_sq = distance_sq;
-                    closest_countermeasure = countermeasure_id;
-                }
+        for &countermeasure_id in self
+            .state
+            .countermeasures
+            .iter()
+            .rev()
+            .take(max_check)
+        {
+            if Self::object_is_valid(countermeasure_id) {
+                return Ok(countermeasure_id);
             }
         }
+        Ok(INVALID_OBJECT_ID)
 
-        Ok(closest_countermeasure)
     }
 
     fn reload_countermeasures(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut state = self.state.write().unwrap();
-        self.reload_countermeasures_internal(&mut state)
+        Self::reload_countermeasures_internal(self.module_data.as_ref(), &mut self.state)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
     }
 
@@ -922,7 +907,12 @@ impl UpgradeModuleInterface for CountermeasuresBehavior {
         OBJECT_REGISTRY
             .with_object_mut(object_id, |object_guard| {
                 if self.upgrade_mux.attempt_upgrade(mask, object_guard) {
-                    TheGameLogic::set_wake_frame(object_guard.get_id(), UpdateSleepTime::None);
+                    let now = crate::helpers::TheGameLogic::get_frame();
+                    self.next_call_frame_and_phase = now.saturating_add(1);
+                    object_guard.reschedule_named_update(
+                        "CountermeasuresBehavior",
+                        self.next_call_frame_and_phase,
+                    );
                     true
                 } else {
                     false
@@ -967,6 +957,10 @@ pub struct CountermeasuresBehaviorModule {
 }
 
 impl CountermeasuresBehaviorModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: CountermeasuresBehavior,
         module_name: &AsciiString,
@@ -1083,10 +1077,7 @@ mod tests {
     #[test]
     fn reload_sets_available_countermeasures() {
         let mut behavior = create_test_behavior();
-        {
-            let mut state = behavior.state.write().unwrap();
-            state.available_countermeasures = 0;
-        }
+        behavior.state.available_countermeasures = 0;
         behavior.reload_countermeasures().unwrap();
         assert_eq!(behavior.get_statistics().available_countermeasures, 12);
     }
@@ -1108,18 +1099,15 @@ mod tests {
     fn xfer_preserves_cpp_countermeasure_runtime_fields_only() {
         let mut saved = create_test_behavior();
         saved.next_call_frame_and_phase = 0x6721;
-        {
-            let mut state = saved.state.write().unwrap();
-            state.countermeasures.push_back(10);
-            state.countermeasures.push_back(20);
-            state.available_countermeasures = 7;
-            state.active_countermeasures = 2;
-            state.diverted_missiles = 3;
-            state.incoming_missiles = 4;
-            state.reaction_frame = 100;
-            state.next_volley_frame = 125;
-            state.reload_frame = 900;
-        }
+        saved.state.countermeasures.push_back(10);
+        saved.state.countermeasures.push_back(20);
+        saved.state.available_countermeasures = 7;
+        saved.state.active_countermeasures = 2;
+        saved.state.diverted_missiles = 3;
+        saved.state.incoming_missiles = 4;
+        saved.state.reaction_frame = 100;
+        saved.state.next_volley_frame = 125;
+        saved.state.reload_frame = 900;
 
         let mut bytes = Cursor::new(Vec::new());
         {
@@ -1130,17 +1118,14 @@ mod tests {
         bytes.set_position(0);
         let mut loaded = create_test_behavior();
         loaded.next_call_frame_and_phase = 0;
-        {
-            let mut state = loaded.state.write().unwrap();
-            state.reload_frame = 55;
-        }
+        loaded.state.reload_frame = 55;
         {
             let mut xfer = XferLoad::new(&mut bytes, 1);
             loaded.xfer(&mut xfer).unwrap();
         }
 
         assert_eq!(loaded.next_call_frame_and_phase, 0x6721);
-        let state = loaded.state.read().unwrap();
+        let state = &loaded.state;
         assert_eq!(
             state.countermeasures.iter().copied().collect::<Vec<_>>(),
             vec![10, 20]

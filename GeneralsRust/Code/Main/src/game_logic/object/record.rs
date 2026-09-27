@@ -642,9 +642,9 @@ impl Object {
 
     /// C++ AICMD_GO_PRONE residual — infantry hit the dirt briefly.
     pub fn go_prone(&mut self, duration_secs: f32) {
-        self.stop_moving();
         self.set_target(None);
         self.set_force_attack(false);
+        self.stop_moving();
         self.prone_timer = duration_secs.max(0.1);
         if let Some(pu) = self.prone_update.as_mut() {
             // Approximate seconds → frames at 30 Hz for module residual.
@@ -700,23 +700,37 @@ impl Object {
         if self.status.destroyed {
             return;
         }
-        // C++ PoisonedBehavior::onHealing residual.
-        self.clear_poisoned_on_healing();
         let before = self.health.current;
         if amount <= 0.0 || !amount.is_finite() {
             return;
         }
-        let projected = (before + amount).min(self.health.maximum);
+        let cap = if self.health.maximum > 0.0 {
+            self.health.maximum
+        } else {
+            self.max_health
+        };
+        let projected = (before + amount).min(cap);
         if projected <= before {
+            if projected == before
+                && !crate::gameworld_shadow::gameworld_damage_authority_live()
+            {
+                self.previous_health = before;
+            }
             return;
         }
+        // C++ PoisonedBehavior::onHealing residual.
+        self.clear_poisoned_on_healing();
         // GameWorld HP authority: log absolute health; defer host mutate to writeback.
         if crate::gameworld_shadow::gameworld_damage_authority_live() {
             crate::game_logic::host_heal_log::record(self.id, projected);
         } else {
-            self.health.heal(amount);
+            if self.health.maximum <= 0.0 && cap > 0.0 {
+                self.health.maximum = cap;
+            }
+            self.previous_health = before;
+            self.health.current = projected;
             crate::game_logic::host_heal_log::record(self.id, self.health.current);
+            self.refresh_model_condition_bits();
         }
-        self.refresh_model_condition_bits();
     }
 }

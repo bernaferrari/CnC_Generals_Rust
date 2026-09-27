@@ -246,9 +246,7 @@ impl LaserUpdateInterface for LaserUpdate {
 
 impl Snapshotable for LaserUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
@@ -273,7 +271,9 @@ impl Snapshotable for LaserUpdate {
         let mut dirty = self.inner.is_dirty();
         xfer.xfer_bool(&mut dirty)
             .map_err(|e| format!("LaserUpdate xfer dirty failed: {:?}", e))?;
-        self.inner.set_dirty(dirty);
+        if xfer.is_reading() {
+            self.inner.set_loaded_segment(start, end, dirty);
+        }
         let _ = self.object_id;
         Ok(())
     }

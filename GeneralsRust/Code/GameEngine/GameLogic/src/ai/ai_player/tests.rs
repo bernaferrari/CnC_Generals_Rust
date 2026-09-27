@@ -863,7 +863,7 @@ fn start_training_queues_create_unit_cpp_surface() {
         window.contains("request_unique_unit_production_id")
             && window.contains("queue_unit_with_production_id")
             && window.contains("order.factory_id = Some(factory_id)")
-            && window.contains("start_production"),
+            && window.contains("queueCreateUnit fails"),
         "startTraining must queueCreateUnit then set factoryID"
     );
 }

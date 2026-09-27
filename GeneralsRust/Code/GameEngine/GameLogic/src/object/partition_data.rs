@@ -193,3 +193,22 @@ pub fn stamp_partition_cell_lookers(center: &Coord3D, radius: f32, player_mask: 
         }
     }
 }
+
+/// Stamp shroud-cover circles onto both 40wu partition grids.
+pub fn stamp_partition_cell_covers(center: &Coord3D, radius: f32, player_mask: u32, add: bool) {
+    if let Ok(mut pm) = PARTITION_MANAGER.write() {
+        if add {
+            pm.do_shroud_cover_cells(center, radius, player_mask);
+        } else {
+            pm.undo_shroud_cover_cells(center, radius, player_mask);
+        }
+    }
+    if let Ok(mut logic) = crate::system::game_logic::get_game_logic().try_lock() {
+        let pm = logic.partition_manager_mut();
+        if add {
+            pm.do_shroud_cover(center, radius, player_mask);
+        } else {
+            pm.undo_shroud_cover(center, radius, player_mask);
+        }
+    }
+}

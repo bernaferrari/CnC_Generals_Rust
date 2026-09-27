@@ -256,81 +256,8 @@ impl LaserUpdateInterface for LaserUpdateModule {
 
 impl Snapshotable for LaserUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-
-        let drawable_module_version = current_version;
-        let mut drawable_version = drawable_module_version;
-        xfer.xfer_version(&mut drawable_version, drawable_module_version)
-            .map_err(|e| e.to_string())?;
-
-        let module_version = current_version;
-        let mut base_version = module_version;
-        xfer.xfer_version(&mut base_version, module_version)
-            .map_err(|e| e.to_string())?;
-
-        let u = &self.update;
-
-        let mut start_pos_x = u.start_pos.x;
-        xfer.xfer_real(&mut start_pos_x)
-            .map_err(|e| e.to_string())?;
-        let mut start_pos_y = u.start_pos.y;
-        xfer.xfer_real(&mut start_pos_y)
-            .map_err(|e| e.to_string())?;
-        let mut start_pos_z = u.start_pos.z;
-        xfer.xfer_real(&mut start_pos_z)
-            .map_err(|e| e.to_string())?;
-        let mut end_pos_x = u.end_pos.x;
-        xfer.xfer_real(&mut end_pos_x).map_err(|e| e.to_string())?;
-        let mut end_pos_y = u.end_pos.y;
-        xfer.xfer_real(&mut end_pos_y).map_err(|e| e.to_string())?;
-        let mut end_pos_z = u.end_pos.z;
-        xfer.xfer_real(&mut end_pos_z).map_err(|e| e.to_string())?;
-        let mut dirty = u.dirty;
-        xfer.xfer_bool(&mut dirty).map_err(|e| e.to_string())?;
-
-        let mut ps_id = u.particle_system_id.unwrap_or(0);
-        xfer.xfer_unsigned_int(&mut ps_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut tps_id = u.target_particle_system_id.unwrap_or(0);
-        xfer.xfer_unsigned_int(&mut tps_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut widening = u.widening;
-        xfer.xfer_bool(&mut widening).map_err(|e| e.to_string())?;
-        let mut decaying = u.decaying;
-        xfer.xfer_bool(&mut decaying).map_err(|e| e.to_string())?;
-        let mut widen_start_frame = u.widen_start_frame;
-        xfer.xfer_unsigned_int(&mut widen_start_frame)
-            .map_err(|e| e.to_string())?;
-        let mut widen_finish_frame = u.widen_finish_frame;
-        xfer.xfer_unsigned_int(&mut widen_finish_frame)
-            .map_err(|e| e.to_string())?;
-        let mut current_width_scalar = u.current_width_scalar;
-        xfer.xfer_real(&mut current_width_scalar)
-            .map_err(|e| e.to_string())?;
-        let mut decay_start_frame = u.decay_start_frame;
-        xfer.xfer_unsigned_int(&mut decay_start_frame)
-            .map_err(|e| e.to_string())?;
-        let mut decay_finish_frame = u.decay_finish_frame;
-        xfer.xfer_unsigned_int(&mut decay_finish_frame)
-            .map_err(|e| e.to_string())?;
-
-        let mut parent_id = u.parent_id.unwrap_or(0);
-        xfer.xfer_drawable_id(&mut parent_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut target_id = u.target_id.unwrap_or(0);
-        xfer.xfer_drawable_id(&mut target_id)
-            .map_err(|e| e.to_string())?;
-
-        let mut parent_bone_name = u.parent_bone_name.clone();
-        xfer.xfer_ascii_string(&mut parent_bone_name)
-            .map_err(|e| e.to_string())?;
-
+        // LaserUpdate::crc only calls ClientUpdateModule::crc, which writes nothing.
+        let _ = xfer;
         Ok(())
     }
 
@@ -567,6 +494,12 @@ impl LaserUpdate {
         self.end_pos
     }
 
+    pub fn set_loaded_segment(&mut self, start: Coord3D, end: Coord3D, dirty: bool) {
+        self.start_pos = start;
+        self.end_pos = end;
+        self.dirty = dirty;
+    }
+
     pub fn get_width_scale(&self) -> Real {
         self.current_width_scalar
     }
@@ -597,6 +530,7 @@ impl LaserUpdate {
                     };
                 } else {
                     self.start_pos = drawable_guard.get_position();
+                    return;
                 }
             } else {
                 self.start_pos = drawable_guard.get_position();

@@ -39,6 +39,13 @@ pub struct PendingHostPath {
     pub is_crusher: bool,
     /// C++ `AIUpdateInterface::ignoreObstacle` (DozerAIUpdate.cpp:210).
     pub ignore_obstacle: Option<ObjectId>,
+    /// C++ `requestPath` copies `getAdjustsDestination()` before onEnter
+    /// writes the last-node flag.
+    pub adjust_destinations: bool,
+    /// Set only for a tighten order. The drain sets the unit flag true
+    /// after install. Not persisted.
+    pub restore_adjust_on_install: bool,
+
 }
 
 /// Grid-based pathfinding node
@@ -774,6 +781,10 @@ pub struct PathfindingSystem {
     seeker_center_in_cell: bool,
     /// C++ `m_ignoreObstacleID` for this path query (DozerAIUpdate.cpp:210).
     ignore_obstacle_id: Option<ObjectId>,
+    /// C++ `setAdjustsDestination`. False on a non-final hop.
+    adjust_goal: bool,
+    /// One-shot copied onto the next `PendingHostPath` by tighten.
+    pub tighten_restore_adjust: bool,
     /// C++ `getPlayerType() == PLAYER_HUMAN` bits (bit i = player i).
     human_player_mask: u16,
     /// Seeker is a human player (m_logicalExtent clamp).

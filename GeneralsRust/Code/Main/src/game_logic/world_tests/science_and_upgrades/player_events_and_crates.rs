@@ -1345,7 +1345,8 @@ fn america_parachute_midair_death_free_fall_damages_rider() {
     let h = &logic.objects[&hid];
     assert!(h.contained_by.is_none(), "removeAllContained on chute die");
     assert!(!h.is_parachute_open(), "chute closed residual");
-    assert!(h.is_parachuting() || !h.is_alive(), "freefall residual");
+    assert!(h.is_in_freefall || !h.is_alive(), "setIsInFreeFall residual");
+    assert!(h.allow_to_fall || !h.is_alive(), "setAllowToFall residual");
     let expected = free_fall_damage_amount(max_hp);
     assert!(
         (hp_before - h.health.current - expected).abs() < 0.1 || !h.is_alive(),
@@ -2721,6 +2722,9 @@ fn try_idle_crate_pickup_moves_to_money_crate() {
     assert!(logic.try_idle_crate_pickup(uid));
     let u = &logic.objects[&uid];
     assert_eq!(u.ai_state, AIState::Moving);
+    assert!(!u.movement.path.is_empty(), "AIMoveToState::onEnter computePath");
+    assert_ne!(u.pathfind_goal_cell, (-1, -1));
+    assert!(u.is_final_goal);
     assert!(u.movement.target_position.is_some() || u.requested_victim_id == Some(cid));
     // Marker consumed
     assert!(u.crate_created.is_none());

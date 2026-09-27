@@ -36,6 +36,8 @@ pub(crate) struct LocomotorResidual {
     pub wander_offset_increasing: bool,
     pub downhill_only: bool,
     pub precise_z_pos: bool,
+    #[serde(default)]
+    pub path_extra_distance: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -76,6 +78,7 @@ impl LocomotorResidual {
             || object.can_move_backward
             || object.no_slow_down_as_approaching_dest
             || object.precise_z_pos
+            || object.path_extra_distance != 0.0
             || object.downhill_only
             || (object.braking_factor - 1.0).abs() > f32::EPSILON
             || object.max_lift != 0.0
@@ -106,6 +109,7 @@ impl LocomotorResidual {
             wander_offset_increasing: object.wander_offset_increasing,
             downhill_only: object.downhill_only,
             precise_z_pos: object.precise_z_pos,
+            path_extra_distance: object.path_extra_distance,
         }
     }
     pub(crate) fn apply(self, object: &mut Object) {
@@ -133,6 +137,7 @@ impl LocomotorResidual {
         object.wander_offset_increasing = self.wander_offset_increasing;
         object.downhill_only = self.downhill_only;
         object.precise_z_pos = self.precise_z_pos;
+        object.path_extra_distance = self.path_extra_distance;
     }
 }
 
@@ -231,4 +236,21 @@ pub(crate) fn apply(
         _ => return Ok(false),
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game_logic::{Team, ThingTemplate};
+
+    #[test]
+    fn locomotor_snapshot_keeps_path_extra_distance() {
+        let mut object = Object::new(ThingTemplate::new("Snap"), ObjectId(1), Team::USA);
+        object.path_extra_distance = 80.0;
+        assert!(LocomotorResidual::present(&object));
+        let saved = LocomotorResidual::from_object(&object);
+        object.path_extra_distance = 0.0;
+        saved.apply(&mut object);
+        assert!((object.path_extra_distance - 80.0).abs() < 0.01);
+    }
 }

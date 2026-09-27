@@ -95,7 +95,7 @@ pub fn draw_overlord_rider(owner_id: ObjectID) {
         let Ok(mut rider_guard) = rider_drawable.write() else {
             return;
         };
-        rider_guard.copy_color_tint_envelope_from(&owner_guard);
+        rider_guard.copy_color_tint_envelope_if_present(&owner_guard);
         rider_guard.notify_drawable_dependency_cleared();
     }
 

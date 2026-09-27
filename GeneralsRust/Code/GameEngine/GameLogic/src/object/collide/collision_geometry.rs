@@ -39,7 +39,8 @@ pub struct GeometryInfo {
     geom_type: GeometryType,
     /// Major radius (width/2 for box, radius for sphere/cylinder)
     major_radius: f32,
-    /// Minor radius (height/2 for box, unused for sphere, height for cylinder)
+    /// Horizontal side radius (box minor). Not height. Sphere ignores it.
+    /// Cylinder bounding circle uses major only.
     minor_radius: f32,
     /// Whether this is a small object (affects collision priority)
     is_small: bool,
@@ -61,6 +62,12 @@ impl GeometryInfo {
         }
     }
 
+    /// C++ `m_height` is Z, not the horizontal minor radius.
+    pub fn with_z_height(mut self, z: f32) -> Self {
+        self.height = z.max(0.0);
+        self
+    }
+
     /// Create a new sphere geometry
     pub fn new_sphere(radius: f32, is_small: bool) -> Self {
         Self {
@@ -77,7 +84,7 @@ impl GeometryInfo {
         Self {
             geom_type: GeometryType::Cylinder,
             major_radius: radius,
-            minor_radius: height,
+            minor_radius: radius,
             is_small,
             height,
         }
@@ -159,9 +166,21 @@ impl GeometryInfo {
     /// C++ `GeometryInfo::getZDeltaToCenterPosition`.
     pub fn get_z_delta_to_center_position(&self) -> f32 {
         match self.geom_type {
-            GeometryType::Sphere => self.major_radius,
+            GeometryType::Sphere => 0.0,
             GeometryType::Box | GeometryType::Cylinder => self.height * 0.5,
         }
+    }
+
+    /// C++ `GeometryInfo::isIntersectedByLineSegment` (Geometry.cpp:139).
+    /// Every type is a bounding sphere. There is no box or cylinder test.
+    pub fn is_intersected_by_line_segment(
+        &self,
+        loc: &Coord3D,
+        from: &Coord3D,
+        to: &Coord3D,
+    ) -> bool {
+        let r = self.get_bounding_sphere_radius();
+        point_to_line_dist_squared(loc, from, to) <= r * r
     }
 
     /// C++ enum index for dispatch table: Sphere=0, Cylinder=1, Box=2
@@ -172,6 +191,30 @@ impl GeometryInfo {
             GeometryType::Box => 2,
         }
     }
+}
+
+fn point_to_line_dist_squared(pt: &Coord3D, line_start: &Coord3D, line_end: &Coord3D) -> f32 {
+    let line_x = line_end.x - line_start.x;
+    let line_y = line_end.y - line_start.y;
+    let line_z = line_end.z - line_start.z;
+    let to_x = pt.x - line_start.x;
+    let to_y = pt.y - line_start.y;
+    let to_z = pt.z - line_start.z;
+    let dot = to_x * line_x + to_y * line_y + to_z * line_z;
+    let dist_sq = |x: f32, y: f32, z: f32| x * x + y * y + z * z;
+    if dot <= 0.0 {
+        return dist_sq(to_x, to_y, to_z);
+    }
+    let line_len_sq = dist_sq(line_x, line_y, line_z);
+    if line_len_sq <= dot {
+        return dist_sq(pt.x - line_end.x, pt.y - line_end.y, pt.z - line_end.z);
+    }
+    let tmp = dot / line_len_sq;
+    dist_sq(
+        pt.x - (line_start.x + tmp * line_x),
+        pt.y - (line_start.y + tmp * line_y),
+        pt.z - (line_start.z + tmp * line_z),
+    )
 }
 
 /// Collision information structure
@@ -376,14 +419,9 @@ pub fn xy_collide_test_circle_circle(
                 // Overlapping at same position - arbitrary normal
                 info.normal = Coord3D::new(1.0, 0.0, 0.0);
             }
-
-            // Collision point is between the two centers, weighted by radii
-            let ratio = radius_a / (radius_a + radius_b);
-            info.loc = Coord3D::new(
-                pos_a.x + diff.x * ratio,
-                pos_a.y + diff.y * ratio,
-                (pos_a.z + pos_b.z) * 0.5,
-            );
+            // C++: loc = a.position, then project by a.majorRadius. Z stays a.z.
+            info.loc = *pos_a;
+            project_coord_3d(&mut info.loc, &info.normal, radius_a);
         }
         true
     } else {
@@ -487,14 +525,8 @@ pub fn collide_test_sphere_sphere(
             } else {
                 info.normal = Coord3D::new(1.0, 0.0, 0.0);
             }
-
-            let ratio =
-                a.geom.get_major_radius() / (a.geom.get_major_radius() + b.geom.get_major_radius());
-            info.loc = Coord3D::new(
-                a.position.x + diff.x * ratio,
-                a.position.y + diff.y * ratio,
-                a.position.z + diff.z * ratio,
-            );
+            info.loc = a.position;
+            project_coord_3d(&mut info.loc, &info.normal, a.geom.get_major_radius());
         }
         true
     } else {
@@ -502,14 +534,13 @@ pub fn collide_test_sphere_sphere(
     }
 }
 
-/// 3D cylinder-cylinder collision test
-/// Matches C++ collideTest_Cylinder_Cylinder in PartitionManager.cpp:332
+/// XY circle plus an explicit Z span. Not the C++ dispatcher path.
+/// C++ `collideTest_Cylinder_Cylinder` is `collide_test3d_cylinder_cylinder`.
 pub fn collide_test_cylinder_cylinder(
     a: &CollideInfo,
     b: &CollideInfo,
     cinfo: Option<&mut CollideLocAndNormal>,
 ) -> bool {
-    // Test XY circle collision first
     if !xy_collide_test_circle_circle(
         &a.position,
         &b.position,
@@ -519,18 +550,13 @@ pub fn collide_test_cylinder_cylinder(
     ) {
         return false;
     }
-
-    // Check Z overlap
     let a_bottom = a.position.z;
-    let a_top = a.position.z + a.geom.get_minor_radius();
+    let a_top = a.position.z + a.geom.get_height();
     let b_bottom = b.position.z;
-    let b_top = b.position.z + b.geom.get_minor_radius();
-
+    let b_top = b.position.z + b.geom.get_height();
     if a_top < b_bottom || b_top < a_bottom {
         return false;
     }
-
-    // Collision detected, compute info if requested
     if let Some(info) = cinfo {
         xy_collide_test_circle_circle(
             &a.position,
@@ -539,10 +565,8 @@ pub fn collide_test_cylinder_cylinder(
             b.geom.get_major_radius(),
             Some(info),
         );
-        // Z coordinate is average of overlapping region
         info.loc.z = (a_top.min(b_top) + a_bottom.max(b_bottom)) * 0.5;
     }
-
     true
 }
 
@@ -553,10 +577,15 @@ pub fn collision_test(
     b: &CollideInfo,
     cinfo: Option<&mut CollideLocAndNormal>,
 ) -> bool {
+    let a_top = a.position.z + a.geom.get_max_height_above_position();
+    let b_top = b.position.z + b.geom.get_max_height_above_position();
+    if a_top < b.position.z || b_top < a.position.z {
+        return false;
+    }
     match (a.geom.get_geom_type(), b.geom.get_geom_type()) {
         (GeometryType::Sphere, GeometryType::Sphere) => collide_test_sphere_sphere(a, b, cinfo),
         (GeometryType::Cylinder, GeometryType::Cylinder) => {
-            collide_test_cylinder_cylinder(a, b, cinfo)
+            collide_test3d_cylinder_cylinder(a, b, cinfo)
         }
         (GeometryType::Box, GeometryType::Box) => xy_collide_test_rect_rect(a, b, cinfo),
         (GeometryType::Sphere, GeometryType::Cylinder)
@@ -907,11 +936,11 @@ mod tests {
         let info_b = CollideInfo::new(Coord3D::new(1.5, 0.0, 0.5), geom_b, 0.0);
 
         // Should collide (XY overlaps, Z overlaps)
-        assert!(collide_test_cylinder_cylinder(&info_a, &info_b, None));
+        assert!(collision_test(&info_a, &info_b, None));
 
         let info_c = CollideInfo::new(Coord3D::new(1.5, 0.0, 5.0), geom_b, 0.0);
         // Should not collide (XY overlaps but Z doesn't)
-        assert!(!collide_test_cylinder_cylinder(&info_a, &info_c, None));
+        assert!(!collision_test(&info_a, &info_c, None));
     }
 
     #[test]

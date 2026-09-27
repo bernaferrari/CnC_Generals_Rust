@@ -1026,6 +1026,7 @@ impl GameLogic {
             if !obj.is_alive() || !obj.can_construct() {
                 continue;
             }
+            let slot = obj.dozer_task_build_target == Some(structure_id);
             let targeting = obj.target == Some(structure_id);
             let constructing = matches!(obj.ai_state, AIState::Constructing);
             let nearby = match build_pos {
@@ -1034,7 +1035,12 @@ impl GameLogic {
                 }
                 _ => false,
             };
-            if targeting || (constructing && nearby) {
+            if slot || targeting || (constructing && nearby) {
+                if obj.dozer_task_build_target == Some(structure_id) {
+                    obj.dozer_task_build_target = None;
+                    obj.dozer_task_build_order_frame = 0;
+                    obj.dozer_dock_action = None;
+                }
                 obj.target = None;
                 obj.set_ai_state(AIState::Idle);
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
@@ -1062,10 +1068,31 @@ impl GameLogic {
             return false;
         }
         self.objects.get(&builder_id).is_some_and(|builder| {
-            builder.is_alive()
-                && (builder.dozer_task_build_target == Some(structure_id)
-                    || (matches!(builder.ai_state, AIState::Constructing)
-                        && builder.target == Some(structure_id)))
+            if !builder.is_alive() {
+                return false;
+            }
+            let slot = builder.dozer_task_build_target == Some(structure_id);
+            let aimed = builder.target == Some(structure_id);
+            if matches!(builder.ai_state, AIState::Constructing) && (slot || aimed) {
+                return true;
+            }
+            if !matches!(builder.ai_state, AIState::Moving) || !slot {
+                return false;
+            }
+            let Some(dock) = builder.dozer_dock_action else {
+                return false;
+            };
+            let radius = builder.selection_radius;
+            match builder.movement.path.last() {
+                Some(end) => crate::game_logic::host_repair::dozer_within_action_dock(
+                    *end, radius, dock,
+                ),
+                None => crate::game_logic::host_repair::dozer_within_action_dock(
+                    builder.get_position(),
+                    radius,
+                    dock,
+                ),
+            }
         })
     }
 
@@ -1179,7 +1206,7 @@ impl GameLogic {
             if self.player_owner_for_host_object(obj) != Some(dozer_owner_player_id) {
                 continue;
             }
-            if matches!(obj.ai_state, AIState::Constructing) && obj.target == Some(structure_id) {
+            if self.builder_is_actively_building(*id, structure_id) {
                 return false;
             }
         }
@@ -1200,14 +1227,15 @@ impl GameLogic {
             self.dozer_new_task_build(dozer_id, structure_id);
 
             if let Some(dozer) = self.objects.get_mut(&dozer_id) {
-                dozer.target = Some(structure_id); // non-combat build association stays host
-                dozer.set_ai_state(AIState::Constructing);
-                if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                    crate::game_logic::host_ai_decision_log::record_set_state(dozer_id, 7);
-                }
+                dozer.target = Some(structure_id);
+                dozer.target_location = None;
+                dozer.record_host_target_location();
+                dozer.set_status_force_attack(false);
+                dozer.set_status_attacking(false);
+            }
+            self.set_ai_state_decision_aware(dozer_id, AIState::Constructing);
                 // C++ sets MODELCONDITION_ACTIVELY_CONSTRUCTING only at the dock
                 // (DozerAIUpdate.cpp:511). Driving there stays un-animated.
-            }
             let approach = self
                 .objects
                 .get(&dozer_id)
@@ -1235,8 +1263,14 @@ impl GameLogic {
                         Some(dozer_id),
                     )
                 });
-            // C++ DozerActionPickActionPosState::update aiMoveToPosition (DozerAIUpdate.cpp:211).
-            self.path_approach_with_state(dozer_id, approach, AIState::Constructing);
+            // C++ DozerActionPickActionPosState::update ignores the scaffold
+            // then aiMoveToPosition (DozerAIUpdate.cpp:210-211).
+            self.path_approach_with_state_ignoring(
+                dozer_id,
+                approach,
+                AIState::Constructing,
+                Some(structure_id),
+            );
             // Structure awaiting → actively being constructed residual when dozer assigned.
             if let Some(st) = self.objects.get_mut(&structure_id) {
                 st.set_under_construction_model_conditions(true);
@@ -1270,9 +1304,7 @@ impl GameLogic {
         let Some(dozer) = self.objects.get(&dozer_id) else {
             return crate::game_logic::host_repair::DOZER_BORED_RANGE;
         };
-        if dozer.is_resource_collector()
-            || dozer.template_name.to_ascii_lowercase().contains("worker")
-        {
+        if dozer.worker_ai_update {
             return crate::game_logic::host_repair::DOZER_BORED_RANGE;
         }
         let is_computer = self
@@ -1343,7 +1375,6 @@ impl GameLogic {
             return None;
         }
         let pos = dozer.get_position();
-        let team = dozer.team;
         let dozer_owner_player_id = self.player_owner_for_host_object(dozer)?;
         let range = self.dozer_bored_scan_range(dozer_id);
         // Pure residual service acquire (2D/XZ bored range).
@@ -1352,11 +1383,14 @@ impl GameLogic {
             .iter()
             .filter_map(|(&id, obj)| {
                 if !obj.is_alive()
+                    || obj.status.effectively_dead
                     || self.player_owner_for_host_object(obj) != Some(dozer_owner_player_id)
                     || !obj.is_kind_of(KindOf::Structure)
+                    || obj.is_kind_of(KindOf::Bridge)
+                    || obj.is_kind_of(KindOf::BridgeTower)
                     || obj.status.under_construction
-                    || obj.status.sold
-                    || obj.health.current + 0.01 >= obj.health.maximum
+                    || obj.is_rebuild_hole
+                    || obj.health.current >= obj.health.maximum
                 {
                     return None;
                 }
@@ -1376,6 +1410,10 @@ impl GameLogic {
                 )
             })
             .collect();
+        let mut candidates = candidates;
+        candidates.retain(|candidate| {
+            !self.is_enter_target_shrouded_for_action(dozer_id, candidate.id)
+        });
         crate::game_logic::host_residual_acquire::pick_nearest_residual_target_xz(
             Some(dozer_id),
             (pos.x, pos.z),
@@ -1467,27 +1505,80 @@ impl GameLogic {
         if self.worker_is_acting_as_supply_truck(id) {
             return;
         }
-        let Some((alive, can_repair)) = self
-            .objects
-            .get(&id)
-            .map(|obj| (obj.is_alive(), obj.can_repair()))
-        else {
+        let Some((alive, can_repair, busy)) = self.objects.get(&id).map(|obj| {
+            (
+                obj.is_alive() && !obj.status.effectively_dead,
+                obj.can_repair(),
+                obj.status.under_construction || obj.contained_by.is_some(),
+            )
+        }) else {
             return;
         };
-        if !alive || !can_repair {
+        if !alive || !can_repair || busy {
             return;
         }
         // C++ idleConditions: isBuildMostImportant before bored scan.
         if self.dozer_idle_resume_pending_build(id) {
             return;
         }
+        if self.objects.get(&id).is_some_and(|obj| {
+            obj.dozer_task_repair_target.is_some() || obj.dozer_task_build_target.is_some()
+        }) {
+            return;
+        }
         // Idle stamp already advanced on GW; attempt service residual once.
         if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
+            let claimed_by_other = self.objects.get(&target_id).is_some_and(|target| {
+                self.frame <= target.sole_healing_benefactor_expiration_frame
+                    && target
+                        .sole_healing_benefactor
+                        .is_some_and(|healer| healer != id)
+            });
+            if claimed_by_other {
+                return;
+            }
+            self.dozer_new_task_repair(id, target_id);
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.target = Some(target_id);
                 obj.idle_since_frame = 0;
             }
             self.set_ai_state_decision_aware(id, AIState::Repairing);
+            let (dozer_pos, dozer_radius, airborne) = self
+                .objects
+                .get(&id)
+                .map(|d| {
+                    (
+                        d.get_position(),
+                        d.selection_radius,
+                        d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target,
+                    )
+                })
+                .unwrap_or((glam::Vec3::ZERO, 0.0, false));
+            let (target_pos, target_radius) = self
+                .objects
+                .get(&target_id)
+                .map(|t| (t.get_position(), t.selection_radius))
+                .unwrap_or((glam::Vec3::ZERO, 0.0));
+            let dock = self.find_good_build_or_repair_position(
+                dozer_pos,
+                target_pos,
+                target_radius,
+                airborne,
+                airborne.then_some(target_id),
+                Some(id),
+            );
+            if !crate::game_logic::host_repair::dozer_within_action_dock(
+                dozer_pos,
+                dozer_radius,
+                dock,
+            ) {
+                self.path_approach_with_state_ignoring(
+                    id,
+                    dock,
+                    AIState::Repairing,
+                    Some(target_id),
+                );
+            }
             self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
             return;
         }
@@ -1522,7 +1613,12 @@ impl GameLogic {
                 let Some(obj) = self.objects.get_mut(&id) else {
                     continue;
                 };
-                if !obj.is_alive() || !obj.can_repair() {
+                if !obj.is_alive()
+                    || obj.status.effectively_dead
+                    || !obj.can_repair()
+                    || obj.status.under_construction
+                    || obj.contained_by.is_some()
+                {
                     continue;
                 }
                 // Track idle timestamp residual.
@@ -1547,18 +1643,69 @@ impl GameLogic {
             if now.saturating_sub(idle_since) < bored {
                 continue;
             }
+            if self.objects.get(&id).is_some_and(|obj| {
+                obj.dozer_task_repair_target.is_some() || obj.dozer_task_build_target.is_some()
+            }) {
+                continue;
+            }
             // Reset stamp so we don't scan every frame (C++ resets idle timestamp).
             if let Some(obj) = self.objects.get_mut(&id) {
                 obj.idle_since_frame = now.max(1);
             }
 
             if let Some(target_id) = self.find_dozer_bored_repair_target(id) {
+                let claimed_by_other = self.objects.get(&target_id).is_some_and(|target| {
+                    self.frame <= target.sole_healing_benefactor_expiration_frame
+                        && target
+                            .sole_healing_benefactor
+                            .is_some_and(|healer| healer != id)
+                });
+                if claimed_by_other {
+                    continue;
+                }
+                self.dozer_new_task_repair(id, target_id);
                 if let Some(obj) = self.objects.get_mut(&id) {
                     // Repair target is non-combat host association (not AttackTarget).
                     obj.target = Some(target_id);
                     obj.idle_since_frame = 0;
                 }
                 self.set_ai_state_decision_aware(id, AIState::Repairing);
+                let (dozer_pos, dozer_radius, airborne) = self
+                    .objects
+                    .get(&id)
+                    .map(|d| {
+                        (
+                            d.get_position(),
+                            d.selection_radius,
+                            d.is_kind_of(KindOf::Aircraft) || d.status.airborne_target,
+                        )
+                    })
+                    .unwrap_or((glam::Vec3::ZERO, 0.0, false));
+                let (target_pos, target_radius) = self
+                    .objects
+                    .get(&target_id)
+                    .map(|t| (t.get_position(), t.selection_radius))
+                    .unwrap_or((glam::Vec3::ZERO, 0.0));
+                let dock = self.find_good_build_or_repair_position(
+                    dozer_pos,
+                    target_pos,
+                    target_radius,
+                    airborne,
+                    airborne.then_some(target_id),
+                    Some(id),
+                );
+                if !crate::game_logic::host_repair::dozer_within_action_dock(
+                    dozer_pos,
+                    dozer_radius,
+                    dock,
+                ) {
+                    self.path_approach_with_state_ignoring(
+                        id,
+                        dock,
+                        AIState::Repairing,
+                        Some(target_id),
+                    );
+                }
                 self.dozer_bored_repair_events = self.dozer_bored_repair_events.saturating_add(1);
                 continue;
             }
@@ -2068,9 +2215,37 @@ impl GameLogic {
                 }
                 if let Some(w) = self.objects.get_mut(&worker_id) {
                     w.target = Some(rid);
-                    w.set_actively_constructing(true);
+                    w.target_location = None;
+                    w.record_host_target_location();
+                    w.set_status_force_attack(false);
+                    w.set_status_attacking(false);
                 }
-                self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
+                self.dozer_new_task_build(worker_id, rid);
+                let dock_state = self.objects.get(&worker_id).and_then(|worker| {
+                    let dock = worker.dozer_dock_action?;
+                    let at = crate::game_logic::host_repair::dozer_within_action_dock(
+                        worker.get_position(),
+                        worker.selection_radius,
+                        dock,
+                    );
+                    Some((dock, at))
+                });
+                match dock_state {
+                    Some((dock, false)) => {
+                        self.path_approach_with_state_ignoring(
+                            worker_id,
+                            dock,
+                            AIState::Constructing,
+                            Some(rid),
+                        );
+                    }
+                    Some((_, true)) => {
+                        if let Some(w) = self.objects.get_mut(&worker_id) {
+                            w.set_actively_constructing(true);
+                        }
+                    }
+                    None => {}
+                }
                 if let Some(h) = self.objects.get_mut(&hole_id) {
                     h.rebuild_worker_id = Some(worker_id);
                     h.set_status_masked(true);
@@ -2122,9 +2297,39 @@ impl GameLogic {
             if let Some(w) = self.objects.get_mut(&worker_id) {
                 // Construction target association stays host (not combat AttackTarget).
                 w.target = Some(new_id);
-                w.set_actively_constructing(true);
+                w.target_location = None;
+                w.record_host_target_location();
+                w.set_status_force_attack(false);
+                w.set_status_attacking(false);
             }
             self.set_ai_state_decision_aware(worker_id, AIState::Constructing);
+            self.dozer_new_task_build(worker_id, new_id);
+            let dock_state = self.objects.get(&worker_id).and_then(|worker| {
+                let dock = worker.dozer_dock_action?;
+                let at = crate::game_logic::host_repair::dozer_within_action_dock(
+                    worker.get_position(),
+                    worker.selection_radius,
+                    dock,
+                );
+                Some((dock, at))
+            });
+            match dock_state {
+                Some((dock, false)) => {
+                    self.path_approach_with_state_ignoring(
+                        worker_id,
+                        dock,
+                        AIState::Constructing,
+                        Some(new_id),
+                    );
+                }
+                Some((_, true)) => {
+                    if let Some(w) = self.objects.get_mut(&worker_id) {
+                        w.set_actively_constructing(true);
+                    }
+                }
+                None => {}
+            }
+
             if let Some(h) = self.objects.get_mut(&hole_id) {
                 h.rebuild_worker_id = Some(worker_id);
                 h.rebuild_reconstructing_id = Some(new_id);

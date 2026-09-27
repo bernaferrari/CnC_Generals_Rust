@@ -300,16 +300,7 @@ impl SpecialPowerCompletionDie {
 
 impl Snapshotable for SpecialPowerCompletionDie {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("SpecialPowerCompletionDie version crc failed: {:?}", e))?;
-        xfer_die_module_base_versions(xfer)?;
-        let mut creator_id = self.creator_id;
-        xfer.xfer_object_id(&mut creator_id)
-            .map_err(|e| format!("SpecialPowerCompletionDie creator_id crc failed: {:?}", e))?;
-        let mut creator_set = self.creator_set;
-        xfer.xfer_bool(&mut creator_set)
-            .map_err(|e| format!("SpecialPowerCompletionDie creator_set crc failed: {:?}", e))?;
+        let _ = xfer;
         Ok(())
     }
 

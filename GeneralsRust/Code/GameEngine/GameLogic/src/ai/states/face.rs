@@ -97,6 +97,10 @@ impl StateImplementation for AIFaceObjectState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
@@ -191,6 +195,10 @@ impl StateImplementation for AIFacePositionState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
+    }
+
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
@@ -256,7 +264,13 @@ impl ClassicState for AIFacePositionState {
 
 /// C++ `ThePartitionManager->getRelativeAngle2D` used by `AIFaceState::update`.
 fn relative_angle_2d(owner_pos: &Coord3D, owner_orientation: f32, target_pos: &Coord3D) -> f32 {
-    let angle_to_target = (target_pos.y - owner_pos.y).atan2(target_pos.x - owner_pos.x);
+    let dx = target_pos.x - owner_pos.x;
+    let dy = target_pos.y - owner_pos.y;
+    // C++ getRelativeAngle2D returns 0 when the 2D distance is 0.
+    if dx == 0.0 && dy == 0.0 {
+        return 0.0;
+    }
+    let angle_to_target = dy.atan2(dx);
     let mut rel = angle_to_target - owner_orientation;
     const PI: f32 = std::f32::consts::PI;
     const TAU: f32 = std::f32::consts::TAU;
@@ -270,19 +284,7 @@ fn relative_angle_2d(owner_pos: &Coord3D, owner_orientation: f32, target_pos: &C
 }
 
 fn locomotor_can_turn_in_place(owner: &Object) -> bool {
-    let Some(ai) = owner.get_ai_update_interface() else {
-        return false;
-    };
-    let Ok(ai_guard) = ai.lock() else {
-        return false;
-    };
-    let Some(locomotor) = ai_guard.get_cur_locomotor() else {
-        return false;
-    };
-    locomotor
-        .lock()
-        .map(|loco| loco.template.min_speed == 0.0)
-        .unwrap_or(false)
+    owner.ai_fire_can_turn_in_place
 }
 
 /// C++ `AIFaceState::update` — keep turning until within ~2°.
@@ -292,7 +294,7 @@ fn face_towards(
     can_turn_in_place: bool,
 ) -> Result<StateReturnType, String> {
     const REL_THRESH: f32 = 0.035;
-    let Ok(owner_guard) = owner.read() else {
+    let Ok(mut owner_guard) = owner.write() else {
         return Ok(StateReturnType::Failure);
     };
     let owner_pos = *owner_guard.get_position();
@@ -301,17 +303,10 @@ fn face_towards(
     if rel_angle.abs() < REL_THRESH {
         return Ok(StateReturnType::Success);
     }
-    let Some(ai) = owner_guard.get_ai_update_interface() else {
-        return Ok(StateReturnType::Failure);
-    };
-    drop(owner_guard);
-    let Ok(mut ai_guard) = ai.lock() else {
-        return Ok(StateReturnType::Failure);
-    };
     if can_turn_in_place {
-        ai_guard.set_locomotor_goal_orientation(owner_orientation + rel_angle);
+        owner_guard.ai_pending_goal_orientation = Some(owner_orientation + rel_angle);
     } else {
-        ai_guard.set_locomotor_goal_position_explicit(target_pos);
+        owner_guard.ai_pending_goal_position = Some(target_pos);
     }
     Ok(StateReturnType::Continue)
 }

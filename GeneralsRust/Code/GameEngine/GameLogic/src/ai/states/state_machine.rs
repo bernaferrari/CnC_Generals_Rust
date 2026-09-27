@@ -565,16 +565,21 @@ impl AIStateMachine {
         let Some(owner) = self.base.get_owner() else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return;
+        let ai = {
+            let Ok(owner_guard) = owner.read() else {
+                return;
+            };
+            owner_guard.get_ai_update_interface()
         };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
-            return;
-        };
-        if let Ok(mut ai_guard) = ai.lock() {
-            // C++ AIUpdateInterface::friend_notifyStateMachineChanged() wakes the AI immediately.
-            ai_guard.set_queue_for_path_time(0);
-        };
+        if let Some(ai) = ai {
+            if let Ok(mut ai_guard) = ai.try_lock() {
+                ai_guard.set_queue_for_path_time(0);
+                return;
+            }
+        }
+        if let Ok(mut owner_guard) = owner.write() {
+            owner_guard.ai_pending_wake_path = true;
+        }
     }
 
     /// Clear the state machine
@@ -678,6 +683,18 @@ impl AIStateMachine {
     /// Set goal path
     pub fn set_goal_path(&mut self, path: &[Coord3D]) {
         self.goal_path = path.to_vec();
+    }
+    /// Stamp a path onto FollowExitProduction before its onEnter.
+    /// C++ reads friend_getGoalPathPosition; Rust onEnter reads self.path.
+    pub fn install_follow_exit_path(&mut self, path: &[Coord3D]) {
+        let id = AIStateType::FollowExitProductionPath as u32;
+        if let Some(state) = self.base.get_state_mut(id) {
+            if let Some(follow) =
+                crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
+            {
+                follow.set_path(path.to_vec(), None);
+            }
+        }
     }
 
     /// Add to goal path
@@ -790,7 +807,17 @@ impl AIStateMachine {
             }
         }
 
+        let goal_id = self.base.get_goal_object_id();
+        let goal_pos = self.base.get_goal_position();
+        let goal_squad = self.base.get_goal_squad();
+        let goal_polygon = self.base.get_goal_polygon();
+        let goal_waypoint = self.base.get_goal_waypoint();
         if let Some(state) = self.base.get_state_mut(new_state_id) {
+            state.bind_goal_object_id(goal_id);
+            state.bind_goal_position(goal_pos);
+            state.bind_goal_squad(goal_squad);
+            state.bind_goal_polygon(goal_polygon);
+            state.bind_goal_waypoint(goal_waypoint);
             let ret = state.on_enter();
             if ret != StateReturnType::Continue {
                 state.on_exit(StateExitType::Normal);
@@ -813,10 +840,23 @@ impl AIStateMachine {
     }
 
     /// Update state machine
-    pub fn update_state_machine(&mut self) -> StateReturnType {
+    pub fn update_state_machine(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+    ) -> StateReturnType {
         if let Some(temp_state_id) = self.temporary_state_id {
+            let goal_id = self.base.get_goal_object_id();
+            let goal_pos = self.base.get_goal_position();
+            let goal_squad = self.base.get_goal_squad();
+            let goal_polygon = self.base.get_goal_polygon();
+            let goal_waypoint = self.base.get_goal_waypoint();
             if let Some(state) = self.base.get_state_mut(temp_state_id) {
-                let mut status = state.update();
+                state.bind_goal_object_id(goal_id);
+                state.bind_goal_position(goal_pos);
+                state.bind_goal_squad(goal_squad);
+                state.bind_goal_polygon(goal_polygon);
+                state.bind_goal_waypoint(goal_waypoint);
+                let mut status = state.update_with_ai(ai);
                 if self.temporary_state_frame_end < TheGameLogic::get_frame() {
                     if status == StateReturnType::Continue {
                         status = StateReturnType::Success;
@@ -831,7 +871,7 @@ impl AIStateMachine {
         }
 
         // Update main state machine
-        self.base.update()
+        self.base.update_with_ai(ai)
     }
 
     /// Get current state name (for debugging)

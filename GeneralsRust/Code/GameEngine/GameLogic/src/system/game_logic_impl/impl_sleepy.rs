@@ -23,7 +23,7 @@ fn enter_cur_update_module(module: &UpdateModulePtr) -> CurUpdateModuleGuard {
     CurUpdateModuleGuard
 }
 
-fn is_cur_update_module(module: &UpdateModulePtr) -> bool {
+pub(crate) fn is_cur_update_module(module: &UpdateModulePtr) -> bool {
     CUR_UPDATE_MODULE.with(|slot| {
         slot.borrow()
             .as_ref()
@@ -384,6 +384,40 @@ impl GameLogic {
             object_id,
         });
     }
+    /// True when an AI update is already on the normal list or due at `now + 1` or sooner.
+    pub fn ai_update_already_due(&self, object_id: ObjectID, now: UnsignedInt) -> bool {
+        let due = now.saturating_add(1);
+        for entry in &self.normal_updates {
+            if entry.object_id != object_id {
+                continue;
+            }
+            let is_ai = entry
+                .module
+                .read()
+                .ok()
+                .map(|proxy| proxy.module_name().contains("AIUpdate"))
+                .unwrap_or(false);
+            if is_ai {
+                return true;
+            }
+        }
+        for entry in self.sleepy_updates.iter() {
+            if entry.object_id != object_id || entry.wake_frame > due {
+                continue;
+            }
+            let is_ai = entry
+                .module
+                .read()
+                .ok()
+                .map(|proxy| proxy.module_name().contains("AIUpdate"))
+                .unwrap_or(false);
+            if is_ai {
+                return true;
+            }
+        }
+        false
+    }
+
 
     /// Unregister an update module
     pub fn unregister_update_module(&mut self, object_id: ObjectID, module: UpdateModulePtr) {

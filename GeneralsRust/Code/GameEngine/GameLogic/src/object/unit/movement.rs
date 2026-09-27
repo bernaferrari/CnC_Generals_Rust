@@ -29,15 +29,9 @@ impl Unit {
             })
             .unwrap_or(false)
             && self
-                .current_locomotor
-                .as_ref()
-                .and_then(|locomotor| {
-                    locomotor
-                        .lock()
-                        .ok()
-                        .map(|loc_guard| !loc_guard.template.locomotor_works_when_dead)
-                })
-                .unwrap_or(false);
+                .locomotor_set
+                .get_active()
+                .is_some_and(|loco| !loco.template.locomotor_works_when_dead);
         if should_stop_for_dead_ai {
             self.stop_movement();
             self.target_position = None;
@@ -81,23 +75,22 @@ impl Unit {
 
                 let unit_object_id = self.object_id;
                 let base_arc = self.base_arc();
-                let current_loco = self.current_locomotor.clone();
-                if let (Some(path_state), Some(locomotor)) =
-                    (self.path_following_state.as_mut(), current_loco.as_ref())
+                let mut loco_slot = self.locomotor_set.get_active().cloned();
+                let mut path_slot = self.path_following_state.take();
+                let mut clear_path = false;
+                let mut path_step_done = false;
+                if let (Some(path_state), Some(loc_guard)) =
+                    (path_slot.as_mut(), loco_slot.as_mut())
                 {
-                    // Clone the locomotor Arc so we don't keep borrowing self
-                    let locomotor_clone = locomotor.clone();
-
                     let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                         if let Some(pathfinding) = ai_guard.pathfinding_system() {
-                            if let Ok(mut loc_guard) = locomotor_clone.lock() {
                                 let current_frame = TheGameLogic::get_frame() as u32;
                                 let delta_time =
                                     (delta_time * self.movement_speed_multiplier) as f32;
 
                                 match update_movement_with_pathfinding(
                                     unit_object_id,
-                                    &mut loc_guard,
+                                    loc_guard,
                                     path_state,
                                     &current_pos,
                                     current_angle,
@@ -224,12 +217,12 @@ impl Unit {
                                         }
                                         self.facing_direction = new_angle as Real;
                                         self.current_speed = new_speed;
-                                        return Ok(());
+                                        path_step_done = true;
                                     }
                                     Ok(None) => {
                                         self.movement_state = MovementState::Idle;
                                         self.target_position = None;
-                                        self.path_following_state = None;
+                                        clear_path = true;
                                         self.current_speed = 0.0;
                                         completed_move = true;
 
@@ -239,15 +232,25 @@ impl Unit {
                                         }
                                     }
                                     Err(_) => {
-                                        self.path_following_state = None;
+                                        clear_path = true;
                                         self.current_speed = 0.0;
                                     }
                                 }
-                            }
                         }
                     }
                 }
-
+                if clear_path {
+                    path_slot = None;
+                }
+                self.path_following_state = path_slot;
+                if let Some(updated) = loco_slot {
+                    if let Some(active) = self.locomotor_set.get_active_mut() {
+                        *active = updated;
+                    }
+                }
+                if path_step_done {
+                    return Ok(());
+                }
                 // Handle waypoint outside of the borrow scope
                 if let Some(waypoint_pos) = handle_waypoint {
                     self.move_to_position(waypoint_pos, false)?;
@@ -327,113 +330,108 @@ impl Unit {
                         }
                     } else {
                         // Continue moving towards target
-                        if let Some(locomotor) = &self.current_locomotor {
-                            if let Ok(mut loc_guard) = locomotor.lock() {
-                                let effective_delta = delta_time * self.movement_speed_multiplier;
-                                let current = self.get_position();
-                                let prev_angle = self.facing_direction;
-                                let (new_pos, new_angle, new_speed) = loc_guard.move_towards(
-                                    current,
-                                    prev_angle,
-                                    self.current_speed,
-                                    active_target,
-                                    desired_speed,
-                                    condition,
-                                    effective_delta,
-                                );
-                                self.current_speed = new_speed;
-                                if let Ok(mut obj_guard) = self.base_arc().write() {
-                                    let _ = obj_guard.set_position(&new_pos);
-                                    let _ = obj_guard.set_orientation(new_angle as Real);
-                                    if let Some(physics) = obj_guard.get_physics() {
-                                        if let Ok(mut phys_guard) = physics.lock() {
-                                            let delta = new_pos - current;
-                                            let velocity = if effective_delta > 0.0 {
-                                                delta / effective_delta.max(0.0001)
+                        if let Some(mut loc_guard) = self.locomotor_set.get_active().cloned() {
+                            let effective_delta = delta_time * self.movement_speed_multiplier;
+                            let current = self.get_position();
+                            let prev_angle = self.facing_direction;
+                            let (new_pos, new_angle, new_speed) = loc_guard.move_towards(
+                                current,
+                                prev_angle,
+                                self.current_speed,
+                                active_target,
+                                desired_speed,
+                                condition,
+                                effective_delta,
+                            );
+                            self.current_speed = new_speed;
+                            if let Ok(mut obj_guard) = self.base_arc().write() {
+                                let _ = obj_guard.set_position(&new_pos);
+                                let _ = obj_guard.set_orientation(new_angle as Real);
+                                if let Some(physics) = obj_guard.get_physics() {
+                                    if let Ok(mut phys_guard) = physics.lock() {
+                                        let delta = new_pos - current;
+                                        let velocity = if effective_delta > 0.0 {
+                                            delta / effective_delta.max(0.0001)
+                                        } else {
+                                            Vec3D::ZERO
+                                        };
+                                        phys_guard.set_velocity(&velocity);
+                                        if effective_delta > 0.0 {
+                                            let mut yaw_delta = new_angle - prev_angle;
+                                            let two_pi = std::f32::consts::PI * 2.0;
+                                            while yaw_delta > std::f32::consts::PI {
+                                                yaw_delta -= two_pi;
+                                            }
+                                            while yaw_delta < -std::f32::consts::PI {
+                                                yaw_delta += two_pi;
+                                            }
+                                            phys_guard.set_yaw_rate(
+                                                (yaw_delta / effective_delta.max(0.0001)) as Real,
+                                            );
+                                            let turning = if yaw_delta > 0.0 {
+                                                1
+                                            } else if yaw_delta < 0.0 {
+                                                -1
                                             } else {
-                                                Vec3D::ZERO
+                                                0
                                             };
-                                            phys_guard.set_velocity(&velocity);
-                                            if effective_delta > 0.0 {
-                                                let mut yaw_delta = new_angle - prev_angle;
-                                                let two_pi = std::f32::consts::PI * 2.0;
-                                                while yaw_delta > std::f32::consts::PI {
-                                                    yaw_delta -= two_pi;
+                                            phys_guard.set_turning(turning);
+                                            if matches!(
+                                                loc_guard.get_appearance(),
+                                                LocomotorAppearance::Thrust
+                                                    | LocomotorAppearance::Wings
+                                                    | LocomotorAppearance::Hover
+                                            ) {
+                                                let pitch_rate = loc_guard
+                                                    .template
+                                                    .pitch_by_z_vel_coef
+                                                    * velocity.z;
+                                                let mut pitch_rate = pitch_rate;
+                                                if loc_guard.template.pitch_stiffness > 0.0 {
+                                                    pitch_rate *= loc_guard.template.pitch_stiffness;
                                                 }
-                                                while yaw_delta < -std::f32::consts::PI {
-                                                    yaw_delta += two_pi;
+                                                if loc_guard.template.pitch_damping > 0.0 {
+                                                    pitch_rate *= (1.0
+                                                        - loc_guard.template.pitch_damping)
+                                                        .clamp(0.0, 1.0);
                                                 }
-                                                phys_guard.set_yaw_rate(
-                                                    (yaw_delta / effective_delta.max(0.0001))
-                                                        as Real,
-                                                );
-                                                let turning = if yaw_delta > 0.0 {
-                                                    1
-                                                } else if yaw_delta < 0.0 {
-                                                    -1
-                                                } else {
-                                                    0
-                                                };
-                                                phys_guard.set_turning(turning);
-                                                if matches!(
-                                                    loc_guard.get_appearance(),
-                                                    LocomotorAppearance::Thrust
-                                                        | LocomotorAppearance::Wings
-                                                        | LocomotorAppearance::Hover
-                                                ) {
-                                                    let pitch_rate =
-                                                        loc_guard.template.pitch_by_z_vel_coef
-                                                            * velocity.z;
-                                                    let mut pitch_rate = pitch_rate;
-                                                    if loc_guard.template.pitch_stiffness > 0.0 {
-                                                        pitch_rate *=
-                                                            loc_guard.template.pitch_stiffness;
-                                                    }
-                                                    if loc_guard.template.pitch_damping > 0.0 {
-                                                        pitch_rate *= (1.0
-                                                            - loc_guard.template.pitch_damping)
-                                                            .clamp(0.0, 1.0);
-                                                    }
-                                                    phys_guard.set_pitch_rate(pitch_rate);
-                                                    let mut roll_rate =
-                                                        loc_guard.template.thrust_roll * new_speed;
-                                                    if loc_guard.template.roll_stiffness > 0.0 {
-                                                        roll_rate *=
-                                                            loc_guard.template.roll_stiffness;
-                                                    }
-                                                    if loc_guard.template.roll_damping > 0.0 {
-                                                        roll_rate *= (1.0
-                                                            - loc_guard.template.roll_damping)
-                                                            .clamp(0.0, 1.0);
-                                                    }
-                                                    if loc_guard.template.wobble_rate > 0.0 {
-                                                        let frame =
-                                                            TheGameLogic::get_frame() as f32;
-                                                        let phase =
-                                                            (obj_guard.get_id() as f32) * 0.01;
-                                                        let wobble_min =
-                                                            loc_guard.template.min_wobble;
-                                                        let wobble_max =
-                                                            loc_guard.template.max_wobble;
-                                                        let wobble_amp =
-                                                            wobble_max.max(wobble_min) - wobble_min;
-                                                        if wobble_amp > 0.0 {
-                                                            let wobble = (frame
-                                                                * loc_guard.template.wobble_rate
-                                                                + phase)
-                                                                .sin()
-                                                                * wobble_amp
-                                                                + wobble_min;
-                                                            roll_rate += wobble;
-                                                        }
-                                                    }
-                                                    phys_guard.set_roll_rate(roll_rate);
+                                                phys_guard.set_pitch_rate(pitch_rate);
+                                                let mut roll_rate =
+                                                    loc_guard.template.thrust_roll * new_speed;
+                                                if loc_guard.template.roll_stiffness > 0.0 {
+                                                    roll_rate *= loc_guard.template.roll_stiffness;
                                                 }
+                                                if loc_guard.template.roll_damping > 0.0 {
+                                                    roll_rate *= (1.0
+                                                        - loc_guard.template.roll_damping)
+                                                        .clamp(0.0, 1.0);
+                                                }
+                                                if loc_guard.template.wobble_rate > 0.0 {
+                                                    let frame = TheGameLogic::get_frame() as f32;
+                                                    let phase = (obj_guard.get_id() as f32) * 0.01;
+                                                    let wobble_min = loc_guard.template.min_wobble;
+                                                    let wobble_max = loc_guard.template.max_wobble;
+                                                    let wobble_amp =
+                                                        wobble_max.max(wobble_min) - wobble_min;
+                                                    if wobble_amp > 0.0 {
+                                                        let wobble = (frame
+                                                            * loc_guard.template.wobble_rate
+                                                            + phase)
+                                                            .sin()
+                                                            * wobble_amp
+                                                            + wobble_min;
+                                                        roll_rate += wobble;
+                                                    }
+                                                }
+                                                phys_guard.set_roll_rate(roll_rate);
                                             }
                                         }
                                     }
                                 }
-                                self.facing_direction = new_angle;
+                            }
+                            self.facing_direction = new_angle;
+                            if let Some(active) = self.locomotor_set.get_active_mut() {
+                                *active = loc_guard;
                             }
                         }
                     }
@@ -521,10 +519,7 @@ impl Unit {
         }
     }
     pub fn get_locomotor_surface_mask(&self) -> Option<LocomotorSurfaceTypeMask> {
-        self.current_locomotor
-            .as_ref()
-            .and_then(|locomotor| locomotor.lock().ok())
-            .map(|guard| guard.get_legal_surfaces())
+        self.locomotor_set.get_active().map(|loco| loco.get_legal_surfaces())
     }
     pub fn get_crusher_level(&self) -> u32 {
         self.base_arc()

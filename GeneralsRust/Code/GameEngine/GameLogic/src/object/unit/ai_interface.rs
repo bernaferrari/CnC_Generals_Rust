@@ -33,6 +33,10 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn get_which_turret_for_cur_weapon(&self) -> TurretType {
         UnitAIUpdate::get_which_turret_for_cur_weapon(self)
     }
+    fn get_turret_turn_rate(&self, turret: TurretType) -> f32 {
+        UnitAIUpdate::get_turret_turn_rate(self, turret)
+    }
+
 
     fn get_which_turret_for_weapon_slot(&self, slot: WeaponSlotType) -> TurretType {
         UnitAIUpdate::get_which_turret_for_weapon_slot(self, slot)
@@ -333,8 +337,8 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::set_precise_z_pos(self, precise)
     }
 
-    fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>> {
-        UnitAIUpdate::get_cur_locomotor(self)
+    fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
+        UnitAIUpdate::with_cur_locomotor(self, f);
     }
 
     fn get_locomotor_set_clone(&self) -> Option<crate::locomotor::LocomotorSet> {
@@ -344,7 +348,13 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn get_path_destination(&self) -> Option<Coord3D> {
         UnitAIUpdate::get_path_destination(self)
     }
+    fn get_path_last_node(&self) -> Option<Coord3D> {
+        UnitAIUpdate::get_path_last_node(self)
+    }
 
+    fn has_nonempty_path(&self) -> bool {
+        UnitAIUpdate::has_nonempty_path(self)
+    }
     fn peek_cached_point_on_path(&self) -> Option<Coord3D> {
         UnitAIUpdate::peek_cached_point_on_path(self)
     }
@@ -486,6 +496,10 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn get_goal_position(&self) -> Option<Coord3D> {
         UnitAIUpdate::get_goal_position(self)
     }
+    fn get_current_victim_pos(&self) -> Option<Coord3D> {
+        UnitAIUpdate::get_current_victim_pos(self)
+    }
+
 
     fn set_goal_position(&mut self, pos: Option<Coord3D>) {
         UnitAIUpdate::set_goal_position(self, pos)
@@ -668,9 +682,21 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn reset_next_mood_check_time(&mut self) {
         UnitAIUpdate::reset_next_mood_check_time(self)
     }
+    fn wake_up_and_attempt_to_target(&mut self) {
+        UnitAIUpdate::wake_up_and_attempt_to_target(self)
+    }
+    fn take_random_mood_offset(&mut self) -> bool {
+        UnitAIUpdate::take_random_mood_offset(self)
+    }
 
     fn set_next_mood_check_time(&mut self, frame: u32) {
         UnitAIUpdate::set_next_mood_check_time(self, frame)
+    }
+    fn can_auto_acquire(&self) -> bool {
+        UnitAIUpdate::can_auto_acquire(self)
+    }
+    fn can_auto_acquire_while_stealthed(&self) -> bool {
+        UnitAIUpdate::can_auto_acquire_while_stealthed(self)
     }
 
     fn get_mood_matrix_value(&self) -> u32 {
@@ -711,6 +737,9 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn set_temporary_state(&mut self, state: AIStateType, frame_limit: UnsignedInt) {
         UnitAIUpdate::set_temporary_state(self, state, frame_limit)
+    }
+    fn do_quick_exit(&mut self, path: &[Coord3D]) {
+        UnitAIUpdate::do_quick_exit(self, path);
     }
 
     fn notify_crate(&mut self, crate_id: ObjectID) {

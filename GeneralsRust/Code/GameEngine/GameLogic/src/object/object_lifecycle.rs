@@ -78,6 +78,98 @@ impl Object {
         Self {
             id: object_id,
             producer_id: INVALID_ID,
+            cached_main_turret_yaw: 0.0,
+            cached_main_turret_pitch: 0.0,
+            cached_main_turret_valid: false,
+            ai_fire_attack_ok: true,
+            ai_fire_turrets_linked: false,
+            ai_fire_has_primary: false,
+            ai_fire_has_secondary: false,
+            ai_fire_primary_enabled: false,
+            ai_fire_secondary_enabled: false,
+            ai_fire_current_victim: None,
+            ai_fire_original_victim_pos: None,
+            ai_fire_last_command_source: crate::common::CommandSourceType::FromAi,
+            ai_fire_mood_value: 0,
+            ai_fire_pending_victim: None,
+            ai_fire_which_turret: crate::common::TurretType::Invalid,
+            ai_fire_primary_turn_rate: 0.0,
+            ai_fire_secondary_turn_rate: 0.0,
+            ai_pending_desired_speed: None,
+            ai_fire_state_id: None,
+            ai_fire_mood_target: None,
+            ai_fire_ground_movement: false,
+            ai_fire_can_turn_in_place: false,
+            ai_fire_is_idle: false,
+            ai_fire_ultra_accurate: false,
+            ai_fire_next_mood_check: 0,
+            ai_fire_idle_mood_adjust: 0,
+            ai_fire_crate_id: crate::common::INVALID_ID,
+            ai_fire_idle_attack_target: None,
+            ai_pending_move_crate: None,
+            ai_pending_attack_id: None,
+            ai_pending_attack_move: None,
+            ai_pending_attack_follow_waypoint: None,
+            ai_pending_attack_follow_as_team: false,
+            ai_pending_state_id: None,
+            ai_pending_clear_guard_target: false,
+            ai_pending_wake_path: false,
+            ai_pending_clear_move_out: false,
+            ai_fire_locomotor_speed: 0.0,
+            ai_fire_blocked_and_stuck: false,
+            ai_fire_has_path_destination: false,
+            ai_fire_path_destination: None,
+            ai_fire_loco_appearance: None,
+            ai_pending_ending_move: false,
+            ai_fire_is_moving: false,
+            ai_fire_waypoint_queue_empty: true,
+            ai_pending_completed_waypoint: None,
+            ai_pending_precise_z: None,
+            ai_pending_goal_path_index: None,
+            ai_pending_busy: false,
+            ai_fire_in_rappel: false,
+            ai_pending_combat_drop: false,
+            ai_pending_hack: false,
+            ai_pending_hack_source: crate::common::CommandSourceType::FromAi,
+            ai_pending_idle: false,
+            ai_pending_idle_source: crate::common::CommandSourceType::FromAi,
+            ai_pending_exit: None,
+            ai_pending_exit_source: crate::common::CommandSourceType::FromAi,
+            ai_pending_exit_obj: None,
+            ai_fire_hacking: false,
+            ai_fire_hack_known: false,
+            ai_fire_combat_drop: false,
+            ai_fire_desired_speed: 0.0,
+            ai_pending_rappel: false,
+            ai_pending_follow_pos: None,
+            ai_pending_heal: None,
+            ai_pending_evacuate: false,
+            ai_pending_rappel_obj: None,
+            ai_pending_rappel_pos: None,
+            ai_pending_combat_drop_obj: None,
+            ai_pending_combat_drop_pos: None,
+            ai_fire_has_path: false,
+            ai_fire_waiting_for_path: false,
+            ai_pending_path_goal: None,
+            ai_pending_ignore_id: None,
+            ai_pending_path_extra: None,
+            ai_pending_attack_path: None,
+            ai_pending_original_victim_pos: None,
+            ai_pending_clear_victim: false,
+            ai_pending_clear_goal: false,
+            ai_pending_set_victim: None,
+            ai_pending_path_through_units: None,
+            ai_pending_allow_invalid_position: None,
+            ai_pending_goal_id: None,
+            ai_pending_reset_mood: false,
+            ai_pending_victim_dead: false,
+            ai_pending_destroy_path: false,
+            ai_pending_clear_ignore: false,
+            ai_pending_goal_orientation: None,
+            ai_pending_goal_position: None,
+            ai_pending_goal_none: false,
+            ai_pending_turret_objects: Vec::new(),
+            ai_pending_turret_positions: Vec::new(),
             builder_id: INVALID_ID,
             name: AsciiString::new(),
             thing_template: Arc::clone(&thing_template),
@@ -166,7 +258,7 @@ impl Object {
             special_power_bits: SpecialPowerMask::default(),
 
             sole_healing_benefactor_id: INVALID_ID,
-            sole_healing_benefactor_expiration_frame: NEVER,
+            sole_healing_benefactor_expiration_frame: 0,
 
             disabled_mask: DisabledMaskType::none(),
             disabled_till_frame: [NEVER; DISABLED_COUNT],
@@ -453,6 +545,10 @@ impl Object {
 
     pub fn set_builder(&mut self, obj: Option<&Object>) {
         self.builder_id = obj.map(|o| o.get_id()).unwrap_or(INVALID_ID);
+    }
+
+    pub fn set_builder_id(&mut self, builder_id: ObjectID) {
+        self.builder_id = builder_id;
     }
 
     // Team management
@@ -795,7 +891,6 @@ impl Object {
                 log::warn!("Object {} died multiple times!", self.id);
                 return;
             }
-            self.has_died_already = true;
         }
 
         // Mark as effectively dead immediately to prevent recursive death
@@ -869,6 +964,9 @@ impl Object {
     /// - Sets killed_target flag in damage_info if object died
     pub fn check_health_and_die(&mut self, damage_info: Option<&mut DamageInfo>) -> bool {
         if self.is_effectively_dead() {
+            if let Some(info) = damage_info {
+                info.output.killed_target = true;
+            }
             return true;
         }
 
@@ -927,18 +1025,24 @@ impl Object {
 
         let self_inflicted = damage_info.input.source_id == self.id;
         self.on_die_detonate_booby_trap();
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        {
+            self.has_died_already = true;
+        }
 
         // FIRST, call our die modules
         log::debug!("Object {} calling die modules", self.id);
         self.call_on_die_hooks(Some(damage_info));
 
-        if let Some(contain) = &self.contain {
+        let contain = self.contain.clone();
+        if let Some(contain) = contain {
             if let Ok(mut contain_guard) = contain.lock() {
-                if let Err(err) = contain_guard.on_die(Some(damage_info)) {
+                if let Err(err) = contain_guard.on_die_with_owner(self, Some(damage_info)) {
                     log::warn!("Object {} contain on_die failed: {}", self.id, err);
                 }
             }
         }
+
 
         self.on_die_remove_from_radar();
 
@@ -962,11 +1066,10 @@ impl Object {
         // Handle partition cell maintenance
         self.handle_partition_cell_maintenance();
 
-        // Notify team of object death
+        // Notify team of object death. The script stays queued for the normal
+        // flush so a busy script engine does not drop every pending team script.
         if let Some(team) = self.get_team() {
             if let Ok(mut team_guard) = team.write() {
-                log::debug!("Object {} notifying team of death", self.id);
-                team_guard.remove_member(self.id);
                 team_guard.notify_team_of_object_death();
             }
         }
@@ -1005,10 +1108,13 @@ impl Object {
             }
         }
 
-        // Remove from idle worker list if applicable
-        if let Some(player_id) = self.get_controlling_player_id() {
-            log::trace!("Object {} removing from idle worker list", self.id);
-            crate::helpers::TheInGameUI::remove_idle_worker(self, player_id as Int);
+        if let Some(player) = self.get_controlling_player() {
+            if let Ok(guard) = player.read() {
+                crate::helpers::TheInGameUI::remove_idle_worker(
+                    self,
+                    guard.get_player_index() as Int,
+                );
+            }
         }
 
         self.on_die_rebuild_hole_transfer();

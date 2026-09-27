@@ -88,19 +88,42 @@ impl GameLogic {
         if full_path.is_empty() {
             return false;
         }
-        let started = if let Some(unit) = self.objects.get_mut(&unit_id) {
+        let last_node = full_path.last().copied();
+        let (started, entered_move) = if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.waiting_for_path = false;
+            unit.queue_for_path_frames = 0;
             unit.movement.current_path_index = 0;
             unit.movement.path = full_path;
             unit.movement.target_position = unit.movement.path.first().copied();
             unit.is_exact_path = true;
+            unit.is_attack_path = false;
+            unit.set_locomotor_goal_position_on_path();
+            unit.num_frames_blocked = 0;
+            unit.is_blocked_and_stuck = false;
+            unit.path_timestamp = self.frame;
+            unit.path_extra_distance = unit.waypoint_link_extra_distance();
             unit.start_move();
-            unit.set_ai_state(AIState::Moving);
-            true
+            let entered_move = unit.ai_state != AIState::Moving;
+            if entered_move {
+                unit.set_ai_state(AIState::Moving);
+            }
+            (true, entered_move)
         } else {
-            false
+            (false, false)
         };
+        if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
+        }
         if started {
+            let stamp = self
+                .objects
+                .get(&unit_id)
+                .is_some_and(|unit| unit.is_final_goal);
+            if stamp {
+                if let Some(last) = last_node {
+                    self.register_ground_path_goal(unit_id, last);
+                }
+            }
             self.start_move_sound(unit_id);
         }
         started
@@ -141,6 +164,15 @@ impl GameLogic {
         waypoints: &[Vec3],
         compute_now: bool,
     ) -> bool {
+        let restore_adjust = self.pathfinding_system.tighten_restore_adjust;
+        self.pathfinding_system.tighten_restore_adjust = false;
+        if self.try_install_flying_quick_path(unit_id, destination) {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.retry_path = false;
+            }
+            self.settle_try_one_more_repath(unit_id);
+            return true;
+        }
         // C++ DeployStyle: move order packs unit before pathing residual.
         // TurretsMustCenterBeforePacking stays ALIGNING (still DEPLOYED) until
         // the turret is natural; only UNDEPLOY clears OBJECT_STATUS_DEPLOYED.
@@ -216,6 +248,45 @@ impl GameLogic {
             // Path blocked until pack completes; re-issue move after ReadyToMove.
             return false;
         }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.is_blocked = false;
+            unit.num_frames_blocked = 0;
+            unit.is_blocked_and_stuck = false;
+        }
+        let delayed = if waypoints.is_empty() {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                let keep_final = unit.is_final_goal;
+                let delayed = !unit.begin_request_move_path(destination, self.frame);
+                unit.is_final_goal = keep_final;
+                delayed
+            } else {
+                return false;
+            }
+        } else {
+            false
+        };
+        if delayed {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.is_blocked = false;
+                unit.try_one_more_repath = true;
+                unit.set_status_moving(true);
+                unit.start_move();
+            }
+            self.note_successful_move_path(unit_id);
+            self.start_move_sound(unit_id);
+            return true;
+        }
+        let quick_installed = self.objects.get(&unit_id).is_some_and(|unit| {
+            unit.path_timestamp == self.frame
+                && !unit.waiting_for_path
+                && !unit.movement.path.is_empty()
+        });
+        if quick_installed {
+            self.note_successful_move_path(unit_id);
+            self.settle_try_one_more_repath(unit_id);
+            self.start_move_sound(unit_id);
+            return true;
+        }
         let (start, can_move, is_aircraft, surfaces, is_crusher) = match self.objects.get(&unit_id)
         {
             Some(unit) => (
@@ -231,9 +302,12 @@ impl GameLogic {
         if !can_move {
             return false;
         }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.try_one_more_repath = true;
+            unit.requested_destination = Some(destination);
+            unit.set_status_moving(true);
+        }
 
-        // C++ Pathfinder::queueForPath: loaded maps wait one frame
-        // (AI.cpp:332-339, AIPathfind.h:418). Mapless / test compute now.
         let defer = self.map_loaded && !compute_now;
         if defer {
             let queued = self
@@ -247,18 +321,22 @@ impl GameLogic {
                     surfaces,
                     is_crusher,
                     ignore_obstacle: self.pathfinding_system.ignore_obstacle(),
+                    adjust_destinations: self
+                        .objects
+                        .get(&unit_id)
+                        .is_some_and(|unit| unit.adjust_destinations),
+                    restore_adjust_on_install: restore_adjust,
                 });
             if !queued {
-                // C++ queueForPath full: refuse the newest, keep oldest waiters.
                 return false;
             }
+            let mut entered_move = false;
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.waiting_for_path = true;
-                // C++ queueForPath: sit still until processPathfindQueue installs Path.
                 unit.movement.target_position = None;
                 unit.movement.velocity = glam::Vec3::ZERO;
                 unit.start_move();
-                if !matches!(
+                entered_move = !matches!(
                     unit.ai_state,
                     AIState::Constructing
                         | AIState::Gathering
@@ -266,7 +344,14 @@ impl GameLogic {
                         | AIState::Attacking
                         | AIState::AttackMoving
                         | AIState::Capturing
-                ) {
+                        | AIState::Repairing
+                        | AIState::SpecialAbility
+                        | AIState::GuardingObject
+                        | AIState::GuardingArea
+                        | AIState::Entering
+                        | AIState::Moving
+                );
+                if entered_move {
                     unit.set_ai_state(AIState::Moving);
                 }
                 unit.set_status_moving(true);
@@ -276,15 +361,15 @@ impl GameLogic {
                 unit_id,
                 Some([destination.x, destination.y, destination.z]),
             );
-            if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+            if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
             }
             self.start_move_sound(unit_id);
-
             return true;
         }
 
-        let Some(full_path) = self.compute_assigned_unit_path(
+
+        let Some((full_path, ground_search)) = self.compute_assigned_unit_path(
             unit_id,
             start,
             destination,
@@ -292,15 +377,135 @@ impl GameLogic {
             is_aircraft,
             surfaces,
             is_crusher,
+            None,
         ) else {
+            if Self::route_is_already_there(start, destination, waypoints) {
+                self.clear_compute_path_blocked(unit_id);
+                return false;
+            }
+            if self.try_closest_path_when_none(unit_id, start, destination, surfaces, is_crusher)
+            {
+                self.note_successful_move_path(unit_id);
+                self.start_move_sound(unit_id);
+                self.settle_try_one_more_repath(unit_id);
+                return true;
+            }
+            let closest_ran = self
+                .objects
+                .get(&unit_id)
+                .is_some_and(|unit| unit.movement.path.is_empty());
+            self.note_compute_path_failed(unit_id);
+            if closest_ran {
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.retry_path = true;
+                }
+            }
             return false;
         };
-        let ok = self.apply_computed_unit_path(unit_id, start, destination, full_path);
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.retry_path = false;
+        }
+        let ok = self.apply_computed_unit_path(
+            unit_id,
+            start,
+            destination,
+            full_path,
+            ground_search,
+        );
         if ok {
+            self.note_successful_move_path(unit_id);
             self.start_move_sound(unit_id);
+            self.settle_try_one_more_repath(unit_id);
         }
         ok
     }
+
+    /// C++ `canComputeQuickPath` + non-aircraft `computeQuickPath`.
+    pub(in super::super) fn try_install_flying_quick_path(&mut self, unit_id: ObjectId, destination: Vec3) -> bool {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return false;
+        };
+        let air_surface = (unit.locomotor_surfaces
+            & crate::game_logic::object::LOCO_SURFACE_AIR)
+            != 0;
+        if !air_surface || crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit) {
+            return false;
+        }
+        if let Some(last) = unit.movement.path.last() {
+            let d = *last - destination;
+            if d.length_squared() < 0.25 {
+                drop(unit);
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.path_goal_position = Some(destination);
+                }
+                return true;
+            }
+        }
+        if unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+            && !unit.is_kind_of(crate::game_logic::KindOf::Projectile)
+        {
+            let start = unit.get_position();
+            let surfaces = unit.locomotor_surfaces;
+            let crusher = unit.crusher_level > 0;
+            let saved_adjust = self.pathfinding_system.adjusts_goal();
+            self.pathfinding_system.set_adjust_goal(false);
+            let path = self
+                .pathfinding_system
+                .find_path_ex_surfaces(
+                    start,
+                    destination,
+                    &self.objects,
+                    true,
+                    surfaces,
+                    crusher,
+                    Some(unit_id),
+                )
+                .unwrap_or_else(|| {
+                    let mut lifted = start;
+                    lifted.y = destination.y;
+                    vec![lifted, destination]
+                });
+            self.pathfinding_system.set_adjust_goal(saved_adjust);
+            let Some(unit) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            unit.is_attack_path = false;
+            unit.set_locomotor_goal_position_on_path();
+            unit.movement.path = path;
+            if unit.movement.path.len() >= 2 {
+                unit.movement.current_path_index = 1;
+                unit.movement.target_position = Some(unit.movement.path[1]);
+            } else {
+                unit.movement.current_path_index = 0;
+                unit.movement.target_position = Some(destination);
+            }
+            unit.path_goal_position = Some(destination);
+            unit.path_timestamp = self.frame;
+            unit.num_frames_blocked = 0;
+            unit.is_blocked_and_stuck = false;
+            unit.waiting_for_path = false;
+            unit.set_status_moving(true);
+            return true;
+        }
+        let mut start = unit.get_position();
+        start.y = destination.y;
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        unit.is_attack_path = false;
+        unit.set_locomotor_goal_position_on_path();
+        unit.movement.path = vec![start, destination];
+        unit.movement.current_path_index = 1;
+        unit.movement.target_position = Some(destination);
+        unit.path_goal_position = Some(destination);
+        unit.path_timestamp = self.frame;
+        unit.num_frames_blocked = 0;
+        unit.is_blocked_and_stuck = false;
+        unit.waiting_for_path = false;
+        unit.set_status_moving(true);
+        true
+    }
+
 
     pub(in super::super) fn compute_assigned_unit_path(
         &mut self,
@@ -311,17 +516,34 @@ impl GameLogic {
         is_aircraft: bool,
         surfaces: u32,
         is_crusher: bool,
-    ) -> Option<Vec<Vec3>> {
+        adjust_snapshot: Option<bool>,
+    ) -> Option<(Vec<Vec3>, bool)> {
         let horiz = |a: Vec3, b: Vec3| {
             let dx = a.x - b.x;
             let dz = a.z - b.z;
             (dx * dx + dz * dz).sqrt()
         };
 
+        if !self
+            .objects
+            .get(&unit_id)
+            .is_some_and(|unit| unit.is_blocked_and_stuck)
+        {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.movement.path.clear();
+                unit.movement.current_path_index = 0;
+                unit.movement.target_position = None;
+                unit.is_attack_path = false;
+                unit.set_locomotor_goal_none();
+                unit.waiting_for_path = false;
+            }
+        }
+
         let mut goals: Vec<Vec3> = waypoints.to_vec();
         goals.push(destination);
 
         let mut full_path: Vec<Vec3> = Vec::new();
+        let mut ground_search = false;
         let mut segment_start = start;
         let loco = if is_aircraft {
             gamelogic::ai::pathfind_complete::SURFACE_AIR
@@ -330,14 +552,12 @@ impl GameLogic {
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
         };
-        let request_is_final = match self.objects.get(&unit_id) {
-            Some(u) => {
-                !u.is_safe_path
-                    && u.attack_substate != crate::game_logic::AttackSubState::ChaseTarget
-            }
-            None => true,
-        };
+        let request_is_final = self
+            .objects
+            .get(&unit_id)
+            .is_some_and(|u| u.is_final_goal);
         let ignore = self.pathfinding_system.ignore_obstacle();
+        let saved_adjust = self.pathfinding_system.adjusts_goal();
         let goal_count = goals.len();
         for (hop_i, goal) in goals.into_iter().enumerate() {
             if horiz(segment_start, goal) < 0.1 {
@@ -373,6 +593,45 @@ impl GameLogic {
                             ignore,
                         ));
             let straight = horiz(segment_start, goal);
+            let (live_adjust, projectile) = self
+                .objects
+                .get(&unit_id)
+                .map(|unit| {
+                    (
+                        unit.adjust_destinations,
+                        unit.is_kind_of(crate::game_logic::KindOf::Projectile),
+                    )
+                })
+                .unwrap_or((false, false));
+            let adjusts = adjust_snapshot.unwrap_or(live_adjust);
+            self.pathfinding_system
+                .set_adjust_goal(hop_is_final && adjusts && !projectile);
+            let stuck_path = if is_aircraft {
+                None
+            } else {
+                self.objects.get(&unit_id).and_then(|unit| {
+                    if unit.is_blocked_and_stuck && unit.movement.path.len() >= 2 {
+                        Some(unit.movement.path.clone())
+                    } else {
+                        None
+                    }
+                })
+            };
+            let dest_cell = self.pathfinding_system.grid.world_to_grid(goal);
+            let dest_layer = self.pathfinding_system.grid.layer_for_destination(goal);
+            let ignore_id = self
+                .pathfinding_system
+                .ignore_obstacle()
+                .map(|id| id.0)
+                .unwrap_or(0);
+            let dest_ok = is_aircraft
+                || self.pathfinding_system.grid.valid_movement_position(
+                    dest_cell,
+                    dest_layer,
+                    loco,
+                    is_crusher,
+                    ignore_id,
+                );
             let segment = if leftover_quick {
                 Some(
                     super::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
@@ -380,8 +639,18 @@ impl GameLogic {
                         goal,
                     ),
                 )
+            } else if !dest_ok {
+                None
+            } else if let Some(original) = stuck_path {
+                self.pathfinding_system.patch_path(
+                    segment_start,
+                    &original,
+                    loco,
+                    is_crusher,
+                    &self.objects,
+                    Some(unit_id),
+                )
             } else {
-                // Never fail-open through blocked cells: always ask the pathfinder.
                 self.pathfinding_system.find_path_ex_surfaces(
                     segment_start,
                     goal,
@@ -393,9 +662,9 @@ impl GameLogic {
                 )
             };
 
-            match segment {
+            match segment.filter(|path| !path.is_empty()) {
                 Some(mut segment_path) => {
-                    // Keep the found path even if it is long — do not walk through walls.
+                    ground_search |= !leftover_quick && !is_aircraft;
                     let path_len: f32 = segment_path.windows(2).map(|w| horiz(w[0], w[1])).sum();
                     if straight > 1.0 && path_len > straight * 3.5 {
                         log::debug!(
@@ -441,6 +710,7 @@ impl GameLogic {
                         }
                         full_path.push(goal);
                     } else {
+                        self.pathfinding_system.set_adjust_goal(saved_adjust);
                         return None;
                     }
                 }
@@ -451,18 +721,20 @@ impl GameLogic {
 
         if full_path.is_empty() {
             // Already at goal (all segments < 0.1) is not a fail-open march.
+            self.pathfinding_system.set_adjust_goal(saved_adjust);
             return None;
         }
-        // C++ Path always terminates at its goal (Path::appendGoal /
-        // adjustDestination keeps the snapped cell as the last node). A
-        // skipped short hop or a truncated segment must still deliver the
-        // requested destination so arrival-gated states (AI_MOVE_AND_EVACUATE,
-        // RTB taxi) observe a real final waypoint instead of an empty path.
-        let last = full_path.last().copied().unwrap_or(segment_start);
-        if horiz(last, destination) >= 0.01 {
-            full_path.push(destination);
+        // Snapped A* cell stays last so apply can updateLastNode when
+        // ultra-accurate. Append the click only for a skipped or quick hop
+        // (evacuate / RTB), which never ran findPath.
+        if !ground_search {
+            let last = full_path.last().copied().unwrap_or(segment_start);
+            if horiz(last, destination) >= 0.01 {
+                full_path.push(destination);
+            }
         }
-        Some(full_path)
+        self.pathfinding_system.set_adjust_goal(saved_adjust);
+        Some((full_path, ground_search))
     }
 
     pub(in super::super) fn apply_computed_unit_path(
@@ -471,11 +743,31 @@ impl GameLogic {
         _start: Vec3,
         destination: Vec3,
         full_path: Vec<Vec3>,
+        after_ground_search: bool,
     ) -> bool {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        let no_collide = unit.is_kind_of(crate::game_logic::KindOf::NoCollide);
+        let mut full_path = full_path;
+        let has_locomotor = unit
+            .cur_locomotor_name
+            .as_ref()
+            .is_some_and(|name| !name.is_empty())
+            || unit
+                .locomotor_set_names
+                .iter()
+                .any(|name| !name.is_empty());
+        if after_ground_search && unit.ultra_accurate && has_locomotor {
+            if let Some(last) = full_path.last_mut() {
+                *last = destination;
+            }
+        }
         unit.waiting_for_path = false;
+        unit.queue_for_path_frames = 0;
+        if unit.is_safe_path {
+            unit.adjust_destinations = false;
+        }
         unit.is_exact_path = false;
         // path[0] is the current cell (segment_start). Match the other
         // installer: skip it and aim at the first corner, or the final
@@ -488,6 +780,12 @@ impl GameLogic {
             unit.movement.target_position = Some(destination);
         }
         unit.movement.path = full_path;
+        unit.is_attack_path = false;
+        unit.num_frames_blocked = 0;
+        unit.is_blocked_and_stuck = false;
+        unit.set_locomotor_goal_position_on_path();
+        unit.path_timestamp = self.frame;
+        unit.refresh_follow_path_extra_distance();
         unit.record_host_movement();
         unit.start_move();
         crate::game_logic::host_move_log::record(
@@ -497,7 +795,7 @@ impl GameLogic {
         // C++ locoUpdate accelerates from the current velocity toward the
         // path lead. Do not stamp max speed at the raw click: a detour
         // would spend the first frames driving into the obstacle.
-        if !matches!(
+        let entered_move = !matches!(
             unit.ai_state,
             AIState::Constructing
                 | AIState::Gathering
@@ -505,15 +803,33 @@ impl GameLogic {
                 | AIState::Attacking
                 | AIState::AttackMoving
                 | AIState::Capturing
-        ) {
+                | AIState::Repairing
+                | AIState::SpecialAbility
+                | AIState::GuardingObject
+                | AIState::GuardingArea
+                | AIState::Entering
+                | AIState::Moving
+        );
+        if entered_move {
             unit.set_ai_state(AIState::Moving);
         }
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-            // Moving
         }
         unit.set_status_moving(true);
-        true
+        unit.path_goal_position = Some(destination);
+        let last_node = unit.movement.path.last().copied();
+        let stamp = unit.is_final_goal;
+        drop(unit);
+        if stamp {
+            if let Some(last) = last_node {
+                self.register_ground_path_goal(unit_id, last);
+            }
+        }
+        if after_ground_search && !no_collide {
+            self.scoot_allies_off_mover_path(unit_id);
+        }
+        return true;
     }
 
     /// C++ `AIGroup::friend_computeGroundPath` + per-member slot:
@@ -556,7 +872,20 @@ impl GameLogic {
             .objects
             .get(&leader_id)
             .is_some_and(|o| o.crusher_level > 0);
-        let Some(spine) = self.compute_assigned_unit_path(
+        if let Some(leader) = self.objects.get_mut(&leader_id) {
+            let landed_chinook = leader.chinook_ai.as_ref().is_some_and(|ai| {
+                ai.flight_status
+                    == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+            });
+            leader.is_final_goal = !leader.is_parachuting()
+                && !landed_chinook
+                && !(leader.chinook_ai.is_some() && leader.allow_invalid_position)
+                && leader.adjust_destinations;
+            leader.num_frames_blocked = 0;
+            leader.is_blocked_and_stuck = false;
+            leader.set_status_moving(true);
+        }
+        let Some((spine, mut pass_scoot)) = self.compute_assigned_unit_path(
             leader_id,
             start,
             destination,
@@ -564,6 +893,7 @@ impl GameLogic {
             aircraft,
             surfaces,
             is_crusher,
+            None,
         ) else {
             return false;
         };
@@ -611,10 +941,11 @@ impl GameLogic {
                 }
                 None => legacy_spine(),
             };
-
-            if self.apply_computed_unit_path(unit_id, unit_start, goal, path) {
+            let _ = self.note_move_to_request_path(unit_id);
+            if self.apply_computed_unit_path(unit_id, unit_start, goal, path, pass_scoot) {
                 any = true;
             }
+            pass_scoot = false;
         }
         any
     }
@@ -802,28 +1133,67 @@ impl GameLogic {
                     return None;
                 }
                 let dest = unit.pending_move?;
-                let ignore = if matches!(unit.ai_state, AIState::Constructing) {
-                    unit.dozer_task_build_target.or(unit.target)
-                } else {
-                    None
+                let ignore = match unit.ai_state {
+                    AIState::Constructing => unit.dozer_task_build_target.or(unit.target),
+                    AIState::Repairing => unit.dozer_task_repair_target.or(unit.target),
+                    AIState::Capturing | AIState::Attacking | AIState::AttackMoving => unit.target,
+                    AIState::Entering => unit.ignored_obstacle_id.or(unit.target),
+                    AIState::SpecialAbility => unit
+                        .hacker_disable_channel
+                        .as_ref()
+                        .map(|channel| channel.target_id)
+                        .or(unit.target),
+                    _ => None,
                 };
                 Some((*id, dest, unit.ai_state.clone(), ignore))
             })
             .collect();
         for (id, dest, task, ignore) in ready {
+            if matches!(task, AIState::Moving | AIState::AttackMoving | AIState::Idle) {
+                if let Some(unit) = self.objects.get_mut(&id) {
+                    let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
+                        ai.flight_status
+                            == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+                    });
+                    unit.is_final_goal = !unit.is_parachuting()
+                        && !landed_chinook
+                        && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
+                        && unit.adjust_destinations;
+                }
+            }
             let ok = if ignore.is_some() {
                 self.assign_unit_path_ignoring(id, dest, &[], ignore)
             } else {
                 self.assign_unit_path(id, dest, &[])
             };
             if ok {
+                let set_state = matches!(
+                    task,
+                    AIState::Constructing
+                        | AIState::Gathering
+                        | AIState::ReturningResources
+                        | AIState::Repairing
+                        | AIState::Capturing
+                        | AIState::Attacking
+                        | AIState::AttackMoving
+                        | AIState::SpecialAbility
+                        | AIState::Entering
+                );
                 if let Some(unit) = self.objects.get_mut(&id) {
                     unit.pending_move = None;
-                    if matches!(
-                        task,
-                        AIState::Constructing | AIState::Gathering | AIState::ReturningResources
-                    ) {
-                        unit.set_ai_state(task);
+                    if let Some(ignore_id) = ignore {
+                        unit.ignored_obstacle_id = Some(ignore_id);
+                    }
+                }
+                if set_state {
+                    let already = self.objects.get(&id).is_some_and(|unit| unit.ai_state == task);
+                    if !already {
+                        self.set_ai_state_decision_aware(id, task);
+                    }
+                    if let Some(unit) = self.objects.get_mut(&id) {
+                        if !unit.movement.path.is_empty() {
+                            unit.set_status_moving(true);
+                        }
                     }
                 }
             }
@@ -857,7 +1227,7 @@ impl GameLogic {
             let Some(req) = self.pathfinding_system.pop_pending_path() else {
                 break;
             };
-            let (start, can_move, is_aircraft, surfaces, is_crusher) =
+            let (start, can_move, is_aircraft, surfaces, is_crusher, safe, mut approach, attack, victim) =
                 match self.objects.get(&req.unit_id) {
                     Some(unit) if unit.is_alive() => (
                         unit.get_position(),
@@ -871,37 +1241,454 @@ impl GameLogic {
                             unit.locomotor_surfaces
                         },
                         req.is_crusher || unit.crusher_level > 0,
+                        unit.is_safe_path,
+                        unit.is_approach_path,
+                        unit.is_attack_path,
+                        unit.requested_victim_id,
                     ),
                     _ => continue,
                 };
-            if !can_move {
-                if let Some(unit) = self.objects.get_mut(&req.unit_id) {
-                    unit.waiting_for_path = false;
+            if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                unit.waiting_for_path = false;
+                if approach
+                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
+                {
+                    unit.is_approach_path = false;
+                    approach = false;
                 }
+            }
+            if !can_move {
                 continue;
             }
-            self.pathfinding_system
-                .set_ignore_obstacle(req.ignore_obstacle);
+            // C++ queueForPath stores the object id; doPathfind reads
+            // getIgnoredObstacleID() live. The queued copy applies only when
+            // the unit is already gone.
+            let ignore = self
+                .objects
+                .get(&req.unit_id)
+                .map(|unit| unit.ignored_obstacle_id)
+                .unwrap_or(req.ignore_obstacle);
+            self.pathfinding_system.set_ignore_obstacle(ignore);
+            if safe {
+                if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                    unit.movement.path.clear();
+                    unit.movement.current_path_index = 0;
+                    unit.is_attack_path = false;
+                    unit.set_locomotor_goal_none();
+                    unit.waiting_for_path = false;
+                }
+                let (p1, p2, radius, is_human) = {
+                    let unit = self.objects.get(&req.unit_id);
+                    let r1 = unit.and_then(|u| u.requested_victim_id);
+                    let r2 = unit.and_then(|u| u.safe_path_repulsor2);
+                    let vision = unit.map(|u| u.vision_range).unwrap_or(0.0);
+                    let repulsed = gamelogic::ai::the_ai()
+                        .read()
+                        .ok()
+                        .and_then(|ai| {
+                            ai.get_ai_data()
+                                .read()
+                                .ok()
+                                .map(|data| data.repulsed_distance)
+                        })
+                        .unwrap_or(0.0);
+                    let radius = vision + repulsed;
+                    let missing = glam::Vec3::new(-1000.0, -1000.0, 0.0);
+                    let is_human = unit
+                        .and_then(|u| u.owner_player_id)
+                        .and_then(|pid| self.players.get(&pid))
+                        .map(|p| p.is_local)
+                        .unwrap_or(true);
+                    let p1 = r1
+                        .and_then(|i| self.objects.get(&i).map(|o| o.get_position()))
+                        .unwrap_or(missing);
+                    let p2 = r2
+                        .and_then(|i| self.objects.get(&i).map(|o| o.get_position()))
+                        .unwrap_or(p1);
+                    (p1, p2, radius, is_human)
+                };
+                if let Some(path) = self.pathfinding_system.find_safe_path_from(
+                    start, p1, p2, radius, surfaces, is_crusher, is_human,
+                ) {
+                    let _ = self.apply_computed_unit_path(req.unit_id, start, req.destination, path, false);
+                }
+                self.pathfinding_system.set_ignore_obstacle(None);
+                continue;
+            }
+            if approach {
+                if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                    unit.movement.path.clear();
+                    unit.movement.current_path_index = 0;
+                    unit.is_attack_path = false;
+                    unit.set_locomotor_goal_none();
+                    unit.waiting_for_path = false;
+                }
+                let is_human = self
+                    .objects
+                    .get(&req.unit_id)
+                    .and_then(|unit| unit.owner_player_id)
+                    .and_then(|pid| self.players.get(&pid))
+                    .map(|player| player.is_local)
+                    .unwrap_or(true);
+                if let Some(path) = self.pathfinding_system.find_closest_path(
+                    start,
+                    req.destination,
+                    surfaces,
+                    is_crusher,
+                    is_human,
+                    0.2,
+                ) {
+                    let last = path.last().copied();
+                    let _ = self.apply_computed_unit_path(req.unit_id, start, req.destination, path, false);
+                    if let Some(last) = last {
+                        if self.objects.get(&req.unit_id).is_some_and(|unit| {
+                            crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
+                        }) {
+                            self.register_ground_path_goal(req.unit_id, last);
+                        }
+                    }
+                }
+                self.pathfinding_system.set_ignore_obstacle(None);
+                continue;
+            }
+            let mut goal = req.destination;
+            if attack {
+                if self.assign_unit_attack_path_fallback(
+                    req.unit_id,
+                    victim,
+                    req.destination,
+                    false,
+                ) {
+                    if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                        unit.is_attack_path = true;
+                    }
+                    self.pathfinding_system.set_ignore_obstacle(None);
+                    continue;
+                }
+                if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                    unit.is_attack_path = false;
+                }
+                if let Some(vid) = victim {
+                    if let Some(v) = self.objects.get(&vid) {
+                        goal = v.get_position();
+                    }
+                    self.adjust_to_possible_destination(req.unit_id, &mut goal);
+                    if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                        unit.ignored_obstacle_id = Some(vid);
+                        unit.requested_destination = Some(goal);
+                    }
+                    self.pathfinding_system.set_ignore_obstacle(Some(vid));
+                }
+            }
+            if self.try_install_flying_quick_path(req.unit_id, goal) {
+                if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                    unit.retry_path = false;
+                }
+                self.settle_try_one_more_repath(req.unit_id);
+                self.pathfinding_system.set_ignore_obstacle(None);
+                continue;
+            }
             match self.compute_assigned_unit_path(
                 req.unit_id,
                 start,
-                req.destination,
+                goal,
                 &req.waypoints,
                 is_aircraft,
                 surfaces,
                 is_crusher,
+                Some(req.adjust_destinations),
             ) {
-                Some(path) => {
-                    let _ =
-                        self.apply_computed_unit_path(req.unit_id, start, req.destination, path);
+                Some((path, ground_search)) => {
+                    if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                        unit.retry_path = false;
+                    }
+                    let installed = self.apply_computed_unit_path(
+                        req.unit_id,
+                        start,
+                        goal,
+                        path,
+                        ground_search,
+                    );
+                    if installed {
+                        if req.restore_adjust_on_install {
+                            if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                                unit.adjust_destinations = true;
+                            }
+                        }
+                        if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                            unit.num_frames_blocked = 0;
+                            unit.is_blocked_and_stuck = false;
+                        }
+                        self.on_waited_path_arrived(req.unit_id);
+                    } else {
+                        self.on_waited_path_failed(req.unit_id);
+                    }
                 }
                 None => {
-                    if let Some(unit) = self.objects.get_mut(&req.unit_id) {
-                        unit.waiting_for_path = false;
+                    if Self::route_is_already_there(start, goal, &req.waypoints) {
+                        self.clear_compute_path_blocked(req.unit_id);
+                        self.on_waited_path_failed(req.unit_id);
+                    } else if self.try_closest_path_when_none(
+                        req.unit_id,
+                        start,
+                        goal,
+                        surfaces,
+                        is_crusher,
+                    ) {
+                        if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                            unit.num_frames_blocked = 0;
+                            unit.is_blocked_and_stuck = false;
+                        }
+                        self.on_waited_path_arrived(req.unit_id);
+                    } else {
+                        let closest_ran = self
+                            .objects
+                            .get(&req.unit_id)
+                            .is_some_and(|unit| unit.movement.path.is_empty());
+                        self.note_compute_path_failed(req.unit_id);
+                        if closest_ran {
+                            if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                                unit.retry_path = true;
+                            }
+                        }
+                        if self
+                            .objects
+                            .get(&req.unit_id)
+                            .is_some_and(|unit| unit.queue_for_path_frames > 0)
+                        {
+                            if let Some(unit) = self.objects.get_mut(&req.unit_id) {
+                                unit.waiting_for_path = true;
+                            }
+                        } else {
+                            self.on_waited_path_failed(req.unit_id);
+                        }
                     }
                 }
             }
             self.pathfinding_system.set_ignore_obstacle(None);
+        }
+    }
+
+    /// C++ AIUpdate when `now >= m_queueForPathFrame`: queueForPath and clear the timer.
+    pub(crate) fn requeue_expired_path_requests(&mut self, ids: &[ObjectId]) {
+        for &id in ids {
+            let Some(unit) = self.objects.get(&id) else {
+                continue;
+            };
+            let Some(dest) = unit.requested_destination else {
+                continue;
+            };
+            if !unit.waiting_for_path {
+                continue;
+            }
+            let req = crate::game_logic::pathfinding::PendingHostPath {
+                unit_id: id,
+                start: unit.get_position(),
+                destination: dest,
+                waypoints: Vec::new(),
+                aircraft: unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                    || unit.object_type == crate::game_logic::ObjectType::Aircraft,
+                surfaces: unit.locomotor_surfaces,
+                is_crusher: unit.crusher_level > 0,
+                ignore_obstacle: unit.ignored_obstacle_id,
+                adjust_destinations: unit.adjust_destinations,
+                restore_adjust_on_install: false,
+            };
+            let _ = self.pathfinding_system.queue_path(req);
+        }
+    }
+
+
+    fn note_successful_move_path(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return;
+        };
+        unit.num_frames_blocked = 0;
+        unit.is_blocked_and_stuck = false;
+        unit.desired_speed = 999_999.0;
+    }
+
+    pub(in super::super) fn route_is_already_there(start: Vec3, destination: Vec3, waypoints: &[Vec3]) -> bool {
+        let mut prev = start;
+        for goal in waypoints.iter().copied().chain(std::iter::once(destination)) {
+            let dx = goal.x - prev.x;
+            let dz = goal.z - prev.z;
+            if (dx * dx + dz * dz).sqrt() >= 0.1 {
+                return false;
+            }
+            prev = goal;
+        }
+        true
+    }
+
+    /// `findClosestPath` once, only when `findPath` returned null and `m_path` is null.
+    /// `is_human` is the controlling player. A path that comes back is a ground install,
+    /// so allies are still asked to move unless the unit is `NoCollide`.
+    pub(in super::super) fn try_closest_path_when_none(
+        &mut self,
+        unit_id: ObjectId,
+        start: Vec3,
+        destination: Vec3,
+        surfaces: u32,
+        is_crusher: bool,
+    ) -> bool {
+        let owner = {
+            let Some(unit) = self.objects.get_mut(&unit_id) else {
+                return false;
+            };
+            if !unit.movement.path.is_empty() {
+                return false;
+            }
+            unit.retry_path = false;
+            unit.owner_player_id
+        };
+        let is_human = match owner {
+            Some(pid) => self.player_is_human(pid),
+            None => true,
+        };
+        let loco = if surfaces != 0 {
+            surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        let found = self.pathfinding_system.find_closest_path(
+            start,
+            destination,
+            loco,
+            is_crusher,
+            is_human,
+            0.0,
+        );
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.retry_path = true;
+        }
+        let Some(path) = found else {
+            return false;
+        };
+        self.apply_computed_unit_path(unit_id, start, destination, path, true)
+    }
+
+    /// Bottom of C++ `computePath`: stamp the clock and clear stuck. No snap.
+    fn clear_compute_path_blocked(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return;
+        };
+        unit.path_timestamp = self.frame;
+        unit.num_frames_blocked = 0;
+        unit.is_blocked_and_stuck = false;
+        unit.retry_path = false;
+    }
+
+    /// C++ `computePath` when `findPath` returns null (AIUpdate.cpp:1731-1754).
+    fn note_compute_path_failed(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let stuck_with_path = !unit.movement.path.is_empty() && unit.is_blocked_and_stuck;
+        let (pos, center) = if stuck_with_path {
+            let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(
+                unit.selection_radius,
+                self.pathfinding_system.grid.grid_size(),
+            );
+            (unit.get_position(), center)
+        } else {
+            (Vec3::ZERO, true)
+        };
+        let goal_pos = if stuck_with_path {
+            self.pathfinding_system.grid.snap_position(pos, center)
+        } else {
+            Vec3::ZERO
+        };
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return;
+        };
+        let closest_attempted = !stuck_with_path && unit.movement.path.is_empty();
+        if stuck_with_path {
+            unit.movement.path.clear();
+            unit.movement.current_path_index = 0;
+            unit.movement.target_position = None;
+            unit.is_attack_path = false;
+            unit.final_position = goal_pos;
+            unit.do_final_position = false;
+            unit.set_locomotor_goal_none();
+            unit.queue_for_path_frames =
+                crate::game_logic::host_ai_path_combat_residual_wave105::LOGIC_FRAMES_PER_SECOND_RESIDUAL;
+            unit.is_blocked = false;
+            unit.waiting_for_path = true;
+        }
+        unit.path_timestamp = self.frame;
+        unit.num_frames_blocked = 0;
+        unit.is_blocked_and_stuck = false;
+        unit.retry_path = closest_attempted;
+    }
+
+    pub(crate) fn on_waited_path_failed(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return;
+        };
+        let overlay = unit.temporary_move_frames > 0
+            && !matches!(unit.ai_state, AIState::Moving);
+        unit.waiting_for_path = false;
+        if overlay {
+            unit.end_temporary_move_overlay();
+            unit.ignored_obstacle_id = None;
+            unit.set_locomotor_goal_none();
+        } else if matches!(unit.ai_state, AIState::Moving) {
+            unit.stop_moving();
+        }
+        drop(unit);
+        if overlay {
+            self.apply_arrival_goal_snap(unit_id, None);
+        }
+    }
+
+
+    /// C++ `AIInternalMoveToState::update` when a waited path arrives
+    /// (AIStates.cpp:1782-1786). Adjusting units `updateGoal` the last node.
+    /// The others `removeGoal`.
+    pub(crate) fn on_waited_path_arrived(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get(&unit_id) else {
+            return;
+        };
+        let goal = unit.requested_destination;
+        let landed_chinook = unit.chinook_ai.as_ref().is_some_and(|ai| {
+            ai.flight_status
+                == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+        });
+        let adjusts = !unit.is_parachuting()
+            && !landed_chinook
+            && !(unit.chinook_ai.is_some() && unit.allow_invalid_position)
+            && unit.adjust_destinations;
+        let last = unit.movement.path.last().copied();
+        if adjusts {
+            if let Some(last) = last {
+                self.register_ground_path_goal(unit_id, last);
+            }
+        } else {
+            let old = unit.pathfind_goal_cell;
+            let radius = unit.selection_radius;
+            let id = unit.id.0;
+            let player = unit.owner_player_id.unwrap_or(unit.team as u32);
+            self.pathfinding_system
+                .grid
+                .clear_ground_goal_square(id, player, radius, old);
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.pathfind_goal_cell = (-1, -1);
+            }
+        }
+        if let Some(unit) = self.objects.get_mut(&unit_id) {
+            unit.path_goal_position = goal.or(unit.path_goal_position);
+            unit.waiting_for_path = false;
+        }
+        self.settle_try_one_more_repath(unit_id);
+    }
+
+    fn settle_try_one_more_repath(&mut self, unit_id: ObjectId) {
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return;
+        };
+        if !unit.retry_path {
+            unit.try_one_more_repath = false;
         }
     }
 
@@ -914,6 +1701,9 @@ impl GameLogic {
     ) -> bool {
         self.assign_unit_path_inner(unit_id, destination, waypoints, true)
     }
+
+
+
 
     /// Pathfind to goal then set AI state. Falls back to set_destination if A* fails.
     /// C++ Pathfinder::isAttackViewBlockedByObstacle residual for host combat.
@@ -935,6 +1725,16 @@ impl GameLogic {
         unit_id: ObjectId,
         target_id: Option<ObjectId>,
         target_pos: Vec3,
+    ) -> bool {
+        self.assign_unit_attack_path_fallback(unit_id, target_id, target_pos, true)
+    }
+
+    pub(crate) fn assign_unit_attack_path_fallback(
+        &mut self,
+        unit_id: ObjectId,
+        target_id: Option<ObjectId>,
+        target_pos: Vec3,
+        compute_fallback: bool,
     ) -> bool {
         let (from, range, can_move, contact, is_crusher) = match self.objects.get(&unit_id) {
             Some(u) => {
@@ -972,7 +1772,19 @@ impl GameLogic {
         // Callers should pass approach-adjusted goal for non-contact when known.
         let path_range = if contact { range.max(1.0) } else { range };
         let _ = contact;
-        // Snapshot objects for dynamic occupancy during search.
+        // C++ AIAttackApproachTargetState: contact weapons ignoreObstacle(victim)
+        // before requestAttackPath, so the search runs into the target.
+        if contact {
+            if let Some(tid) = target_id {
+                self.pathfinding_system.set_ignore_obstacle(Some(tid));
+                if let Some(unit) = self.objects.get_mut(&unit_id) {
+                    unit.ignored_obstacle_id = Some(tid);
+                }
+            }
+        } else {
+            // A leftover contact ignore would open that object for this scan.
+            self.pathfinding_system.set_ignore_obstacle(None);
+        }
         let mut path = self.pathfinding_system.find_attack_firing_position(
             from,
             target_pos,
@@ -981,6 +1793,9 @@ impl GameLogic {
             is_crusher,
             Some(unit_id),
         );
+        if contact {
+            self.pathfinding_system.set_ignore_obstacle(None);
+        }
         // LOS_TERRAIN residual: reject firing cell if terrain occludes eye-line.
         if let Some(ref full_path) = path {
             if let Some(&goal) = full_path.last() {
@@ -1003,6 +1818,7 @@ impl GameLogic {
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         if let Some(full_path) = path {
             if full_path.len() >= 2 {
+                let last_node = full_path.last().copied();
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
                     // Path integrate stays host (movement authority peels separately).
                     unit.movement.path = full_path;
@@ -1010,12 +1826,23 @@ impl GameLogic {
                     unit.movement.current_path_index = 1;
                     unit.record_host_movement();
                     unit.movement.target_position = Some(unit.movement.path[1]);
+                    if contact {
+                        unit.is_attack_path = true;
+                        unit.path_extra_distance =
+                            10.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                    } else {
+                        unit.is_attack_path = false;
+                        unit.refresh_follow_path_extra_distance();
+                    }
                     unit.set_status_moving(true);
-                    if !decision_auth {
-                        if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
-                            unit.set_ai_state(AIState::Attacking);
+                    if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
+                        unit.set_ai_state(AIState::Attacking);
+                        if !unit.movement.path.is_empty() {
+                            unit.set_status_moving(true);
                         }
-                        unit.set_status_attacking(true);
+                    }
+                    unit.set_status_attacking(true);
+                    if !decision_auth {
                         if let Some(tid) = target_id {
                             unit.target = Some(tid);
                         }
@@ -1029,29 +1856,51 @@ impl GameLogic {
                     if let Some(tid) = target_id {
                         crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);
                     }
-                    // Attacking ordinal = 2
                     crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
+                }
+                if let Some(last) = last_node {
+                    self.register_ground_path_goal(unit_id, last);
                 }
                 return true;
             }
         }
-        // C++ doPathfind attack fail: adjustToPossibleDestination + ignoreObstacle(victim).
         let mut dest = target_pos;
         self.adjust_to_possible_destination(unit_id, &mut dest);
+        if let Some(tid) = target_id {
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                unit.ignored_obstacle_id = Some(tid);
+            }
+        }
+        if !compute_fallback {
+            return false;
+        }
         if self.assign_unit_path_ignoring(unit_id, dest, &[], target_id) {
             if decision_auth {
                 if let Some(tid) = target_id {
                     crate::game_logic::host_ai_decision_log::record_attack(unit_id, tid);
                 }
-                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
-            } else if let Some(unit) = self.objects.get_mut(&unit_id) {
+            }
+            if let Some(unit) = self.objects.get_mut(&unit_id) {
+                if contact {
+                    unit.is_attack_path = true;
+                    unit.path_extra_distance =
+                        10.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                }
                 if !matches!(unit.ai_state, AIState::AttackMoving | AIState::Patrolling) {
                     unit.set_ai_state(AIState::Attacking);
+                    if !unit.movement.path.is_empty() {
+                        unit.set_status_moving(true);
+                    }
                 }
                 unit.set_status_attacking(true);
-                if let Some(tid) = target_id {
-                    unit.target = Some(tid);
+                if !decision_auth {
+                    if let Some(tid) = target_id {
+                        unit.target = Some(tid);
+                    }
                 }
+            }
+            if decision_auth {
+                crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 2);
             }
             return true;
         }
@@ -1184,23 +2033,47 @@ impl GameLogic {
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
         let attack_moving = matches!(state, AIState::AttackMoving);
+        let already = self
+            .objects
+            .get(&object_id)
+            .is_some_and(|obj| obj.ai_state == state);
         if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
+            let already = self
+                .objects
+                .get(&object_id)
+                .is_some_and(|obj| obj.ai_state == state);
             if decision_auth {
                 crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
-            } else if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.set_ai_state(state.clone());
+            }
+            if let Some(obj) = self.objects.get_mut(&object_id) {
+                if !already {
+                    obj.set_ai_state(state.clone());
+                }
+                if !obj.movement.path.is_empty() {
+                    obj.set_status_moving(true);
+                }
+                if let Some(id) = ignore_obstacle {
+                    obj.ignored_obstacle_id = Some(id);
+                }
             }
         } else if decision_auth {
             if let Some(obj) = self.objects.get_mut(&object_id) {
+                if !already {
+                    obj.set_ai_state(state.clone());
+                }
                 if obj.is_alive() && !obj.can_move() {
                     obj.pending_move = Some(goal);
                     obj.movement.target_position = None;
                     obj.movement.path.clear();
                 }
             }
-            crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
+            if !already {
+                crate::game_logic::host_ai_decision_log::record_set_state(object_id, ordinal);
+            }
         } else if let Some(obj) = self.objects.get_mut(&object_id) {
-            obj.set_ai_state(state);
+            if !already {
+                obj.set_ai_state(state);
+            }
             if obj.is_alive() && !obj.can_move() {
                 obj.pending_move = Some(goal);
                 obj.movement.target_position = None;
@@ -1209,7 +2082,6 @@ impl GameLogic {
         }
         if attack_moving {
             if let Some(obj) = self.objects.get_mut(&object_id) {
-                obj.is_attack_path = true;
                 obj.requested_destination = Some(goal);
             }
         }
@@ -1297,18 +2169,27 @@ impl GameLogic {
         unit.hunting = false;
         unit.stop_attack();
         unit.is_attack_path = false;
+        unit.is_exact_path = false;
         unit.movement.path = appended;
+        let last_node = unit.movement.path.last().copied();
+        unit.refresh_follow_path_extra_distance();
         unit.movement.target_position = Some(waypoint);
         crate::game_logic::host_move_log::record(
             unit_id,
             Some([waypoint.x, waypoint.y, waypoint.z]),
         );
-        unit.set_ai_state(AIState::Moving);
-        if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
+        let entered_move = unit.ai_state != AIState::Moving;
+        if entered_move {
+            unit.set_ai_state(AIState::Moving);
+        }
+        if entered_move && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
             crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
-            // Moving
         }
         unit.set_status_moving(true);
+        drop(unit);
+        if let Some(last) = last_node {
+            self.register_ground_path_goal(unit_id, last);
+        }
         true
     }
 
@@ -1397,5 +2278,58 @@ mod group_lane_tests {
             let path = &logic.host_object(*id).unwrap().movement.path;
             assert_eq!(path.last().unwrap(), goal);
         }
+    }
+
+    fn occupied_click_world(adjust: bool) -> GameLogic {
+        let mut logic = GameLogic::new();
+        logic.force_map_loaded_for_path_test(true);
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let click = Vec3::new(80.0, 0.0, 0.0);
+        let mut car_tmpl = ThingTemplate::new("CivilianCar");
+        car_tmpl.add_kind_of(KindOf::Vehicle);
+        let mut car = Object::new(car_tmpl, ObjectId(8700), Team::GLA);
+        car.set_position(click);
+        car.crushable_level = 1;
+        car.owner_player_id = Some(1);
+        logic.objects.insert(ObjectId(8700), car);
+        let mut unit = ranger(8701, start);
+        unit.is_final_goal = true;
+        unit.adjust_destinations = adjust;
+        unit.owner_player_id = Some(0);
+        logic.objects.insert(ObjectId(8701), unit);
+        logic
+            .pathfinding_system
+            .grid
+            .update_dynamic_obstacles(&logic.objects);
+        logic
+    }
+
+    #[test]
+    fn final_hop_spiral_respects_live_adjust_flag() {
+        let click = Vec3::new(80.0, 0.0, 0.0);
+        let mut adjusting = occupied_click_world(true);
+        adjusting.pathfinding_system.set_adjust_goal(false);
+        assert!(adjusting.assign_unit_path(ObjectId(8701), click, &[]));
+        adjusting.process_pathfind_queue();
+        let open_end = adjusting
+            .host_object(ObjectId(8701))
+            .and_then(|u| u.movement.path.last().copied())
+            .expect("adjusting path");
+        assert!(!adjusting.pathfinding_system.adjusts_goal());
+
+        let mut pinned = occupied_click_world(false);
+        pinned.pathfinding_system.set_adjust_goal(true);
+        let _ = pinned.assign_unit_path(ObjectId(8701), click, &[]);
+        pinned.process_pathfind_queue();
+        assert!(pinned.pathfinding_system.adjusts_goal());
+        let pinned_end = pinned
+            .host_object(ObjectId(8701))
+            .and_then(|u| u.movement.path.last().copied())
+            .expect("non-adjusting path");
+        assert_ne!(
+            adjusting.pathfinding_system.grid.world_to_grid(open_end),
+            pinned.pathfinding_system.grid.world_to_grid(pinned_end),
+            "the live adjust flag must change the path end"
+        );
     }
 }

@@ -221,9 +221,16 @@ impl EjectPilotDie {
         if let Some(mut voice) = template.get_per_unit_sound("VoiceEject") {
             voice.set_position(&pos_tuple);
             if let Some(player) = dying_object.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    voice.set_player_index(player_guard.get_player_index() as u32);
-                }
+                let Ok(player_guard) = player.read() else {
+                    // C++ setPlayerIndex requires the controlling player.
+                    // SoundEject below does not.
+                    if let Some(mut sound) = template.get_per_unit_sound("SoundEject") {
+                        sound.set_position(&pos_tuple);
+                        audio.add_audio_event(&sound);
+                    }
+                    return;
+                };
+                voice.set_player_index(player_guard.get_player_index() as u32);
             }
             audio.add_audio_event(&voice);
         }
@@ -258,21 +265,25 @@ impl DieModuleInterface for EjectPilotDie {
             return;
         }
 
-        // C++ line 84: Get the damage dealer (object that killed this vehicle)
-        let damage_dealer = TheGameLogic::find_object_by_id(damage_info.input.source_id);
-        let damage_dealer_guard = damage_dealer.as_ref().and_then(|h| h.read().ok());
-
-        // C++ line 86: Determine which OCL to use based on height above terrain
-        // If significantly above terrain, use air OCL (pilot with parachute)
-        // Otherwise use ground OCL (pilot standing/running)
         let ocl = if self.is_significantly_above_terrain(object) {
             &self.base.module_data.ocl_in_air
         } else {
             &self.base.module_data.ocl_on_ground
         };
 
-        // C++ EjectPilotDie.cpp:87: audio lives inside ejectPilot after the OCL check.
-        self.eject_pilot(ocl, object, damage_dealer_guard.as_deref());
+        if damage_info.input.source_id == object.get_id() {
+            self.eject_pilot(ocl, object, Some(object));
+            return;
+        }
+
+        let damage_dealer = TheGameLogic::find_object_by_id(damage_info.input.source_id);
+        if let Some(damage_dealer) = damage_dealer.as_ref() {
+            if let Ok(damage_dealer_guard) = damage_dealer.read() {
+                self.eject_pilot(ocl, object, Some(&damage_dealer_guard));
+                return;
+            }
+        }
+        self.eject_pilot(ocl, object, None);
     }
 }
 
@@ -324,13 +335,13 @@ mod tests {
 }
 
 /// C++ GlobalData.cpp:810 default `m_gravity = -1.0f`.
-fn current_gravity() -> f32 {
+pub(crate) fn current_gravity() -> f32 {
     game_engine::common::ini::get_global_data()
         .map(|data| data.read().gravity)
         .unwrap_or(-1.0)
 }
 
 /// C++ Thing.cpp:312 `getHeightAboveTerrain() > -(3*3)*m_gravity`.
-fn is_significantly_above_terrain_height(height_above_terrain: f32, gravity: f32) -> bool {
+pub(crate) fn is_significantly_above_terrain_height(height_above_terrain: f32, gravity: f32) -> bool {
     height_above_terrain > -(3.0 * 3.0) * gravity
 }

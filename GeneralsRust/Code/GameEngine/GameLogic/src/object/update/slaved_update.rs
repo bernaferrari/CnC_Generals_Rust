@@ -520,23 +520,29 @@ impl SlavedUpdate {
     fn start_slaved_effects(&mut self, slaver: &GameObject) {
         self.slaver = slaver.get_id();
 
-        let random_direction = crate::GameLogicRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+        let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
         self.guard_point_offset = Coord3D::ZERO;
         self.guard_point_offset.x +=
             self.module_data.guard_max_range as Real * random_direction.cos();
         self.guard_point_offset.y +=
             self.module_data.guard_max_range as Real * random_direction.sin();
 
-        if let Some(object_arc) = self.object_arc() {
+        let stealth = if let Some(object_arc) = self.object_arc() {
             if let Ok(mut object) = object_arc.write() {
                 object.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
-
                 if slaver.test_status(ObjectStatus::Stealthed) {
-                    if let Some(stealth) = object.get_stealth() {
-                        stealth.receive_grant(true, 0, 0);
-                    }
+                    object.get_stealth()
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some(stealth) = stealth {
+            stealth.receive_grant(true, 0, TheGameLogic::get_frame());
         }
     }
 
@@ -605,7 +611,7 @@ impl SlavedUpdate {
 
         if self.module_data.attack_wander_range > 0 {
             let random_direction =
-                crate::GameLogicRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+                crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
                 self.module_data.attack_wander_range as Real * random_direction.cos();
@@ -620,18 +626,18 @@ impl SlavedUpdate {
             }
         }
 
-        if dist_sqr < (self.module_data.dist_to_target_to_grant_range_bonus as Real).powi(2) {
-            if let Ok(mut master) = master_arc.write() {
-                master.set_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
-            }
-        }
-
         let ai = {
             let Ok(me) = me_arc.read() else { return };
             me.get_ai_update_interface()
         };
         if let Some(ai) = ai {
             ai.ai_move_to_position(&attack_position, false, CommandSourceType::FromAi);
+        }
+
+        if dist_sqr < (self.module_data.dist_to_target_to_grant_range_bonus as Real).powi(2) {
+            if let Ok(mut master) = master_arc.write() {
+                master.set_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
+            }
         }
     }
 
@@ -669,7 +675,7 @@ impl SlavedUpdate {
 
         if self.module_data.scout_wander_range > 0 {
             let random_direction =
-                crate::GameLogicRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+                crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
                 self.module_data.scout_wander_range as Real * random_direction.cos();
@@ -701,7 +707,7 @@ impl SlavedUpdate {
         let mut target_position = *pinned_position;
         if self.module_data.guard_wander_range > 0 {
             let random_direction =
-                crate::GameLogicRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+                crate::GameLogicRandomValue!(0, 6) as Real;
             self.guard_point_offset = Coord3D::ZERO;
             self.guard_point_offset.x +=
                 self.module_data.guard_max_range as Real * random_direction.cos();
@@ -732,7 +738,13 @@ impl SlavedUpdate {
         let Some(master_arc) = self.master_arc() else {
             return;
         };
-
+        let Some(_ai) = me_arc
+            .read()
+            .ok()
+            .and_then(|me| me.get_ai_update_interface())
+        else {
+            return;
+        };
         let (dist_sqr, master_pos, master_body, master_radius) = {
             let Ok(me) = me_arc.read() else { return };
             let Ok(master) = master_arc.read() else {
@@ -767,25 +779,25 @@ impl SlavedUpdate {
 
             let close_enough_for_z_precision =
                 dist_sqr < (master_radius * 2.0) * (master_radius * 2.0);
-            if let Ok(me) = me_arc.read() {
-                if let Some(ai) = me.get_ai_update_interface() {
-                    if let Some(locomotor) = ai.get_cur_locomotor() {
-                        if let Ok(mut locomotor_guard) = locomotor.lock() {
-                            locomotor_guard.set_precise_z_pos(close_enough_for_z_precision);
-                        }
-                    }
+            let ai = me_arc
+                .read()
+                .ok()
+                .and_then(|me| me.get_ai_update_interface());
+            if let Some(ai) = ai {
+                ai.with_cur_locomotor(&mut |loco| {
+                    loco.set_precise_z_pos(close_enough_for_z_precision);
+                });
 
-                    let mut pos = master_pos;
-                    let altitude = crate::GameLogicRandomValueReal!(
-                        self.module_data.repair_min_altitude,
-                        self.module_data.repair_max_altitude
-                    );
-                    pos.z += altitude;
-                    ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
+                let mut pos = master_pos;
+                let altitude = crate::GameLogicRandomValueReal!(
+                    self.module_data.repair_min_altitude,
+                    self.module_data.repair_max_altitude
+                );
+                pos.z += altitude;
+                ai.ai_move_to_position(&pos, false, CommandSourceType::FromAi);
 
-                    if self.frames_to_wait == 0 {
-                        self.set_repair_state(RepairState::Ready);
-                    }
+                if self.frames_to_wait == 0 {
+                    self.set_repair_state(RepairState::Ready);
                 }
             }
         }
@@ -812,18 +824,18 @@ impl SlavedUpdate {
             self.set_repair_model_condition_states(ModelConditionFlag::Packing);
         }
 
-        if let Some(object_arc) = self.object_arc() {
-            if let Ok(object) = object_arc.read() {
-                if let Some(ai) = object.get_ai_update_interface() {
-                    ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    ai.set_ultra_accurate(false);
-                    if let Some(locomotor) = ai.get_cur_locomotor() {
-                        if let Ok(mut locomotor_guard) = locomotor.lock() {
-                            locomotor_guard.set_precise_z_pos(false);
-                        }
-                    }
-                }
-            }
+        let ai = self.object_arc().and_then(|object_arc| {
+            object_arc
+                .read()
+                .ok()
+                .and_then(|object| object.get_ai_update_interface())
+        });
+        if let Some(ai) = ai {
+            ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+            ai.with_cur_locomotor(&mut |loco| {
+                loco.set_ultra_accurate(false);
+                loco.set_precise_z_pos(false);
+            });
         }
     }
 
@@ -861,7 +873,7 @@ impl SlavedUpdate {
             *master.get_position()
         };
 
-        let random_direction = crate::GameLogicRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
+        let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
         self.guard_point_offset = master_pos;
         self.guard_point_offset.x += self.module_data.repair_range as Real * random_direction.cos();
         self.guard_point_offset.y += self.module_data.repair_range as Real * random_direction.sin();
@@ -884,13 +896,13 @@ impl SlavedUpdate {
         };
         if let Some(ai) = ai {
             ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
-            ai.set_ultra_accurate(true);
+            ai.with_cur_locomotor(&mut |loco| {
+                loco.set_ultra_accurate(true);
+            });
             ai.ai_move_to_position(&self.guard_point_offset, false, CommandSourceType::FromAi);
-            if let Some(locomotor) = ai.get_cur_locomotor() {
-                if let Ok(mut locomotor_guard) = locomotor.lock() {
-                    locomotor_guard.set_precise_z_pos(true);
-                }
-            }
+            ai.with_cur_locomotor(&mut |loco| {
+                loco.set_precise_z_pos(true);
+            });
         }
     }
 
@@ -994,6 +1006,8 @@ impl SlavedUpdate {
         }
 
         manager.set_particle_system_position(particle_id, &pos);
+        let lifetime = (self.frames_to_wait.max(0) as f32) * LOGICFRAMES_PER_SECOND as f32;
+        manager.set_particle_lifetime_range(particle_id, lifetime, lifetime);
 
         if let Some(audio) = TheAudio::get() {
             if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() {
@@ -1087,32 +1101,34 @@ impl UpdateModuleInterface for SlavedUpdate {
         let Some(me_arc) = self.object_arc() else {
             return UpdateSleepTime::None;
         };
-        // C++ SlavedUpdate.cpp:127-141: findObjectByID(m_slaver) returning null
-        // is treated like a dead/unmanned master — stopSlavedEffects, DISABLED_UNMANNED,
-        // aiIdle. object_arc succeeding means the dual-world registry is live, so a
-        // missing master is a destroyed slaver, not the Wave 402 host-only empty gate.
+        let my_ai = {
+            let Ok(me) = me_arc.read() else {
+                return UpdateSleepTime::None;
+            };
+            me.get_ai_update_interface()
+        };
+        let Some(my_ai) = my_ai else {
+            return UpdateSleepTime::None;
+        };
+        let mut has_loco = false;
+        my_ai.with_cur_locomotor(&mut |_| has_loco = true);
+        if !has_loco {
+            return UpdateSleepTime::None;
+        }
         let Some(master_arc) = self.master_arc() else {
             self.stop_slaved_effects();
             if let Ok(mut me_write) = me_arc.write() {
                 me_write.set_disabled(DisabledType::Unmanned);
-                if let Some(ai) = me_write.get_ai_update_interface() {
-                    ai.ai_idle(CommandSourceType::FromAi);
-                }
+            }
+            if let Some(ai) = me_arc
+                .read()
+                .ok()
+                .and_then(|me| me.get_ai_update_interface())
+            {
+                ai.ai_idle(CommandSourceType::FromAi);
             }
             return UpdateSleepTime::None;
         };
-
-        {
-            let Ok(me) = me_arc.read() else {
-                return UpdateSleepTime::None;
-            };
-            let Some(my_ai) = me.get_ai_update_interface() else {
-                return UpdateSleepTime::None;
-            };
-            if my_ai.get_cur_locomotor().is_none() {
-                return UpdateSleepTime::None;
-            }
-        }
 
         let (
             target_id,
@@ -1136,9 +1152,13 @@ impl UpdateModuleInterface for SlavedUpdate {
                 self.stop_slaved_effects();
                 if let Ok(mut me_write) = me_arc.write() {
                     me_write.set_disabled(DisabledType::Unmanned);
-                    if let Some(ai) = me_write.get_ai_update_interface() {
-                        ai.ai_idle(CommandSourceType::FromAi);
-                    }
+                }
+                if let Some(ai) = me_arc
+                    .read()
+                    .ok()
+                    .and_then(|me| me.get_ai_update_interface())
+                {
+                    ai.ai_idle(CommandSourceType::FromAi);
                 }
                 return UpdateSleepTime::None;
             }
@@ -1172,12 +1192,20 @@ impl UpdateModuleInterface for SlavedUpdate {
             )
         };
 
-        if let (Some(master_team), Some(my_team)) = (master_team, my_team) {
-            if let (Ok(master_team_ref), Ok(my_team_ref)) = (master_team.read(), my_team.read()) {
-                if master_team_ref.get_relationship(&*my_team_ref) != Relationship::Allies {
-                    if let Ok(mut me_write) = me_arc.write() {
-                        me_write.defect(Some(master_team.clone()), 0);
-                    }
+        let should_defect = if let (Some(master_team), Some(my_team)) = (&master_team, &my_team) {
+            match (master_team.read(), my_team.read()) {
+                (Ok(master_team_ref), Ok(my_team_ref)) => {
+                    master_team_ref.get_relationship(&*my_team_ref) != Relationship::Allies
+                }
+                _ => false,
+            }
+        } else {
+            false
+        };
+        if should_defect {
+            if let Some(master_team) = master_team.clone() {
+                if let Ok(mut me_write) = me_arc.write() {
+                    me_write.defect(Some(master_team), 0);
                 }
             }
         }
@@ -1206,21 +1234,24 @@ impl UpdateModuleInterface for SlavedUpdate {
         }
 
         if self.module_data.scout_range > 0 {
-            if let Ok(master) = master_arc.read() {
-                if let Some(master_ai) = master.get_ai_update_interface() {
-                    if let Some(master_dest) = master_ai.get_path_destination() {
-                        let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
-                            &*master,
-                            &master_dest,
-                            FROM_BOUNDING_SPHERE_2D,
-                        );
-                        let guard_half = self.module_data.guard_max_range as Real * 0.5;
-                        if dist_sqr > guard_half * guard_half {
-                            self.end_repair();
-                            self.do_scout_logic(&master_dest);
-                            return UpdateSleepTime::None;
-                        }
-                    }
+            let master_ai = master_arc
+                .read()
+                .ok()
+                .and_then(|master| master.get_ai_update_interface());
+            let master_dest = master_ai.and_then(|master_ai| master_ai.get_path_last_node());
+            if let Some(master_dest) = master_dest {
+                let dist_sqr = master_arc.read().ok().map(|master| {
+                    ThePartitionManager::get_distance_squared_to_pos(
+                        &*master,
+                        &master_dest,
+                        FROM_BOUNDING_SPHERE_2D,
+                    )
+                });
+                let guard_half = self.module_data.guard_max_range as Real * 0.5;
+                if dist_sqr.is_some_and(|dist| dist > guard_half * guard_half) {
+                    self.end_repair();
+                    self.do_scout_logic(&master_dest);
+                    return UpdateSleepTime::None;
                 }
             }
         }
@@ -1239,23 +1270,33 @@ impl UpdateModuleInterface for SlavedUpdate {
         }
 
         if self.module_data.guard_max_range > 0 {
-            if my_ai_idle {
-                if let Ok(me) = me_arc.read() {
-                    let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
+            let pin_dist = if my_ai_idle {
+                me_arc.read().ok().map(|me| {
+                    ThePartitionManager::get_distance_squared_to_pos(
                         &*me,
                         &pinned_position,
                         FROM_CENTER_3D,
-                    );
-                    if dist_sqr > CLOSE_ENOUGH_SQR {
-                        self.end_repair();
-                        self.do_guard_logic(&pinned_position);
-                    }
+                    )
+                })
+            } else {
+                None
+            };
+            let stray_dist = if pin_dist.is_some_and(|dist| dist > CLOSE_ENOUGH_SQR) {
+                None
+            } else {
+                match (me_arc.read(), master_arc.read()) {
+                    (Ok(me), Ok(master)) => Some(ThePartitionManager::get_distance_squared(
+                        &*me,
+                        &*master,
+                        FROM_CENTER_3D,
+                    )),
+                    _ => None,
                 }
-            }
-
-            if let (Ok(me), Ok(master)) = (me_arc.read(), master_arc.read()) {
-                let dist_sqr =
-                    ThePartitionManager::get_distance_squared(&*me, &*master, FROM_CENTER_3D);
+            };
+            if pin_dist.is_some_and(|dist| dist > CLOSE_ENOUGH_SQR) {
+                self.end_repair();
+                self.do_guard_logic(&pinned_position);
+            } else if let Some(dist_sqr) = stray_dist {
                 let max_dist = STRAY_MULTIPLIER * self.module_data.guard_max_range as Real;
                 if dist_sqr > max_dist * max_dist {
                     self.end_repair();
@@ -1331,12 +1372,14 @@ impl SlavedUpdateInterface for SlavedUpdate {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(object_arc) = self.object_arc() {
-            if let Ok(object) = object_arc.read() {
-                if let Some(ai) = object.get_ai_update_interface() {
-                    ai.ai_go_prone(damage_info, CommandSourceType::FromAi);
-                }
-            }
+        let ai = self.object_arc().and_then(|object_arc| {
+            object_arc
+                .read()
+                .ok()
+                .and_then(|object| object.get_ai_update_interface())
+        });
+        if let Some(ai) = ai {
+            ai.ai_go_prone(damage_info, CommandSourceType::FromAi);
         }
         Ok(())
     }

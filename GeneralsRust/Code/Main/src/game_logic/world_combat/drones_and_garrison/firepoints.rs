@@ -131,7 +131,7 @@ pub(super) fn transport_passenger_fire_origin(
     }
 }
 
-pub(super) fn open_contain_exit_path(
+pub(crate) fn open_contain_exit_path(
     container: &Object,
     which_path: u8,
     number_exits: i32,
@@ -263,7 +263,7 @@ pub(super) fn station_occupant_fire_point(
     (0, bd.garrison_station_points[0])
 }
 
-pub(super) fn apply_leftover_open_contain_door_pulse(
+pub(crate) fn apply_leftover_open_contain_door_pulse(
     obj: &mut Object,
     pulse: gamelogic::object::contain::open_contain::LeftoverOpenContainDoorPulse,
 ) {

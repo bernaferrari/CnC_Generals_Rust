@@ -53,7 +53,7 @@ impl PathfindingSystem {
             .seeker_id
             .and_then(|id| objects.get(&id))
             .is_some_and(PathfindingGrid::is_aircraft_that_adjusts_destination);
-        if aircraft && seeker_adjusts {
+        if self.adjust_goal && aircraft && seeker_adjusts {
             self.grid.query_check_for_aircraft = true;
             let dest_layer = self.grid.layer_for_destination(goal);
             if let Some(adj) = self.grid.adjust_destination_on_layer(
@@ -70,7 +70,7 @@ impl PathfindingSystem {
                 goal = snapped;
             }
             self.grid.query_check_for_aircraft = false;
-        } else if !aircraft {
+        } else if self.adjust_goal && !aircraft {
             // C++ AIState::onEnter (AIStates.cpp:1638-1645):
             // adjustDestination first; snapClosestGoalPosition is the
             // FALLBACK when adjustDestination fails — not an unconditional
@@ -87,16 +87,25 @@ impl PathfindingSystem {
             } else {
                 0
             };
-            let dest_ok = self.grid.check_destination_for(
-                cell,
-                self.grid.layer_for_destination(goal),
-                0,
-                true,
-                surfaces,
-                is_crusher,
-                self.seeker_player,
-                crusher_level,
-            );
+            let ignored_goal = self.ignore_obstacle_id.is_some_and(|id| {
+                id.0 != 0
+                    && self.grid.cell_type(cell) == PathfindCellType::Obstacle
+                    && self
+                        .grid
+                        .obstacle_owner(cell)
+                        .is_some_and(|(owner, _, _)| owner == id.0)
+            });
+            let dest_ok = ignored_goal
+                || self.grid.check_destination_for(
+                    cell,
+                    self.grid.layer_for_destination(goal),
+                    0,
+                    true,
+                    surfaces,
+                    is_crusher,
+                    self.seeker_player,
+                    crusher_level,
+                );
             if !dest_ok {
                 goal = self.snap_closest_goal_position(goal, surfaces, is_crusher, unit_radius);
             }
@@ -790,6 +799,7 @@ impl PathfindingSystem {
         surfaces: u32,
         is_crusher: bool,
         is_human: bool,
+        path_cost_multiplier: f32,
     ) -> Option<Vec<Vec3>> {
         self.sync_crate_astar();
         self.grid.query_seeker_id = self.seeker_id.map(|id| id.0).unwrap_or(0);
@@ -812,6 +822,13 @@ impl PathfindingSystem {
         };
         let seeker_player = self.seeker_player;
         let start_layer = self.grid.layer_for_destination(from);
+        let tunnel = !self.grid.valid_movement_position(
+            start,
+            start_layer,
+            surfaces,
+            is_crusher,
+            self.ignore_obstacle_id.map(|id| id.0).unwrap_or(0),
+        );
         let start_lid = start_layer as u8;
         let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
         let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
@@ -857,14 +874,16 @@ impl PathfindingSystem {
         let closest_jumps = self.hierarchical_bridge_jumps();
         let closest_start = self.host_to_crate_coord(start);
         let closest_goal = self.host_to_crate_coord(goal_grid);
-        if let Some(crate_pf) = self.crate_astar.as_mut() {
-            crate_pf.finder.apply_hierarchical_zone_prune(
-                closest_start,
-                closest_goal,
-                surfaces,
-                is_crusher,
-                &closest_jumps,
-            );
+        if !tunnel {
+            if let Some(crate_pf) = self.crate_astar.as_mut() {
+                crate_pf.finder.apply_hierarchical_zone_prune(
+                    closest_start,
+                    closest_goal,
+                    surfaces,
+                    is_crusher,
+                    &closest_jumps,
+                );
+            }
         }
         while let Some(std::cmp::Reverse((_f, g, cx, cy, lid))) = open.pop() {
             let key = (cx, cy, lid);
@@ -900,8 +919,8 @@ impl PathfindingSystem {
                 if dist_screen < closest_screen_sqr {
                     closest_screen_sqr = dist_screen;
                 }
-                // pathCostMultiplier 0.2 per C++ callers (AIUpdate.cpp:410).
-                let cost_term = (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR * 0.2;
+                // pathCostMultiplier: 0.2 approach, 0.0 null-findPath fallback.
+                let cost_term = (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR * path_cost_multiplier;
                 let dist_sqr = dist_screen + cost_term;
                 let better = match closest_cell {
                     None => true,
@@ -1362,7 +1381,7 @@ impl PathfindingSystem {
                 // Reached waypoint, move to next
                 unit.movement.current_path_index += 1;
                 if unit.movement.current_path_index >= unit.movement.path.len() {
-                    // Reached final destination
+                    unit.ignored_obstacle_id = None;
                     unit.stop_moving();
                     return true;
                 }

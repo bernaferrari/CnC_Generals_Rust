@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, GameResult, LocomotorSetType, ModelConditionFlags, ObjectID, ObjectStatusMaskType,
+    AsciiString, Coord3D, GameResult, LocomotorSetType, Matrix3D, ModelConditionFlags, ObjectID, ObjectStatusMaskType,
     ObjectStatusTypes, PlayerMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
@@ -1140,34 +1140,42 @@ impl RiderChangeContain {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
             .ok_or("Rider object not found")?;
 
+        let Ok(rider_guard) = rider.try_read() else {
+            return Err("Rider-change passenger lock busy".into());
+        };
         let was_selected = was_selected
-            || rider
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_drawable())
-                .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            || rider_guard
+                .get_drawable()
+                .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
                 .unwrap_or(false);
-
-        {
-            let rider_guard = rider.read().map_err(|_| "Rider lock poisoned")?;
-            if !self.is_valid_container_for(&*rider_guard, true) {
-                return Err("Object not valid for this rider change container".into());
-            }
-            if rider_guard.get_contained_by().is_some() {
-                return Ok(());
-            }
+        if !self.is_valid_container_for(&*rider_guard, true) {
+            return Err("Object not valid for this rider change container".into());
         }
-
+        let already_listed = self
+            .base
+            .base
+            .get_contained_object_ids()
+            .contains(&rider_id);
+        let contained_by = rider_guard.get_contained_by();
+        if contained_by.is_some() && (already_listed || contained_by != Some(self.object_id)) {
+            return Ok(());
+        }
+        let should_remove_from_world = self.base.base.is_enclosing_container_for(&*rider_guard);
+        drop(rider_guard);
         self.base.add_to_contain_list(rider_id)?;
-        let should_remove_from_world = rider
-            .read()
-            .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
-            .unwrap_or(false);
         if should_remove_from_world {
             let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
         }
         self.base.redeploy_occupants()?;
-        self.on_containing(rider_id, was_selected)?;
+        if let Err(err) = self.on_containing(rider_id, was_selected) {
+            self.base.base.unlink_contained_id(rider_id);
+            if should_remove_from_world {
+                let _ = self.base.base.add_or_remove_obj_from_world(rider_id, true);
+            }
+            let _ = self.base.redeploy_occupants();
+            return Err(err);
+        }
+        self.base.base.do_load_sound();
         Ok(())
     }
 
@@ -1196,9 +1204,11 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        self.base.base.remove_from_contain_list(rider_id);
+        let Some(stealth_garrison) = self.base.base.remove_from_contain_list(rider_id) else {
+            return Err("Rider-change passenger lock busy".into());
+        };
         let should_add_to_world = rider
-            .read()
+            .try_read()
             .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
             .unwrap_or(false);
         if should_add_to_world {
@@ -1209,24 +1219,37 @@ impl RiderChangeContain {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
-                if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.read(), rider.write()) {
+                if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.try_read(), rider.try_write()) {
                     let _ = rider_guard.set_position(owner_guard.get_position());
                     rider_guard.set_layer(owner_guard.get_layer());
                 }
             }
         }
         if expose_stealth_units {
-            if let Ok(rider_guard) = rider.read() {
+            if let Ok(rider_guard) = rider.try_read() {
                 if let Some(stealth) = rider_guard.get_stealth() {
-                    if let Ok(mut stealth_guard) = stealth.lock() {
+                    if let Ok(mut stealth_guard) = stealth.try_lock() {
                         stealth_guard.mark_as_detected();
                     }
                 }
             }
         }
         self.base.base.do_unload_sound();
-        self.on_removing(rider_id)?;
+        if let Err(err) = self.on_removing(rider_id) {
+            let _ = self.base.base.add_to_contain_list_id(rider_id, stealth_garrison);
+            if should_add_to_world {
+                let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
+            }
+            return Err(err);
+        }
 
+        if let Err(err) = self.base.base.note_removed_from(rider_id) {
+            let _ = self.base.base.add_to_contain_list_id(rider_id, stealth_garrison);
+            if should_add_to_world {
+                let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
+            }
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -1334,8 +1357,9 @@ impl RiderChangeContain {
         };
         let lock_result = ai.lock();
         if let Ok(mut ai_guard) = lock_result {
-            let params =
+            let mut params =
                 AiCommandParams::new(AiCommandType::EvacuateInstantly, CommandSourceType::FromAi);
+            params.int_value = 1;
             let _ = ai_guard.execute_command(&params);
         }
     }
@@ -1621,14 +1645,22 @@ impl RiderChangeContain {
                         crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
                     })
                 }) {
-                    if let Ok(mut owner_guard) = owner.write() {
+                    if let Ok(mut owner_guard) = owner.try_write() {
                         owner_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Toppled));
+                    } else {
+                        log::warn!("RiderChangeContain::update scuttle lock busy");
                     }
                 }
             }
         }
 
-        self.base.update()
+        match self.base.update() {
+            Ok(sleep) => Ok(sleep),
+            Err(err) => {
+                log::warn!("RiderChangeContain::update base update failed: {}", err);
+                Ok(UpdateSleepTime::None)
+            }
+        }
     }
 
     /// Handle capture event (inherits TransportContain capture behavior).
@@ -1702,6 +1734,14 @@ impl ContainModuleInterface for RiderChangeContain {
             .map_err(|e| e.to_string())
     }
 
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        RiderChangeContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
+    }
+
     fn get_contained_objects(&self) -> &[ObjectID] {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
@@ -1753,8 +1793,39 @@ impl ContainModuleInterface for RiderChangeContain {
         self.base.on_die(damage_info).map_err(|e| e.into())
     }
 
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.base
+            .on_die_for_owner(Some(owner), damage_info)
+            .map_err(|e| e.into())
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !self.base.base.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other.try_read().map(|guard| {
+            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
+        }).unwrap_or(false);
+        if valid {
+            self.add_to_contain(other_id, false)?;
+        }
+        Ok(())
+    }
+
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        self.is_valid_container_for(obj, check_capacity)
+        RiderChangeContain::is_valid_container_for(self, obj, check_capacity)
     }
 
     fn add_to_contain(
@@ -1808,12 +1879,28 @@ impl ContainModuleInterface for RiderChangeContain {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
 
+    fn reserve_door_for_exit(
+        &mut self,
+        spawner: Option<&Object>,
+        spawn: Option<&Object>,
+    ) -> crate::modules::ExitDoorType {
+        ContainModuleInterface::reserve_door_for_exit(&mut self.base, spawner, spawn)
+    }
+
     fn process_damage_to_contained(&mut self, percent_damage: f32) {
         let _ = self.base.process_damage_to_contained(percent_damage);
     }
 
     fn on_selling(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.on_selling().map_err(|e| e.into())
+    }
+
+    fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
+        self.base.redeploy_riders_at(owner_pos, fire_points);
+    }
+
+    fn passengers_in_turret(&self) -> bool {
+        self.base.passengers_in_turret()
     }
 
     fn friend_get_rider(&self) -> Option<ObjectID> {

@@ -260,6 +260,7 @@ impl Locomotor {
             self.template.min_speed,
             current_speed,
             condition,
+            0.0,
         )
     }
 
@@ -338,6 +339,7 @@ impl Locomotor {
             desired_speed,
             current_speed,
             condition,
+            0.0,
         )
     }
 

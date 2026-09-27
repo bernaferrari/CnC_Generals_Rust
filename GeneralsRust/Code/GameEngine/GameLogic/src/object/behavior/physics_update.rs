@@ -30,6 +30,7 @@ use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use glam::{Mat4, Quat, Vec3};
+use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// C++ PhysicsFlagsType (PhysicsUpdate.h:220-235) — written in save/load; do not remap.
@@ -383,8 +384,15 @@ impl PhysicsBehaviorHandle {
         self.state.accel.z += mod_force.z * mass_inv;
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = obj.map(|o| o.get_id()).or(Some(self.object_id)) {
-                TheGameLogic::set_wake_frame(obj, UPDATE_SLEEP_NONE);
+            if let Some(id) = obj.map(|o| o.get_id()).or(Some(self.object_id)) {
+                if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(id)
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+                {
+                    if let Ok(guard) = object.read() {
+                        let now = TheGameLogic::get_frame();
+                        guard.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+                    }
+                }
             }
         }
     }
@@ -495,7 +503,8 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
                 if let Ok(obj) = obj.read() {
-                    TheGameLogic::set_wake_frame(obj.get_id(), UPDATE_SLEEP_NONE);
+                    let now = TheGameLogic::get_frame();
+                    obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
                 }
             }
         }
@@ -516,6 +525,14 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.turning as Real
     }
 
+    fn is_motive(&self) -> bool {
+        self.state.motive_force_expires > TheGameLogic::get_frame()
+    }
+
+    fn get_acceleration(&self) -> Coord3D {
+        self.state.prev_accel
+    }
+
     fn get_last_collidee(&self) -> ObjectID {
         self.state.last_collidee
     }
@@ -534,6 +551,33 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.roll_rate = 0.0;
         self.state.pitch_rate = 0.0;
         self.update_pitch_roll_yaw_flag();
+        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        {
+            if let Ok(guard) = object.read() {
+                let now = TheGameLogic::get_frame();
+                let zero_vel = self.state.vel.x == 0.0
+                    && self.state.vel.y == 0.0
+                    && self.state.vel.z == 0.0;
+                let zero_accel = self.state.accel.x == 0.0
+                    && self.state.accel.y == 0.0
+                    && self.state.accel.z == 0.0;
+                let asleep = zero_vel && zero_accel
+                    && !self.state.has_flag(FLAG_HAS_PITCHROLLYAW)
+                    && self.state.motive_force_expires <= now
+                    && guard.get_layer() == crate::common::PathfindLayerEnum::Ground
+                    && !guard.is_above_terrain()
+                    && self.state.current_overlap == crate::common::INVALID_ID
+                    && self.state.previous_overlap == crate::common::INVALID_ID
+                    && self.state.has_flag(FLAG_UPDATE_EVER_RUN);
+                let wake = if asleep {
+                    UpdateSleepTime::Forever.to_u32()
+                } else {
+                    now.saturating_add(1)
+                };
+                guard.reschedule_named_update("PhysicsBehavior", wake);
+            }
+        }
     }
 
     fn apply_shock(&mut self, force: &Coord3D) {
@@ -565,7 +609,8 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
                 if let Ok(obj) = obj.read() {
-                    TheGameLogic::set_wake_frame(obj.get_id(), UPDATE_SLEEP_NONE);
+                    let now = TheGameLogic::get_frame();
+                    obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
                 }
             }
         }
@@ -661,7 +706,7 @@ const MOTIVE_FRAMES: UnsignedInt = (LOGICFRAMES_PER_SECOND / 3) as UnsignedInt;
 pub struct PhysicsBehaviorUpdate {
     object_id: ObjectID,
     module_data: Arc<PhysicsBehaviorModuleData>,
-    physics_handle: Arc<Mutex<PhysicsBehaviorHandle>>,
+    physics_handle: PhysicsBehaviorHandle,
 }
 
 impl PhysicsBehaviorUpdate {
@@ -683,14 +728,11 @@ impl PhysicsBehaviorUpdate {
         Ok(Self {
             object_id,
             module_data: module_data.clone(),
-            physics_handle: Arc::new(Mutex::new(PhysicsBehaviorHandle::new(
-                Arc::downgrade(&object),
-                module_data,
-            ))),
+            physics_handle: PhysicsBehaviorHandle::new(Arc::downgrade(&object), module_data),
         })
     }
 
-    fn apply_gravity(&self, state: &mut PhysicsBehaviorState) {
+    fn apply_gravity(state: &mut PhysicsBehaviorState) {
         let gravity = global_data::read_safe()
             .map(|data| data.gravity)
             .unwrap_or(-1.0);
@@ -701,36 +743,49 @@ impl PhysicsBehaviorUpdate {
         value.clamp(min, MAX_FRICTION)
     }
 
-    fn get_aerodynamic_friction(&self, state: &PhysicsBehaviorState) -> Real {
+    fn get_aerodynamic_friction(
+        module_data: &PhysicsBehaviorModuleData,
+        state: &PhysicsBehaviorState,
+    ) -> Real {
         Self::clamp_friction(
-            self.module_data.aerodynamic_friction + state.extra_friction,
+            module_data.aerodynamic_friction + state.extra_friction,
             MIN_AERO_FRICTION,
         )
     }
 
-    fn get_forward_friction(&self, state: &PhysicsBehaviorState) -> Real {
+    fn get_forward_friction(
+        module_data: &PhysicsBehaviorModuleData,
+        state: &PhysicsBehaviorState,
+    ) -> Real {
         Self::clamp_friction(
-            self.module_data.forward_friction + state.extra_friction,
+            module_data.forward_friction + state.extra_friction,
             MIN_NON_AERO_FRICTION,
         )
     }
 
-    fn get_lateral_friction(&self, state: &PhysicsBehaviorState) -> Real {
+    fn get_lateral_friction(
+        module_data: &PhysicsBehaviorModuleData,
+        state: &PhysicsBehaviorState,
+    ) -> Real {
         Self::clamp_friction(
-            self.module_data.lateral_friction + state.extra_friction,
+            module_data.lateral_friction + state.extra_friction,
             MIN_NON_AERO_FRICTION,
         )
     }
 
     #[allow(dead_code)]
-    fn get_z_friction(&self, state: &PhysicsBehaviorState) -> Real {
+    fn get_z_friction(module_data: &PhysicsBehaviorModuleData, state: &PhysicsBehaviorState) -> Real {
         Self::clamp_friction(
-            self.module_data.z_friction + state.extra_friction,
+            module_data.z_friction + state.extra_friction,
             MIN_NON_AERO_FRICTION,
         )
     }
 
-    fn apply_frictional_forces(&self, obj: &GameObject, state: &mut PhysicsBehaviorState) {
+    fn apply_frictional_forces(
+        module_data: &PhysicsBehaviorModuleData,
+        obj: &GameObject,
+        state: &mut PhysicsBehaviorState,
+    ) {
         let deck_taxiing = is_deck_taxiing(obj);
         let apply_ground = state.has_flag(FLAG_APPLY_FRICTION2D_WHEN_AIRBORNE)
             || !obj.is_significantly_above_terrain()
@@ -746,14 +801,14 @@ impl PhysicsBehaviorUpdate {
                 let lateral_vel_x = lateral_dot * -dir_y;
                 let lateral_vel_y = lateral_dot * dir_x;
 
-                let lf = mass * self.get_lateral_friction(state);
+                let lf = mass * Self::get_lateral_friction(module_data, state);
                 let mut force = Coord3D::new(-(lf * lateral_vel_x), -(lf * lateral_vel_y), 0.0);
 
                 if state.motive_force_expires <= TheGameLogic::get_frame() {
                     let forward_dot = state.vel.x * dir_x + state.vel.y * dir_y;
                     let forward_vel_x = forward_dot * dir_x;
                     let forward_vel_y = forward_dot * dir_y;
-                    let ff = mass * self.get_forward_friction(state);
+                    let ff = mass * Self::get_forward_friction(module_data, state);
                     force.x += -(ff * forward_vel_x);
                     force.y += -(ff * forward_vel_y);
                 }
@@ -761,7 +816,7 @@ impl PhysicsBehaviorUpdate {
                 state.accel += force * mass_inv;
             }
         } else {
-            let aero = -self.get_aerodynamic_friction(state);
+            let aero = -Self::get_aerodynamic_friction(module_data, state);
             state.accel.x += state.vel.x * aero;
             state.accel.y += state.vel.y * aero;
             state.accel.z += state.vel.z * aero;
@@ -785,7 +840,7 @@ impl PhysicsBehaviorUpdate {
         vec.x == 0.0 && vec.y == 0.0 && vec.z == 0.0
     }
 
-    fn calc_sleep_time(&self, state: &PhysicsBehaviorState, obj: &GameObject) -> UpdateSleepTime {
+    fn calc_sleep_time(state: &PhysicsBehaviorState, obj: &GameObject) -> UpdateSleepTime {
         if Self::is_zero3d(state.vel)
             && Self::is_zero3d(state.accel)
             && !state.has_flag(FLAG_HAS_PITCHROLLYAW)
@@ -811,9 +866,9 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         let Ok(mut obj) = obj_arc.write() else {
             return UpdateSleepTime::None;
         };
-        let Ok(mut handle) = self.physics_handle.lock() else {
-            return UpdateSleepTime::None;
-        };
+        let module_data = Arc::clone(&self.module_data);
+        let object_id = self.object_id;
+        let handle = &mut self.physics_handle;
         let state = &mut handle.state;
         let airborne_at_start = obj.is_above_terrain();
 
@@ -832,8 +887,8 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         let mut bounce_force: Option<Coord3D> = None;
 
         if !obj.is_disabled_by_type(DisabledType::Held) {
-            self.apply_gravity(state);
-            self.apply_frictional_forces(&obj, state);
+            Self::apply_gravity(state);
+            Self::apply_frictional_forces(&module_data, &obj, state);
 
             state.vel += state.accel;
 
@@ -864,9 +919,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
 
             if !pos.x.is_finite() || !pos.y.is_finite() || !pos.z.is_finite() {
                 // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroys the object.
-                let object_id = self.object_id;
                 state.set_flag(FLAG_IS_IN_UPDATE, false);
-                drop(handle);
                 drop(obj);
                 let _ = TheGameLogic::destroy_object_by_id(object_id);
                 return UpdateSleepTime::None;
@@ -881,8 +934,14 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             }
 
             let bounce_mass = state.mass + contained_items_mass(&obj);
-            bounce_force =
-                self.handle_bounce(state, &mut obj, bounce_mass, old_pos_z, pos.z, ground_z);
+            bounce_force = physics_bounce::handle_bounce(
+                state,
+                &mut obj,
+                bounce_mass,
+                old_pos_z,
+                pos.z,
+                ground_z,
+            );
             active_vel_z = state.vel.z;
 
             if state.has_flag(FLAG_IS_STUNNED) {
@@ -921,11 +980,11 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             }
 
             if state.has_flag(FLAG_HAS_PITCHROLLYAW) {
-                let yaw_rate = state.yaw_rate * self.module_data.pitch_roll_yaw_factor;
-                let mut pitch_rate = state.pitch_rate * self.module_data.pitch_roll_yaw_factor;
-                let roll_rate = state.roll_rate * self.module_data.pitch_roll_yaw_factor;
+                let yaw_rate = state.yaw_rate * module_data.pitch_roll_yaw_factor;
+                let mut pitch_rate = state.pitch_rate * module_data.pitch_roll_yaw_factor;
+                let roll_rate = state.roll_rate * module_data.pitch_roll_yaw_factor;
 
-                let offset = self.module_data.center_of_mass_offset;
+                let offset = module_data.center_of_mass_offset;
                 if offset != 0.0 {
                     let remaining_angle = if offset > 0.0 {
                         (crate::common::PI / 2.0) - state.pitch_angle
@@ -980,19 +1039,19 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             let normal = Coord3D::new(0.0, 0.0, -1.0);
             let collision_pos = *obj.get_position();
             // C++ PhysicsUpdate.cpp:831 — obj->onCollide(NULL) reaches PhysicsBehavior::onCollide.
-            // Handle is already locked here, so call on_collide directly (try_lock would miss).
+            // Owned handle is already borrowed; call on_collide directly.
             physics_collide::on_collide(
-                &mut handle,
-                self.object_id,
+                &mut *handle,
+                object_id,
                 crate::common::INVALID_ID,
-                &self.module_data,
+                &module_data,
             );
             obj.on_collide(None, &collision_pos, &normal);
         }
 
         let state = &mut handle.state;
         if was_airborne && !airborne_at_end && !immune_fall {
-            let net_speed = -active_vel_z - self.module_data.min_fall_speed_for_damage;
+            let net_speed = -active_vel_z - module_data.min_fall_speed_for_damage;
             if net_speed > 0.0 && !obj.is_kind_of(KindOf::Projectile) {
                 if (state.vel.x.abs() <= TINY_DELTA
                     || (active_vel_z / state.vel.x).abs() >= MIN_ANGLE_TAN)
@@ -1000,7 +1059,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
                         || (active_vel_z / state.vel.y).abs() >= MIN_ANGLE_TAN)
                 {
                     let damage_amount =
-                        net_speed * cargo_mass * self.module_data.fall_height_damage_factor;
+                        net_speed * cargo_mass * module_data.fall_height_damage_factor;
                     let mut damage = DamageInfo::with_simple(
                         damage_amount,
                         obj.get_id(),
@@ -1024,7 +1083,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             obj.clear_model_condition_state(MODELCONDITION_FREEFALL);
         }
 
-        if self.module_data.kill_when_resting_on_ground
+        if module_data.kill_when_resting_on_ground
             && !airborne_at_end
             && is_very_small3d(state.vel)
         {
@@ -1045,9 +1104,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         state.set_flag(FLAG_WAS_AIRBORNE_LAST_FRAME, airborne_at_end);
         state.set_flag(FLAG_IS_IN_UPDATE, false);
 
-        let sleep = self.calc_sleep_time(state, &obj);
-        let object_id = self.object_id;
-        drop(handle);
+        let sleep = Self::calc_sleep_time(state, &obj);
         drop(obj);
         if projectile_ground_collide {
             crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision(
@@ -1067,6 +1124,208 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
     }
 }
 
+/// Object.physics slot. The real `PhysicsBehaviorHandle` stays on the module.
+/// This arc is not that handle; methods lock the module and use the owned field.
+#[derive(Debug)]
+struct PhysicsModuleView {
+    module: crate::object::BehaviorModuleHandle,
+}
+
+impl PhysicsModuleView {
+    fn with_handle<R>(&self, f: impl FnOnce(&mut PhysicsBehaviorHandle) -> R) -> Option<R> {
+        self.module.with_module(|module| {
+            (module as &mut dyn Any)
+                .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                    PhysicsBehaviorUpdate,
+                >>()
+                .map(|update| f(&mut update.behavior_mut().physics_handle))
+        })
+    }
+}
+
+impl PhysicsBehaviorTrait for PhysicsModuleView {
+    fn update(&mut self, dt: f32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.with_handle(|handle| handle.update(dt))
+            .unwrap_or(Ok(()))
+    }
+
+    fn get_velocity(&self) -> Vec3 {
+        self.with_handle(|handle| handle.get_velocity())
+            .unwrap_or(Vec3::ZERO)
+    }
+
+    fn set_velocity(&mut self, velocity: &Vec3) {
+        let _ = self.with_handle(|handle| handle.set_velocity(velocity));
+    }
+
+    fn add_velocity_to(&mut self, velocity: &Vec3) {
+        let _ = self.with_handle(|handle| handle.add_velocity_to(velocity));
+    }
+
+    fn is_on_ground(&self) -> bool {
+        self.with_handle(|handle| handle.is_on_ground())
+            .unwrap_or(true)
+    }
+
+    fn apply_force(&mut self, force: &Vec3) {
+        let _ = self.with_handle(|handle| handle.apply_force(force));
+    }
+
+    fn set_yaw_rate(&mut self, rate: Real) {
+        let _ = self.with_handle(|handle| handle.set_yaw_rate(rate));
+    }
+
+    fn set_roll_rate(&mut self, rate: Real) {
+        let _ = self.with_handle(|handle| handle.set_roll_rate(rate));
+    }
+
+    fn set_pitch_rate(&mut self, rate: Real) {
+        let _ = self.with_handle(|handle| handle.set_pitch_rate(rate));
+    }
+
+    fn set_turning(&mut self, turning: i32) {
+        let _ = self.with_handle(|handle| handle.set_turning(turning));
+    }
+
+    fn set_mass(&mut self, mass: Real) {
+        let _ = self.with_handle(|handle| handle.set_mass(mass));
+    }
+
+    fn set_extra_friction(&mut self, friction: Real) {
+        let _ = self.with_handle(|handle| handle.set_extra_friction(friction));
+    }
+
+    fn set_extra_bounciness(&mut self, bounciness: Real) {
+        let _ = self.with_handle(|handle| handle.set_extra_bounciness(bounciness));
+    }
+
+    fn set_allow_bouncing(&mut self, allow: bool) {
+        let _ = self.with_handle(|handle| handle.set_allow_bouncing(allow));
+    }
+
+    fn set_allow_airborne_friction(&mut self, allow: bool) {
+        let _ = self.with_handle(|handle| handle.set_allow_airborne_friction(allow));
+    }
+
+    fn set_bounce_sound(&mut self, sound: Option<AudioEventRts>) {
+        let _ = self.with_handle(|handle| handle.set_bounce_sound(sound));
+    }
+
+    fn get_bounce_sound(&self) -> Option<AudioEventRts> {
+        self.with_handle(|handle| handle.get_bounce_sound())
+            .unwrap_or(None)
+    }
+
+    fn set_ignore_collisions_with(&mut self, obj_id: ObjectID) {
+        let _ = self.with_handle(|handle| handle.set_ignore_collisions_with(obj_id));
+    }
+
+    fn set_angles(&mut self, yaw: Real, pitch: Real, roll: Real) {
+        let _ = self.with_handle(|handle| handle.set_angles(yaw, pitch, roll));
+    }
+
+    fn get_mass(&self) -> Real {
+        self.with_handle(|handle| handle.get_mass()).unwrap_or(1.0)
+    }
+
+    fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
+        let _ = self.with_handle(|handle| handle.apply_angular_velocity(angular_velocity));
+    }
+
+    fn apply_motive_force(&mut self, force: &Vec3) {
+        let _ = self.with_handle(|handle| handle.apply_motive_force(force));
+    }
+
+    fn get_turning(&self) -> Real {
+        self.with_handle(|handle| handle.get_turning()).unwrap_or(0.0)
+    }
+
+    fn is_motive(&self) -> bool {
+        self.with_handle(|handle| handle.is_motive()).unwrap_or(false)
+    }
+
+    fn get_acceleration(&self) -> Coord3D {
+        self.with_handle(|handle| handle.get_acceleration())
+            .unwrap_or(Coord3D::ZERO)
+    }
+
+    fn get_last_collidee(&self) -> ObjectID {
+        self.with_handle(|handle| handle.get_last_collidee())
+            .unwrap_or(crate::common::INVALID_ID)
+    }
+
+    fn get_ignore_collisions_with(&self) -> ObjectID {
+        self.with_handle(|handle| handle.get_ignore_collisions_with())
+            .unwrap_or(crate::common::INVALID_ID)
+    }
+
+    fn reset_dynamic_physics(&mut self) {
+        let _ = self.with_handle(|handle| handle.reset_dynamic_physics());
+    }
+
+    fn apply_shock(&mut self, force: &Coord3D) {
+        let _ = self.with_handle(|handle| handle.apply_shock(force));
+    }
+
+    fn apply_random_rotation(&mut self) {
+        let _ = self.with_handle(|handle| handle.apply_random_rotation());
+    }
+
+    fn set_stunned(&mut self, stunned: bool) {
+        let _ = self.with_handle(|handle| handle.set_stunned(stunned));
+    }
+
+    fn set_allow_to_fall(&mut self, allow: bool) {
+        let _ = self.with_handle(|handle| handle.set_allow_to_fall(allow));
+    }
+
+    fn get_allow_to_fall(&self) -> bool {
+        self.with_handle(|handle| handle.get_allow_to_fall())
+            .unwrap_or(false)
+    }
+
+    fn allow_to_fall(&self) -> bool {
+        self.get_allow_to_fall()
+    }
+
+    fn set_is_in_freefall(&mut self, allow: bool) {
+        let _ = self.with_handle(|handle| handle.set_is_in_freefall(allow));
+    }
+
+    fn get_is_in_freefall(&self) -> bool {
+        self.with_handle(|handle| handle.get_is_in_freefall())
+            .unwrap_or(false)
+    }
+
+    fn get_center_of_mass_offset(&self) -> Real {
+        self.with_handle(|handle| handle.get_center_of_mass_offset())
+            .unwrap_or(0.0)
+    }
+
+    fn set_stick_to_ground(&mut self, stick: bool) {
+        let _ = self.with_handle(|handle| handle.set_stick_to_ground(stick));
+    }
+
+    fn get_stick_to_ground(&self) -> bool {
+        self.with_handle(|handle| handle.get_stick_to_ground())
+            .unwrap_or(false)
+    }
+
+    fn get_forward_speed_2d(&self) -> Real {
+        self.with_handle(|handle| handle.get_forward_speed_2d())
+            .unwrap_or(0.0)
+    }
+
+    fn get_forward_speed_3d(&self) -> Real {
+        self.with_handle(|handle| handle.get_forward_speed_3d())
+            .unwrap_or(0.0)
+    }
+
+    fn clear_acceleration(&mut self) {
+        let _ = self.with_handle(|handle| handle.clear_acceleration());
+    }
+}
+
 impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
     fn get_module_name(&self) -> &'static str {
         "PhysicsBehavior"
@@ -1081,42 +1340,45 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.physics_handle.state.mass = self.module_data.mass;
+        self.physics_handle.state.original_allow_bounce = self.module_data.allow_bouncing;
+        self.physics_handle
+            .state
+            .set_flag(FLAG_ALLOW_BOUNCE, self.module_data.allow_bouncing);
+        self.physics_handle.state.set_flag(
+            FLAG_ALLOW_COLLIDE_FORCE,
+            self.module_data.allow_collide_force,
+        );
+
         let Some(obj_arc) = find_object(self.object_id) else {
             return Ok(());
         };
-        let Ok(mut obj) = obj_arc.write() else {
+        // std RwLock does not reenter. Creation may already hold this write guard.
+        let Ok(mut obj) = obj_arc.try_write() else {
             return Ok(());
         };
-        if let Ok(mut handle) = self.physics_handle.lock() {
-            handle.state.mass = self.module_data.mass;
-            handle.state.original_allow_bounce = self.module_data.allow_bouncing;
-            handle
-                .state
-                .set_flag(FLAG_ALLOW_BOUNCE, self.module_data.allow_bouncing);
-            handle.state.set_flag(
-                FLAG_ALLOW_COLLIDE_FORCE,
-                self.module_data.allow_collide_force,
-            );
-            handle.state.yaw_angle = obj.get_orientation();
+        self.physics_handle.state.yaw_angle = obj.get_orientation();
+        let physics_name = AsciiString::from("PhysicsBehavior");
+        if let Some(module) = obj.module_by_name(&physics_name) {
+            let view: Arc<Mutex<dyn PhysicsBehaviorTrait>> =
+                Arc::new(Mutex::new(PhysicsModuleView { module }));
+            obj.set_physics(Some(view));
         }
-        obj.set_physics(Some(self.physics_handle.clone()));
 
-        let sleep = if self.module_data.mass <= 0.0 {
-            UpdateSleepTime::Forever
-        } else {
-            UpdateSleepTime::None
-        };
-        TheGameLogic::set_wake_frame(obj.get_id(), sleep);
+        let now = TheGameLogic::get_frame();
+        obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
         Ok(())
     }
 }
 
 impl CollideModuleInterface for PhysicsBehaviorUpdate {
     fn on_collision(&mut self, _object_id: ObjectID, other_id: ObjectID) {
-        let Ok(mut handle) = self.physics_handle.try_lock() else {
-            return;
-        };
-        physics_collide::on_collide(&mut handle, self.object_id, other_id, &self.module_data);
+        physics_collide::on_collide(
+            &mut self.physics_handle,
+            self.object_id,
+            other_id,
+            &self.module_data,
+        );
     }
 }
 
@@ -1126,7 +1388,7 @@ impl Snapshotable for PhysicsBehaviorUpdate {
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("PhysicsBehavior xfer version failed: {:?}", e))?;
 
-        let handle = self.physics_handle.lock().map_err(|_| "Lock failed")?;
+        let handle = &self.physics_handle;
         let mut yaw_rate = handle.state.yaw_rate;
         xfer.xfer_real(&mut yaw_rate).map_err(|e| e.to_string())?;
         let mut roll_rate = handle.state.roll_rate;
@@ -1174,7 +1436,7 @@ impl Snapshotable for PhysicsBehaviorUpdate {
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("PhysicsBehavior xfer version failed: {:?}", e))?;
 
-        let mut handle = self.physics_handle.lock().map_err(|_| "Lock failed")?;
+        let handle = &mut self.physics_handle;
         xfer.xfer_real(&mut handle.state.yaw_rate)
             .map_err(|e| e.to_string())?;
         xfer.xfer_real(&mut handle.state.roll_rate)

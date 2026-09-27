@@ -422,7 +422,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
     sys.apply_seeker_human_flag();
 
     let without = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true)
+        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
         .expect("closest without tunnel");
     let without_cell = sys.grid.world_to_grid(*without.last().unwrap());
     assert_ne!(
@@ -440,7 +440,7 @@ fn find_closest_path_accepts_occupied_goal_when_can_path_through_units() {
         "bind must copy leftover canPathThroughUnits"
     );
     let with = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true)
+        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
         .expect("closest with tunnel");
     let with_cell = sys.grid.world_to_grid(*with.last().unwrap());
     assert_eq!(
@@ -472,7 +472,7 @@ fn find_closest_path_does_not_cut_through_building() {
     let from = Vec3::new(20.0, 0.0, 50.0);
     let to = sys.grid.grid_to_world(goal);
     let path = sys
-        .find_closest_path(from, to, SURFACE_GROUND, false, true)
+        .find_closest_path(from, to, SURFACE_GROUND, false, true, 0.2)
         .expect("closest path");
     let crosses = path
         .iter()
@@ -505,7 +505,7 @@ fn find_closest_path_hops_connect_layer_onto_deck() {
     );
     let from = sys.grid.grid_to_world(GridPos::new(1, 5));
     let path = sys
-        .find_closest_path(from, on_deck, SURFACE_GROUND, false, true)
+        .find_closest_path(from, on_deck, SURFACE_GROUND, false, true, 0.2)
         .expect("closest onto deck");
     let end = *path.last().expect("end");
     let end_layer = sys
@@ -577,6 +577,8 @@ fn process_pathfind_queue_stops_at_cell_budget() {
         surfaces: SURFACE_GROUND,
         is_crusher: false,
         ignore_obstacle: None,
+        adjust_destinations: true,
+        restore_adjust_on_install: false,
     };
     assert!(sys.queue_path(mk(1, 10.0)));
     assert!(sys.queue_path(mk(2, 30.0)));
@@ -671,6 +673,84 @@ fn ignore_obstacle_walks_through_owned_footprint() {
         "path must step through ignored CELL_OBSTACLE, path={through:?}"
     );
     sys.set_ignore_obstacle(None);
+}
+
+/// C++ processPathfindQueue calls doPathfind, which reads getIgnoredObstacleID
+/// live. An id written after queueForPath must win over the enqueue snapshot.
+#[test]
+fn queued_search_uses_ignore_written_after_enqueue() {
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut mover_t = ThingTemplate::new("LiveIgnoreRanger");
+    mover_t.add_kind_of(KindOf::Infantry);
+    logic.templates.insert("LiveIgnoreRanger".into(), mover_t);
+    let mut wall_t = ThingTemplate::new("LiveIgnoreWall");
+    wall_t.add_kind_of(KindOf::Structure);
+    logic.templates.insert("LiveIgnoreWall".into(), wall_t);
+    let from = Vec3::new(10.0, 0.0, 10.0);
+    let goal = Vec3::new(160.0, 0.0, 10.0);
+    let wall = logic
+        .create_object("LiveIgnoreWall", Team::USA, goal)
+        .expect("wall");
+    let mover = logic
+        .create_object("LiveIgnoreRanger", Team::USA, from)
+        .expect("mover");
+    if let Some(unit) = logic.host_object_mut(mover) {
+        unit.movement.max_speed = 20.0;
+    }
+    let wall_x = {
+        let grid = &logic.pathfinding_system.grid;
+        let start_cell = grid.world_to_grid(from);
+        let goal_cell = grid.world_to_grid(goal);
+        (start_cell.x + goal_cell.x) / 2
+    };
+    let height = logic.pathfinding_system.grid.height();
+    for y in 0..height {
+        logic.pathfinding_system.grid.set_cell_obstacle_owned(
+            GridPos::new(wall_x, y),
+            false,
+            false,
+            wall.0,
+            None,
+            None,
+        );
+    }
+    let decoy = ObjectId(wall.0.wrapping_add(1000));
+    logic.force_map_loaded_for_path_test(true);
+    assert!(logic.assign_unit_path_ignoring(mover, goal, &[], Some(decoy)));
+    let queued: Vec<_> = logic
+        .pathfinding_system
+        .pending_paths()
+        .map(|req| req.ignore_obstacle)
+        .collect();
+    assert_eq!(
+        queued,
+        vec![Some(decoy)],
+        "enqueue keeps the stale snapshot"
+    );
+    if let Some(unit) = logic.host_object_mut(mover) {
+        unit.ignored_obstacle_id = Some(wall);
+    }
+    logic.process_pathfind_queue();
+    let path = logic
+        .host_object(mover)
+        .expect("mover")
+        .movement
+        .path
+        .clone();
+    let xs: Vec<i32> = path
+        .iter()
+        .map(|wp| logic.pathfinding_system.grid.world_to_grid(*wp).x)
+        .collect();
+    let crosses = xs.windows(2).any(|w| {
+        let lo = w[0].min(w[1]);
+        let hi = w[0].max(w[1]);
+        lo <= wall_x && wall_x <= hi
+    });
+    assert!(
+        crosses,
+        "search must use the ignore written after enqueue, xs={xs:?} wall={wall_x}"
+    );
 }
 
 /// hq-gsdys: seeker flags come from the mover, not nearest living object.

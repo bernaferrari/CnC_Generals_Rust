@@ -7,7 +7,7 @@
 
 use super::draw_module::*;
 use crate::common::*;
-use crate::helpers::get_game_logic_random_value_real;
+use crate::GameClientRandomValueReal;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
 use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -139,7 +139,7 @@ impl W3DRopeDraw {
         let each_len = self.max_len / num_segs as Real;
         let mut z = 0.0;
         for _ in 0..num_segs {
-            let axis = get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+            let axis = GameClientRandomValueReal!(0.0, 2.0 * std::f32::consts::PI);
             let seg = RopeSegment {
                 start: Coord3D::new(0.0, 0.0, z),
                 end: Coord3D::new(0.0, 0.0, z + each_len),
@@ -202,37 +202,44 @@ impl DrawModule for W3DRopeDraw {
                 start = end;
             }
 
-            while self.segment_line_ids.len() < self.segments.len() {
+            while self.segment_line_ids.len() < self.segments.len() * 2 {
                 self.segment_line_ids.push(None);
             }
 
             for (i, seg) in self.segments.iter().enumerate() {
-                let desc = SceneLineDesc {
-                    start: game_engine::common::system::geometry::Coord3D::new(
-                        seg.start.x,
-                        seg.start.y,
-                        seg.start.z,
-                    ),
-                    end: game_engine::common::system::geometry::Coord3D::new(
-                        seg.end.x, seg.end.y, seg.end.z,
-                    ),
-                    width: self.width,
-                    color_r: self.color.r as f32 / 255.0,
-                    color_g: self.color.g as f32 / 255.0,
-                    color_b: self.color.b as f32 / 255.0,
-                    opacity: 1.0,
-                    texture_name: None,
-                    tile_factor: 0.0,
-                    scroll_rate: 0.0,
-                    visible: true,
-                };
-
-                match self.segment_line_ids[i] {
-                    None => {
-                        self.segment_line_ids[i] = submit_scene_line(0, &desc);
-                    }
-                    Some(id) => {
-                        update_scene_line(id, &desc);
+                let start = game_engine::common::system::geometry::Coord3D::new(
+                    seg.start.x,
+                    seg.start.y,
+                    seg.start.z,
+                );
+                let end = game_engine::common::system::geometry::Coord3D::new(
+                    seg.end.x, seg.end.y, seg.end.z,
+                );
+                let lines = [
+                    (self.width * 0.5, 1.0, i * 2),
+                    (self.width, 0.5, i * 2 + 1),
+                ];
+                for (width, opacity, slot) in lines {
+                    let desc = SceneLineDesc {
+                        start,
+                        end,
+                        width,
+                        color_r: self.color.r as f32 / 255.0,
+                        color_g: self.color.g as f32 / 255.0,
+                        color_b: self.color.b as f32 / 255.0,
+                        opacity,
+                        texture_name: None,
+                        tile_factor: 0.0,
+                        scroll_rate: 0.0,
+                        visible: true,
+                    };
+                    match self.segment_line_ids[slot] {
+                        None => {
+                            self.segment_line_ids[slot] = submit_scene_line(0, &desc);
+                        }
+                        Some(id) => {
+                            update_scene_line(id, &desc);
+                        }
                     }
                 }
             }
@@ -316,52 +323,8 @@ impl RopeDrawInterface for W3DRopeDraw {
 
 impl Snapshotable for W3DRopeDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
-
-        let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1)
-            .map_err(|e| e.to_string())?;
-        let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1)
-            .map_err(|e| e.to_string())?;
-        let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1)
-            .map_err(|e| e.to_string())?;
-
-        let mut cur_len = self.cur_len;
-        xfer.xfer_real(&mut cur_len).map_err(|e| e.to_string())?;
-        let mut max_len = self.max_len;
-        xfer.xfer_real(&mut max_len).map_err(|e| e.to_string())?;
-        let mut width = self.width;
-        xfer.xfer_real(&mut width).map_err(|e| e.to_string())?;
-        let mut color_r = self.color.r as Real;
-        let mut color_g = self.color.g as Real;
-        let mut color_b = self.color.b as Real;
-        xfer.xfer_real(&mut color_r).map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut color_g).map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut color_b).map_err(|e| e.to_string())?;
-        let mut cur_speed = self.cur_speed;
-        xfer.xfer_real(&mut cur_speed).map_err(|e| e.to_string())?;
-        let mut max_speed = self.max_speed;
-        xfer.xfer_real(&mut max_speed).map_err(|e| e.to_string())?;
-        let mut accel = self.accel;
-        xfer.xfer_real(&mut accel).map_err(|e| e.to_string())?;
-        let mut wobble_len = self.wobble_len;
-        xfer.xfer_real(&mut wobble_len).map_err(|e| e.to_string())?;
-        let mut wobble_amp = self.wobble_amp;
-        xfer.xfer_real(&mut wobble_amp).map_err(|e| e.to_string())?;
-        let mut wobble_rate = self.wobble_rate;
-        xfer.xfer_real(&mut wobble_rate)
-            .map_err(|e| e.to_string())?;
-        let mut cur_wobble_phase = self.cur_wobble_phase;
-        xfer.xfer_real(&mut cur_wobble_phase)
-            .map_err(|e| e.to_string())?;
-        let mut cur_z_offset = self.cur_z_offset;
-        xfer.xfer_real(&mut cur_z_offset)
-            .map_err(|e| e.to_string())?;
+        // W3DRopeDraw::crc only calls DrawModule::crc, which writes nothing.
+        let _ = xfer;
         Ok(())
     }
 

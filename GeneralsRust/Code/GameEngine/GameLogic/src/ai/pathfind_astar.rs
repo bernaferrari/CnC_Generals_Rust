@@ -18,12 +18,7 @@ pub const PATHFIND_CELL_SIZE_F: f32 = 10.0;
 
 /// Terrain/layer Z for a path node (C++ TerrainLogic::getLayerHeight).
 fn layer_world_height(x: f32, y: f32, layer: PathfindLayerEnum) -> f32 {
-    let common = match layer {
-        PathfindLayerEnum::Invalid => crate::common::PathfindLayerEnum::Invalid,
-        PathfindLayerEnum::Ground => crate::common::PathfindLayerEnum::Ground,
-        PathfindLayerEnum::Wall => crate::common::PathfindLayerEnum::Wall,
-        _ => crate::common::PathfindLayerEnum::Top,
-    };
+    let common = crate::common::PathfindLayerEnum::from_u32(layer as u32);
     crate::helpers::TheTerrainLogic::get()
         .map(|t| t.get_layer_height(x, y, common))
         .unwrap_or(0.0)

@@ -262,6 +262,11 @@ pub trait BountyObject {
 
     /// Check if this object is under construction (no bounty for under-construction)
     fn is_under_construction(&self) -> bool;
+
+    /// C++ `killer->getPosition()` for the bounty floater. Default is the origin.
+    fn bounty_anchor(&self) -> (f32, f32, f32) {
+        (0.0, 0.0, 0.0)
+    }
 }
 
 /// Trait for objects that provide skill points when killed.
@@ -272,6 +277,11 @@ pub trait SkillPointObject {
 
     /// Get the veterancy level of this object
     fn get_veterancy_level(&self) -> i32;
+
+    /// C++ `Object::testStatus(OBJECT_STATUS_UNDER_CONSTRUCTION)`.
+    fn is_under_construction(&self) -> bool {
+        false
+    }
 }
 
 /// Trait for AI player functionality

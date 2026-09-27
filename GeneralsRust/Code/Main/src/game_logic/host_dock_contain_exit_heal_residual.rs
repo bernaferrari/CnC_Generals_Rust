@@ -125,6 +125,19 @@ pub const SUPPLY_CENTER_DOCK_BONELESS_APPROACH_POSITIONS: i32 = -1;
 /// Retail China/GLA SupplyCenter AllowsPassthrough residual (No).
 pub const SUPPLY_CENTER_DOCK_CHINA_GLA_ALLOWS_PASSTHROUGH: bool = false;
 
+/// C++ `DockUpdate::isAllowPassthroughType`. Default true. Retail China and
+/// GLA supply centers set AllowsPassthrough = No.
+pub fn dock_allows_passthrough(template_name: &str) -> bool {
+    let name = template_name.to_ascii_lowercase();
+    let supply_center = name.contains("supplycenter") || name.contains("supply_center");
+    let china_or_gla = name.contains("china") || name.contains("gla");
+    if supply_center && china_or_gla {
+        return SUPPLY_CENTER_DOCK_CHINA_GLA_ALLOWS_PASSTHROUGH;
+    }
+    DOCK_DEFAULT_ALLOWS_PASSTHROUGH
+}
+
+
 /// C++ RailedTransportDockUpdateModuleData default ToleranceDistance residual.
 pub const RAILED_DOCK_DEFAULT_TOLERANCE_DISTANCE: f32 = 50.0;
 /// C++ RailedTransportDockUpdateModuleData default PullInsideDuration residual (frames).

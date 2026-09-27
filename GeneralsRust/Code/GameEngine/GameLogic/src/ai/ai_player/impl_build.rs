@@ -340,11 +340,11 @@ impl AIPlayer {
             .get_base_center()
             .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
-        // C++: Player *enemy = getAiEnemy(); structure bounds midpoint.
-        // Prefer latched current-enemy index (skirmish acquireEnemy), then human.
+        // C++ AIPlayer::getAiEnemy returns NULL. Only AISkirmishPlayer acquires
+        // an enemy, and findSupplyCenter calls the virtual.
         let mut enemy_center = Coord3D::new(0.0, 0.0, 0.0);
         let mut has_enemy = false;
-        let enemy_index = {
+        let enemy_index = if self.is_skirmish_ai_player() {
             let mut idx = None;
             if let Ok(list) = player_list().read() {
                 if let Some(me) = list.get_player(self.player_id as i32) {
@@ -358,6 +358,8 @@ impl AIPlayer {
                     .ok()
                     .and_then(|o| o.map(|(_, i)| i))
             })
+        } else {
+            None
         };
         if let Some(enemy_index) = enemy_index {
             if let Ok((lo, hi)) = self.get_player_structure_bounds(enemy_index) {
@@ -1057,44 +1059,71 @@ impl AIPlayer {
                 let mut x = location.x - offset;
                 let y0 = location.y - offset;
                 while x <= location.x + offset + 0.001 {
-                    for y in [y0, y0 + pos_offset] {
-                        let candidate = Coord3D::new(x, y, location.z);
-                        if wiggle_validator
-                            .validate_placement(
-                                &candidate,
-                                template_name,
-                                angle,
-                                self.player_id as ObjectID,
-                            )
-                            .is_ok()
-                        {
-                            new_pos = candidate;
-                            valid = true;
-                            break 'outer;
-                        }
+                    let first = Coord3D::new(x, y0, location.z);
+                    if wiggle_validator
+                        .validate_placement(
+                            &first,
+                            template_name,
+                            angle,
+                            self.player_id as ObjectID,
+                        )
+                        .is_ok()
+                    {
+                        new_pos = first;
+                        valid = true;
+                        break;
+                    }
+                    // C++ does not break on the second sample (AIPlayer.cpp:1995).
+                    let second = Coord3D::new(x, y0 + pos_offset, location.z);
+                    valid = wiggle_validator
+                        .validate_placement(
+                            &second,
+                            template_name,
+                            angle,
+                            self.player_id as ObjectID,
+                        )
+                        .is_ok();
+                    if valid {
+                        new_pos = second;
                     }
                     x += PATHFIND_CELL_SIZE_F;
+                }
+                if valid {
+                    break 'outer;
                 }
                 let mut y = location.y - offset;
                 let x0 = location.x - offset;
                 while y <= location.y + offset + 0.001 {
-                    for x in [x0, x0 + pos_offset] {
-                        let candidate = Coord3D::new(x, y, location.z);
-                        if wiggle_validator
-                            .validate_placement(
-                                &candidate,
-                                template_name,
-                                angle,
-                                self.player_id as ObjectID,
-                            )
-                            .is_ok()
-                        {
-                            new_pos = candidate;
-                            valid = true;
-                            break 'outer;
-                        }
+                    let first = Coord3D::new(x0, y, location.z);
+                    if wiggle_validator
+                        .validate_placement(
+                            &first,
+                            template_name,
+                            angle,
+                            self.player_id as ObjectID,
+                        )
+                        .is_ok()
+                    {
+                        new_pos = first;
+                        valid = true;
+                        break;
+                    }
+                    let second = Coord3D::new(x0 + pos_offset, y, location.z);
+                    valid = wiggle_validator
+                        .validate_placement(
+                            &second,
+                            template_name,
+                            angle,
+                            self.player_id as ObjectID,
+                        )
+                        .is_ok();
+                    if valid {
+                        new_pos = second;
                     }
                     y += PATHFIND_CELL_SIZE_F;
+                }
+                if valid {
+                    break 'outer;
                 }
                 pos_offset += 2.0 * PATHFIND_CELL_SIZE_F;
             }

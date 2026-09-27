@@ -28,6 +28,8 @@ pub struct GameLogic {
     pub(crate) hunt_next_enemy_scan: HashMap<ObjectId, u32>,
     /// C++ AIGuardIdleState::m_guardeePos residual.
     pub(crate) guard_guardee_pos: HashMap<ObjectId, glam::Vec3>,
+    /// C++ doQuickExit temporary-state deadline (10 * LOGICFRAMES_PER_SECOND).
+    pub(crate) quick_exit_until: HashMap<ObjectId, u32>,
 
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,

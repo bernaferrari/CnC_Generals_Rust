@@ -462,20 +462,18 @@ impl PathfindingSystem {
         if object_id == INVALID_ID {
             return false;
         }
-        OBJECT_REGISTRY
-            .with_object(object_id, |g| {
-                if let Some(ai) = g.get_ai_update_interface() {
-                    if let Ok(ai_g) = ai.lock() {
-                        if let Some(loco) = ai_g.get_cur_locomotor() {
-                            if let Ok(loco_g) = loco.lock() {
-                                return loco_g.template.downhill_only;
-                            }
-                        }
-                    }
-                }
-                false
-            })
-            .unwrap_or(false)
+        let ai = OBJECT_REGISTRY
+            .with_object(object_id, |g| g.get_ai_update_interface())
+            .flatten();
+        let mut downhill = false;
+        if let Some(ai) = ai {
+            if let Ok(ai_g) = ai.lock() {
+                ai_g.with_cur_locomotor(&mut |loco| {
+                    downhill = loco.template.downhill_only;
+                });
+            }
+        }
+        downhill
     }
 
     /// True when a standing ally occupies `cell` (C++ PathfindCell::isBlockedByAlly stamp).

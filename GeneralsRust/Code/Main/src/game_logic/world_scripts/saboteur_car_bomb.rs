@@ -283,10 +283,17 @@ impl GameLogic {
             if let Some(pilot) = self.objects.get_mut(&pilot_id) {
                 pilot.set_target(Some(vehicle_id));
                 pilot.set_status_pilot_did_move_to_base(false);
+                pilot.set_ai_state(AIState::Entering);
+                pilot.ignored_obstacle_id = Some(vehicle_id);
                 let _ = pilot_radius;
                 let _ = pilot_team;
             }
-            self.path_approach_with_state(pilot_id, vehicle_pos, AIState::Entering);
+            self.path_approach_with_state_ignoring(
+                pilot_id,
+                vehicle_pos,
+                AIState::Entering,
+                Some(vehicle_id),
+            );
             self.usa_pilot.record_find_vehicle_order();
             return;
         }
@@ -1700,7 +1707,12 @@ impl GameLogic {
             obj.target_location = None;
         }
         self.set_ai_state_decision_aware(unit_id, AIState::Constructing);
-        self.path_approach_with_state(unit_id, tpos, AIState::Constructing);
+        self.path_approach_with_state_ignoring(
+            unit_id,
+            tpos,
+            AIState::Constructing,
+            Some(tid),
+        );
     }
 
     pub(in super::super) fn update_bomb_truck_poison_zones(&mut self) {

@@ -71,24 +71,10 @@ fn attack_move_uses_identical_destination() {
             CommandResult::Success
         );
     }
-    let ga = logic
-        .host_object(a)
-        .unwrap()
-        .movement
-        .target_position
-        .or_else(|| logic.host_object(a).unwrap().movement.path.last().copied());
-    let gb = logic
-        .host_object(b)
-        .unwrap()
-        .movement
-        .target_position
-        .or_else(|| logic.host_object(b).unwrap().movement.path.last().copied());
-    let ga = ga.expect("a dest");
-    let gb = gb.expect("b dest");
-    assert!(
-        (ga.x - gb.x).abs() < 1.0 && (ga.z - gb.z).abs() < 1.0,
-        "attack-move must share one pos ga={ga:?} gb={gb:?}"
-    );
+    let ga = logic.host_object(a).unwrap().requested_destination;
+    let gb = logic.host_object(b).unwrap().requested_destination;
+    assert_eq!(ga, Some(dest), "a goal {ga:?}");
+    assert_eq!(gb, Some(dest), "b goal {gb:?}");
 }
 
 #[test]

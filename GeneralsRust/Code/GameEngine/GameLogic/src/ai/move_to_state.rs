@@ -16,8 +16,6 @@ use crate::ai::object_registry::OBJECT_REGISTRY;
 use crate::ai::the_ai;
 use crate::locomotor::{PathFollowingState, Locomotor, BodyDamageType as LocoBodyDamageType, update_movement_with_pathfinding};
 use crate::modules::AIUpdateInterfaceExt;
-use std::sync::{Arc, Mutex};
-
 /// Wave 422: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
@@ -59,18 +57,6 @@ impl AIMoveToState {
         }
     }
 
-    /// Get unit's current locomotor (would be from object in full implementation)
-    fn get_locomotor(&self, context: &AIStateMachineContext) -> Option<Arc<Mutex<Locomotor>>> {
-        // Wave 422: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let ai_handle = OBJECT_REGISTRY.with_object(context.owner_id, |owner_guard| {
-            owner_guard.get_ai_update_interface()
-        })??;
-        ai_handle.lock().ok()?.get_cur_locomotor()
-    }
 
     /// Check if unit has reached destination
     /// Matches C++ AIStates.cpp:2052-2114 update logic
@@ -126,10 +112,6 @@ impl AIState for AIMoveToState {
             return StateReturnType::Failed;
         };
 
-        let locomotor_handle = match self.get_locomotor(context) {
-            Some(loco) => loco,
-            None => return StateReturnType::Failed,
-        };
 
         let pathfinding = match the_ai().read().ok().and_then(|ai| ai.pathfinding_system()) {
             Some(system) => system,
@@ -155,6 +137,7 @@ impl AIState for AIMoveToState {
             };
             (*guard.get_position(), guard.get_orientation() as f32, condition)
         }) else {
+            self.path_following = Some(path_state);
             return StateReturnType::Failed;
         };
 
@@ -167,14 +150,21 @@ impl AIState for AIMoveToState {
         let current_frame = TheGameLogic::get_frame();
         let delta_time = SECONDS_PER_LOGICFRAME_REAL;
 
-        let mut loco_guard = match locomotor_handle.lock() {
-            Ok(guard) => guard,
-            Err(_) => return StateReturnType::Failed,
+        let Some(mut loco) = ({
+            let Ok(ai_guard) = ai_handle.lock() else {
+                self.path_following = Some(path_state);
+                return StateReturnType::Failed;
+            };
+            let mut copied = None;
+            ai_guard.with_cur_locomotor(&mut |active| copied = Some(active.clone()));
+            copied
+        }) else {
+            self.path_following = Some(path_state);
+            return StateReturnType::Failed;
         };
-
         let result = update_movement_with_pathfinding(
             context.owner_id,
-            &mut loco_guard,
+            &mut loco,
             &mut path_state,
             &current_pos,
             current_angle,
@@ -185,7 +175,18 @@ impl AIState for AIMoveToState {
             delta_time,
             pathfinding,
         );
-
+        let mut slot = Some(loco);
+        if let Ok(ai_guard) = ai_handle.lock() {
+            ai_guard.with_cur_locomotor(&mut |active| {
+                if let Some(updated) = slot.take() {
+                    *active = updated;
+                }
+            });
+        }
+        if slot.is_some() {
+            self.path_following = Some(path_state);
+            return StateReturnType::Failed;
+        }
         self.path_following = Some(path_state);
 
         match result {

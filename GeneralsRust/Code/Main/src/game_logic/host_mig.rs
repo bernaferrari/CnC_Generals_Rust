@@ -421,9 +421,18 @@ pub fn is_legal_mig_target(
 
 /// Apply Aircraft Armor residual: +AddMaxHealth current+max (ADD_CURRENT_HEALTH_TOO).
 pub fn apply_mig_aircraft_armor_health(max_health: &mut f32, current: &mut f32, maximum: &mut f32) {
+    let live_maximum = *maximum > 0.0;
     *max_health = (*max_health + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
-    *maximum = (*maximum + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
+    if live_maximum {
+        *maximum = (*maximum + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
+    } else {
+        *maximum = *max_health;
+    }
+    let cap = if live_maximum { *maximum } else { *max_health };
     *current = (*current + MIG_AIRCRAFT_ARMOR_ADD_MAX_HEALTH).max(0.0);
+    if cap > 0.0 {
+        *current = (*current).min(cap);
+    }
 }
 
 // --- Wave 67 residual honesty packs ---

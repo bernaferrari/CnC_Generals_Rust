@@ -210,7 +210,7 @@ impl UpdateModuleInterface for HeightDieUpdate {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             Some(arc) => arc,
-            None => return UpdateSleepTime::Forever,
+            None => return UPDATE_SLEEP_NONE,
         };
 
         // Matches C++ HeightDieUpdate.cpp:94-96
@@ -218,7 +218,7 @@ impl UpdateModuleInterface for HeightDieUpdate {
         if self.earliest_death_frame == u32::MAX {
             let current_frame = TheGameLogic::get_frame();
             self.earliest_death_frame =
-                current_frame.saturating_add(self.module_data.initial_delay);
+                current_frame.wrapping_add(self.module_data.initial_delay);
         }
 
         // If at least a one frame delay has been set, then stop for a while
@@ -245,7 +245,7 @@ impl UpdateModuleInterface for HeightDieUpdate {
         let d = &self.module_data;
 
         // Get our current position. C++ line 118
-        let pos = *me.get_position();
+        let mut pos = *me.get_position();
 
         // Drop read lock before potentially taking write lock
         drop(me);
@@ -300,9 +300,8 @@ impl UpdateModuleInterface for HeightDieUpdate {
                 let mut tallest_height: Real = 0.0;
 
                 if let Some(partition) = ThePartitionManager::get() {
-                    // In C++, iterateObjectsInRange is used with a KINDOF_STRUCTURE filter
-                    // to find ALL structures in range, then we pick the tallest.
-                    let candidates = partition.get_objects_in_range(&pos, range);
+                    let candidates = partition
+                        .get_objects_in_range_boundary_3d_from_object(&me_ref, range);
 
                     for obj_id in candidates {
                         // Ignore ourselves. C++ line 178-179
@@ -342,23 +341,16 @@ impl UpdateModuleInterface for HeightDieUpdate {
                 // If we're supposed to snap us to the ground on death do so
                 // AND: even if we're not snapping to ground, be sure we don't go BELOW ground
                 if d.snap_to_ground_on_death || pos.z < terrain_height_at_pos {
-                    let ground = Coord3D {
-                        x: pos.x,
-                        y: pos.y,
-                        z: terrain_height_at_pos,
-                    };
+                    pos.z = terrain_height_at_pos;
                     if let Ok(mut obj_write) = obj_arc.write() {
-                        let _ = obj_write.set_position(&ground);
+                        let _ = obj_write.set_position(&pos);
                     }
                 }
 
-                // Kill the object. C++ line 217
                 if let Ok(mut obj_write) = obj_arc.write() {
                     obj_write.kill(None, None);
+                    self.has_died = true;
                 }
-
-                // We have died ... don't do this again. C++ line 220
-                self.has_died = true;
             }
         }
 
@@ -375,10 +367,8 @@ impl UpdateModuleInterface for HeightDieUpdate {
                 if let Some(ps_manager) = TheParticleSystemManager::get() {
                     ps_manager.destroy_attached_systems(obj_id);
                 }
+                self.particles_destroyed = true;
             }
-
-            // Don't do this again. C++ line 237
-            self.particles_destroyed = true;
         }
 
         // Save our current position as the last position we monitored. C++ line 242
@@ -399,9 +389,7 @@ impl BehaviorModuleInterface for HeightDieUpdate {
 
 impl Snapshotable for HeightDieUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 

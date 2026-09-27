@@ -1816,12 +1816,23 @@ impl GameLogic {
                 .collect();
             let goal = *unit_wps.last().unwrap();
             let via = &unit_wps[..unit_wps.len().saturating_sub(1)];
+            let adjusts = self.note_move_to_request_path(unit_id);
+            if !exact {
+                if let Some(unit) = self.host_object_mut(unit_id) {
+                    if !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit) {
+                        unit.adjust_destinations = false;
+                    }
+                }
+            }
             let _ = self.unit_command_waypoint_path_prep(unit_id, as_team);
             let assigned = if exact {
                 self.assign_unit_path_exact(unit_id, goal, via)
             } else {
                 self.assign_unit_path(unit_id, goal, via)
             };
+            if assigned && adjusts {
+                self.register_ground_path_goal(unit_id, goal);
+            }
             if assigned {
                 if let Some(unit) = self.host_object_mut(unit_id) {
                     unit.stamp_pending_waypoint_labels(labels.iter().cloned());
@@ -1925,4 +1936,30 @@ impl GameLogic {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn waypoint_follow_clears_adjust_for_aircraft() {
+    use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    let mut air_tmpl = ThingTemplate::new("Raptor");
+    air_tmpl.add_kind_of(KindOf::Aircraft);
+    let air = crate::game_logic::Object::new(air_tmpl, ObjectId(1), Team::USA);
+    logic.objects.insert(ObjectId(1), air);
+    let mut foot_tmpl = ThingTemplate::new("Ranger");
+    foot_tmpl.add_kind_of(KindOf::Infantry);
+    let foot = crate::game_logic::Object::new(foot_tmpl, ObjectId(2), Team::USA);
+    logic.objects.insert(ObjectId(2), foot);
+    let wps = [glam::Vec3::new(40.0, 0.0, 0.0)];
+    logic.host_script_issue_follow_waypoint_path(&[ObjectId(1)], &wps, false, false, "");
+    logic.host_script_issue_follow_waypoint_path(&[ObjectId(2)], &wps, false, false, "");
+    assert!(
+        !logic.host_object(ObjectId(1)).unwrap().adjust_destinations,
+        "an aircraft waypoint path must not adjust"
+    );
+    assert!(
+        logic.host_object(ObjectId(2)).unwrap().adjust_destinations,
+        "infantry on the ground keeps the move-request flag"
+    );
 }

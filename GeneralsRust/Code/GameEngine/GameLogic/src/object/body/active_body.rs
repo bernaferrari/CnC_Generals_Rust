@@ -153,7 +153,7 @@ fn should_retaliate(obj: &Object) -> bool {
     true
 }
 
-fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
+pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
     let Some(controlling_player) = victim.get_controlling_player() else {
         return;
     };
@@ -185,12 +185,15 @@ fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
     };
     let damager_id = damager.get_id();
     let candidates =
-        partition.get_objects_in_range_boundary_2d(victim.get_position(), friends_radius);
+        partition.get_objects_in_range(victim.get_position(), friends_radius);
     for friend_id in candidates {
         if friend_id == victim.get_id() || friend_id == damager_id {
             continue;
         }
         let _ = OBJECT_REGISTRY.with_object(friend_id, |them| {
+            if them.is_off_map() {
+                return;
+            }
             if them.relationship_to(victim) != Relationship::Allies {
                 return;
             }
@@ -426,10 +429,11 @@ fn xfer_damage_info_input(xfer: &mut dyn Xfer, input: &mut DamageInfoInput) -> R
     xfer.xfer_unsigned_int(&mut input.source_id)
         .map_err(|e| e.to_string())?;
 
-    let mut player_mask_bits = input.source_player_mask.bits();
-    xfer.xfer_unsigned_int(&mut player_mask_bits)
+    // C++ PlayerMaskType is UnsignedShort when MAX_PLAYER_COUNT is 16.
+    let mut player_mask_bits = input.source_player_mask.bits() as u16;
+    xfer.xfer_unsigned_short(&mut player_mask_bits)
         .map_err(|e| e.to_string())?;
-    input.source_player_mask = PlayerMaskType::from_bits_truncate(player_mask_bits);
+    input.source_player_mask = PlayerMaskType::from_bits_truncate(player_mask_bits as u32);
 
     let mut damage_type = input.damage_type as u32;
     xfer.xfer_unsigned_int(&mut damage_type)
@@ -494,7 +498,7 @@ fn xfer_damage_info_output(
     xfer: &mut dyn Xfer,
     output: &mut DamageInfoOutput,
 ) -> Result<(), String> {
-    const CURRENT_VERSION: XferVersion = 2;
+    const CURRENT_VERSION: XferVersion = 1;
     let mut version = CURRENT_VERSION;
     xfer.xfer_version(&mut version, CURRENT_VERSION)
         .map_err(|e| e.to_string())?;
@@ -505,13 +509,6 @@ fn xfer_damage_info_output(
         .map_err(|e| e.to_string())?;
     xfer.xfer_bool(&mut output.no_effect)
         .map_err(|e| e.to_string())?;
-
-    if version >= 2 {
-        xfer.xfer_bool(&mut output.killed_target)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut output.experience_awarded)
-            .map_err(|e| e.to_string())?;
-    }
 
     Ok(())
 }
@@ -713,14 +710,14 @@ pub struct ActiveBody {
     module_data: Arc<ActiveBodyModuleData>,
     /// Thread-safe mutable state
     state: Arc<RwLock<ActiveBodyState>>,
-    /// Damage scalar for defensive bonuses/penalties
-    damage_scalar: Arc<RwLock<f32>>,
-    /// Current armor applied to this body
-    armor: Arc<RwLock<Armor>>,
+    /// Current armor. C++ `m_curArmor` is a plain member of the body the
+    /// caller already owns. An inner `RwLock` deadlocks if attempt_damage
+    /// holds it and then locks it again.
+    armor: Armor,
     /// Name of the currently applied armor template (if any)
-    armor_template_name: Arc<RwLock<Option<AsciiString>>>,
+    armor_template_name: Option<AsciiString>,
     /// Engine thing template backing this body (for armor lookups)
-    engine_template: Arc<RwLock<Option<Arc<DefaultThingTemplate>>>>,
+    engine_template: Option<Arc<DefaultThingTemplate>>,
     /// Owning object ID (legacy handle lookup)
     owner_id: ObjectId,
     /// Whether to treat damage-state thresholds as structure semantics.
@@ -755,10 +752,9 @@ impl ActiveBody {
             base,
             module_data: Arc::clone(&module_data),
             state,
-            damage_scalar: Arc::new(RwLock::new(1.0)),
-            armor: Arc::new(RwLock::new(Armor::default())),
-            armor_template_name: Arc::new(RwLock::new(None)),
-            engine_template: Arc::new(RwLock::new(None)),
+            armor: Armor::default(),
+            armor_template_name: None,
+            engine_template: None,
             owner_id,
             treat_as_structure: false,
             min_health_floor: 0.0,
@@ -788,20 +784,16 @@ impl ActiveBody {
     }
 
     /// Provide the engine ThingTemplate backing this body for parity lookups.
-    pub fn set_engine_template(&self, template: Arc<DefaultThingTemplate>) {
-        if let Ok(mut slot) = self.engine_template.write() {
-            *slot = Some(template);
-        }
+    pub fn set_engine_template(&mut self, template: Arc<DefaultThingTemplate>) {
+        self.engine_template = Some(template);
         if let Ok(mut state) = self.state.write() {
             state.armor_flags_dirty = true;
         }
     }
 
     /// Clear the cached engine template handle (used during deletion).
-    pub fn clear_engine_template(&self) {
-        if let Ok(mut slot) = self.engine_template.write() {
-            *slot = None;
-        }
+    pub fn clear_engine_template(&mut self) {
+        self.engine_template = None;
         if let Ok(mut state) = self.state.write() {
             state.armor_flags_dirty = true;
         }
@@ -813,9 +805,7 @@ impl ActiveBody {
         }
 
         self.engine_template
-            .read()
-            .ok()
-            .and_then(|slot| slot.clone())
+            .as_ref()
             .map(|template| template.is_kind_of(crate::common::KindOf::Structure))
             .unwrap_or(false)
     }
@@ -866,114 +856,63 @@ impl ActiveBody {
     /// Set the correct damage state based on current health
     fn set_correct_damage_state(&mut self) -> BodyResult<()> {
         let is_structure = self.is_structure_for_damage_state();
-        let (damaged_thresh, really_damaged_thresh) = match global_data::read_safe() {
-            Ok(global) => (
-                global.unit_damaged_thresh,
-                global.unit_really_damaged_thresh,
-            ),
-            Err(_) => (0.5, 0.25),
-        };
-        let should_apply_structure_rubble_effects = if let Ok(mut state) = self.state.write() {
-            let new_state = Self::calc_damage_state(
-                state.current_health,
-                state.max_health,
-                is_structure,
-                damaged_thresh,
-                really_damaged_thresh,
-            );
+        let thresholds = global_data::read_safe().ok().map(|global| {
+            (global.unit_damaged_thresh, global.unit_really_damaged_thresh)
+        });
+        if let Ok(mut state) = self.state.write() {
+            // C++ calcDamageState returns BODY_PRISTINE before the divide when
+            // TheGlobalData is null. Rubble pose is applied by the Object that
+            // already holds this body, after the guard drops.
+            let new_state = if let Some((damaged_thresh, really_damaged_thresh)) = thresholds {
+                Self::calc_damage_state(
+                    state.current_health,
+                    state.max_health,
+                    is_structure,
+                    damaged_thresh,
+                    really_damaged_thresh,
+                )
+            } else {
+                BodyDamageType::Pristine
+            };
             state.current_damage_state = new_state;
-            new_state == BodyDamageType::Rubble && is_structure
         } else {
             return Err(BodyError::OperationNotSupported);
         };
-
-        // Handle special case for structures becoming rubble.
-        //
-        // C++ ActiveBody::setCorrectDamageState does all three:
-        // 1) set rubble geometry height
-        // 2) refresh pathfind map entry (remove/add)
-        // 3) force NO_COLLISIONS status
-        if should_apply_structure_rubble_effects {
-            // Avoid deadlocks: this can run while the owner object lock is already held.
-            if let Some(owner) = self.get_owner() {
-                let mut object_id = INVALID_ID;
-                if let Ok(mut obj) = owner.try_write() {
-                    object_id = obj.get_id();
-                    let rubble_height = obj
-                        .get_template()
-                        .structure_rubble_height()
-                        .unwrap_or_else(|| {
-                            global_data::read_safe()
-                                .map(|g| g.default_structure_rubble_height as u8)
-                                .unwrap_or(0)
-                        });
-                    obj.set_geometry_info_z(rubble_height as f32);
-                    obj.set_status(crate::common::ObjectStatusMaskType::NO_COLLISIONS, true);
-                }
-
-                if object_id != INVALID_ID {
-                    let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
-                        if let Some(pathfinder) = ai_guard.pathfinder() {
-                            if let Ok(mut pf_guard) = pathfinder.write() {
-                                pf_guard.remove_object_from_map(object_id, &[]);
-                                pf_guard.add_object_to_map(object_id, &[], false);
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         Ok(())
     }
 
     /// Validate armor and damage FX against the active template.
-    fn validate_armor_and_damage_fx(&self) -> BodyResult<()> {
-        let engine_template = self
-            .engine_template
-            .read()
-            .map_err(|_| BodyError::ArmorValidationFailed)?
-            .clone();
+    ///
+    /// `&mut self` because C++ `m_curArmor` is a plain member. `estimate_damage`
+    /// is `&self` (trait / C++ const) and must not lock this field; it resolves
+    /// a temporary armor instead.
+    fn validate_armor_and_damage_fx(&mut self) -> BodyResult<()> {
+        let engine_template = self.engine_template.clone();
 
         let (flags, dirty) = {
             let state = self
                 .state
                 .read()
-                .map_err(|_| BodyError::ArmorValidationFailed)?;
+                .unwrap_or_else(|err| err.into_inner());
             (state.armor_set_flags.clone(), state.armor_flags_dirty)
         };
 
-        let needs_template = {
-            let guard = self
-                .armor
-                .read()
-                .map_err(|_| BodyError::ArmorValidationFailed)?;
-            guard.template().is_none()
-        };
+        let needs_template = self.armor.template().is_none();
 
         if !dirty && !needs_template {
             return Ok(());
         }
 
-        let mut desired_armor_name: Option<AsciiString> = None;
-        let mut damage_fx_name: Option<AsciiString> = None;
+        let (desired_armor_name, damage_fx_name) = Self::resolve_armor_choice(
+            engine_template.as_ref(),
+            &flags,
+            self.module_data.default_armor_template.as_ref(),
+        );
 
-        if let Some(template) = engine_template {
-            if let Some(set) = template.find_armor_template_set(&flags) {
-                desired_armor_name = set
-                    .armor_template_name()
-                    .map(|s| AsciiString::from(s.as_str()));
-                damage_fx_name = set.damage_fx_name().map(|s| AsciiString::from(s.as_str()));
-            }
-        }
+        self.apply_named_armor(desired_armor_name)?;
 
-        if desired_armor_name.is_none() {
-            desired_armor_name = self.module_data.default_armor_template.clone();
-        }
-
-        self.apply_named_armor(desired_armor_name.clone())?;
-
-        if let Some(ref fx_name) = damage_fx_name {
+        if let Some(fx_name) = &damage_fx_name {
             let missing = get_damage_fx_store()
                 .map(|store| store.find_damage_fx(fx_name.as_str()).is_none())
                 .unwrap_or(true);
@@ -989,13 +928,66 @@ impl ActiveBody {
             let mut state = self
                 .state
                 .write()
-                .map_err(|_| BodyError::ArmorValidationFailed)?;
-            state.resolved_armor_flags = flags.clone();
+                .unwrap_or_else(|err| err.into_inner());
+            state.resolved_armor_flags = flags;
             state.armor_flags_dirty = false;
             state.current_damage_fx_name = damage_fx_name;
         }
 
         Ok(())
+    }
+
+    /// Armor name and damage-FX name C++ `validateArmorAndDamageFX` would install.
+    fn resolve_armor_choice(
+        engine_template: Option<&Arc<DefaultThingTemplate>>,
+        flags: &ArmorSetBitFlags,
+        default_name: Option<&AsciiString>,
+    ) -> (Option<AsciiString>, Option<AsciiString>) {
+        let mut desired_armor_name: Option<AsciiString> = None;
+        let mut damage_fx_name: Option<AsciiString> = None;
+
+        if let Some(template) = engine_template {
+            if let Some(set) = template.find_armor_template_set(flags) {
+                desired_armor_name = set
+                    .armor_template_name()
+                    .map(|s| AsciiString::from(s.as_str()));
+                damage_fx_name = set.damage_fx_name().map(|s| AsciiString::from(s.as_str()));
+            }
+        }
+
+        if desired_armor_name.is_none() {
+            desired_armor_name = default_name.cloned();
+        }
+
+        (desired_armor_name, damage_fx_name)
+    }
+
+    /// Same armor `validate_armor_and_damage_fx` would store, without locking
+    /// or writing. Used by `&self` estimate so the call stack never re-locks armor.
+    fn armor_resolved_for_read(&self) -> BodyResult<Armor> {
+        let (flags, dirty) = {
+            let state = self
+                .state
+                .read()
+                .unwrap_or_else(|err| err.into_inner());
+            (state.armor_set_flags.clone(), state.armor_flags_dirty)
+        };
+        if !dirty && self.armor.template().is_some() {
+            return Ok(self.armor.clone());
+        }
+        let (name, _) = Self::resolve_armor_choice(
+            self.engine_template.as_ref(),
+            &flags,
+            self.module_data.default_armor_template.as_ref(),
+        );
+        match name {
+            Some(armor_name) => {
+                let template = TheArmorStore::find_template(&armor_name)
+                    .ok_or(BodyError::ArmorTemplateNotFound(armor_name))?;
+                Ok(Armor::from_template(template))
+            }
+            None => Ok(Armor::default()),
+        }
     }
 
     /// Replace the current armor with the template referenced by name.
@@ -1017,68 +1009,45 @@ impl ActiveBody {
             state.armor_flags_dirty = false;
             state.current_damage_fx_name = None;
         }
-        if let Ok(mut stored) = self.armor_template_name.write() {
-            *stored = None;
-        }
+        self.armor_template_name = None;
         Ok(())
     }
 
     fn apply_armor_template(
-        &self,
+        &mut self,
         template: Arc<ArmorTemplate>,
         name: Option<AsciiString>,
     ) -> BodyResult<()> {
-        {
-            let mut armor = self
-                .armor
-                .write()
-                .map_err(|_| BodyError::ArmorValidationFailed)?;
-            *armor = Armor::from_template(template);
-        }
+        self.armor = Armor::from_template(template);
         if let Some(name) = name {
-            if let Ok(mut stored) = self.armor_template_name.write() {
-                *stored = Some(name);
-            }
+            self.armor_template_name = Some(name);
         }
         Ok(())
     }
 
-    fn apply_named_armor(&self, name: Option<AsciiString>) -> BodyResult<()> {
-        if let Some(ref armor_name) = name {
+    fn apply_named_armor(&mut self, name: Option<AsciiString>) -> BodyResult<()> {
+        if let Some(armor_name) = &name {
             let template = TheArmorStore::find_template(armor_name)
                 .ok_or_else(|| BodyError::ArmorTemplateNotFound(armor_name.clone()))?;
             self.apply_armor_template(template, Some(armor_name.clone()))
         } else {
-            {
-                let mut armor = self
-                    .armor
-                    .write()
-                    .map_err(|_| BodyError::ArmorValidationFailed)?;
-                armor.clear();
-            }
-            if let Ok(mut stored) = self.armor_template_name.write() {
-                *stored = None;
-            }
+            self.armor.clear();
+            self.armor_template_name = None;
             Ok(())
         }
     }
 
     fn adjust_damage_by_armor(&self, damage_type: DamageType, amount: f32) -> f32 {
-        if amount <= 0.0 {
-            return amount;
-        }
-        match self.armor.read() {
-            Ok(armor) => armor.adjust_damage(damage_type, amount),
-            Err(_) => amount,
-        }
+        // C++ ArmorTemplate::adjustDamage multiplies, then clamps < 0 to 0.
+        // Returning early kept healing amounts negative and skipped that clamp.
+        // Poison used to skip armor and return `amount` unchanged (a fake
+        // unarmored result). The armor value is owned, so this is the real one.
+        self.armor.adjust_damage(damage_type, amount)
     }
 
     /// Retrieve the name of the currently applied armor template, if any.
     pub fn current_armor_template_name(&self) -> Option<AsciiString> {
-        self.armor_template_name
-            .read()
-            .ok()
-            .and_then(|name| name.clone())
+        self.armor_template_name.clone()
     }
 
     /// Retrieve the active damage FX name, if any.
@@ -1143,9 +1112,7 @@ impl ActiveBody {
         let throttle = {
             if let Some(store) = get_damage_fx_store() {
                 if let Some(fx) = store.find_damage_fx(fx_name.as_str()) {
-                    let throttle = fx.get_damage_fx_throttle_time(damage_type, source_obj);
-                    fx.do_damage_fx(damage_type, dealt, source_obj, victim_obj);
-                    throttle
+                    fx.get_damage_fx_throttle_time(damage_type, source_obj)
                 } else {
                     log::trace!(
                         "Missing damage FX '{}' referenced by armor template",
@@ -1162,12 +1129,20 @@ impl ActiveBody {
             }
         };
 
-        let mut state = self
-            .state
-            .write()
-            .map_err(|_| BodyError::ArmorValidationFailed)?;
-        state.last_damage_fx_done = damage_type_to_use;
-        state.next_damage_fx_time = current_time.saturating_add(throttle);
+        {
+            let mut state = self
+                .state
+                .write()
+                .map_err(|_| BodyError::ArmorValidationFailed)?;
+            state.last_damage_fx_done = damage_type_to_use;
+            state.next_damage_fx_time = current_time.saturating_add(throttle);
+        }
+
+        if let Some(store) = get_damage_fx_store() {
+            if let Some(fx) = store.find_damage_fx(fx_name.as_str()) {
+                fx.do_damage_fx(damage_type, dealt, source_obj, victim_obj);
+            }
+        }
 
         Ok(())
     }
@@ -1494,11 +1469,7 @@ impl BodyModuleInterface for ActiveBody {
 
         self.validate_armor_and_damage_fx()?;
 
-        // Initialize output values
-        damage_info.output.actual_damage_dealt = 0.0;
-        damage_info.output.actual_damage_clipped = 0.0;
-
-        // Check if indestructible
+        // C++ ActiveBody.cpp:329 returns before clearing output.
         {
             let state = self
                 .state
@@ -1508,6 +1479,10 @@ impl BodyModuleInterface for ActiveBody {
                 return Ok(());
             }
         }
+
+        // Initialize output values
+        damage_info.output.actual_damage_dealt = 0.0;
+        damage_info.output.actual_damage_clipped = 0.0;
 
         if let Some(owner) = self.get_owner() {
             match owner.try_read() {
@@ -1527,14 +1502,31 @@ impl BodyModuleInterface for ActiveBody {
             }
         }
 
-        // Store source template if damager exists
         if damage_info.input.source_id != INVALID_ID {
-            if let Some(template) = OBJECT_REGISTRY
-                .with_object(damage_info.input.source_id, |damager_guard| {
-                    damager_guard.get_template().clone()
-                })
-            {
-                damage_info.input.source_template = Some(template);
+            let mut skip_lookup = false;
+            if let Some(owner) = self.get_owner() {
+                match owner.try_read() {
+                    Ok(guard) if guard.get_id() == damage_info.input.source_id => {
+                        damage_info.input.source_template = Some(guard.get_template().clone());
+                        skip_lookup = true;
+                    }
+                    Ok(_) => {}
+                    Err(std::sync::TryLockError::WouldBlock) => {
+                        skip_lookup = true;
+                    }
+                    Err(std::sync::TryLockError::Poisoned(_)) => {
+                        skip_lookup = true;
+                    }
+                }
+            }
+            if !skip_lookup {
+                if let Some(template) = OBJECT_REGISTRY
+                    .with_object(damage_info.input.source_id, |damager_guard| {
+                        damager_guard.get_template().clone()
+                    })
+                {
+                    damage_info.input.source_template = Some(template);
+                }
             }
         }
 
@@ -1612,19 +1604,12 @@ impl BodyModuleInterface for ActiveBody {
                             if let Ok(obj) = owner.read() {
                                 if let Some(ai) = obj.get_ai() {
                                     if let Ok(mut ai_guard) = ai.lock() {
-                                        let params = crate::ai::AiCommandParams::new(
+                                        let mut params = crate::ai::AiCommandParams::new(
                                             crate::ai::AiCommandType::EvacuateInstantly,
                                             CommandSourceType::FromAi,
                                         );
+                                        params.int_value = 1;
                                         let _ = ai_guard.execute_command(&params);
-                                    }
-                                }
-                                if let Some(contain) = obj.get_contain() {
-                                    if let Ok(mut cont) = contain.lock() {
-                                        let _ = cont.order_all_passengers_to_exit(
-                                            CommandSourceType::FromAi,
-                                            true,
-                                        );
                                     }
                                 }
                             }
@@ -1720,7 +1705,7 @@ impl BodyModuleInterface for ActiveBody {
             allow_modifier = false;
 
             if was_subdued != now_subdued {
-                self.on_subdual_change(now_subdued)?;
+                let _ = self.on_subdual_change(now_subdued);
             }
 
             if let Some(owner) = self.get_owner() {
@@ -1771,7 +1756,7 @@ impl BodyModuleInterface for ActiveBody {
             let mut existing_source_id = INVALID_ID;
             if let Ok(state) = self.state.read() {
                 let is_same_or_next_frame = state.last_damage_timestamp == frame_now
-                    || state.last_damage_timestamp == frame_now.saturating_sub(1);
+                    || state.last_damage_timestamp == frame_now.wrapping_sub(1);
                 if is_same_or_next_frame {
                     should_overwrite_last_damage = false;
                     existing_source_id = state
@@ -1787,7 +1772,7 @@ impl BodyModuleInterface for ActiveBody {
                     OBJECT_REGISTRY.with_object(damage_info.input.source_id, |guard| {
                         guard.is_kind_of(crate::common::KindOf::Vehicle)
                             || guard.is_kind_of(crate::common::KindOf::Infantry)
-                            || guard.is_kind_of(crate::common::KindOf::Structure)
+                            || guard.is_faction_structure()
                     });
                 let src1_exists = OBJECT_REGISTRY
                     .with_object(existing_source_id, |_| ())
@@ -1900,51 +1885,16 @@ impl BodyModuleInterface for ActiveBody {
                     });
                 }
 
-                // Object has died - death will be handled by the Object after this returns
-                // The ActiveBody just tracks that death occurred
-                log::debug!("ActiveBody: Health reached 0, death should be processed by Object");
+                // Object::attempt_damage_with_return calls on_die on this
+                // &mut Object. A registry write here deadlocks that caller.
             }
         }
 
-        // Do damage FX
-        self.do_damage_fx(damage_info)?;
+        // Do damage FX. A failed FX call must not retry the damage or the kill credit.
+        let _ = self.do_damage_fx(damage_info);
 
-        // C++ ActiveBody.cpp:655-701 — civilians become repulsors; friends retaliate.
-        if let Some(owner) = self.get_owner() {
-            if let Ok(mut owner_guard) = owner.try_write() {
-                let ai_store = the_ai();let enable_repulsors = ai_store
-                    .read()
-                    .ok()
-                    .and_then(|ai| {
-                        ai.get_ai_data()
-                            .read()
-                            .ok()
-                            .map(|data| data.enable_repulsors)
-                    })
-                    .unwrap_or(false);
-                if enable_repulsors && owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
-                    owner_guard.set_status(ObjectStatusTypes::Repulsor.into(), true);
-                }
-            }
-            if let Ok(owner_guard) = owner.try_read() {
-                let source_id = self
-                    .state
-                    .read()
-                    .ok()
-                    .and_then(|state| {
-                        state
-                            .last_damage_info
-                            .as_ref()
-                            .map(|info| info.input.source_id)
-                    })
-                    .unwrap_or(damage_info.input.source_id);
-                if source_id != INVALID_ID {
-                    let _ = OBJECT_REGISTRY.with_object(source_id, |damager| {
-                        retaliate_nearby_friends(&owner_guard, damager);
-                    });
-                }
-            }
-        }
+        // Repulsor and friend retaliation run on the Object after this guard
+        // drops. try_write/try_read fail while attempt_damage holds the object.
 
         Ok(())
     }
@@ -1952,15 +1902,11 @@ impl BodyModuleInterface for ActiveBody {
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()> {
         self.validate_armor_and_damage_fx()?;
 
-        // Initialize output values
-        healing_info.output.actual_damage_dealt = 0.0;
-        healing_info.output.actual_damage_clipped = 0.0;
-
         if healing_info.input.damage_type != DamageType::Healing {
             return self.attempt_damage(healing_info);
         }
 
-        // C++ parity: allow bridge/bridge-tower healing even when effectively dead.
+        // C++ ActiveBody.cpp:792-795 returns before clearing output.
         if let Some(owner) = self.get_owner() {
             if let Ok(owner_guard) = owner.read() {
                 let is_bridge = owner_guard.is_kind_of(KindOf::Bridge)
@@ -1974,6 +1920,9 @@ impl BodyModuleInterface for ActiveBody {
                 return Ok(());
             }
         }
+
+        healing_info.output.actual_damage_dealt = 0.0;
+        healing_info.output.actual_damage_clipped = 0.0;
 
         let amount =
             self.adjust_damage_by_armor(healing_info.input.damage_type, healing_info.input.amount);
@@ -2015,14 +1964,18 @@ impl BodyModuleInterface for ActiveBody {
             }
         }
 
-        // Do damage FX
-        self.do_damage_fx(healing_info)?;
+        // Do damage FX. A failed FX call must not undo or retry the heal.
+        let _ = self.do_damage_fx(healing_info);
 
         Ok(())
     }
 
     fn estimate_damage(&self, damage_info: &DamageInfoInput) -> BodyResult<f32> {
-        self.validate_armor_and_damage_fx()?;
+        // C++ estimateDamage is const and calls validateArmorAndDamageFX, which
+        // mutates mutable armor fields. That cache write needs `&mut self` here.
+        // Resolve the same armor into a local value so this `&self` path does
+        // not lock `armor` (and cannot lock it a second time).
+        let armor = self.armor_resolved_for_read()?;
 
         // Handle subdual damage
         if is_subdual_damage(damage_info.damage_type) && !self.can_be_subdued() {
@@ -2064,37 +2017,39 @@ impl BodyModuleInterface for ActiveBody {
         }
 
         // C++ parity: estimate damage after armor adjustments only.
-        let amount = self.adjust_damage_by_armor(damage_info.damage_type, damage_info.amount);
+        let amount = armor.adjust_damage(damage_info.damage_type, damage_info.amount);
 
         Ok(amount)
     }
 
     fn get_health(&self) -> f32 {
+        // Poison must not become 0 HP. That fake value makes kill-damage and
+        // the immortal floor treat a living object as dead.
         self.state
             .read()
-            .map(|state| state.current_health)
-            .unwrap_or(0.0)
+            .unwrap_or_else(|err| err.into_inner())
+            .current_health
     }
 
     fn get_max_health(&self) -> f32 {
         self.state
             .read()
-            .map(|state| state.max_health)
-            .unwrap_or(0.0)
+            .unwrap_or_else(|err| err.into_inner())
+            .max_health
     }
 
     fn get_initial_health(&self) -> f32 {
         self.state
             .read()
-            .map(|state| state.initial_health)
-            .unwrap_or(0.0)
+            .unwrap_or_else(|err| err.into_inner())
+            .initial_health
     }
 
     fn get_previous_health(&self) -> f32 {
         self.state
             .read()
-            .map(|state| state.previous_health)
-            .unwrap_or(0.0)
+            .unwrap_or_else(|err| err.into_inner())
+            .previous_health
     }
 
     fn get_subdual_damage_heal_rate(&self) -> u32 {
@@ -2108,32 +2063,35 @@ impl BodyModuleInterface for ActiveBody {
     fn has_any_subdual_damage(&self) -> bool {
         self.state
             .read()
-            .map(|state| state.current_subdual_damage > 0.0)
-            .unwrap_or(false)
+            .unwrap_or_else(|err| err.into_inner())
+            .current_subdual_damage
+            > 0.0
     }
 
     fn get_current_subdual_damage_amount(&self) -> f32 {
         self.state
             .read()
-            .map(|state| state.current_subdual_damage)
-            .unwrap_or(0.0)
+            .unwrap_or_else(|err| err.into_inner())
+            .current_subdual_damage
     }
 
     fn get_damage_state(&self) -> BodyDamageType {
         self.state
             .read()
-            .map(|state| state.current_damage_state)
-            .unwrap_or(BodyDamageType::Pristine)
+            .unwrap_or_else(|err| err.into_inner())
+            .current_damage_state
     }
 
     fn set_damage_state(&mut self, new_state: BodyDamageType) -> BodyResult<()> {
-        let old_state = self.get_damage_state();
+        if global_data::read_safe().is_err() {
+            return self.set_correct_damage_state();
+        }
         let (damaged_thresh, really_damaged_thresh) = match global_data::read_safe() {
             Ok(global) => (
                 global.unit_damaged_thresh,
                 global.unit_really_damaged_thresh,
             ),
-            Err(_) => (0.5, 0.25),
+            Err(_) => return self.set_correct_damage_state(),
         };
 
         // Calculate the health ratio for the desired state
@@ -2151,11 +2109,6 @@ impl BodyModuleInterface for ActiveBody {
 
         self.internal_change_health(delta)?;
         self.set_correct_damage_state()?;
-        let actual_state = self.get_damage_state();
-        if actual_state != old_state {
-            let mut damage_info = DamageInfo::default();
-            self.notify_damage_modules_on_state_change(&mut damage_info, old_state, actual_state);
-        }
 
         Ok(())
     }
@@ -2176,29 +2129,9 @@ impl BodyModuleInterface for ActiveBody {
             return Ok(());
         }
 
-        // Handle promotion (increase in level)
-        if old_level < new_level {
-            if let Some(owner) = self.get_owner() {
-                if let Ok(owner_guard) = owner.read() {
-                    if provide_feedback {
-                        let event = match new_level {
-                            VeterancyLevel::Veteran => {
-                                owner_guard.get_template().get_sound_promoted_veteran()
-                            }
-                            VeterancyLevel::Elite => {
-                                owner_guard.get_template().get_sound_promoted_elite()
-                            }
-                            VeterancyLevel::Heroic => {
-                                owner_guard.get_template().get_sound_promoted_hero()
-                            }
-                            _ => crate::common::audio::AudioEventRts::default(),
-                        };
-                        play_object_template_sound(&owner_guard, event);
-                    }
-                    crate::control_bar::mark_ui_dirty();
-                }
-            }
-        }
+        // Promotion audio is played by Object::on_veterancy_level_changed.
+        // owner.read() here deadlocks score_the_kill's write lock.
+        let _ = provide_feedback;
 
         let (old_bonus, new_bonus) = if let Some(data) = game_engine::common::ini::get_global_data()
         {
@@ -2217,7 +2150,11 @@ impl BodyModuleInterface for ActiveBody {
         } else {
             (1.0, 1.0)
         };
-        let multiplier = new_bonus / old_bonus;
+        let multiplier = if old_bonus == 0.0 {
+            1.0
+        } else {
+            new_bonus / old_bonus
+        };
 
         // Change max health preserving ratio
         let new_max_health = self.get_max_health() * multiplier;
@@ -2418,23 +2355,16 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn apply_damage_scalar(&mut self, scalar: f32) -> BodyResult<()> {
-        if let Ok(mut damage_scalar) = self.damage_scalar.write() {
-            *damage_scalar *= scalar;
-            Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
-        }
+        BodyModuleInterface::apply_damage_scalar(&mut self.base, scalar)
     }
 
     fn get_damage_scalar(&self) -> f32 {
-        self.damage_scalar
-            .read()
-            .map(|scalar| *scalar)
-            .unwrap_or(1.0)
+        BodyModuleInterface::get_damage_scalar(&self.base)
     }
 
     fn internal_change_health(&mut self, delta: f32) -> BodyResult<()> {
         let mut changed_state = false;
+        let mut effectively_dead = false;
         let is_structure = self.is_structure_for_damage_state();
         let floor = self.min_health_floor;
         // C++ ImmortalBody.cpp:34 — clamp delta before ActiveBody so we
@@ -2446,39 +2376,37 @@ impl BodyModuleInterface for ActiveBody {
         } else {
             delta
         };
-        let (damaged_thresh, really_damaged_thresh) = match global_data::read_safe() {
-            Ok(global) => (
-                global.unit_damaged_thresh,
-                global.unit_really_damaged_thresh,
-            ),
-            Err(_) => (0.5, 0.25),
-        };
+        let thresholds = global_data::read_safe().ok().map(|global| {
+            (global.unit_damaged_thresh, global.unit_really_damaged_thresh)
+        });
         if let Ok(mut state) = self.state.write() {
-            // Save current as previous
             state.previous_health = state.current_health;
 
-            // Apply delta
             state.current_health += delta;
 
-            // Clamp to valid range (ImmortalBody low cap is 1, not 0).
-            // high >= floor so clamp never panics if max < floor.
             let high = state.max_health.max(floor);
             state.current_health = state.current_health.clamp(floor.min(high), high);
 
-            // Update damage state
             let old_state = state.current_damage_state;
-            state.current_damage_state = Self::calc_damage_state(
-                state.current_health,
-                state.max_health,
-                is_structure,
-                damaged_thresh,
-                really_damaged_thresh,
-            );
+            state.current_damage_state = if let Some((damaged_thresh, really_damaged_thresh)) =
+                thresholds
+            {
+                Self::calc_damage_state(
+                    state.current_health,
+                    state.max_health,
+                    is_structure,
+                    damaged_thresh,
+                    really_damaged_thresh,
+                )
+            } else {
+                BodyDamageType::Pristine
+            };
 
-            // Handle state change
             if state.current_damage_state != old_state {
                 changed_state = true;
             }
+
+            effectively_dead = state.current_health <= 0.0;
         } else {
             return Err(BodyError::OperationNotSupported);
         }
@@ -2498,7 +2426,20 @@ impl BodyModuleInterface for ActiveBody {
                 None => false,
             };
             if !under_construction {
-                self.evaluate_visual_condition()?;
+                let _ = self.evaluate_visual_condition();
+            }
+        }
+
+        // Only clear the bit here. Setting it before handle_death makes that
+        // function return and skip on_die. try_write fails when the caller
+        // already holds the object; those paths sync after death handling.
+        if !effectively_dead {
+            if let Some(owner) = self.get_owner() {
+                if let Ok(mut owner_guard) = owner.try_write() {
+                    if owner_guard.is_effectively_dead() {
+                        owner_guard.set_effectively_dead(false);
+                    }
+                }
             }
         }
 
@@ -2519,8 +2460,8 @@ impl BodyModuleInterface for ActiveBody {
     fn is_indestructible(&self) -> bool {
         self.state
             .read()
-            .map(|state| state.indestructible)
-            .unwrap_or(false)
+            .unwrap_or_else(|err| err.into_inner())
+            .indestructible
     }
 
     fn evaluate_visual_condition(&mut self) -> BodyResult<()> {
@@ -2723,12 +2664,10 @@ impl Snapshotable for ActiveBody {
             .map_err(|e| e.to_string())?;
 
         let mut particle_ids: Vec<u32> = Vec::new();
-        if xfer.is_writing() {
-            let mut cursor = state.particle_systems.as_ref();
-            while let Some(system) = cursor {
-                particle_ids.push(system.particle_system_id);
-                cursor = system.next.as_ref();
-            }
+        let mut cursor = state.particle_systems.as_ref();
+        while let Some(system) = cursor {
+            particle_ids.push(system.particle_system_id);
+            cursor = system.next.as_ref();
         }
 
         let mut particle_count = particle_ids.len().min(u16::MAX as usize) as u16;
@@ -2741,8 +2680,11 @@ impl Snapshotable for ActiveBody {
                 xfer.xfer_unsigned_int(&mut value)
                     .map_err(|e| e.to_string())?;
             }
+        } else if state.particle_systems.is_some() {
+            return Err(
+                "ActiveBody::xfer - m_particleSystems should be empty, but is not".to_string(),
+            );
         } else {
-            state.particle_systems = None;
             for _ in 0..particle_count {
                 let mut value = 0u32;
                 xfer.xfer_unsigned_int(&mut value)
@@ -2755,14 +2697,56 @@ impl Snapshotable for ActiveBody {
             }
         }
 
-        let mut armor_bits = armor_set_flags_to_u32(&state.armor_set_flags);
-        xfer.xfer_unsigned_int(&mut armor_bits)
+        // C++ BitFlags::xfer: version, then count and ASCII names on save/load.
+        const ARMOR_SET_NAMES: [&str; 8] = [
+            "VETERAN",
+            "ELITE",
+            "HERO",
+            "PLAYER_UPGRADE",
+            "WEAK_VERSUS_BASEDEFENSES",
+            "SECOND_LIFE",
+            "CRATE_UPGRADE_ONE",
+            "CRATE_UPGRADE_TWO",
+        ];
+        let mut armor_version: XferVersion = 1;
+        xfer.xfer_version(&mut armor_version, 1)
             .map_err(|e| e.to_string())?;
+        let mut armor_bits = armor_set_flags_to_u32(&state.armor_set_flags);
         if xfer.is_reading() {
+            let mut count = 0i32;
+            xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+            armor_bits = 0;
+            for _ in 0..count {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name).map_err(|e| e.to_string())?;
+                if let Some(index) = ARMOR_SET_NAMES
+                    .iter()
+                    .position(|bit| bit.eq_ignore_ascii_case(&name))
+                {
+                    armor_bits |= 1 << index;
+                } else {
+                    return Err(format!("ActiveBody armor set flag unknown: {name}"));
+                }
+            }
             state.armor_set_flags = armor_set_flags_from_u32(armor_bits);
             state.resolved_armor_flags = create_armor_set_flags();
             state.armor_flags_dirty = true;
             state.current_damage_fx_name = None;
+        } else if xfer.is_writing() {
+            let mut count = armor_bits.count_ones() as i32;
+            xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+            for (index, bit_name) in ARMOR_SET_NAMES.iter().enumerate() {
+                if armor_bits & (1 << index) == 0 {
+                    continue;
+                }
+                let mut name = (*bit_name).to_string();
+                xfer.xfer_ascii_string(&mut name).map_err(|e| e.to_string())?;
+            }
+        } else {
+            // C++ CRC is xferUser(this, sizeof(this)): pointer-sized, not names.
+            // Hash the flag bits so a CRC does not emit the save strings.
+            xfer.xfer_unsigned_int(&mut armor_bits)
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(())

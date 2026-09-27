@@ -331,18 +331,24 @@ impl DrawModule for W3DProjectileStreamDraw {
 
 impl Snapshotable for W3DProjectileStreamDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
+        let _ = xfer;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ parity: W3DProjectileStreamDraw::xfer version stamp with no payload.
+        // C++ W3DProjectileStreamDraw::xfer: version 1, DrawModule::xfer, no payload.
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1)
             .map_err(|e| e.to_string())?;
         Ok(())
     }

@@ -2337,6 +2337,9 @@ impl GameLogic {
                     obj.movement.path = vec![new_pos, dest];
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(dest);
+                    obj.is_attack_path = false;
+                    obj.is_exact_path = false;
+                    obj.refresh_follow_path_extra_distance();
                     obj.set_ai_state(AIState::Moving);
                     obj.status.moving = true;
                     obj.pending_evacuate_on_stop = true;
@@ -2688,7 +2691,7 @@ impl GameLogic {
                 hunter.stop_moving();
                 hunter.set_status_moving(false);
                 hunter.set_status_attacking(false);
-                hunter.set_target(None);
+                hunter.target = None;
                 hunter.set_position(position);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(
@@ -2779,7 +2782,7 @@ impl GameLogic {
                 guard.stop_moving();
                 guard.set_status_moving(false);
                 guard.set_status_attacking(false);
-                guard.set_target(None);
+                guard.target = None;
                 guard.set_position(position);
                 if crate::gameworld_shadow::gameworld_movement_authority_live() {
                     crate::game_logic::host_move_log::record(

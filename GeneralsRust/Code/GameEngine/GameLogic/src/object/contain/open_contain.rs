@@ -21,7 +21,7 @@ use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
 use crate::helpers::{TheAudio, TheGameLogic, TheTerrainLogic};
 use crate::modules::{
-    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, PhysicsBehaviorExt,
+    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, PhysicsBehavior,
     UpdateSleepTime,
 };
 use crate::object::Object;
@@ -51,6 +51,32 @@ struct ExitPrep {
     owner_id: ObjectID,
     end_pos: Coord3D,
     exit_path: Vec<Coord3D>,
+    /// Physics/AI arcs copied out of the exit object. Do not lock either while that guard is held.
+    physics: Option<Arc<Mutex<dyn crate::modules::PhysicsBehavior>>>,
+    ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
+}
+
+/// C++ reads `getAllowToFall`, sets false for `aiFollowPath`/`updateGoal`, then restores.
+/// One guard does both the read and the write. `std::Mutex` does not reenter: `WouldBlock`
+/// means this thread already holds the physics mutex, so do not lock it again.
+fn pause_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>) -> Option<bool> {
+    let mut guard = match physics.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return None,
+    };
+    let previous = guard.get_allow_to_fall();
+    guard.set_allow_to_fall(false);
+    Some(previous)
+}
+
+fn restore_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>, allow: bool) {
+    let mut guard = match physics.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return,
+    };
+    guard.set_allow_to_fall(allow);
 }
 
 /// Constant for unlimited contain capacity
@@ -1084,6 +1110,15 @@ impl OpenContain {
         Coord3D::new(matrix[0][3], matrix[1][3], matrix[2][3])
     }
 
+    fn fire_point_transform(matrix: &FirePointMatrix) -> Matrix3D {
+        Matrix3D::from_cols_array_2d(&[
+            [matrix[0][0], matrix[1][0], matrix[2][0], 0.0],
+            [matrix[0][1], matrix[1][1], matrix[2][1], 0.0],
+            [matrix[0][2], matrix[1][2], matrix[2][2], 0.0],
+            [matrix[0][3], matrix[1][3], matrix[2][3], 1.0],
+        ])
+    }
+
     fn contain_want_to_cpp_value(want: ContainWant) -> i32 {
         match want {
             ContainWant::WantsToEnter => 0,
@@ -1134,7 +1169,9 @@ impl OpenContain {
         }
 
         self.player_who_entered = PlayerMaskType::none();
-        self.monitor_condition_changes()?;
+        if let Err(err) = self.monitor_condition_changes() {
+            log::warn!("OpenContain::update monitorConditionChanges failed: {}", err);
+        }
         let countdown = self.door_close_countdown.load(Ordering::Relaxed);
         if countdown > 0 {
             let pulse = leftover_open_contain_tick_exit_door(countdown);
@@ -1183,7 +1220,10 @@ impl OpenContain {
             return Ok(());
         };
         if curr_condition != self.condition_state {
-            self.redeploy_occupants()?;
+            if let Err(err) = self.redeploy_occupants() {
+                log::warn!("OpenContain::monitorConditionChanges redeploy failed: {}", err);
+                return Ok(());
+            }
             self.condition_state = curr_condition;
         }
         Ok(())
@@ -1199,7 +1239,6 @@ impl OpenContain {
         // Check kind restrictions
         let obj_kind = obj.get_kind_of();
 
-        // Must have at least one allowed kind bit
         if self.module_data.allow_inside_kind_of != 0
             && (obj_kind & self.module_data.allow_inside_kind_of) == 0
         {
@@ -1211,32 +1250,24 @@ impl OpenContain {
             return false;
         }
 
-        // Check capacity if requested
-        if check_capacity && self.module_data.contain_max != CONTAIN_MAX_UNKNOWN {
-            if self.contained_object_ids.len() >= self.module_data.contain_max as usize {
-                return false;
-            }
-        }
-
-        // Check ally/enemy restrictions
+        let _ = check_capacity;
         let owner_id = self.get_object_id();
-        if owner_id != crate::common::INVALID_ID {
-            if let Some(allowed) =
-                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
-                    let relationship = owner.get_relationship_to(obj);
-                    match relationship {
-                        ObjectRelationship::Ally => self.module_data.allow_allies_inside,
-                        ObjectRelationship::Enemy => self.module_data.allow_enemies_inside,
-                        ObjectRelationship::Neutral => self.module_data.allow_neutral_inside,
-                        _ => false,
-                    }
-                })
-            {
-                return allowed;
-            }
+        if owner_id == crate::common::INVALID_ID {
+            return true;
         }
-
-        true
+        let Some(owner_arc) = self.get_object() else {
+            return false;
+        };
+        let Ok(owner) = owner_arc.try_read() else {
+            return false;
+        };
+        let relationship = obj.get_relationship_to(&owner);
+        match relationship {
+            ObjectRelationship::Ally => self.module_data.allow_allies_inside,
+            ObjectRelationship::Enemy => self.module_data.allow_enemies_inside,
+            ObjectRelationship::Neutral => self.module_data.allow_neutral_inside,
+            _ => false,
+        }
     }
 
     /// Add object to containment
@@ -1260,13 +1291,15 @@ impl OpenContain {
             .ok_or("Contain object not found")?;
 
         let was_selected = obj
-            .read()
+            .try_read()
             .ok()
             .and_then(|guard| guard.get_drawable())
-            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
             .unwrap_or(false);
 
-        let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+        let Ok(obj_guard) = obj.try_read() else {
+            return Err(GameError::LockError.into());
+        };
         let is_stealth_garrison = obj_guard.is_kind_of(KindOf::StealthGarrison);
         if !self.is_valid_container_for(&*obj_guard, true) {
             return Err("Object not valid for this container".into());
@@ -1284,8 +1317,112 @@ impl OpenContain {
         }
 
         self.redeploy_occupants()?;
-        self.on_containing(obj_id, was_selected)?;
+        if let Err(err) = self.on_containing(obj_id, was_selected) {
+            if self.remove_from_contain_list(obj_id).is_some() && enclosing {
+                let _ = self.add_or_remove_obj_from_world(obj_id, true);
+            }
+            let _ = self.redeploy_occupants();
+            return Err(err);
+        }
+        self.do_load_sound();
         Ok(())
+    }
+
+    /// C++ `OpenContain::onCollide` (`OpenContain.cpp:758-815`).
+    pub fn on_collide_enter(&mut self, other_id: ObjectID) -> GameResult<()> {
+        if !self.collide_enter_eject_foreign(other_id)? {
+            return Ok(());
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(());
+        };
+        let valid = other
+            .try_read()
+            .map(|guard| self.is_valid_container_for(&*guard, true))
+            .unwrap_or(false);
+        if valid {
+            self.add_to_contain(other_id)?;
+        }
+        Ok(())
+    }
+
+    /// Enter-target check and foreign-rider eject. `true` means the subclass should
+    /// run its own `is_valid_container_for` and `add_to_contain`.
+    pub fn collide_enter_eject_foreign(&mut self, other_id: ObjectID) -> GameResult<bool> {
+        if other_id == crate::common::INVALID_ID || other_id == self.object_id {
+            return Ok(false);
+        }
+        let Some(other) = TheGameLogic::find_object_by_id(other_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        else {
+            return Ok(false);
+        };
+        let wants_enter = {
+            let Ok(guard) = other.try_read() else {
+                return Ok(false);
+            };
+            let Some(ai) = guard.get_ai_update_interface() else {
+                return Ok(false);
+            };
+            let Ok(ai_guard) = ai.try_lock() else {
+                return Ok(false);
+            };
+            ai_guard.get_enter_target() == Some(self.object_id)
+        };
+        if !wants_enter {
+            return Ok(false);
+        }
+        let Ok(other_guard) = other.try_read() else {
+            return Ok(false);
+        };
+        let other_player = other_guard.get_controlling_player();
+        drop(other_guard);
+        for rider_id in self.contained_object_ids.clone() {
+            let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+            else {
+                continue;
+            };
+            let Ok(rider_guard) = rider.try_read() else {
+                continue;
+            };
+            let rider_player = rider_guard.get_controlling_player();
+            drop(rider_guard);
+            let same_player = match (&other_player, &rider_player) {
+                (Some(a), Some(b)) => std::sync::Arc::ptr_eq(a, b),
+                (None, None) => true,
+                _ => false,
+            };
+            if !same_player {
+                let (stealth, ai) = if let Ok(guard) = rider.try_read() {
+                    let stealth = if guard.is_kind_of(KindOf::StealthGarrison) {
+                        guard.get_stealth()
+                    } else {
+                        None
+                    };
+                    (stealth, guard.get_ai_update_interface())
+                } else {
+                    continue;
+                };
+                if ai.is_some() {
+                    if let Some(stealth) = stealth {
+                        if let Ok(mut stealth_guard) = stealth.try_lock() {
+                            stealth_guard.mark_as_detected();
+                        }
+                    }
+                    if let Ok(mut rider_guard) = rider.try_write() {
+                        rider_guard.ai_pending_exit = Some(false);
+                        rider_guard.ai_pending_exit_source = crate::common::CommandSourceType::FromAi;
+                        rider_guard.ai_pending_exit_obj = Some(self.object_id);
+                    }
+                } else {
+                    self.remove_from_contain(rider_id, true)?;
+                }
+            }
+        }
+        Ok(true)
     }
 
     /// Add object to contain list (can be overridden by inheritors)
@@ -1333,22 +1470,33 @@ impl OpenContain {
     }
 
     /// Remove object from contain list without triggering containment callbacks.
-    pub fn remove_from_contain_list(&mut self, object_id: ObjectID) {
+    pub fn remove_from_contain_list(&mut self, object_id: ObjectID) -> Option<bool> {
         if !self.contained_object_ids.iter().any(|&id| id == object_id) {
-            return;
+            return None;
         }
-        let is_stealth_garrison = TheGameLogic::find_object_by_id(object_id)
-            .and_then(|obj| {
-                obj.read()
-                    .ok()
-                    .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
-            })
-            .unwrap_or(false);
+        let Some(obj) = TheGameLogic::find_object_by_id(object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        else {
+            self.contained_object_ids.retain(|&id| id != object_id);
+            return Some(false);
+        };
+        let Ok(guard) = obj.try_read() else {
+            return None;
+        };
+        let is_stealth_garrison = guard.is_kind_of(KindOf::StealthGarrison);
+        drop(guard);
         self.contained_object_ids.retain(|&id| id != object_id);
         if is_stealth_garrison {
             self.stealth_units_contained = self.stealth_units_contained.saturating_sub(1);
         }
+        Some(is_stealth_garrison)
     }
+    /// Drop an id with no rider lock and no stealth adjustment.
+    /// Used when the rider lock is already known busy.
+    pub fn unlink_contained_id(&mut self, object_id: ObjectID) {
+        self.contained_object_ids.retain(|&id| id != object_id);
+    }
+
 
     /// Remove object from containment
     pub fn remove_from_contain(
@@ -1368,10 +1516,11 @@ impl OpenContain {
         };
 
         if self.object_id != crate::common::INVALID_ID {
-            if let Ok(obj_guard) = obj.read() {
-                if obj_guard.get_contained_by() != Some(self.object_id) {
-                    return Ok(());
-                }
+            let Ok(obj_guard) = obj.try_read() else {
+                return Err(GameError::LockError.into());
+            };
+            if obj_guard.get_contained_by() != Some(self.object_id) {
+                return Ok(());
             }
         }
 
@@ -1379,22 +1528,26 @@ impl OpenContain {
             return Ok(());
         }
 
-        self.remove_from_contain_list(obj_id);
+        let Some(stealth_garrison) = self.remove_from_contain_list(obj_id) else {
+            return Err(GameError::LockError.into());
+        };
 
         if expose_stealth_units {
-            if let Ok(obj_guard) = obj.read() {
-                if let Some(stealth) = obj_guard.get_stealth() {
-                    if let Ok(mut stealth_guard) = stealth.lock() {
-                        stealth_guard.mark_as_detected();
-                    }
+            let stealth = obj.try_read().ok().and_then(|obj_guard| {
+                if obj_guard.is_kind_of(KindOf::StealthGarrison) {
+                    obj_guard.get_stealth()
+                } else {
+                    None
+                }
+            });
+            if let Some(stealth) = stealth {
+                if let Ok(mut stealth_guard) = stealth.lock() {
+                    stealth_guard.mark_as_detected();
                 }
             }
         }
-        self.do_unload_sound();
-        self.on_removing(obj_id)?;
-
         let enclosing = obj
-            .read()
+            .try_read()
             .map(|g| self.is_enclosing_container_for(&*g))
             .unwrap_or(false);
         if enclosing {
@@ -1402,26 +1555,42 @@ impl OpenContain {
         }
         let owner_id = self.get_object_id();
         if owner_id != crate::common::INVALID_ID {
-            if let Some((pos, layer)) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(owner_id, |owner_guard| {
-                    (*owner_guard.get_position(), owner_guard.get_layer())
-                })
-            {
-                if let Ok(mut obj_guard) = obj.write() {
-                    if enclosing {
-                        if let Err(err) = obj_guard.set_position(&pos) {
-                            log::warn!(
-                                "OpenContain::remove_from_contain failed to place object {}: {}",
-                                obj_guard.get_id(),
-                                err
-                            );
+            if let Some(owner_arc) = self.get_object() {
+                if let Ok(owner_guard) = owner_arc.try_read() {
+                    let pos = *owner_guard.get_position();
+                    let layer = owner_guard.get_layer();
+                    drop(owner_guard);
+                    if let Ok(mut obj_guard) = obj.try_write() {
+                        if enclosing {
+                            if let Err(err) = obj_guard.set_position(&pos) {
+                                log::warn!(
+                                    "OpenContain::remove_from_contain failed to place object {}: {}",
+                                    obj_guard.get_id(),
+                                    err
+                                );
+                            }
                         }
+                        obj_guard.set_layer(layer);
                     }
-                    obj_guard.set_layer(layer);
                 }
             }
         }
+        self.do_unload_sound();
+        if let Err(err) = self.on_removing(obj_id) {
+            let _ = self.add_to_contain_list_id(obj_id, stealth_garrison);
+            if enclosing {
+                let _ = self.add_or_remove_obj_from_world(obj_id, false);
+            }
+            return Err(err);
+        }
 
+        if let Err(err) = self.note_removed_from(obj_id) {
+            let _ = self.add_to_contain_list_id(obj_id, stealth_garrison);
+            if enclosing {
+                let _ = self.add_or_remove_obj_from_world(obj_id, false);
+            }
+            return Err(err);
+        }
         Ok(())
     }
 
@@ -1429,7 +1598,9 @@ impl OpenContain {
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         let object_ids = self.contained_object_ids.clone();
         for obj_id in object_ids {
-            self.remove_from_contain(obj_id, expose_stealth_units)?;
+            if let Err(err) = self.remove_from_contain(obj_id, expose_stealth_units) {
+                log::warn!("OpenContain::remove_all_contained failed for {}: {}", obj_id, err);
+            }
         }
         Ok(())
     }
@@ -1445,9 +1616,15 @@ impl OpenContain {
         while let Some(&obj_id) = self.contained_object_ids.first() {
             let obj = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id));
-            self.remove_from_contain(obj_id, true)?;
+            if let Err(err) = self.remove_from_contain(obj_id, true) {
+                log::warn!("OpenContain::kill_all_contained failed for {}: {}", obj_id, err);
+                if self.contained_object_ids.first() == Some(&obj_id) {
+                    self.contained_object_ids.remove(0);
+                }
+                continue;
+            }
             if let Some(obj) = obj {
-                if let Ok(mut guard) = obj.write() {
+                if let Ok(mut guard) = obj.try_write() {
                     guard.kill(None, None);
                 }
             }
@@ -1470,9 +1647,18 @@ impl OpenContain {
         while let Some(&obj_id) = self.contained_object_ids.first() {
             let obj = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id));
-            self.remove_from_contain(obj_id, true)?;
+            if let Err(err) = self.remove_from_contain(obj_id, true) {
+                log::warn!(
+                    "OpenContain::harmAndForceExitAllContained failed for {}: {}",
+                    obj_id, err
+                );
+                if self.contained_object_ids.first() == Some(&obj_id) {
+                    self.contained_object_ids.remove(0);
+                }
+                continue;
+            }
             if let Some(obj) = obj {
-                if let Ok(mut guard) = obj.write() {
+                if let Ok(mut guard) = obj.try_write() {
                     let _ = guard.attempt_damage(damage_info);
                 }
             }
@@ -1501,31 +1687,43 @@ impl OpenContain {
         if container_id == crate::common::INVALID_ID {
             return Err(GameError::ModuleError("OpenContain has no owning object".into()).into());
         }
-        if let Ok(mut contained) = obj.write() {
+        let (is_enclosing, entered_mask) = obj
+            .try_read()
+            .ok()
+            .map(|guard| {
+                let enclosing = self.is_enclosing_container_for(&*guard);
+                let mask = guard.get_controlling_player().and_then(|player| {
+                    player.try_read().ok().map(|player_guard| player_guard.get_player_mask())
+                });
+                (enclosing, mask)
+            })
+            .unwrap_or((false, None));
+        if let Ok(mut contained) = obj.try_write() {
             contained
-                .on_contained_by(container_id)
+                .on_contained_by_enclosing(container_id, is_enclosing)
                 .map_err(|e| GameError::ModuleError(e.to_string()))?;
-
-            if let Some(player) = contained.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    self.player_who_entered = player_guard.get_player_mask();
-                }
+            if let Some(mask) = entered_mask {
+                self.player_who_entered = mask;
             }
+        } else {
+            return Err(GameError::ModuleError("Passenger lock busy during onContainedBy".into()).into());
         }
 
         // C++ OpenContain::onContaining: template SoundEnter (gated by load-sounds-enabled).
         if self.load_sounds_enabled {
-            if let Some((object_id, mut event)) =
-                self.with_object(|owner| (owner.get_id(), owner.get_template().get_sound_enter()))
-            {
-                event.set_object_id(object_id);
-                if let Some(audio) = TheAudio::get() {
-                    audio.add_audio_event(&event);
+            if let Some(owner_arc) = self.get_object() {
+                if let Ok(owner) = owner_arc.try_read() {
+                    let object_id = owner.get_id();
+                    let mut event = owner.get_template().get_sound_enter();
+                    drop(owner);
+                    event.set_object_id(object_id);
+                    if let Some(audio) = TheAudio::get() {
+                        audio.add_audio_event(&event);
+                    }
                 }
             }
         }
-        // Play enter sound
-        self.do_load_sound();
+        // Module EnterSound is doLoadSound, called from add_to_contain.
 
         Ok(())
     }
@@ -1543,36 +1741,49 @@ impl OpenContain {
             return Ok(());
         };
 
-        // Object-level containment removal processing (matches C++ Object::onRemovedFrom).
         let container_id = self.get_object_id();
-        if container_id == crate::common::INVALID_ID {
-            return Err(GameError::ModuleError("OpenContain has no owning object".into()).into());
-        }
-        if let Ok(mut contained) = obj.write() {
-            contained
-                .on_removed_from(container_id)
-                .map_err(|e| GameError::ModuleError(e.to_string()))?;
-        }
-
-        // C++ OpenContain::onRemoving: template SoundExit on the container
-        // plus the rider's SoundFalling.
-        if let Some((object_id, mut event)) =
-            self.with_object(|owner| (owner.get_id(), owner.get_template().get_sound_exit()))
-        {
-            event.set_object_id(object_id);
-            if let Some(audio) = TheAudio::get() {
-                audio.add_audio_event(&event);
+        // C++ OpenContain::onRemoving plays SoundExit and SoundFalling.
+        // onRemovedFrom runs after that, in removeFromContainViaIterator.
+        if let Some(owner_arc) = self.get_object() {
+            if let Ok(owner) = owner_arc.try_read() {
+                let object_id = owner.get_id();
+                let mut event = owner.get_template().get_sound_exit();
+                drop(owner);
+                event.set_object_id(object_id);
+                if let Some(audio) = TheAudio::get() {
+                    audio.add_audio_event(&event);
+                }
             }
         }
-        if let Ok(obj_guard) = obj.read() {
+        if let Ok(obj_guard) = obj.try_read() {
             let mut falling = obj_guard.get_template().get_sound_falling();
             falling.set_object_id(obj_guard.get_id());
             if let Some(audio) = TheAudio::get() {
                 audio.add_audio_event(&falling);
             }
         }
-
         Ok(())
+    }
+
+    /// C++ `rider->onRemovedFrom`, after `Contain::onRemoving` returns.
+    pub fn note_removed_from(&self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        else {
+            return Ok(());
+        };
+        let container_id = self.get_object_id();
+        if container_id == crate::common::INVALID_ID {
+            return Err(GameError::ModuleError("OpenContain has no owning object".into()).into());
+        }
+        if let Ok(mut contained) = obj.try_write() {
+            contained
+                .on_removed_from(container_id)
+                .map_err(|e| GameError::ModuleError(e.to_string()))?;
+            Ok(())
+        } else {
+            Err(GameError::ModuleError("Passenger lock busy during onRemovedFrom".into()).into())
+        }
     }
 
     /// Enable or disable load sounds.
@@ -1619,15 +1830,14 @@ impl OpenContain {
             else {
                 continue;
             };
-            let max_health = obj
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_body_module())
-                .and_then(|body| {
-                    body.lock()
-                        .ok()
-                        .map(|body_guard| body_guard.get_max_health())
-                })
+            let Ok(guard) = obj.try_read() else {
+                continue;
+            };
+            let body = guard.get_body_module();
+            drop(guard);
+            let max_health = body
+                .as_ref()
+                .and_then(|body| body.try_lock().ok().map(|body_guard| body_guard.get_max_health()))
                 .unwrap_or(0.0);
             let mut damage_info = DamageInfo::with_simple(
                 max_health * percent_damage,
@@ -1635,12 +1845,12 @@ impl OpenContain {
                 DamageType::Unresistable,
                 death_type,
             );
-            if let Ok(mut passenger) = obj.write() {
-                let _ = passenger.attempt_damage(&mut damage_info);
-                if !passenger.is_effectively_dead() && (percent_damage - 1.0).abs() <= f32::EPSILON
-                {
-                    passenger.kill(None, None);
-                }
+            let Ok(mut passenger) = obj.try_write() else {
+                continue;
+            };
+            let _ = passenger.attempt_damage(&mut damage_info);
+            if !passenger.is_effectively_dead() && (percent_damage - 1.0).abs() <= f32::EPSILON {
+                passenger.kill(None, None);
             }
         }
         Ok(())
@@ -1678,9 +1888,11 @@ impl OpenContain {
         let _ = rider.set_orientation(angle);
         if let Some(ai) = rider.get_ai() {
             let _ = rider.set_position(&container_pos);
-            if let Ok(mut ai_guard) = ai.lock() {
+            if let Ok(mut ai_guard) = ai.try_lock() {
                 let _ = ai_guard.ignore_obstacle(Some(self.get_object_id()));
                 let _ = ai_guard.ai_move_to_position(&pos);
+            } else {
+                let _ = rider.set_position(&pos);
             }
         } else {
             let _ = rider.set_position(&pos);
@@ -1690,23 +1902,44 @@ impl OpenContain {
 
     /// Handle death event — C++ OpenContain::onDie (lines 833-851)
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
-        // C++ OpenContain::onDie: skip unless DieMux says this death applies.
+        self.on_die_for_owner(None, damage_info)
+    }
+
+    pub fn on_die_for_owner(
+        &mut self,
+        owner: Option<&Object>,
+        damage_info: Option<&DamageInfo>,
+    ) -> GameResult<()> {
         if let Some(info) = damage_info {
-            let applicable = self
-                .with_object(|owner| self.is_die_applicable(owner, info))
-                .unwrap_or(true);
+            let applicable = if let Some(owner) = owner {
+                self.is_die_applicable(owner, info)
+            } else {
+                let Some(applicable) = self
+                    .with_object(|owner| self.is_die_applicable(owner, info))
+                else {
+                    return Ok(());
+                };
+                applicable
+            };
             if !applicable {
                 return Ok(());
             }
         }
 
         if self.module_data.damage_percentage_to_units > 0.0 {
-            self.process_damage_to_contained(self.module_data.damage_percentage_to_units)?;
+            if let Err(err) =
+                self.process_damage_to_contained(self.module_data.damage_percentage_to_units)
+            {
+                log::warn!("OpenContain::on_die damage to contained failed: {}", err);
+            }
         }
 
-        self.kill_riders_who_are_not_free_to_exit()?;
-        // C++ removeAllContained() defaults exposeStealthUnits = FALSE.
-        self.remove_all_contained(false)?;
+        if let Err(err) = self.kill_riders_who_are_not_free_to_exit() {
+            log::warn!("OpenContain::on_die kill blocked riders failed: {}", err);
+        }
+        if let Err(err) = self.remove_all_contained(false) {
+            log::warn!("OpenContain::on_die remove_all failed: {}", err);
+        }
         Ok(())
     }
 
@@ -1730,31 +1963,16 @@ impl OpenContain {
     pub fn prune_dead_wanters(&mut self) {
         self.object_enter_exit_info.retain(|id, _| {
             if let Some(obj) = TheGameLogic::find_object_by_id(*id) {
-                if let Ok(obj_guard) = obj.read() {
+                if let Ok(obj_guard) = obj.try_read() {
                     return !obj_guard.is_effectively_dead();
                 }
+                return true;
             }
             false
         });
     }
-
-    /// Handle damage event
-    pub fn on_damage(&mut self, info: &mut DamageInfo) -> GameResult<()> {
-        // Distribute damage to contained units if configured
-        if self.module_data.damage_percentage_to_units > 0.0 {
-            let damage_to_units = info.input.amount * self.module_data.damage_percentage_to_units;
-
-            for obj in &self.resolve_contained_objects() {
-                if let Ok(_contained) = obj.read() {
-                    // Apply damage to contained unit
-                    let mut unit_damage = info.clone();
-                    unit_damage.input.amount = damage_to_units;
-                    unit_damage.sync_from_input();
-                    // contained.apply_damage(&unit_damage)?;
-                }
-            }
-        }
-
+    /// C++ OpenContain::onDamage is empty. DamagePercentToUnits is applied in onDie.
+    pub fn on_damage(&mut self, _info: &mut DamageInfo) -> GameResult<()> {
         Ok(())
     }
 
@@ -1923,20 +2141,6 @@ impl OpenContain {
         }
 
         let _ = (obj_type, specific_object);
-        if self.module_data.door_open_time > 0 {
-            let owner_id = self.get_object_id();
-            if owner_id != crate::common::INVALID_ID {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-                    owner_id,
-                    |owner_guard| {
-                        let _ = owner_guard.clear_and_set_model_condition_flags(
-                            MODELCONDITION_DOOR_1_CLOSING,
-                            MODELCONDITION_DOOR_1_OPENING,
-                        );
-                    },
-                );
-            }
-        }
         Ok(ExitDoorType::Primary)
     }
 
@@ -1971,16 +2175,7 @@ impl OpenContain {
         &mut self,
     ) -> Option<(Coord3D, Coord3D, f32, PathfindLayerEnum, ObjectID)> {
         if self.module_data.number_of_exit_paths <= 0 {
-            return self.with_object(|owner| {
-                let pos = *owner.get_position();
-                (
-                    pos,
-                    pos,
-                    owner.get_orientation(),
-                    owner.get_layer(),
-                    owner.get_id(),
-                )
-            });
+            return None;
         }
         let (_, start_bone, end_bone) = self.exit_bone_names_for_next_path();
         self.with_object(|owner| {
@@ -2068,6 +2263,12 @@ impl OpenContain {
                     );
                 });
         }
+        if self.module_data.number_of_exit_paths <= 0 {
+            if let Ok(rider) = obj.try_read() {
+                Self::add_to_pathfind_map(obj_id, *rider.get_position());
+            }
+            return Ok(None);
+        }
 
         let Some((start_pos, mut end_pos, exit_angle, owner_layer, owner_id)) =
             self.next_exit_snapshot()
@@ -2075,11 +2276,15 @@ impl OpenContain {
             return Ok(None);
         };
 
-        let exit_id = if let Ok(mut exit_guard) = obj.write() {
+        let (exit_id, physics, ai) = if let Ok(mut exit_guard) = obj.write() {
             let _ = exit_guard.set_position(&start_pos);
             let _ = exit_guard.set_orientation(exit_angle);
             exit_guard.set_layer(owner_layer);
-            exit_guard.get_id()
+            (
+                exit_guard.get_id(),
+                exit_guard.get_physics(),
+                exit_guard.get_ai_update_interface(),
+            )
         } else {
             return Ok(None);
         };
@@ -2089,8 +2294,8 @@ impl OpenContain {
             Self::refresh_owner_pathfind_goal(owner_guard);
         });
 
-        if let Ok(exit_guard) = obj.read() {
-            if let Some(ai) = exit_guard.get_ai_update_interface() {
+        if !hurry {
+            if let Some(ai) = ai.as_ref() {
                 if let Ok(mut ai_guard) = ai.try_lock() {
                     ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
                     let _ = ai_guard.ignore_obstacle(None);
@@ -2106,9 +2311,6 @@ impl OpenContain {
         } else {
             vec![end_pos, end_pos]
         };
-        if hurry {
-            exit_path.push(end_pos);
-        }
         if self.rally_point_exists {
             exit_path.push(self.rally_point);
         }
@@ -2117,6 +2319,8 @@ impl OpenContain {
             owner_id,
             end_pos,
             exit_path,
+            physics,
+            ai,
         }))
     }
 
@@ -2130,7 +2334,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        let Some(_obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
             return Ok(());
@@ -2140,40 +2344,51 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(prep) = self.prepare_object(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            false,
-        )?
-        else {
+        let Some(prep) = self.prepare_object(obj_id, false)? else {
             return Ok(());
         };
 
-        if let Ok(exit_guard) = obj.read() {
-            let previous_allow_to_fall = exit_guard.get_physics().map(|physics| {
-                let previous = physics.get_allow_to_fall();
-                physics.set_allow_to_fall(false);
-                (physics, previous)
-            });
+        // C++ clears allow-to-fall only around aiFollowPath + updateGoal, then restores
+        // the copied flag. The physics arc was taken in prepare_object; do not re-read
+        // the exit object or lock that mutex a second time on top of a held guard.
+        // ignoreObstacle(NULL) already ran in prepare when this call owns the clear.
+        let paused_allow_to_fall = if prep.ai.is_some() {
+            prep.physics.as_ref().and_then(pause_allow_to_fall)
+        } else {
+            None
+        };
 
-            if let Some(ai) = exit_guard.get_ai_update_interface() {
-                ai.ai_follow_path(
-                    &prep.exit_path,
-                    Some(prep.owner_id),
+        if let Some(ai) = prep.ai.as_ref() {
+            if let Ok(mut ai_guard) = ai.try_lock() {
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::FollowPath,
                     CommandSourceType::FromAi,
                 );
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    let _ = ai_guard.update_goal_position(
-                        &prep.end_pos,
-                        Self::destination_layer(&prep.end_pos),
-                    );
-                }
+                params.coords = prep.exit_path.clone();
+                params.obj = Some(prep.owner_id);
+                let _ = ai_guard.execute_command(&params);
+                let _ = ai_guard.update_goal_position(
+                    &prep.end_pos,
+                    Self::destination_layer(&prep.end_pos),
+                );
+            } else {
+                crate::ai::states::follow_path::queue_follow_exit(
+                    prep.exit_path,
+                    prep.owner_id,
+                    prep.end_pos,
+                );
             }
+        } else {
+            crate::ai::states::follow_path::queue_follow_exit(
+                prep.exit_path,
+                prep.owner_id,
+                prep.end_pos,
+            );
+        }
 
-            if let Some((physics, previous)) = previous_allow_to_fall {
-                physics.set_allow_to_fall(previous);
+        if let Some(previous) = paused_allow_to_fall {
+            if let Some(physics) = prep.physics.as_ref() {
+                restore_allow_to_fall(physics, previous);
             }
         }
 
@@ -2192,26 +2407,28 @@ impl OpenContain {
             return Ok(());
         };
 
-        let Some(prep) = self.prepare_object(
-            obj.read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-            true,
-        )?
-        else {
+        let Some(prep) = self.prepare_object(obj_id, true)? else {
             return Ok(());
         };
 
-        if let Ok(exit_guard) = obj.read() {
-            if let Some(ai) = exit_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    let _ = ai_guard.set_path_from_coords(&prep.exit_path);
-                    let _ = ai_guard.update_goal_position(
-                        &prep.end_pos,
-                        Self::destination_layer(&prep.end_pos),
-                    );
-                }
+        let ai = obj
+            .try_read()
+            .ok()
+            .and_then(|exit_guard| exit_guard.get_ai_update_interface())
+            .or_else(|| {
+                obj.try_read()
+                    .ok()
+                    .and_then(|exit_guard| exit_guard.get_ai_update_interface())
+            });
+        if let Some(ai) = ai {
+            if let Ok(mut ai_guard) = ai.try_lock() {
+                ai_guard.do_quick_exit(&prep.exit_path);
+                let _ = ai_guard.update_goal_position(
+                    &prep.end_pos,
+                    Self::destination_layer(&prep.end_pos),
+                );
+            } else {
+                crate::ai::states::follow_path::queue_quick_exit(prep.exit_path);
             }
         }
 
@@ -2221,10 +2438,6 @@ impl OpenContain {
     /// Unreserve door for exit
     pub fn unreserve_door_for_exit(&self, exit_door: ExitDoorType) -> GameResult<()> {
         let _ = exit_door;
-        if self.module_data.door_open_time > 0 {
-            self.door_close_countdown
-                .store(self.module_data.door_open_time, Ordering::Relaxed);
-        }
         Ok(())
     }
 
@@ -2249,6 +2462,50 @@ impl OpenContain {
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
         let contained_ids = self.contained_object_ids.clone();
         self.redeploy_objects(&contained_ids)
+    }
+
+    pub fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
+        let ids = self.contained_object_ids.clone();
+        let count = fire_points.len();
+        self.fire_point_start = -1;
+        self.fire_point_next = 0;
+        self.fire_point_size = count as i32;
+        let mut cursor = 0;
+        for obj_id in ids.iter().rev() {
+            let Some(obj) = TheGameLogic::find_object_by_id(*obj_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id))
+            else {
+                continue;
+            };
+            let Ok(mut guard) = obj.try_write() else {
+                continue;
+            };
+            if count == 0 {
+                let _ = guard.set_position(owner_pos);
+                continue;
+            }
+            let matrix = fire_points[cursor];
+            if self.is_enclosing_container_for(&guard) {
+                let (_, _, pos) = matrix.to_scale_rotation_translation();
+                let _ = guard.set_position(&pos);
+            } else {
+                guard.set_transform_matrix(&matrix);
+            }
+            cursor = (cursor + 1) % count;
+            self.fire_point_next = cursor as i32;
+        }
+        let stored = count.min(MAX_FIRE_POINTS);
+        self.fire_point_size = stored as i32;
+        self.no_fire_points_in_art = stored == 0;
+        for index in 0..stored {
+            self.fire_points[index] = Self::fire_point_matrix_from_transform(fire_points[index]);
+        }
+        if stored == 0 {
+            self.fire_point_next = 0;
+        }
+        if stored > 0 && self.fire_point_next >= stored as i32 {
+            self.fire_point_next %= stored as i32;
+        }
     }
 
     pub(crate) fn redeploy_objects(&mut self, contained_ids: &[ObjectID]) -> GameResult<()> {
@@ -2331,7 +2588,11 @@ impl OpenContain {
                     );
                 }
             } else {
-                let matrix = Matrix3D::from_translation(pos);
+                let matrix = if self.no_fire_points_in_art {
+                    Matrix3D::from_translation(pos)
+                } else {
+                    Self::fire_point_transform(&self.fire_points[self.fire_point_next as usize])
+                };
                 guard.set_transform_matrix(&matrix);
             }
         }
@@ -2357,57 +2618,71 @@ impl OpenContain {
             return Ok(());
         };
 
-        if add {
-            if let Ok(mut guard) = obj.write() {
+        let wrote = if add {
+            if let Ok(mut guard) = obj.try_write() {
                 let _ = guard.register_in_partition_manager();
                 if let Some(drawable) = guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
+                    if let Ok(mut draw_guard) = drawable.try_write() {
                         let _ = draw_guard.set_drawable_hidden(false);
                     }
                 }
+                true
+            } else {
+                false
             }
-        } else if let Ok(mut guard) = obj.write() {
+        } else if let Ok(mut guard) = obj.try_write() {
             guard.leave_group();
             if let Some(drawable) = guard.get_drawable() {
-                if let Ok(mut draw_guard) = drawable.write() {
+                if let Ok(mut draw_guard) = drawable.try_write() {
                     let _ = draw_guard.set_drawable_hidden(true);
+                }
+            }
+            true
+        } else {
+            false
+        };
+        let _ = wrote;
+        if let Ok(guard) = obj.try_read() {
+            let pos = *guard.get_position();
+            drop(guard);
+            if add {
+                Self::add_to_pathfind_map(obj_id, pos);
+            } else {
+                if let Some(partition) = crate::helpers::ThePartitionManager::get() {
+                    partition.unregister_object(obj_id);
+                }
+                let ai_store = the_ai();
+                if let Ok(ai_guard) = ai_store.read() {
+                    if let Some(pathfinder) = ai_guard.pathfinder() {
+                        if let Ok(mut pf) = pathfinder.try_write() {
+                            pf.remove_object_from_map(obj_id, &[pos]);
+                        }
+                    }
                 }
             }
         }
 
-        let contained_ids = {
-            let guard = obj.read().map_err(|_| GameError::LockError)?;
-            if let Some(contain) = guard.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    contain_guard.get_contained_objects().to_vec()
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
-            }
-        };
-
-        for child_id in contained_ids {
+        let contained_ids = obj.try_read().ok().and_then(|guard| {
+            let contain = guard.get_contain()?;
+            contain
+                .try_lock()
+                .ok()
+                .map(|contain_guard| contain_guard.get_contained_objects().to_vec())
+        });
+        for child_id in contained_ids.unwrap_or_default() {
             let Some(child) = TheGameLogic::find_object_by_id(child_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(child_id))
             else {
                 continue;
             };
-            let should_recurse = {
-                let child_guard = child.read().map_err(|_| GameError::LockError)?;
-                let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
-                if let Some(contain) = obj_guard.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        !contain_guard.is_enclosing_container_for(&*child_guard)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            };
-            if should_recurse {
+            let should_recurse = obj.try_read().ok().and_then(|obj_guard| {
+                let contain = obj_guard.get_contain()?;
+                let child_guard = child.try_read().ok()?;
+                contain.try_lock().ok().map(|contain_guard| {
+                    !contain_guard.is_enclosing_container_for(&*child_guard)
+                })
+            });
+            if should_recurse.unwrap_or(false) {
                 let _ = self.add_or_remove_obj_from_world(child_id, add);
             }
         }
@@ -2502,21 +2777,9 @@ impl OpenContain {
         Ok(())
     }
 
-    /// Flash selected for visible contained units.
-    /// Matches C++ OpenContain::clientVisibleContainedFlashAsSelected
+    /// C++ OpenContain::clientVisibleContainedFlashAsSelected is an empty virtual.
+    /// HelixContain and OverlordContain override it.
     pub fn client_visible_contained_flash_as_selected(&self) -> GameResult<()> {
-        for obj in &self.resolve_contained_objects() {
-            if let Ok(obj_guard) = obj.read() {
-                if self.is_enclosing_container_for(&*obj_guard) {
-                    continue;
-                }
-                if let Some(drawable) = obj_guard.get_drawable() {
-                    if let Ok(mut drawable_guard) = drawable.write() {
-                        drawable_guard.flash_as_selected();
-                    }
-                }
-            }
-        }
         Ok(())
     }
 
@@ -2568,6 +2831,14 @@ impl ContainModuleInterface for OpenContain {
             .map_err(|e| e.to_string())
     }
 
+    fn remove_from_contain(
+        &mut self,
+        object_id: ObjectID,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
+    }
+
     fn get_contained_objects(&self) -> &[ObjectID] {
         &self.contained_object_ids
     }
@@ -2604,6 +2875,21 @@ impl ContainModuleInterface for OpenContain {
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         OpenContain::on_die(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn on_die_with_owner(
+        &mut self,
+        owner: &Object,
+        damage_info: Option<&DamageInfo>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_die_for_owner(self, Some(owner), damage_info).map_err(|e| e.into())
+    }
+
+    fn on_collide_enter(
+        &mut self,
+        other_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_collide_enter(self, other_id).map_err(|e| e.into())
     }
 
     fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -2654,7 +2940,7 @@ impl ContainModuleInterface for OpenContain {
     }
 
     fn passes_weapon_bonus_to_passengers(&self) -> bool {
-        self.passes_weapon_bonus_to_passengers()
+        OpenContain::passes_weapon_bonus_to_passengers(self)
     }
 
     fn set_rally_point(&mut self, pos: Coord3D) {
@@ -2670,25 +2956,10 @@ impl ContainModuleInterface for OpenContain {
         _spawner: Option<&Object>,
         _spawn: Option<&Object>,
     ) -> ExitDoorType {
-        // Wave 261: empty dual-world → no door residual.
         if dual_world_registry_unavailable() {
             return ExitDoorType::NoneAvailable;
         }
-
-        if self.module_data.door_open_time > 0 {
-            let owner_id = self.get_object_id();
-            if owner_id != crate::common::INVALID_ID {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-                    owner_id,
-                    |owner_guard| {
-                        let _ = owner_guard.clear_and_set_model_condition_flags(
-                            MODELCONDITION_DOOR_1_CLOSING,
-                            MODELCONDITION_DOOR_1_OPENING,
-                        );
-                    },
-                );
-            }
-        }
+        let _ = (_spawner, _spawn);
         ExitDoorType::Primary
     }
 
@@ -2738,7 +3009,7 @@ impl ContainModuleInterface for OpenContain {
     }
 
     fn has_objects_wanting_to_enter_or_exit(&self) -> bool {
-        self.has_objects_wanting_to_enter_or_exit()
+        OpenContain::has_objects_wanting_to_enter_or_exit(self)
     }
 
     fn on_containing(
@@ -2808,6 +3079,14 @@ impl ContainModuleInterface for OpenContain {
         OpenContain::on_selling(self).map_err(|e| e.into())
     }
 
+    fn redeploy_riders_at(&mut self, owner_pos: &Coord3D, fire_points: &[Matrix3D]) {
+        OpenContain::redeploy_riders_at(self, owner_pos, fire_points);
+    }
+
+    fn passengers_in_turret(&self) -> bool {
+        self.module_data.passengers_in_turret
+    }
+
     fn mark_all_passengers_detected(&mut self) {
         // Use the trait default body via Super? Inherent delegates to trait.
         // Re-implement here so OpenContain callers hit the same path.
@@ -2842,90 +3121,8 @@ impl ContainModuleInterface for OpenContain {
 }
 
 impl Snapshotable for OpenContain {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 2;
-        xfer.xfer_version(&mut version, 2)
-            .map_err(|e| e.to_string())?;
-
-        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
-        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
-
-        let mut contain_list_size = self.contained_object_ids.len() as u32;
-        xfer.xfer_unsigned_int(&mut contain_list_size)
-            .map_err(|e| e.to_string())?;
-        for id in &self.contained_object_ids {
-            let mut object_id = *id;
-            xfer.xfer_object_id(&mut object_id)
-                .map_err(|e| e.to_string())?;
-        }
-
-        let mut player_mask_bits = self.player_who_entered.bits();
-        xfer.xfer_unsigned_int(&mut player_mask_bits)
-            .map_err(|e| e.to_string())?;
-
-        let mut last_unload_sound_frame = self.last_unload_sound_frame;
-        xfer.xfer_unsigned_int(&mut last_unload_sound_frame)
-            .map_err(|e| e.to_string())?;
-        let mut last_load_sound_frame = self.last_load_sound_frame;
-        xfer.xfer_unsigned_int(&mut last_load_sound_frame)
-            .map_err(|e| e.to_string())?;
-
-        let mut stealth_units_contained = self.stealth_units_contained;
-        xfer.xfer_unsigned_int(&mut stealth_units_contained)
-            .map_err(|e| e.to_string())?;
-
-        let mut door_close_countdown = self.door_close_countdown.load(Ordering::Relaxed);
-        xfer.xfer_unsigned_int(&mut door_close_countdown)
-            .map_err(|e| e.to_string())?;
-
-        Self::xfer_model_condition_flags(xfer, &mut self.condition_state.clone())?;
-
-        let mut fire_points = self.fire_points.clone();
-        for matrix in &mut fire_points {
-            Self::xfer_fire_point_matrix(xfer, matrix)?;
-        }
-
-        let mut fire_point_start = self.fire_point_start;
-        xfer.xfer_int(&mut fire_point_start)
-            .map_err(|e| e.to_string())?;
-        let mut fire_point_next = self.fire_point_next;
-        xfer.xfer_int(&mut fire_point_next)
-            .map_err(|e| e.to_string())?;
-        let mut fire_point_size = self.fire_point_size;
-        xfer.xfer_int(&mut fire_point_size)
-            .map_err(|e| e.to_string())?;
-        let mut no_fire_points_in_art = self.no_fire_points_in_art;
-        xfer.xfer_bool(&mut no_fire_points_in_art)
-            .map_err(|e| e.to_string())?;
-
-        let mut rally_point = self.rally_point.clone();
-        Self::xfer_coord_3d(xfer, &mut rally_point)?;
-        let mut rally_point_exists = self.rally_point_exists;
-        xfer.xfer_bool(&mut rally_point_exists)
-            .map_err(|e| e.to_string())?;
-
-        let mut enter_exit_count = self.object_enter_exit_info.len() as u16;
-        xfer.xfer_unsigned_short(&mut enter_exit_count)
-            .map_err(|e| e.to_string())?;
-        for (id, want) in &self.object_enter_exit_info {
-            let mut object_id = *id;
-            let mut enter_exit_type = Self::contain_want_to_cpp_value(*want);
-            xfer.xfer_object_id(&mut object_id)
-                .map_err(|e| e.to_string())?;
-            xfer.xfer_int(&mut enter_exit_type)
-                .map_err(|e| e.to_string())?;
-        }
-
-        let mut which_exit_path = self.which_exit_path;
-        xfer.xfer_int(&mut which_exit_path)
-            .map_err(|e| e.to_string())?;
-
-        if version >= 2 {
-            let mut passengers_allowed_to_fire = self.module_data.passengers_allowed_to_fire;
-            xfer.xfer_bool(&mut passengers_allowed_to_fire)
-                .map_err(|e| e.to_string())?;
-        }
-
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ Module::crc is empty. UpdateModule::crc does not write the next-call frame.
         Ok(())
     }
 
@@ -2964,11 +3161,11 @@ impl Snapshotable for OpenContain {
             XferMode::Invalid => return Err("invalid xfer mode for OpenContain".to_string()),
         }
 
-        let mut player_mask_bits = self.player_who_entered.bits();
-        xfer.xfer_unsigned_int(&mut player_mask_bits)
+        let mut player_mask_bits = self.player_who_entered.bits() as u16;
+        xfer.xfer_unsigned_short(&mut player_mask_bits)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.player_who_entered = PlayerMaskType::from_bits_truncate(player_mask_bits);
+            self.player_who_entered = PlayerMaskType::from_bits_truncate(player_mask_bits as u32);
         }
 
         xfer.xfer_unsigned_int(&mut self.last_unload_sound_frame)
@@ -3380,5 +3577,135 @@ mod tests {
             .reset();
         OBJECT_REGISTRY.unregister_object(92005);
         OBJECT_REGISTRY.unregister_object(92006);
+    }
+
+    #[derive(Debug)]
+    struct DoorExitPhysics {
+        allow: bool,
+    }
+
+    impl crate::modules::PhysicsBehavior for DoorExitPhysics {
+        fn update(&mut self, _dt: f32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn get_velocity(&self) -> Coord3D {
+            Coord3D::new(0.0, 0.0, 0.0)
+        }
+        fn set_velocity(&mut self, _velocity: &Coord3D) {}
+        fn is_on_ground(&self) -> bool {
+            true
+        }
+        fn set_allow_to_fall(&mut self, allow: bool) {
+            self.allow = allow;
+        }
+        fn get_allow_to_fall(&self) -> bool {
+            self.allow
+        }
+    }
+
+    #[derive(Debug)]
+    struct DoorExitAi {
+        physics: Arc<Mutex<dyn crate::modules::PhysicsBehavior>>,
+        samples: Arc<Mutex<Vec<bool>>>,
+        ignores: Arc<Mutex<Vec<Option<ObjectID>>>>,
+    }
+
+    impl crate::modules::AIUpdateInterface for DoorExitAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+        fn is_moving(&self) -> bool {
+            false
+        }
+        fn is_idle(&self) -> bool {
+            true
+        }
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+        fn ignore_obstacle(
+            &mut self,
+            obj_id: Option<ObjectID>,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.ignores.lock().expect("ignores").push(obj_id);
+            Ok(())
+        }
+        fn execute_command(
+            &mut self,
+            _command: &crate::ai::AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            let allow = self.physics.lock().expect("physics").get_allow_to_fall();
+            self.samples.lock().expect("samples").push(allow);
+            Ok(())
+        }
+        fn update_goal_position(
+            &mut self,
+            _goal: &Coord3D,
+            _layer: crate::common::PathfindLayerEnum,
+        ) -> Result<(), String> {
+            let allow = self.physics.lock().expect("physics").get_allow_to_fall();
+            self.samples.lock().expect("samples").push(allow);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn exit_object_via_door_pauses_allow_to_fall_without_relock() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("DoorExitTransport", 93011);
+        let rider = test_object("DoorExitRider", 93012);
+        let physics: Arc<Mutex<dyn crate::modules::PhysicsBehavior>> =
+            Arc::new(Mutex::new(DoorExitPhysics { allow: true }));
+        let samples = Arc::new(Mutex::new(Vec::new()));
+        let ignores = Arc::new(Mutex::new(Vec::new()));
+        let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> = Arc::new(Mutex::new(DoorExitAi {
+            physics: Arc::clone(&physics),
+            samples: Arc::clone(&samples),
+            ignores: Arc::clone(&ignores),
+        }));
+        {
+            let mut rider_guard = rider.write().expect("rider write");
+            rider_guard.set_physics(Some(Arc::clone(&physics)));
+            rider_guard.set_ai_update_interface(Some(ai));
+        }
+
+        let mut contain =
+            OpenContain::new(Arc::downgrade(&owner), &OpenContainModuleData::default())
+                .expect("door contain");
+        ContainModuleInterface::contain_object(&mut contain, 93012).expect("contain rider");
+
+        contain
+            .exit_object_via_door(93012, ExitDoorType::Door1)
+            .expect("exit via door");
+
+        let during = samples.lock().expect("samples").clone();
+        assert_eq!(
+            during,
+            vec![true, false, false],
+            "allow-to-fall stays set through adjust, then false for follow-path and updateGoal"
+        );
+        assert!(
+            physics.lock().expect("physics").get_allow_to_fall(),
+            "C++ restores the copied allow-to-fall flag after aiFollowPath"
+        );
+        assert_eq!(
+            ignores.lock().expect("ignores").as_slice(),
+            &[None],
+            "exit_object_via_door must not add a second ignoreObstacle(NULL)"
+        );
+
+        // Same-thread physics guard: pause must not lock again, and must not clobber the flag.
+        {
+            let held = physics.lock().expect("hold physics");
+            assert!(super::pause_allow_to_fall(&physics).is_none());
+            assert!(held.get_allow_to_fall());
+        }
+        assert_eq!(super::pause_allow_to_fall(&physics), Some(true));
+        assert!(!physics.lock().expect("physics").get_allow_to_fall());
+        super::restore_allow_to_fall(&physics, true);
+        assert!(physics.lock().expect("physics").get_allow_to_fall());
+
+        OBJECT_REGISTRY.unregister_object(93011);
+        OBJECT_REGISTRY.unregister_object(93012);
     }
 }

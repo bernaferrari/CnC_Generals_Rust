@@ -506,7 +506,7 @@ impl SpecialAbilityUpdate {
             base: SpecialPowerUpdateModule::new(object_id, object_ptr.clone()),
             module_data: Arc::new(sa_data),
             this_module_data: Some(module_data),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: UPDATE_SLEEP_FOREVER.to_u32(),
             active: false,
             prep_frames: 0,
             anim_frames: 0,
@@ -525,9 +525,6 @@ impl SpecialAbilityUpdate {
             object_id,
         };
 
-        if object_id != INVALID_ID {
-            TheGameLogic::set_wake_frame(object_id, UPDATE_SLEEP_FOREVER);
-        }
 
         behavior
     }
@@ -2436,9 +2433,18 @@ impl SpecialPowerUpdateInterface for SpecialAbilityUpdate {
         }
 
         self.active = true;
+        let now = crate::helpers::TheGameLogic::get_frame();
+        self.next_call_frame_and_phase = now.saturating_add(1);
         let obj_id = self.get_object_id();
         if obj_id != INVALID_ID {
-            TheGameLogic::set_wake_frame(obj_id, UPDATE_SLEEP_NONE);
+            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
+                if let Ok(guard) = obj.read() {
+                    guard.reschedule_named_update(
+                        "SpecialAbilityUpdate",
+                        self.next_call_frame_and_phase,
+                    );
+                }
+            }
         }
         true
     }
@@ -2533,6 +2539,10 @@ pub struct SpecialAbilityUpdateModule {
 }
 
 impl SpecialAbilityUpdateModule {
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.next_call_frame_and_phase
+    }
+
     pub fn new(
         behavior: SpecialAbilityUpdate,
         module_name: &AsciiString,

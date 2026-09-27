@@ -194,11 +194,7 @@ impl AIFollowWaypointPathState {
                 .flatten()
             {
                 if let Ok(ai_guard) = ai.lock() {
-                    if let Some(locomotor) = ai_guard.get_cur_locomotor() {
-                        if let Ok(mut locomotor_guard) = locomotor.lock() {
-                            locomotor_guard.set_precise_z_pos(true);
-                        }
-                    }
+                    ai_guard.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(true));
                 }
             }
         }
@@ -338,22 +334,18 @@ impl AIWanderState {
     }
 
     fn update_group_offset(&mut self, ai: &dyn crate::modules::AIUpdateInterface) {
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(locomotor_guard) = locomotor.lock() {
-                let factor = locomotor_guard.template.wander_width_factor;
-                if factor > 0.0 {
-                    let mut delta = (factor + 0.5).floor() as i32;
-                    if delta < 1 {
-                        delta = 1;
-                    }
-                    let x =
-                        get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
-                    let y =
-                        get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
-                    self.follow.group_offset = Coord2D::new(x, y);
+        ai.with_cur_locomotor(&mut |loco| {
+            let factor = loco.template.wander_width_factor;
+            if factor > 0.0 {
+                let mut delta = (factor + 0.5).floor() as i32;
+                if delta < 1 {
+                    delta = 1;
                 }
+                let x = get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
+                let y = get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
+                self.follow.group_offset = Coord2D::new(x, y);
             }
-        }
+        });
     }
 }
 
@@ -485,14 +477,10 @@ impl AIWanderInPlaceState {
 
     fn choose_new_goal(&mut self, ai: &dyn crate::modules::AIUpdateInterface) {
         let mut delta = 3;
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(locomotor_guard) = locomotor.lock() {
-                delta = ((locomotor_guard.template.wander_about_point_radius
-                    / PATHFIND_CELL_SIZE_F)
-                    + 0.5)
-                    .floor() as i32;
-            }
-        }
+        ai.with_cur_locomotor(&mut |loco| {
+            delta = ((loco.template.wander_about_point_radius / PATHFIND_CELL_SIZE_F) + 0.5).floor()
+                as i32;
+        });
 
         let offset_x = get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
         let offset_y = get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
@@ -620,22 +608,18 @@ impl AIPanicState {
     }
 
     fn update_group_offset(&mut self, ai: &dyn crate::modules::AIUpdateInterface) {
-        if let Some(locomotor) = ai.get_cur_locomotor() {
-            if let Ok(locomotor_guard) = locomotor.lock() {
-                let factor = locomotor_guard.template.wander_width_factor;
-                if factor > 0.0 {
-                    let mut delta = (factor + 0.5).floor() as i32;
-                    if delta < 1 {
-                        delta = 1;
-                    }
-                    let x =
-                        get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
-                    let y =
-                        get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
-                    self.follow.group_offset = Coord2D::new(x, y);
+        ai.with_cur_locomotor(&mut |loco| {
+            let factor = loco.template.wander_width_factor;
+            if factor > 0.0 {
+                let mut delta = (factor + 0.5).floor() as i32;
+                if delta < 1 {
+                    delta = 1;
                 }
+                let x = get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
+                let y = get_game_logic_random_value(-delta, delta) as f32 * PATHFIND_CELL_SIZE_F;
+                self.follow.group_offset = Coord2D::new(x, y);
             }
-        }
+        });
     }
 }
 

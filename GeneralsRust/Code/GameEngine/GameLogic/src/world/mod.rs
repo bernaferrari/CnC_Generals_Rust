@@ -256,6 +256,8 @@ impl World {
             1.0 / 30.0
         };
         let ids = self.entities.ids();
+        let gravity = crate::object::die::eject_pilot_die::current_gravity();
+        let airborne_height = -(3.0 * 3.0) * gravity;
         let mut stepped = 0usize;
         for id in ids {
             let Some(e) = self.entities.get_mut(id) else {
@@ -275,8 +277,7 @@ impl World {
             }
             {
                 let height_above = e.transform.position.y - e.ground_height;
-                // C++ :1005 height > -(3*3)*m_gravity. Default gravity -1.0 → 9.0.
-                let treat_as_airborne = height_above > 9.0;
+                let treat_as_airborne = height_above > airborne_height;
                 if treat_as_airborne && !e.allow_motive_force_while_airborne {
                     continue;
                 }

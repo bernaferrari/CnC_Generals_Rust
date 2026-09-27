@@ -1420,15 +1420,13 @@ impl GameLogic {
             moves.push((mid, dest, ahead));
         }
         for (mid, pos, ahead) in moves {
+            use crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind;
+            if ahead {
+                self.apply_host_locomotor_set_at_cell(mid, HostLocomotorSetKind::Wander, false);
+            } else {
+                self.apply_host_locomotor_set_at_cell(mid, HostLocomotorSetKind::Panic, true);
+            }
             if let Some(o) = self.objects.get_mut(&mid) {
-                use crate::game_logic::host_upgrade_module_residuals::{
-                    HostLocomotorSetKind, apply_choose_locomotor_set,
-                };
-                if ahead {
-                    apply_choose_locomotor_set(o, HostLocomotorSetKind::Wander, false);
-                } else {
-                    apply_choose_locomotor_set(o, HostLocomotorSetKind::Panic, true);
-                }
                 // C++ MobMemberSlavedUpdate::aiMoveToPosition — pathfind catch-up,
                 // never snap-teleport (that overwrote player nexus orders).
                 let retarget = match o.movement.target_position {

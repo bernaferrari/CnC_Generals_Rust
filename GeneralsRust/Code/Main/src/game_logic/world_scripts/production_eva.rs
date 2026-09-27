@@ -1509,7 +1509,7 @@ impl GameLogic {
         let ac_mask = 1u128 << actively_constructing_model_bit();
         let mut updates = 0u32;
         // C++ DozerAIUpdate.cpp:511/670: ACTIVELY_CONSTRUCTING only while AT the dock.
-        let dozer_at_site: std::collections::HashMap<ObjectId, bool> = self
+        let dozer_ids: Vec<ObjectId> = self
             .objects
             .iter()
             .filter(|(_, o)| {
@@ -1517,36 +1517,58 @@ impl GameLogic {
                     && o.can_construct()
                     && matches!(o.ai_state, AIState::Constructing | AIState::Repairing)
             })
-            .map(|(&id, o)| {
-                let Some(tid) = o.target else {
-                    return (id, false);
-                };
-                let Some(target) = self.objects.get(&tid) else {
-                    return (id, false);
-                };
-                let range = match o.ai_state {
-                    AIState::Repairing => {
-                        crate::game_logic::host_repair::repair_action_range(target.selection_radius)
-                    }
-                    _ => crate::game_logic::host_repair::DOZER_MIN_ACTION_TOLERANCE,
-                };
-                let p = o.get_position();
-                let goal = if matches!(o.ai_state, AIState::Repairing) {
-                    target.get_position()
-                } else {
-                    // C++ DOZER_DO_BUILD_AT_DOCK (cpp:511): ACTION dock, not centre.
-                    crate::game_logic::host_repair::resolve_dozer_action_dock(
-                        o.dozer_dock_action,
-                        p,
-                        target.get_position(),
-                        target.selection_radius,
-                    )
-                };
-                let dx = p.x - goal.x;
-                let dz = p.z - goal.z;
-                (id, (dx * dx + dz * dz).sqrt() <= range)
-            })
+            .map(|(&id, _)| id)
             .collect();
+        let mut dozer_at_site: std::collections::HashMap<ObjectId, bool> =
+            std::collections::HashMap::new();
+        for id in dozer_ids {
+            let Some((tid, repairing, pos, dozer_radius, airborne, stored_dock)) =
+                self.objects.get(&id).map(|o| {
+                    (
+                        o.target,
+                        matches!(o.ai_state, AIState::Repairing),
+                        o.get_position(),
+                        o.selection_radius,
+                        o.is_kind_of(KindOf::Aircraft) || o.status.airborne_target,
+                        o.dozer_dock_action,
+                    )
+                })
+            else {
+                continue;
+            };
+            let Some(tid) = tid else {
+                dozer_at_site.insert(id, false);
+                continue;
+            };
+            let Some((target_pos, target_radius)) = self
+                .objects
+                .get(&tid)
+                .map(|target| (target.get_position(), target.selection_radius))
+            else {
+                dozer_at_site.insert(id, false);
+                continue;
+            };
+            let at = if repairing {
+                let dock = self.find_good_build_or_repair_position(
+                    pos,
+                    target_pos,
+                    target_radius,
+                    airborne,
+                    airborne.then_some(tid),
+                    Some(id),
+                );
+                crate::game_logic::host_repair::dozer_within_action_dock(pos, dozer_radius, dock)
+            } else {
+                let goal = crate::game_logic::host_repair::resolve_dozer_action_dock(
+                    stored_dock,
+                    pos,
+                    target_pos,
+                    target_radius,
+                );
+                crate::game_logic::host_repair::dozer_within_action_dock(pos, dozer_radius, goal)
+            };
+            dozer_at_site.insert(id, at);
+        }
         // Only workers / producers / objects already carrying the bit — skip the
         // rest of Lone Eagle's ~900 decorative props each frame.
         let ids: Vec<ObjectId> = self

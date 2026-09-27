@@ -114,13 +114,14 @@ impl ScriptActionDispatcher {
             let Ok(ai_guard) = ai_arc.lock() else {
                 return Ok(ScriptActionResult::Success);
             };
-            let Some(loco_arc) = ai_guard.get_cur_locomotor() else {
+            let mut has_loco = false;
+            ai_guard.with_cur_locomotor(&mut |loco| {
+                has_loco = true;
+                loco.set_close_enough_dist(distance);
+            });
+            if !has_loco {
                 return Ok(ScriptActionResult::Success);
-            };
-            let Ok(mut loco_guard) = loco_arc.lock() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            loco_guard.set_close_enough_dist(distance);
+            }
         }
 
         Ok(ScriptActionResult::Success)

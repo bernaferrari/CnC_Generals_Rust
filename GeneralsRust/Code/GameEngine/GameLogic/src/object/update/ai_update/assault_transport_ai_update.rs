@@ -405,11 +405,10 @@ impl AssaultTransportAIUpdate {
                 };
 
                 if contained && healthy && !self.new_member[i] {
-                    if let Ok(mut ai_guard) = member_ai.lock() {
-                        let mut params =
-                            AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromAi);
-                        params.obj = Some(self.owner_id);
-                        let _ = ai_guard.execute_command(&params);
+                    if let Ok(mut member_guard) = member.write() {
+                        member_guard.ai_pending_exit = Some(false);
+                        member_guard.ai_pending_exit_source = CommandSourceType::FromAi;
+                        member_guard.ai_pending_exit_obj = Some(self.owner_id);
                     }
                 }
 

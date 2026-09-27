@@ -153,6 +153,13 @@ fn apply_one(
             let residual: RailroadBehaviorResidual = decode_payload(payload)?;
             residual.apply(object);
         }
+        TAG_PATH_EXTRA_DISTANCE => {
+            let residual: super::entity_lifecycle_inventory::PathFollowResidual =
+                decode_payload(payload)?;
+            object.path_extra_distance = residual.path_extra_distance;
+            object.is_exact_path = residual.is_exact_path;
+            object.is_attack_path = residual.is_attack_path;
+        }
         _ => {}
     }
     Ok(())

@@ -187,18 +187,18 @@ impl W3DDebrisDraw {
     }
 
     fn transition_to_final(&mut self, position: &Coord3D, _transform: &Matrix3D) {
-        if self.current_state == DebrisAnimState::Flying {
-            self.current_state = DebrisAnimState::Final;
+        if self.current_state == DebrisAnimState::Final {
+            return;
+        }
+        self.current_state = DebrisAnimState::Final;
 
-            // Matches C++ W3DDebrisDraw.cpp:228 - Play final FX on transition to FINAL state
-            if let Some(fx_list) = &self.final_fx {
-                debug!(
-                    "W3DDebrisDraw: Playing final FX at ({:.2}, {:.2}, {:.2})",
-                    position.x, position.y, position.z
-                );
-                // In full implementation: FXList::doFXPos(fx_list, position, transform, 0, NULL, 0.0f)
-                let _ = fx_list.do_fx_at_position(position);
-            }
+        // Matches C++ W3DDebrisDraw.cpp:228 - Play final FX on transition to FINAL state
+        if let Some(fx_list) = &self.final_fx {
+            debug!(
+                "W3DDebrisDraw: Playing final FX at ({:.2}, {:.2}, {:.2})",
+                position.x, position.y, position.z
+            );
+            let _ = fx_list.do_fx_at_position(position);
         }
     }
 
@@ -254,7 +254,7 @@ impl W3DDebrisDraw {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(drawable) = owner_guard.get_drawable() {
                     if let Ok(drawable_guard) = drawable.read() {
-                        scale = drawable_guard.get_world_scale().x;
+                        scale = drawable_guard.get_instance_scale();
                     }
                 }
             }
@@ -262,7 +262,13 @@ impl W3DDebrisDraw {
         let world_transform = if (scale - 1.0).abs() < f32::EPSILON {
             *transform_mtx
         } else {
-            Matrix3D::from_scale(glam::Vec3::splat(scale)) * *transform_mtx
+            // C++ Matrix3D::Scale scales the basis only. `from_scale * mtx` also moves translation.
+            Matrix3D::from_cols(
+                transform_mtx.x_axis * scale,
+                transform_mtx.y_axis * scale,
+                transform_mtx.z_axis * scale,
+                transform_mtx.w_axis,
+            )
         };
         let anim = self.get_current_animation().clone();
         if anim.as_str() != self.last_submitted_anim.as_str() {
@@ -333,6 +339,12 @@ impl DrawModule for W3DDebrisDraw {
         if self.current_state != DebrisAnimState::Final && self.is_animation_complete() {
             if self.current_state == DebrisAnimState::Initial {
                 self.transition_to_flying();
+            } else if self.current_state == DebrisAnimState::Flying {
+                let pos = self
+                    .owner_terrain_state()
+                    .map(|(_, pos)| pos)
+                    .unwrap_or(Coord3D::origin());
+                self.transition_to_final(&pos, transform_mtx);
             }
         }
         if self.current_state != old_state {
@@ -437,51 +449,8 @@ impl DebrisDrawInterface for W3DDebrisDraw {
 
 impl Snapshotable for W3DDebrisDraw {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
-
-        let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1)
-            .map_err(|e| e.to_string())?;
-        let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1)
-            .map_err(|e| e.to_string())?;
-        let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1)
-            .map_err(|e| e.to_string())?;
-
-        let mut model_name = self.model_name.as_str().to_string();
-        xfer.xfer_ascii_string(&mut model_name)
-            .map_err(|e| e.to_string())?;
-
-        let mut packed_color = color_to_packed_i32(self.model_color);
-        xfer.xfer_color(&mut packed_color)
-            .map_err(|e| e.to_string())?;
-
-        let mut anim_initial = self.anim_initial.as_str().to_string();
-        xfer.xfer_ascii_string(&mut anim_initial)
-            .map_err(|e| e.to_string())?;
-
-        let mut anim_flying = self.anim_flying.as_str().to_string();
-        xfer.xfer_ascii_string(&mut anim_flying)
-            .map_err(|e| e.to_string())?;
-
-        let mut anim_final = self.anim_final.as_str().to_string();
-        xfer.xfer_ascii_string(&mut anim_final)
-            .map_err(|e| e.to_string())?;
-
-        let mut state = debris_state_to_i32(self.current_state);
-        xfer.xfer_int(&mut state).map_err(|e| e.to_string())?;
-
-        let mut frames = self.state_frame_count as i32;
-        xfer.xfer_int(&mut frames).map_err(|e| e.to_string())?;
-
-        let mut final_stopped = self.final_stopped;
-        xfer.xfer_bool(&mut final_stopped)
-            .map_err(|e| e.to_string())?;
-
+        // W3DDebrisDraw::crc only calls DrawModule::crc, which writes nothing.
+        let _ = xfer;
         Ok(())
     }
 

@@ -1194,12 +1194,7 @@ impl GameLogic {
 
     /// C++ `chooseLocomotorSet(PANIC/WANDER)` on one host unit.
     pub fn apply_unit_locomotor_set(&mut self, unit_id: ObjectId, set: &str) -> bool {
-        let Some(u) = self.objects.get_mut(&unit_id) else {
-            return false;
-        };
-        use crate::game_logic::host_upgrade_module_residuals::{
-            HostLocomotorSetKind, apply_choose_locomotor_set,
-        };
+        use crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind;
         let (kind, panicking) = match set.trim().to_ascii_lowercase().as_str() {
             "panic" => (HostLocomotorSetKind::Panic, true),
             "wander" => (HostLocomotorSetKind::Wander, false),
@@ -1207,7 +1202,34 @@ impl GameLogic {
             "taxiing" | "set_taxiing" => (HostLocomotorSetKind::Taxiing, false),
             _ => return false,
         };
-        apply_choose_locomotor_set(u, kind, panicking)
+        self.apply_host_locomotor_set_at_cell(unit_id, kind, panicking)
+    }
+
+    /// C++ `chooseLocomotorSet` then `chooseGoodLocomotorFromCurrentSet` on this
+    /// frame. The cell is `getCell(object.layer, x, y)`; a missing cell is Clear,
+    /// not the ground cell under a bridge and not surface mask 0.
+    pub(crate) fn apply_host_locomotor_set_at_cell(
+        &mut self,
+        unit_id: ObjectId,
+        kind: crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind,
+        panicking: bool,
+    ) -> bool {
+        use crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set_for_cell;
+        let Some((pos, layer)) = self
+            .objects
+            .get(&unit_id)
+            .map(|o| (o.get_position(), o.pathfind_layer))
+        else {
+            return false;
+        };
+        let cell_type = self.pathfinding_system.grid.locomotor_cell_type(pos, layer);
+        let surfaces = crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
+            cell_type,
+        );
+        let Some(unit) = self.objects.get_mut(&unit_id) else {
+            return false;
+        };
+        apply_choose_locomotor_set_for_cell(unit, kind, panicking, surfaces)
     }
 
     /// C++ TEAM_PANIC / TEAM_WANDER member loop residual.
@@ -1359,6 +1381,13 @@ impl GameLogic {
         let goal = *offset_pts.last().unwrap();
         let via = &offset_pts[..offset_pts.len().saturating_sub(1)];
         let _ = self.unit_command_waypoint_path_prep(id, false);
+        if self.host_object(id).is_some_and(|unit| {
+            !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit)
+        }) {
+            if let Some(unit) = self.host_object_mut(id) {
+                unit.adjust_destinations = false;
+            }
+        }
         let _ = self.assign_unit_path(id, goal, via);
         wander_path_lock().insert(
             id.0,
@@ -1411,13 +1440,18 @@ impl GameLogic {
         let Some(rep_pos) = self.objects.get(&rep_id).map(|r| r.get_position()) else {
             return false;
         };
+        self.apply_host_locomotor_set_at_cell(
+            unit_id,
+            crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
+            true,
+        );
         if let Some(u) = self.objects.get_mut(&unit_id) {
-            crate::game_logic::host_upgrade_module_residuals::apply_choose_locomotor_set(
-                u,
-                crate::game_logic::host_upgrade_module_residuals::HostLocomotorSetKind::Panic,
-                true,
-            );
             u.ai_move_away_from_unit(rep_id, rep_pos);
+            if u.ignore_collisions_until_frame > 0 && u.ignore_collisions_until_frame < 100_000 {
+                u.ignore_collisions_until_frame = self.frame.saturating_add(60);
+            }
+            // C++ AIMoveAwayFromRepulsorsState::onEnter (AIStates.cpp:2265).
+            u.adjust_destinations = false;
             let dest = u.move_away_destination.unwrap_or(rep_pos);
             let _ = u.begin_request_safe_path(rep_id, dest, self.frame);
             true
@@ -1982,7 +2016,7 @@ impl GameLogic {
     /// C++ crate pickup is wired into Idle, Hunt, Guard, Attack-Move, and
     /// GuardRetaliate — not Idle alone.
     pub fn try_idle_crate_pickup(&mut self, unit_id: ObjectId) -> bool {
-        let (crate_id, keep_parent_state) = {
+        let (crate_id, keep_parent_state, parent_state) = {
             let Some(u) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
@@ -2001,11 +2035,12 @@ impl GameLogic {
             if !parent_ok || u.target.is_some() {
                 return false;
             }
+            let parent_state = u.ai_state.clone();
             let keep = !matches!(u.ai_state, AIState::Idle);
-            match u.check_for_crate_to_pickup() {
-                Some(id) => (id, keep),
-                None => return false,
-            }
+            let Some(id) = u.crate_created else {
+                return false;
+            };
+            (id, keep, parent_state)
         };
         let crate_alive = self
             .objects
@@ -2013,6 +2048,9 @@ impl GameLogic {
             .map(|c| c.is_alive() && !c.status.destroyed)
             .unwrap_or(false);
         if !crate_alive {
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.crate_created = None;
+            }
             return false;
         }
         let is_money = self.host_money_crates.get(crate_id).is_some();
@@ -2023,24 +2061,80 @@ impl GameLogic {
         let Some(pos) = crate_pos else {
             return false;
         };
-        if let Some(u) = self.objects.get_mut(&unit_id) {
-            if !u.can_move() {
-                return false;
-            }
-            u.movement.target_position = Some(pos);
-            u.set_status_moving(true);
-            u.requested_victim_id = Some(crate_id);
-            crate::game_logic::host_move_log::record(unit_id, Some([pos.x, pos.y, pos.z]));
-            if !keep_parent_state {
-                u.set_ai_state(AIState::Moving);
-            }
-        } else {
+        if self
+            .objects
+            .get(&unit_id)
+            .is_none_or(|u| !u.can_move())
+        {
             return false;
         }
-        if !keep_parent_state && crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-            crate::game_logic::host_ai_decision_log::record_set_state(unit_id, 1);
+        let (
+            saved_dest,
+            saved_goal,
+            saved_final,
+            saved_adjust,
+            saved_moving,
+            saved_victim,
+            saved_attack_path,
+            saved_approach_path,
+            saved_safe_path,
+        ) = self
+            .objects
+            .get(&unit_id)
+            .map(|u| {
+                (
+                    u.requested_destination,
+                    u.path_goal_position,
+                    u.is_final_goal,
+                    u.adjust_destinations,
+                    u.status.moving,
+                    u.requested_victim_id,
+                    u.is_attack_path,
+                    u.is_approach_path,
+                    u.is_safe_path,
+                )
+            })
+            .unwrap_or((None, None, false, true, false, None, false, false, false));
+        // computePath is requestPath(&goal, getAdjustsDestination()), which
+        // sets m_isFinalGoal before doPathfind stamps the last node.
+        // Hunt stays on the parent machine and does not take that request.
+        if !keep_parent_state {
+            let _ = self.note_move_to_request_path(unit_id);
         }
-        true
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.adjust_destinations = true;
+        }
+        let installed = self.assign_unit_path(unit_id, pos, &[]);
+        if let Some(u) = self.objects.get_mut(&unit_id) {
+            if keep_parent_state {
+                u.requested_destination = saved_dest;
+                u.path_goal_position = saved_goal;
+                u.is_final_goal = saved_final;
+                u.adjust_destinations = saved_adjust;
+            }
+        }
+        if installed {
+            if let Some(u) = self.objects.get_mut(&unit_id) {
+                u.crate_created = None;
+                u.movement.target_position = Some(pos);
+                u.requested_victim_id = Some(crate_id);
+                u.set_status_moving(true);
+                if keep_parent_state && u.ai_state != parent_state {
+                    u.set_ai_state(parent_state);
+                }
+            }
+        } else if let Some(u) = self.objects.get_mut(&unit_id) {
+            u.requested_destination = saved_dest;
+            u.path_goal_position = saved_goal;
+            u.is_final_goal = saved_final;
+            u.adjust_destinations = saved_adjust;
+            u.requested_victim_id = saved_victim;
+            u.is_attack_path = saved_attack_path;
+            u.is_approach_path = saved_approach_path;
+            u.is_safe_path = saved_safe_path;
+            u.set_status_moving(saved_moving);
+        }
+        installed
     }
 }
 
@@ -2215,6 +2309,23 @@ mod tests {
             "leftover group offset dest {dest:?} != {want:?} (offset {expected:?})"
         );
         assert!(logic.test_wander_path_active(id));
+    }
+
+    #[test]
+    fn wander_path_clears_adjust_for_aircraft() {
+        let mut logic = GameLogic::new();
+        let mut tmpl = ThingTemplate::new("Raptor");
+        tmpl.add_kind_of(KindOf::Aircraft);
+        let id = ObjectId(77);
+        let mut air = crate::game_logic::object::Object::new(tmpl, id, Team::USA);
+        air.adjust_destinations = true;
+        air.movement.max_speed = 10.0;
+        logic.objects.insert(id, air);
+        logic.test_host_wander_issue_path(id, &[glam::Vec3::new(80.0, 0.0, 0.0)]);
+        assert!(
+            !logic.host_object(id).unwrap().adjust_destinations,
+            "aircraft wander must not adjust the goal"
+        );
     }
 
     fn spawn_flagged_repulsor(logic: &mut GameLogic, id: ObjectId, pos: glam::Vec3) {

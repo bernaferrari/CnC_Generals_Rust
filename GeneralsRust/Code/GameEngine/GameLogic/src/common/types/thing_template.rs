@@ -34,6 +34,11 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_template_geometry_type(&self) -> Option<EngineGeometryType> {
         None
     }
+    /// C++ `GeometryInfo::makeRandomOffsetOnPerimeter` on the engine template.
+    /// `(x, y)` local offset. `None` when this template has no engine geometry.
+    fn random_offset_on_perimeter(&self) -> Option<(Real, Real)> {
+        None
+    }
     fn calc_vision_range(&self) -> Real;
     fn calc_shroud_clearing_range(&self) -> Real;
     fn is_kind_of(&self, kind: KindOf) -> bool;
@@ -98,6 +103,10 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
 
     fn get_experience_value(&self, _level: usize) -> Int {
         0
+    }
+    /// C++ `ThingTemplate::getSkillPointValue(veterancyLevel)`.
+    fn get_skill_point_value(&self, level: usize) -> Int {
+        self.get_experience_value(level)
     }
     fn get_experience_required(&self, _level: usize) -> Int {
         0

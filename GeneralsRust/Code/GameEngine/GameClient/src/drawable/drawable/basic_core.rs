@@ -749,12 +749,9 @@ impl BasicDrawable {
         if let Some(dm) = self.draw_modules.first_mut() {
             dm.set_terrain_decal_size(x, y);
         }
-        if self.terrain_decal_type != TerrainDecalType::None {
-            self.sync_projected_terrain_decal();
-        }
     }
 
-    /// C++ `Drawable::setTerrainDecal` — first draw module only, then create the projected decal.
+    /// C++ `Drawable::setTerrainDecal` — first draw module only.
     pub fn set_terrain_decal(&mut self, decal_type: TerrainDecalType) {
         crate::drawable::ensure_logic_draw_hooks();
         if self.terrain_decal_type == decal_type {
@@ -764,59 +761,8 @@ impl BasicDrawable {
         if let Some(dm) = self.draw_modules.first_mut() {
             dm.set_terrain_decal(decal_type);
         }
-        self.sync_projected_terrain_decal();
     }
 
-    fn client_terrain_decal_texture(decal_type: TerrainDecalType) -> &'static str {
-        match decal_type {
-            TerrainDecalType::Demoralized => "DM_RING",
-            TerrainDecalType::Horde => "EXHorde",
-            TerrainDecalType::HordeWithNationalism => "EXHorde_UP",
-            TerrainDecalType::HordeVehicle => "EXHordeB",
-            TerrainDecalType::HordeWithNationalismVehicle => "EXHordeB_UP",
-            TerrainDecalType::Crate => "EXJunkCrate",
-            TerrainDecalType::HordeWithFanaticism => "EXHordeC_UP",
-            TerrainDecalType::ChemSuit => "EXChemSuit",
-            TerrainDecalType::None => "",
-            TerrainDecalType::ShadowTexture => "shadow",
-        }
-    }
-
-    fn sync_projected_terrain_decal(&mut self) {
-        if let Some(handle) = self.terrain_decal_handle.take() {
-            handle.release();
-        }
-        if self.terrain_decal_type == TerrainDecalType::None {
-            return;
-        }
-        let texture = Self::client_terrain_decal_texture(self.terrain_decal_type);
-
-        if texture.is_empty() {
-            return;
-        }
-        let mut size_x = self.terrain_decal_size.x;
-        let mut size_y = self.terrain_decal_size.y;
-        if size_x <= 0.0 || size_y <= 0.0 {
-            size_x = 40.0;
-            size_y = 40.0;
-        }
-        let info = crate::radius_decal::ShadowTypeInfo {
-            allow_updates: false,
-            allow_world_align: true,
-            shadow_type: gamelogic::common::SHADOW_ALPHA_DECAL,
-            shadow_name: gamelogic::common::AsciiString::from(texture),
-            size_x,
-            size_y,
-        };
-        if let Some(handle) = crate::radius_decal::get_projected_shadow_manager()
-            .write()
-            .add_decal(&info)
-        {
-            handle.set_position(self.position.x, self.position.y, self.position.z);
-            handle.set_opacity((self.decal_opacity.clamp(0.0, 1.0) * 255.0) as i32);
-            self.terrain_decal_handle = Some(handle);
-        }
-    }
 
     pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {
         if (self.decal_opacity_fade_target - target).abs() > f32::EPSILON {

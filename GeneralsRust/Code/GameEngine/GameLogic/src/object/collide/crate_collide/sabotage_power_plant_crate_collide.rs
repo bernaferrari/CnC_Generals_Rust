@@ -341,6 +341,17 @@ impl SabotagePowerPlantCrateCollide {
 
         drop(object_lock);
 
+        let Ok(module_data) = self.module_data.lock() else {
+            return Ok(false);
+        };
+        let sabotage_frame = TheGameLogic::get_frame() + module_data.power_sabotage_frames;
+        drop(module_data);
+
+        let player = other
+            .read()
+            .ok()
+            .and_then(|other_lock| other_lock.get_controlling_player());
+
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());
 
@@ -348,38 +359,19 @@ impl SabotagePowerPlantCrateCollide {
             .base
             .do_sabotage_feedback_fx(&other, SabotageVictimType::PowerPlant);
 
-        // Play eva sound if locally controlled
-        {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
+        if let Ok(other_lock) = other.read() {
             if other_lock.is_locally_controlled() {
                 let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
             }
         }
 
-        // Set power sabotage duration and trigger power outage
-        {
-            let other_lock = other.read().map_err(|_| GameError::LockError)?;
-            if let Some(player) = other_lock.get_controlling_player() {
-                let module_data = self.module_data.lock().map_err(|_| GameError::LockError)?;
-                let sabotage_frame = TheGameLogic::get_frame() + module_data.power_sabotage_frames;
-                drop(module_data);
-
-                // Set the duration inside the player's energy class to record the length of the power outage
-                player
-                    .write()
-                    .map_err(|_| GameError::LockError)?
-                    .set_power_sabotaged_till_frame(sabotage_frame);
-
-                // Trigger the callback function that will turn everything off
-                player
-                    .write()
-                    .map_err(|_| GameError::LockError)?
-                    .on_power_brown_out_change(true)?;
-
-                // Note: Player::update() will check to turn it back on again once the timer expires
+        if let Some(player) = player {
+            if let Ok(mut player_guard) = player.write() {
+                player_guard.set_power_sabotaged_till_frame(sabotage_frame);
+                let _ = player_guard.on_power_brown_out_change(true);
             }
         }
-
+        // Note: Player::update() will check to turn it back on again once the timer expires
         Ok(true)
     }
 

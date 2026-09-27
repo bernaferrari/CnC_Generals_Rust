@@ -143,11 +143,7 @@ impl ClassicState for AIDeadState {
             if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.set_effectively_dead(true);
 
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_locomotor_goal_none();
-                    }
-                }
+                owner_guard.ai_pending_goal_none = true;
 
                 if owner_guard.is_kind_of(KindOf::Infantry) {
                     if let Some(phys) = owner_guard.get_physics() {

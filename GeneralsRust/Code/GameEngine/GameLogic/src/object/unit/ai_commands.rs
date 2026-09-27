@@ -142,7 +142,7 @@ impl UnitAIUpdate {
                 let clipped = self.clip_goal_position(&guard, command.pos, command.cmd_source);
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -165,7 +165,7 @@ impl UnitAIUpdate {
                 guard.give_move_order(clipped, Vec::new(), false, false)?;
             }
             crate::ai::AiCommandType::TightenToPosition => {
-                let is_mobile = guard.current_locomotor.is_some();
+                let is_mobile = guard.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -206,7 +206,7 @@ impl UnitAIUpdate {
                 if self.is_ai_in_dead_state() {
                     return Ok(());
                 }
-                let is_mobile = guard.current_locomotor.is_some();
+                let is_mobile = guard.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -258,7 +258,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::FollowPath
             | crate::ai::AiCommandType::FollowExitProductionPath
             | crate::ai::AiCommandType::FollowUserPath => {
-                let is_mobile = guard.current_locomotor.is_some();
+                let is_mobile = guard.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -282,7 +282,7 @@ impl UnitAIUpdate {
                 guard.give_move_order(first, waypoints, false, false)?;
             }
             crate::ai::AiCommandType::FollowPathAppend => {
-                let is_mobile = guard.current_locomotor.is_some();
+                let is_mobile = guard.locomotor_set.get_active().is_some();
                 if !is_mobile {
                     return Ok(());
                 }
@@ -340,7 +340,7 @@ impl UnitAIUpdate {
                 let clipped = self.clip_goal_position(&guard, command.pos, command.cmd_source);
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -472,12 +472,14 @@ impl UnitAIUpdate {
                     .unwrap_or(false);
                 if weapon_is_contact {
                     let mut path_available = true;
-                    if let Some(locomotor) = guard.current_locomotor.as_ref().cloned() {
-                        if let Ok(loco_guard) = locomotor.lock() {
+                    if let Some(capabilities) = guard
+                        .locomotor_set
+                        .get_active()
+                        .map(|loco| loco.to_movement_capabilities())
+                    {
                             let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                                 if let Some(system) = ai_guard.pathfinding_system() {
                                     if let Ok(mut system_guard) = system.write() {
-                                        let capabilities = loco_guard.to_movement_capabilities();
                                         let unit_radius = base_object
                                             .read()
                                             .ok()
@@ -510,7 +512,6 @@ impl UnitAIUpdate {
                                     }
                                 }
                             }
-                        }
                     }
                     if !path_available {
                         if let Some(partition) = ThePartitionManager::get() {
@@ -572,6 +573,14 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::AttackObject
             | crate::ai::AiCommandType::ForceAttackObject => {
                 if let Some(target_id) = command.obj {
+                    if self.chinook_ai.is_some() {
+                        let can_attack = guard.base_arc().read().ok().is_some_and(|obj| {
+                            obj.is_kind_of(KindOf::CanAttack)
+                        });
+                        if !can_attack {
+                            return Ok(());
+                        }
+                    }
                     if let Some(state_machine) = self.ai_state_machine.as_ref() {
                         if let Ok(mut machine) = state_machine.lock() {
                             machine.clear();
@@ -697,7 +706,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardPosition => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -725,7 +734,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardObject => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -759,7 +768,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardArea => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -786,7 +795,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::GuardTunnelNetwork => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -833,7 +842,7 @@ impl UnitAIUpdate {
                 self.enter_target = command.obj;
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -870,10 +879,32 @@ impl UnitAIUpdate {
                 }
             }
             crate::ai::AiCommandType::Exit => {
+                let exit_container = command.obj.or_else(|| {
+                    get_unit_arc(self.unit_id).and_then(|unit| {
+                        let unit_guard = unit.try_read().ok()?;
+                        let base_arc = unit_guard.base_arc();
+                        drop(unit_guard);
+                        base_arc.try_read().ok()?.get_contained_by()
+                    })
+                });
+                let Some(exit_container) = exit_container else {
+                    return Ok(());
+                };
+                let Some(container) = TheGameLogic::find_object_by_id(exit_container) else {
+                    return Ok(());
+                };
+                if container.try_read().ok().is_some_and(|container| {
+                    container
+                        .is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
+                }) {
+                    return Ok(());
+                }
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
                         machine.clear();
-                        let _ = machine.ai_do_command(command);
+                        let mut exit_command = command.clone();
+                        exit_command.obj = Some(exit_container);
+                        let _ = machine.ai_do_command(&exit_command);
                         return Ok(());
                     }
                 }
@@ -913,10 +944,32 @@ impl UnitAIUpdate {
                 }
             }
             crate::ai::AiCommandType::ExitInstantly => {
+                let exit_container = command.obj.or_else(|| {
+                    get_unit_arc(self.unit_id).and_then(|unit| {
+                        let unit_guard = unit.try_read().ok()?;
+                        let base_arc = unit_guard.base_arc();
+                        drop(unit_guard);
+                        base_arc.try_read().ok()?.get_contained_by()
+                    })
+                });
+                let Some(exit_container) = exit_container else {
+                    return Ok(());
+                };
+                let Some(container) = TheGameLogic::find_object_by_id(exit_container) else {
+                    return Ok(());
+                };
+                if container.try_read().ok().is_some_and(|container| {
+                    container
+                        .is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
+                }) {
+                    return Ok(());
+                }
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
                         machine.clear();
-                        let _ = machine.ai_do_command(command);
+                        let mut exit_command = command.clone();
+                        exit_command.obj = Some(exit_container);
+                        let _ = machine.ai_do_command(&exit_command);
                         return Ok(());
                     }
                 }
@@ -945,8 +998,6 @@ impl UnitAIUpdate {
                                                         &base_guard,
                                                         crate::modules::ContainWant::WantsToExit,
                                                     );
-                                                let _ = contain_guard
-                                                    .release_object(base_guard.get_id());
                                             }
                                         }
                                     }
@@ -971,7 +1022,7 @@ impl UnitAIUpdate {
                 }
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1026,11 +1077,21 @@ impl UnitAIUpdate {
             }
             crate::ai::AiCommandType::Evacuate | crate::ai::AiCommandType::EvacuateInstantly => {
                 let instantly = command.cmd == crate::ai::AiCommandType::EvacuateInstantly;
-                if let Ok(obj_guard) = guard.base_arc().write() {
-                    if let Some(contain) = obj_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            let _ = contain_guard
-                                .order_all_passengers_to_exit(command.cmd_source, instantly);
+                let subdued = guard.base_arc().try_read().ok().is_some_and(|obj| {
+                    obj.is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
+                });
+                // C++ RailedTransportAIUpdate::privateEvacuate replaces the base
+                // evacuate. It does not check subdued and does not order passengers.
+                if !subdued && self.railed_transport_ai.is_none() {
+                    if let Ok(obj_guard) = guard.base_arc().write() {
+                        if let Some(contain) = obj_guard.get_contain() {
+                            if let Ok(mut contain_guard) = contain.lock() {
+                                if command.int_value != 0 {
+                                    contain_guard.mark_all_passengers_detected();
+                                }
+                                let _ = contain_guard
+                                    .order_all_passengers_to_exit(command.cmd_source, instantly);
+                            }
                         }
                     }
                 }
@@ -1075,7 +1136,7 @@ impl UnitAIUpdate {
                     self.enter_target = enter_params.obj;
                     if let Some(state_machine) = self.ai_state_machine.as_ref() {
                         if let Ok(mut machine) = state_machine.lock() {
-                            let is_mobile = guard.current_locomotor.is_some();
+                            let is_mobile = guard.locomotor_set.get_active().is_some();
                             if !is_mobile {
                                 return Ok(());
                             }
@@ -1156,7 +1217,7 @@ impl UnitAIUpdate {
                     }
                     if let Some(state_machine) = self.ai_state_machine.as_ref() {
                         if let Ok(mut machine) = state_machine.lock() {
-                            let is_mobile = guard.current_locomotor.is_some();
+                            let is_mobile = guard.locomotor_set.get_active().is_some();
                             if !is_mobile {
                                 return Ok(());
                             }
@@ -1249,7 +1310,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::Wander
             | crate::ai::AiCommandType::WanderInPlace
             | crate::ai::AiCommandType::Panic => {
-                if guard.current_locomotor.is_none() {
+                if guard.locomotor_set.get_active().is_none() {
                     return Ok(());
                 }
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
@@ -1263,7 +1324,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::Hunt => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1290,7 +1351,7 @@ impl UnitAIUpdate {
             crate::ai::AiCommandType::AttackArea => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }
@@ -1317,7 +1378,7 @@ impl UnitAIUpdate {
             | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam => {
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
                     if let Ok(mut machine) = state_machine.lock() {
-                        let is_mobile = guard.current_locomotor.is_some();
+                        let is_mobile = guard.locomotor_set.get_active().is_some();
                         if !is_mobile {
                             return Ok(());
                         }

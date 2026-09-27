@@ -348,33 +348,12 @@ impl Player {
             return;
         }
 
-        use crate::common::{ALL_KIND_OF, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE};
         use crate::object::registry::OBJECT_REGISTRY;
-
-        pub(super) fn matches_any_kind_of(
-            object: &Object,
-            mask: crate::common::KindOfMaskType,
-        ) -> bool {
-            if mask == KIND_OF_MASK_ALL {
-                return true;
-            }
-            if mask == KIND_OF_MASK_NONE {
-                return false;
-            }
-
-            for &kind in ALL_KIND_OF {
-                let bit = kind.cpp_mask();
-                if (mask & bit) != 0 && object.is_kind_of(kind) {
-                    return true;
-                }
-            }
-
-            false
-        }
 
         for &object_id in &self.owned_objects {
             let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
-                if matches_any_kind_of(obj_guard, spy_on_kind_of) {
+                // C++ Object::isAnyKindOf: any shared kind bit. Empty object mask does not match.
+                if spy_on_kind_of != 0 && (obj_guard.get_kind_of() & spy_on_kind_of) != 0 {
                     obj_guard.set_vision_spied_by_player(spying_player_index, on);
                 }
             });

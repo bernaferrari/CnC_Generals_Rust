@@ -166,10 +166,10 @@ impl Snapshotable for Weapon {
             .map_err(|e| e.to_string())?;
         self.weapon_slot = weapon_slot_from_u32(slot);
 
-        let mut status = weapon_status_to_u32(self.status);
+        let mut status = weapon_status_to_u32(self.load_status());
         xfer.xfer_unsigned_int(&mut status)
             .map_err(|e| e.to_string())?;
-        self.status = weapon_status_from_u32(status);
+        self.store_status(weapon_status_from_u32(status));
 
         xfer.xfer_unsigned_int(&mut self.ammo_in_clip)
             .map_err(|e| e.to_string())?;
@@ -234,19 +234,10 @@ impl Snapshotable for Weapon {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Wave 265: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        if self.projectile_stream_id != INVALID_OBJECT_ID {
-            // Existence probe via borrow-first helper (no Arc kept).
-            if crate::object::registry::OBJECT_REGISTRY
-                .with_object(self.projectile_stream_id, |_| ())
-                .is_none()
-            {
-                self.projectile_stream_id = INVALID_OBJECT_ID;
-            }
+        if self.projectile_stream_id != INVALID_OBJECT_ID
+            && crate::helpers::TheGameLogic::find_object_by_id(self.projectile_stream_id).is_none()
+        {
+            self.projectile_stream_id = INVALID_OBJECT_ID;
         }
         Ok(())
     }

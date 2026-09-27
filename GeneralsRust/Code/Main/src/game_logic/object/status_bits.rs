@@ -87,7 +87,53 @@ impl Object {
 
     pub fn set_status_moving(&mut self, moving: bool) {
         self.status.moving = moving;
+        let mc = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_MOVING;
+        let dock = crate::game_logic::host_enum_table_residual::moving_model_bit();
+        let dock_mask = 1u128 << dock;
+        if moving {
+            self.model_condition_bits |= mc;
+            if dock != crate::game_logic::host_enum_table_residual::MC_BIT_MOVING {
+                self.model_condition_bits |= dock_mask;
+            }
+        } else {
+            self.model_condition_bits &= !mc;
+            if dock != crate::game_logic::host_enum_table_residual::MC_BIT_MOVING {
+                self.model_condition_bits &= !dock_mask;
+            }
+        }
         crate::game_logic::host_status_log::record_moving(self.id, moving);
+    }
+
+    /// Clears `MODELCONDITION_MOVING` only. Does not touch `status.moving`.
+    pub fn clear_moving_model_bits(&mut self) {
+        let mc = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_MOVING;
+        let dock = crate::game_logic::host_enum_table_residual::moving_model_bit();
+        self.model_condition_bits &= !mc;
+        if dock != crate::game_logic::host_enum_table_residual::MC_BIT_MOVING {
+            self.model_condition_bits &= !(1u128 << dock);
+        }
+    }
+
+    /// C++ `AIInternalMoveToState::update` cliff model (AIStates.cpp:1805-1841).
+    /// Model bits only. `unpinched_cliff` is pathfinder `CELL_CLIFF` and not pinched.
+    pub fn stamp_internal_move_cliff_model(&mut self, unpinched_cliff: bool) {
+        let climb = 1u128 << crate::game_logic::host_enum_table_residual::climbing_model_bit();
+        let rappel = 1u128 << crate::game_logic::host_enum_table_residual::rappelling_model_bit();
+        let moving = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_MOVING;
+        let dock = crate::game_logic::host_enum_table_residual::moving_model_bit();
+        if unpinched_cliff && self.moving_backwards {
+            self.model_condition_bits &= !climb;
+            self.model_condition_bits |= rappel | moving;
+        } else if unpinched_cliff {
+            self.model_condition_bits &= !rappel;
+            self.model_condition_bits |= climb | moving;
+        } else {
+            self.model_condition_bits &= !(climb | rappel);
+            self.model_condition_bits |= moving;
+        }
+        if dock != crate::game_logic::host_enum_table_residual::MC_BIT_MOVING {
+            self.model_condition_bits |= 1u128 << dock;
+        }
     }
 
     /// C++ setCompletedWaypoint path labels while following a script/player path.
@@ -821,10 +867,9 @@ impl Object {
     pub fn set_surrendered(&mut self, surrendered: bool) {
         self.is_surrendered = surrendered;
         if surrendered {
-            self.stop_moving();
             self.set_target(None);
             self.set_force_attack(false);
-            self.set_ai_state(AIState::Idle);
+            self.stop_moving();
         }
     }
 
@@ -951,6 +996,8 @@ impl Object {
             crate::game_logic::host_supply_gather::cancel_live_dock_for_docker(self.id);
         }
         let was_entering = matches!(self.ai_state, AIState::Entering);
+        let entering_move =
+            matches!(state, AIState::Moving | AIState::AttackMoving) && self.ai_state != state;
         let ordinal = match state {
             AIState::Idle => 0u8,
             AIState::Moving => 1,
@@ -986,7 +1033,66 @@ impl Object {
                 self.set_locomotor_goal_none();
             }
         }
+        if matches!(state, AIState::Idle) && !matches!(self.ai_state, AIState::Idle) {
+            // C++ AIIdleState::onEnter → resetNextMoodCheckTime.
+            self.idle_mood_reset_pending = true;
+        } else if !matches!(state, AIState::Idle) {
+            self.idle_mood_reset_pending = false;
+        }
+        let leaving_move = matches!(self.ai_state, AIState::Moving | AIState::AttackMoving)
+            && !matches!(state, AIState::Moving | AIState::AttackMoving);
+        if leaving_move {
+            self.set_status_moving(false);
+            if let Some(name) = self.move_loop_audio.take() {
+                crate::game_logic::host_move_ambient_audio::record_move_loop_stop(
+                    self.id,
+                    name,
+                    self.get_position(),
+                );
+            }
+            if self.ultra_accurate
+                && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self)
+            {
+                if let Some(goal) = self.path_goal_position.or(self.requested_destination) {
+                    let dx = goal.x - self.get_position().x;
+                    let dz = goal.z - self.get_position().z;
+                    let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                    if dx * dx + dz * dz < cell * cell {
+                        self.final_position = goal;
+                        self.do_final_position = false;
+                    }
+                }
+            }
+        }
+        if matches!(state, AIState::AttackMoving)
+            && !matches!(self.ai_state, AIState::AttackMoving)
+        {
+            self.attack_move_retry_count = 5;
+            self.attack_move_sleep_until = 0;
+            self.attack_move_command_src = Some(self.last_command_source);
+        }
         self.ai_state = state;
+        if entering_move && self.is_kind_of(crate::game_logic::KindOf::Immobile) {
+            self.ai_state = AIState::Idle;
+            self.set_status_moving(false);
+        } else if entering_move {
+            // C++ friend_startingMove on move-state onEnter, not path install.
+            self.num_frames_blocked = 0;
+            self.is_blocked_and_stuck = false;
+            self.set_status_moving(true);
+            self.start_move();
+            if self.is_motive()
+                || (self.is_kind_of(crate::game_logic::KindOf::Dozer)
+                    && self.is_kind_of(crate::game_logic::KindOf::Harvester))
+            {
+                let mc = 1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_MOVING;
+                self.model_condition_bits |= mc;
+            }
+            self.try_one_more_repath = true;
+            if self.ultra_accurate {
+                self.adjust_destinations = false;
+            }
+        }
         if matches!(self.ai_state, AIState::Constructing | AIState::Repairing) {
             // Assignment: ULTRA_ACCURATE on dozer/worker precision approach.
             self.set_ultra_accurate(true);
@@ -998,6 +1104,8 @@ impl Object {
             self.set_allow_invalid_position(true);
         } else if was_entering {
             self.set_allow_invalid_position(false);
+            // C++ AIEnterState::onExit clears ignoreObstacle.
+            self.ignored_obstacle_id = None;
         }
         crate::game_logic::host_ai_state_log::record(self.id, ordinal);
         self.record_host_ai_mood();

@@ -77,6 +77,9 @@ pub struct AIEnterState {
     pub(crate) base: AIMoveToState,
     pub(crate) entry_to_clear: ObjectID,
     pub(crate) goal_position: Coord3D,
+    /// Set when the caller already holds the state-machine mutex.
+    pub(crate) preset_owner: Option<Arc<RwLock<crate::object::Object>>>,
+    pub(crate) preset_goal_id: ObjectID,
 }
 
 impl AIEnterState {
@@ -87,6 +90,8 @@ impl AIEnterState {
             base,
             entry_to_clear: INVALID_ID,
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
+            preset_owner: None,
+            preset_goal_id: INVALID_ID,
         }
     }
 }
@@ -94,6 +99,14 @@ impl AIEnterState {
 impl StateImplementation for AIEnterState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.base.goal_position_copied = Some(pos);
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -130,36 +143,35 @@ impl ClassicState for AIEnterState {
 
         self.entry_to_clear = INVALID_ID;
 
-        let owner = self
-            .base
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "enter state missing machine owner".to_string())?;
-        let goal_id = self
-            .base
-            .base
-            .get_machine_goal_object_id()
-            .ok_or_else(|| "enter state missing goal object".to_string())?;
+        let owner = if let Some(owner) = self.preset_owner.clone() {
+            owner
+        } else {
+            self.base
+                .base
+                .get_machine_owner()
+                .ok_or_else(|| "enter state missing machine owner".to_string())?
+        };
+        let goal_id = if self.preset_goal_id != INVALID_ID {
+            self.preset_goal_id
+        } else {
+            self.base
+                .base
+                .get_machine_goal_object_id()
+                .ok_or_else(|| "enter state missing goal object".to_string())?
+        };
         let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "enter state missing goal object".to_string())?;
 
         {
-            let owner_guard = owner
+            let mut owner_guard = owner
                 .lock()
                 .map_err(|_| "enter state owner lock poisoned".to_string())?;
             let goal_guard = goal
                 .lock()
                 .map_err(|_| "enter state goal lock poisoned".to_string())?;
 
-            let cmd_source = owner_guard
-                .get_ai_update_interface()
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|ai_guard| ai_guard.get_last_command_source())
-                })
-                .unwrap_or(CommandSourceType::FromAi);
+            let cmd_source = owner_guard.ai_fire_last_command_source;
             if !TheActionManager::can_enter_object(
                 &*owner_guard,
                 &*goal_guard,
@@ -175,14 +187,12 @@ impl ClassicState for AIEnterState {
                 self.entry_to_clear = goal_guard.get_id();
             }
 
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ignore_obstacle(goal.read().ok().map(|g| g.get_id()));
-                    let _ = ai_guard.set_allow_invalid_position(true);
-                }
-            }
+            owner_guard.ai_pending_ignore_id = Some(goal_guard.get_id());
+            owner_guard.ai_pending_allow_invalid_position = Some(true);
         }
 
+        self.base.goal_position = self.goal_position;
+        self.base.preset_owner = self.preset_owner.clone();
         self.base.set_adjusts_destination(false);
         self.base.classic_on_enter()
     }
@@ -193,22 +203,28 @@ impl ClassicState for AIEnterState {
             return Ok(StateReturnType::Failure);
         }
 
-        let owner = self
-            .base
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "enter state missing machine owner".to_string())?;
-        let goal_id = self
-            .base
-            .base
-            .get_machine_goal_object_id()
-            .ok_or_else(|| "enter state missing goal object".to_string())?;
+        let owner = if let Some(owner) = self.preset_owner.clone() {
+            owner
+        } else {
+            self.base
+                .base
+                .get_machine_owner()
+                .ok_or_else(|| "enter state missing machine owner".to_string())?
+        };
+        let goal_id = if self.preset_goal_id != INVALID_ID {
+            self.preset_goal_id
+        } else {
+            self.base
+                .base
+                .get_machine_goal_object_id()
+                .ok_or_else(|| "enter state missing goal object".to_string())?
+        };
         let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
             .ok_or_else(|| "enter state missing goal object".to_string())?;
 
         {
-            let owner_guard = owner
+            let mut owner_guard = owner
                 .lock()
                 .map_err(|_| "enter state owner lock poisoned".to_string())?;
             let goal_guard = goal
@@ -223,20 +239,14 @@ impl ClassicState for AIEnterState {
             }
 
             self.goal_position = *goal_guard.get_position();
+            owner_guard.ai_pending_goal_id = Some(goal_guard.get_id());
             if let Ok(machine) = self.base.base.get_machine() {
-                if let Ok(mut machine_guard) = machine.lock() {
+                if let Ok(mut machine_guard) = machine.try_lock() {
                     machine_guard.set_goal_position(self.goal_position);
                 }
             }
 
-            let cmd_source = owner_guard
-                .get_ai_update_interface()
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|ai_guard| ai_guard.get_last_command_source())
-                })
-                .unwrap_or(CommandSourceType::FromAi);
+            let cmd_source = owner_guard.ai_fire_last_command_source;
             if !TheActionManager::can_enter_object(
                 &*owner_guard,
                 &*goal_guard,
@@ -247,7 +257,7 @@ impl ClassicState for AIEnterState {
                     let can_attack = owner_guard.get_able_to_attack_specific_object(
                         AbleToAttackType::NewTarget,
                         &goal_guard,
-                        CommandSourceType::FromAi,
+                        cmd_source,
                     );
                     if matches!(
                         can_attack,
@@ -255,9 +265,9 @@ impl ClassicState for AIEnterState {
                     ) {
                         if let Some(ai) = owner_guard.get_ai_update_interface() {
                             ai.ai_attack_object(
-                                goal.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                goal_guard.get_id(),
                                 NO_MAX_SHOTS_LIMIT,
-                                CommandSourceType::FromAi,
+                                cmd_source,
                             );
                         }
                         return Ok(StateReturnType::Continue);
@@ -312,13 +322,11 @@ impl ClassicState for AIEnterState {
 
         self.base.classic_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_clear_ignore = true;
+                owner_guard.ai_pending_allow_invalid_position = Some(false);
+            }
             if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.ignore_obstacle(None);
-                        let _ = ai_guard.set_allow_invalid_position(false);
-                    }
-                }
 
                 if self.entry_to_clear != INVALID_ID {
                     if let Some(goal) = get_legacy_object(self.entry_to_clear) {
@@ -359,6 +367,14 @@ impl AIExitState {
 impl StateImplementation for AIExitState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -414,9 +430,7 @@ impl ClassicState for AIExitState {
             .read()
             .map_err(|_| "exit state goal lock poisoned".to_string())?;
 
-        if goal_guard.is_disabled_by_type(DisabledType::DisabledSubdued) {
-            return Ok(StateReturnType::Failure);
-        }
+
 
         if let Some(contain) = goal_guard.get_contain() {
             contain.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);
@@ -451,37 +465,46 @@ impl ClassicState for AIExitState {
             .read()
             .map_err(|_| "exit state goal lock poisoned".to_string())?;
 
+        let owner_id = owner_guard.get_id();
         if let Some(goal_ai) = goal_guard.get_ai_update_interface() {
-            if let Ok(goal_ai_guard) = goal_ai.lock() {
-                if goal_ai_guard.get_ai_free_to_exit(&*owner_guard) == AIFreeToExitType::WaitToExit
-                {
-                    return Ok(StateReturnType::Continue);
-                }
+            let Ok(goal_ai_guard) = goal_ai.try_lock() else {
+                return Ok(StateReturnType::Continue);
+            };
+            if goal_ai_guard.get_ai_free_to_exit(&*owner_guard) == AIFreeToExitType::WaitToExit {
+                return Ok(StateReturnType::Continue);
             }
         }
 
-        let exit_interface = goal_guard
-            .get_object_exit_interface()
-            .ok_or_else(|| "exit state missing exit interface".to_string())?;
-        let mut exit_guard = exit_interface
-            .lock()
-            .map_err(|_| "exit state exit interface lock poisoned".to_string())?;
-        let exit_door = exit_guard.reserve_door_for_exit(Some(&*goal_guard), Some(&*owner_guard));
+        let exit_interface = goal_guard.get_contain_exit_interface().ok_or_else(|| {
+            "exit state missing contain exit interface".to_string()
+        })?;
+        let exit_door = {
+            let mut exit_guard = exit_interface
+                .lock()
+                .map_err(|_| "exit state exit interface lock poisoned".to_string())?;
+            if exit_guard.is_exit_busy() {
+                return Ok(StateReturnType::Continue);
+            }
+            exit_guard.reserve_door_for_exit(Some(&*owner_guard), Some(&*owner_guard))
+        };
         if exit_door == ExitDoorType::NoneAvailable {
             return Ok(StateReturnType::Failure);
         }
-        exit_guard
-            .exit_object_via_door(owner.read().map(|g| g.get_id()).unwrap_or(0), exit_door)
+        drop(owner_guard);
+        drop(goal_guard);
+        exit_interface
+            .lock()
+            .map_err(|_| "exit state exit interface lock poisoned".to_string())?
+            .exit_object_via_door(owner_id, exit_door)
             .map_err(|err| format!("exit state exit_object_via_door failed: {}", err))?;
 
         if let Ok(machine) = self.base.get_machine() {
-            if let Ok(machine_guard) = machine.lock() {
+            if let Ok(machine_guard) = machine.try_lock() {
                 if machine_guard.get_current_state_id() != Some(self.base.get_id()) {
                     return Ok(StateReturnType::Continue);
                 }
             }
         }
-
         Ok(StateReturnType::Success)
     }
 
@@ -532,6 +555,14 @@ impl AIExitInstantlyState {
 impl StateImplementation for AIExitInstantlyState {
     fn on_enter(&mut self) -> StateReturnType {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    fn bind_goal_position(&mut self, pos: Coord3D) {
+        self.base.goal_position_copied = Some(pos);
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -587,25 +618,23 @@ impl ClassicState for AIExitInstantlyState {
             .read()
             .map_err(|_| "exit instantly goal lock poisoned".to_string())?;
 
-        if goal_guard.is_disabled_by_type(DisabledType::DisabledSubdued) {
+
+
+        let owner_id = owner_guard.get_id();
+        let Some(contain) = goal_guard.get_contain() else {
             return Ok(StateReturnType::Failure);
-        }
-
-        if let Some(contain) = goal_guard.get_contain() {
-            contain.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);
-            self.entry_to_clear = goal_guard.get_id();
-        }
-
+        };
+        contain.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);
+        self.entry_to_clear = goal_id;
         let exit_interface = goal_guard
-            .get_object_exit_interface()
-            .ok_or_else(|| "exit instantly missing exit interface".to_string())?;
+            .get_contain_exit_interface()
+            .ok_or_else(|| "exit instantly missing contain exit interface".to_string())?;
+        drop(owner_guard);
+        drop(goal_guard);
         exit_interface
             .lock()
             .map_err(|_| "exit instantly exit interface lock poisoned".to_string())?
-            .exit_object_via_door(
-                owner.read().map(|g| g.get_id()).unwrap_or(0),
-                ExitDoorType::Door1,
-            )
+            .exit_object_via_door(owner_id, ExitDoorType::Door1)
             .map_err(|err| format!("exit instantly exit_object_via_door failed: {}", err))?;
 
         Ok(StateReturnType::Continue)
@@ -613,7 +642,7 @@ impl ClassicState for AIExitInstantlyState {
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
         if let Ok(machine) = self.base.get_machine() {
-            if let Ok(machine_guard) = machine.lock() {
+            if let Ok(machine_guard) = machine.try_lock() {
                 if machine_guard.get_current_state_id() != Some(self.base.get_id()) {
                     return Ok(StateReturnType::Continue);
                 }
@@ -743,6 +772,6 @@ impl Snapshotable for AIEnterState {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.base.load_post_process()
+        Snapshotable::load_post_process(&mut self.base)
     }
 }

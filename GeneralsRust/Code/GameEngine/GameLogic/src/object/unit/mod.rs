@@ -30,7 +30,7 @@ pub use ai_path::{
     leftover_should_use_direct_path_for_line_passable_non_final_goal,
 };
 pub use identity::{Unit, UnitExt};
-pub use registry::{UnitRegistry, register_unit, unregister_unit};
+pub use registry::{UnitRegistry, register_unit, unit_attack_target, unregister_unit};
 pub use types::{CombatMode, FormationType, MovementState, UnitOrder};
 
 #[cfg(test)]
