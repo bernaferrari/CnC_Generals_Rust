@@ -237,6 +237,33 @@ impl GameWorldShadow {
         (true, checked)
     }
 
+    fn first_health_mismatch(&self, logic: &GameLogic) -> Option<String> {
+        let mut host_ids: Vec<u32> = self.host_to_entity.keys().copied().collect();
+        host_ids.sort_unstable();
+        for hid in host_ids {
+            let eid = self.host_to_entity[&hid];
+            let Some(host_obj) = logic.host_objects().get(&ObjectId(hid)) else {
+                return Some(format!("host_id={hid} missing_host_object"));
+            };
+            let Some(ent) = self.world.entity(eid) else {
+                return Some(format!("host_id={hid} missing_shadow_entity={}", eid.get()));
+            };
+            if (host_obj.health.current - ent.health).abs() > 0.01 {
+                return Some(format!(
+                    "host_id={hid} template={} host_health={} shadow_health={} host_max={} shadow_max={} host_destroyed={} shadow_destroyed={}",
+                    host_obj.thing.template.name,
+                    host_obj.health.current,
+                    ent.health,
+                    host_obj.max_health,
+                    ent.max_health,
+                    host_obj.status.destroyed,
+                    ent.destroyed
+                ));
+            }
+        }
+        None
+    }
+
     fn pose_parity(&self, logic: &GameLogic) -> bool {
         const EPS: f32 = 0.05;
         for (&hid, &eid) in &self.host_to_entity {
@@ -474,7 +501,7 @@ impl GameWorldShadow {
             "ok".into()
         } else {
             format!(
-                "mismatch entities {} vs {} mapped={} players {} vs {} frame {} vs {} supplies {} vs {} health_ok={} pose={} atk={} move={} weap={} contain={} dvis={} prod={}",
+                "mismatch entities {} vs {} mapped={} players {} vs {} frame {} vs {} supplies {} vs {} health_ok={} first_health={:?} pose={} atk={} move={} weap={} contain={} dvis={} prod={}",
                 host_objects,
                 shadow_entities,
                 mapped_objects,
@@ -485,6 +512,7 @@ impl GameWorldShadow {
                 host_supplies_sum,
                 shadow_supplies_sum,
                 health_match,
+                (!health_match).then(|| self.first_health_mismatch(logic)).flatten(),
                 pose_match,
                 attack_target_match,
                 move_target_match,

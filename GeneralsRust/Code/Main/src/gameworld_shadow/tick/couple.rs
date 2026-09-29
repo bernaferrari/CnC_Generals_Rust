@@ -328,6 +328,7 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
     position: [f32; 3],
     orientation: f32,
     health: f32,
+    max_health: f32,
 ) -> Option<u32> {
     if !shadow_coupled_tick_active() || !gameworld_shadow_enabled() {
         return None;
@@ -351,6 +352,7 @@ pub fn spawn_rebuild_hole_entity_if_coupled(
             .map(|eid| eid.get())?;
         if let Some(e) = shadow.world.world_mut().entity_mut(EntityId::from_raw(raw)) {
             e.transform.orientation = orientation;
+            e.max_health = max_health.max(1.0);
             e.is_rebuild_hole = true;
             e.construction_percent = 1.0;
         }
