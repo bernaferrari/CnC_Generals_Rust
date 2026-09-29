@@ -1,5 +1,5 @@
 {
-  "input_digest": "1436b8d56d0ed731e7a74a733fd070956b98bf501e842ee979785995e6eb84b7",
+  "input_digest": "78848ffe58ddcf8857bc826e06776a5c32ec9387a73bee0646ecf1ecd57100bb",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -12,14 +12,16 @@
     "all_inventory_entries": 2961,
     "behavior_evidence": {
       "by_confidence": {
-        "exact": 0,
+        "exact": 1,
         "tolerance": 0
       },
-      "by_evidence_scope": {},
+      "by_evidence_scope": {
+        "original_cpp": 1
+      },
       "by_provenance_scope": {
         "game_engine": {
-          "units_with_records": 0,
-          "verified_units": 0
+          "units_with_records": 1,
+          "verified_units": 1
         },
         "game_engine_device": {
           "units_with_records": 0,
@@ -40,30 +42,30 @@
       },
       "informational_records": 0,
       "rejected_records": 0,
-      "units_with_records": 0,
+      "units_with_records": 1,
       "unmatched_units": [],
-      "verified_units": 0
+      "verified_units": 1
     },
-    "behavior_verified": 0,
+    "behavior_verified": 1,
     "blockers_by_kind": {
       "duplicate_implementation_destination": 46,
       "missing_mapping": 15,
       "no_reachable_implementation": 663,
-      "ownership_symbol": 7,
+      "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
       "unreviewed_source_range_ownership": 4,
-      "unreviewed_symbol_ownership": 1389
+      "unreviewed_symbol_ownership": 1388
     },
     "by_scope": {
       "game_engine": {
-        "behavior_evidence_units": 0,
-        "behavior_verified": 0,
+        "behavior_evidence_units": 1,
+        "behavior_verified": 1,
         "deferred_network": 47,
         "reachable_implementation_candidates": 513,
         "required": 539,
         "reviewed_path_implementations": 8,
         "source_range_ownership_reviewed": 3,
-        "symbol_ownership_reviewed": 0,
+        "symbol_ownership_reviewed": 1,
         "translation_units": 586
       },
       "game_engine_device": {
@@ -118,8 +120,8 @@
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 3505,
-    "symbol_ownership_reviewed": 0,
+    "strict_blockers": 3503,
+    "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }
 }

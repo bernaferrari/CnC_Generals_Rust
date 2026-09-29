@@ -1,5 +1,47 @@
 {
   "schema_version": 1,
   "policy": "Machine-editable behavioral parity evidence. A unit promotes to behavior_verified only with a reviewed mapping plus current hash-pinned executable evidence binding source, destination, scenario, and artifact hashes and passing commands. Prose, rust_vs_rust fixtures, stale hashes, failed commands, and path-only entries never promote.",
-  "units": []
+  "units": [
+    {
+      "source": "GeneralsMD/Code/GameEngine/Source/Common/DiscreteCircle.cpp",
+      "source_sha256": "c13579bf25f474e67e463512e8b0e782c512eb34c234749552ee566892ee1ddc",
+      "destinations": [
+        {
+          "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
+          "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9"
+        }
+      ],
+      "records": [
+        {
+          "kind": "original_cpp_differential",
+          "scope": "original_cpp",
+          "scenario": {
+            "path": "parity_scenarios/discrete_circle_grid.v1.json",
+            "sha256": "a5fd8ae9ba55a219c0d0045c46b2b9b458ee8511eaa73c330e37150889eefe12"
+          },
+          "artifacts": [
+            {
+              "role": "expected",
+              "path": "parity_golden/discrete_circle_grid_cpp.v1.json",
+              "sha256": "6a33194b5ab40a9709c6a55ea7bc30a6ab2136e16da6878600449890b811abe6"
+            },
+            {
+              "role": "reference",
+              "path": "GeneralsMD/Code/GameEngine/Include/Common/DiscreteCircle.h",
+              "sha256": "3581c1cf29d7042e613667bafa2b16b3585d426a6b87743f733c39e1c4f747c4"
+            }
+          ],
+          "commands": [
+            {
+              "argv": [
+                "python3",
+                "GeneralsRust/Code/Main/scripts/verify_discrete_circle_parity.py"
+              ],
+              "exit_code": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
 }

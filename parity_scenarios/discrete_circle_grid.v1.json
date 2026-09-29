@@ -1,0 +1,9 @@
+{
+  "schema": "generals.discrete_circle.scenario.v1",
+  "scenario": "bounded_circle_grid",
+  "radius_min": 0,
+  "radius_max": 64,
+  "x_centers": [-7, -1, 0, 1, 7],
+  "y_centers": [0, 1, 7],
+  "expected_cases": 975
+}
