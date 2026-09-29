@@ -1,6 +1,5 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
-
 /// ShowControlBar can request DEFAULT before the host `ControlBar` tick
 /// (C++ ControlBarCallback.cpp:489). Applied on the live instance.
 static PENDING_CONTROL_BAR_STAGE: std::sync::atomic::AtomicU8 =
@@ -101,23 +100,6 @@ fn reveal_ingame_command_window() {
         set_hidden("ControlBar.wnd:ObserverPlayerInfoWindow", true);
         for i in 1..=14 {
             set_hidden(&format!("ControlBar.wnd:ButtonCommand{:02}", i), false);
-        }
-
-        // C++ setDefaultControlBarConfig: view 80% height, parent at default
-        // WND pos. Authored 800x600 y=480 is offscreen on 640x480. Pin the
-        // parent to the bottom of the live display using the authored
-        // 140px command-bar height scaled by the scheme res multiplier
-        // (ControlBarScheme.cpp:417-419).
-        if let Some(parent) = manager.find_window_by_name("ControlBar.wnd:ControlBarParent") {
-            let (_sw, sh) = manager.screen_size();
-            let creation_h = game_engine::common::ini::get_control_bar_scheme_manager()
-                .and_then(|schemes| schemes.read().get_active_scheme().cloned())
-                .map(|scheme| scheme.screen_creation_res.y.max(1))
-                .unwrap_or(600);
-            let bar_h = ((sh as f32 / creation_h as f32) * 140.0) as i32;
-            let y = (sh - bar_h).max(0);
-            let mut win = parent.borrow_mut();
-            let _ = win.set_position(0, y);
         }
     });
 }
@@ -374,9 +356,6 @@ fn leftover_bind_purchase_science_windows_init() {
     bind("ButtonRank8Number", MAX_PURCHASE_SCIENCE_RANK_8);
 }
 
-
-
-
 /// C++ ControlBarCommand.cpp:1219-1261 — COMMAND_RESTRICTED unless ScienceVec owned.
 pub fn command_button_science_vec_owned(
     crate_player_has: impl Fn(ScienceType) -> bool,
@@ -405,10 +384,6 @@ pub fn command_button_science_vec_owned(
     }
     required_ids.is_empty()
 }
-
-
-
-
 
 impl ControlBar {
     // ---------------------------------------------------------------------------
@@ -467,7 +442,6 @@ impl ControlBar {
                             });
                         self.set_control_command(&win, &cmd);
                     }
-
                 }
             }
         };
@@ -486,7 +460,6 @@ impl ControlBar {
             (self.science_state.experience_progress * 100.0) as i32,
         );
     }
-
 
     pub fn show_purchase_science(&mut self) {
         if gamelogic::helpers::TheScriptEngine::is_game_ending() {
@@ -585,24 +558,12 @@ impl ControlBar {
             return;
         };
 
-        self.science_state.rank1_buttons = Self::science_buttons_from_set(
-            &player,
-            &store,
-            &set1,
-            MAX_PURCHASE_SCIENCE_RANK_1,
-        );
-        self.science_state.rank3_buttons = Self::science_buttons_from_set(
-            &player,
-            &store,
-            &set3,
-            MAX_PURCHASE_SCIENCE_RANK_3,
-        );
-        self.science_state.rank8_buttons = Self::science_buttons_from_set(
-            &player,
-            &store,
-            &set8,
-            MAX_PURCHASE_SCIENCE_RANK_8,
-        );
+        self.science_state.rank1_buttons =
+            Self::science_buttons_from_set(&player, &store, &set1, MAX_PURCHASE_SCIENCE_RANK_1);
+        self.science_state.rank3_buttons =
+            Self::science_buttons_from_set(&player, &store, &set3, MAX_PURCHASE_SCIENCE_RANK_3);
+        self.science_state.rank8_buttons =
+            Self::science_buttons_from_set(&player, &store, &set8, MAX_PURCHASE_SCIENCE_RANK_8);
 
         self.update_context_purchase_science();
     }
@@ -688,8 +649,6 @@ impl ControlBar {
         }
         None
     }
-
-
 
     fn leftover_experience_progress_percent(&self, player: &gamelogic::player::Player) -> i32 {
         if let Some(percent) = self.science_state.live_rank_progress_percent {
@@ -828,7 +787,6 @@ impl ControlBar {
         }
         self.leftover_apply_purchase_science_windows();
         self.mark_ui_dirty();
-
     }
 
     pub fn get_science_state(&self) -> &SciencePurchaseState {
@@ -858,8 +816,7 @@ impl ControlBar {
         // default stage and ToggleButtonUp* art when collapsed to the low
         // stage. Unresolved mapped images leave the slots unbound (the image
         // draw paints nothing, W3DPushButton.cpp:288-368).
-        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager()
-        else {
+        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
             return;
         };
         let Some(scheme) = manager.read().get_active_scheme().cloned() else {
@@ -905,10 +862,9 @@ impl ControlBar {
         let (_sw, sh) = leftover_display_size();
         leftover_set_tactical_view_height(((sh as f32) * 0.80) as i32);
         if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
-            let _ = parent.borrow_mut().set_position(
-                self.default_control_bar_x,
-                self.default_control_bar_y,
-            );
+            let _ = parent
+                .borrow_mut()
+                .set_position(self.default_control_bar_x, self.default_control_bar_y);
             let _ = parent.borrow_mut().hide(false);
         }
         self.leftover_set_up_down_images();
@@ -1042,8 +998,7 @@ impl ControlBar {
     /// so the image draw paints nothing (W3DPushButton.cpp:288-368) — never a
     /// color fill from the authored placeholder.
     fn apply_scheme_button_art(&self) {
-        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager()
-        else {
+        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
             return;
         };
         let Some(scheme) = manager.read().get_active_scheme().cloned() else {
@@ -1059,14 +1014,13 @@ impl ControlBar {
         let mult_y = screen_h as f32 / creation_h;
         let scale = |v: i32, mult: f32| (v as f32 * mult).round() as i32;
 
-        let bind_slot =
-            |slot: &mut Option<crate::gui::game_window::Image>, name: &str| {
-                if !name.is_empty() {
-                    if let Some(image) = leftover_mapped_image(name) {
-                        *slot = Some(image);
-                    }
+        let bind_slot = |slot: &mut Option<crate::gui::game_window::Image>, name: &str| {
+            if !name.is_empty() {
+                if let Some(image) = leftover_mapped_image(name) {
+                    *slot = Some(image);
                 }
-            };
+            }
+        };
 
         // MoneyDisplay/PowerWindow carry no gadget art in C++ — they are only
         // repositioned/resized from the scheme coords (ControlBarScheme.cpp
@@ -1331,7 +1285,11 @@ impl ControlBar {
         if self.special_power_shortcut_layout.is_empty() {
             format!("ControlBar.wnd:ButtonCommand{}", index + 1)
         } else {
-            format!("{}:ButtonCommand{}", self.special_power_shortcut_layout, index + 1)
+            format!(
+                "{}:ButtonCommand{}",
+                self.special_power_shortcut_layout,
+                index + 1
+            )
         }
     }
 
@@ -1339,7 +1297,11 @@ impl ControlBar {
         if self.special_power_shortcut_layout.is_empty() {
             format!("ControlBar.wnd:ButtonParent{}", index + 1)
         } else {
-            format!("{}:ButtonParent{}", self.special_power_shortcut_layout, index + 1)
+            format!(
+                "{}:ButtonParent{}",
+                self.special_power_shortcut_layout,
+                index + 1
+            )
         }
     }
 
@@ -1347,7 +1309,10 @@ impl ControlBar {
         if self.special_power_shortcut_layout.is_empty() {
             "ControlBar.wnd:GenPowersShortcutBarParent".to_string()
         } else {
-            format!("{}:GenPowersShortcutBarParent", self.special_power_shortcut_layout)
+            format!(
+                "{}:GenPowersShortcutBarParent",
+                self.special_power_shortcut_layout
+            )
         }
     }
 
@@ -1384,7 +1349,6 @@ impl ControlBar {
         });
         leftover_hide_window(&self.leftover_shortcut_bar_parent_name(), true);
         leftover_hide_window(&win_name, leftover_find_window(&win_name).is_some());
-
 
         for i in 0..self.special_power_shortcut_count {
             self.special_power_shortcuts
@@ -1616,7 +1580,8 @@ impl ControlBar {
                 }
             }
 
-            if (logic_button.get_options_bits() & CommandOption::NeedSpecialPowerScience as u32) != 0
+            if (logic_button.get_options_bits() & CommandOption::NeedSpecialPowerScience as u32)
+                != 0
             {
                 let Some(power) = logic_button.get_special_power_template() else {
                     continue;
@@ -1667,9 +1632,8 @@ impl ControlBar {
                     if let Some(win) =
                         leftover_find_window(&self.leftover_shortcut_button_name(current_button))
                     {
-                        let hot_key = with_hot_key_manager(|manager| {
-                            manager.search_hot_key(&cmd.text_label)
-                        });
+                        let hot_key =
+                            with_hot_key_manager(|manager| manager.search_hot_key(&cmd.text_label));
                         if !hot_key.is_empty() {
                             with_hot_key_manager(|manager| manager.add_hot_key(win, &hot_key));
                         }
@@ -1730,10 +1694,7 @@ impl ControlBar {
             .map(|w| !w.borrow().is_hidden())
             .unwrap_or(true);
 
-        if (has_select || has_power)
-            && leftover_window_is_hidden(&parent_name)
-            && master_visible
-        {
+        if (has_select || has_power) && leftover_window_is_hidden(&parent_name) && master_visible {
             leftover_hide_window(&parent_name, false);
             self.animate_special_power_shortcut(true);
         } else if !has_select && !has_power && !leftover_window_is_hidden(&parent_name) {
@@ -1771,11 +1732,9 @@ impl ControlBar {
             let mut availability = CommandAvailability::Restricted;
             let mut ready_count = 1;
             if let Some(power) = logic_button.get_special_power_template() {
-                ready_count = Self::leftover_count_ready_shortcut_special_powers(
-                    &player,
-                    power.get_name(),
-                )
-                .max(1);
+                ready_count =
+                    Self::leftover_count_ready_shortcut_special_powers(&player, power.get_name())
+                        .max(1);
                 if let Some(obj_id) =
                     Self::leftover_find_most_ready_shortcut_object(&player, power.get_name())
                 {
@@ -1801,7 +1760,12 @@ impl ControlBar {
             if availability == CommandAvailability::Hidden {
                 self.special_power_shortcuts[i].is_hidden = true;
             }
-            self.leftover_apply_shortcut_window(i, self.special_power_shortcuts[i].is_hidden, availability, ready_count);
+            self.leftover_apply_shortcut_window(
+                i,
+                self.special_power_shortcuts[i].is_hidden,
+                availability,
+                ready_count,
+            );
         }
     }
 
@@ -1813,7 +1777,11 @@ impl ControlBar {
                 &if self.special_power_shortcut_layout.is_empty() {
                     format!("ControlBar.wnd:ButtonCommand{}", i + 1)
                 } else {
-                    format!("{}:ButtonCommand{}", self.special_power_shortcut_layout, i + 1)
+                    format!(
+                        "{}:ButtonCommand{}",
+                        self.special_power_shortcut_layout,
+                        i + 1
+                    )
                 },
                 true,
             );
@@ -1984,7 +1952,6 @@ impl ControlBar {
         self.border_colors.action = action;
         self.border_colors.upgrade = upgrade;
         self.border_colors.system = system;
-
     }
 
     pub fn get_border_color_for_type(
@@ -2114,13 +2081,11 @@ impl ControlBar {
                     state.enabled = false;
                     state.availability = CommandAvailability::Restricted;
                 }
-
             }
         }
 
         self.button_states = refreshed;
     }
-
 
     pub fn get_context(&self) -> Arc<RwLock<ControlBarContext>> {
         self.context.clone()
@@ -2266,12 +2231,9 @@ mod science_vec_gate_tests {
 
         // Table miss keeps the fail-closed hidden stub.
         leftover_ensure_named_window("ControlBar.wnd:LeftoverStubProbe");
-        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe")
-            .expect("stub fallback");
+        let stub = leftover_find_window("ControlBar.wnd:LeftoverStubProbe").expect("stub fallback");
         let stub = stub.borrow();
         assert!(stub.is_hidden(), "non-table names keep the hidden stub");
         assert_eq!(stub.get_size(), (200, 200));
     }
-
 }
-

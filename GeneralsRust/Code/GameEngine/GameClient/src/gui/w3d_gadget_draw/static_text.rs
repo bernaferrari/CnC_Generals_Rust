@@ -16,7 +16,7 @@ pub(super) fn draw_static_text(
         return;
     }
 
-    let rect = press_scaled_rect(window);
+    let rect = authored_window_rect(window);
     let origin_x = rect.x as i32;
     let origin_y = rect.y as i32;
     let width = rect.width as i32;

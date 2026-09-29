@@ -67,25 +67,12 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
         let (x, y) = _window.get_screen_position();
         let (width, height) = _window.get_size();
         let offset = _inst_data.image_offset;
-        let mut rect = UIRect::new(
+        let rect = UIRect::new(
             (x + offset.x) as f32,
             (y + offset.y) as f32,
             width as f32,
             height as f32,
         );
-        let scale = _window.get_press_scale();
-        if (scale - 1.0).abs() > f32::EPSILON {
-            let cx = rect.x + rect.width * 0.5;
-            let cy = rect.y + rect.height * 0.5;
-            let scaled_width = rect.width * scale;
-            let scaled_height = rect.height * scale;
-            rect = UIRect::new(
-                cx - scaled_width * 0.5,
-                cy - scaled_height * 0.5,
-                scaled_width,
-                scaled_height,
-            );
-        }
 
         let (draw_data, text_colors) =
             if _inst_data.state.contains(WindowState::DISABLED) || !_window.is_enabled() {

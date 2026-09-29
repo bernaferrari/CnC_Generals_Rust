@@ -507,7 +507,8 @@ mod tests {
         client.seed_drawable_pose_for_test(drawable_id, crate::common::Coord3D::ZERO, 0.25);
         client.begin_object_model_draw_frame(object_id);
         client.set_object_wheel_info(object_id, crate::helpers::DrawWheelInfo::default());
-        client.note_weapon_recoil(object_id, 2.0, 0.5);
+        crate::helpers::ClientVisualHandle::new(Arc::clone(&live))
+            .note_weapon_recoil(object_id, 2.0, 0.5);
         let live_light = crate::helpers::create_scene_point_light();
         client.add_tree(
             drawable_id,
@@ -524,7 +525,11 @@ mod tests {
             assert!(client.find_drawable_by_id(drawable_id).is_none());
             assert!(client.get_object_wheel_info(object_id).is_none());
             assert!(client.get_registered_tree(drawable_id).is_none());
-            assert!(client.take_weapon_recoils().is_empty());
+            assert!(
+                crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate))
+                    .take_weapon_recoils()
+                    .is_empty()
+            );
             assert!(crate::helpers::scene_point_lights().is_empty());
             client.seed_drawable_pose_for_test(
                 drawable_id,
@@ -532,7 +537,8 @@ mod tests {
                 0.75,
             );
             assert_eq!(crate::helpers::create_scene_point_light(), 1);
-            client.note_weapon_recoil(object_id, 4.0, 0.75);
+            crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate))
+                .note_weapon_recoil(object_id, 4.0, 0.75);
         });
         assert_eq!(live_light, 1);
         let candidate_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate));
@@ -547,7 +553,10 @@ mod tests {
             client.find_drawable_by_id(drawable_id).unwrap().orientation,
             0.25
         );
-        assert_eq!(client.take_weapon_recoils(), vec![(object_id, 2.0, 0.5)]);
+        assert_eq!(
+            crate::helpers::ClientVisualHandle::new(Arc::clone(&live)).take_weapon_recoils(),
+            vec![(object_id, 2.0, 0.5)]
+        );
         assert_eq!(
             live.client_visuals()
                 .model_draw_frames
@@ -593,6 +602,120 @@ mod tests {
         );
         assert!(uninstall_active_if_current(&candidate));
         assert_eq!(active_stack_depth(), 0);
+    }
+
+    #[test]
+    fn drawable_recoil_uses_bound_world_even_when_another_is_active() {
+        let _serial = crate::test_sync::lock();
+        assert_eq!(active_stack_depth(), 0);
+        let a = new_for_world();
+        let b = new_for_world();
+        let a_weak = Arc::downgrade(&a);
+        let a_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&a));
+        let b_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&b));
+        let mut drawable = crate::object::drawable::Drawable::new(
+            71,
+            81,
+            "RecoilOwnerTest".to_string(),
+            crate::object::drawable::DrawableType::Animated,
+        );
+        drawable.bind_visual_owner(a_visuals.downgrade());
+
+        install_active(Arc::clone(&b));
+        drawable.apply_weapon_recoil(2.5, 0.75);
+        assert!(b_visuals.take_weapon_recoils().is_empty());
+        assert_eq!(a_visuals.take_weapon_recoils(), vec![(81, 2.5, 0.75)]);
+        assert!(uninstall_active_if_current(&b));
+
+        drop(a_visuals);
+        drop(a);
+        assert!(a_weak.upgrade().is_none(), "drawable must not retain world");
+        drawable.apply_weapon_recoil(1.0, 0.25);
+        assert!(b_visuals.take_weapon_recoils().is_empty());
+    }
+
+    #[test]
+    fn client_created_drawable_keeps_its_world_after_active_switch() {
+        let _serial = crate::test_sync::lock();
+        assert_eq!(active_stack_depth(), 0);
+        let a = new_for_world();
+        let b = new_for_world();
+        let a_weak = Arc::downgrade(&a);
+        let a_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&a));
+        let b_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&b));
+        install_active(Arc::clone(&a));
+        let template = crate::common::DefaultThingTemplate::new("VisualOwnerTest".to_string());
+        let id = crate::helpers::TheGameClient::get()
+            .expect("client bridge")
+            .create_drawable(&template);
+        let drawable = a
+            .client_visuals()
+            .drawables
+            .lock()
+            .unwrap()
+            .get(&id)
+            .and_then(|state| state.drawable.clone())
+            .expect("created drawable");
+        let mut saved = a
+            .client_visuals()
+            .drawables
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .expect("saved drawable");
+        saved.position = crate::common::Coord3D::new(4.0, 5.0, 6.0);
+        saved.orientation = 0.5;
+        saved.beam_start = Some(crate::common::Coord3D::ZERO);
+        saved.beam_end = Some(crate::common::Coord3D::new(1.0, 2.0, 3.0));
+        install_active(Arc::clone(&b));
+        let b_id = crate::helpers::TheGameClient::get()
+            .expect("client bridge")
+            .create_drawable(&template);
+        drawable.write().unwrap().apply_weapon_recoil(1.5, 0.25);
+        assert_eq!(
+            a_visuals.take_weapon_recoils(),
+            vec![(crate::common::INVALID_ID, 1.5, 0.25)]
+        );
+        assert!(b_visuals.take_weapon_recoils().is_empty());
+        a_visuals.restore_objectless_drawable(id, &saved);
+        let restored = a
+            .client_visuals()
+            .drawables
+            .lock()
+            .unwrap()
+            .get(&id)
+            .cloned()
+            .unwrap();
+        assert_eq!(restored.position, saved.position);
+        assert_eq!(restored.orientation, saved.orientation);
+        assert_eq!(restored.beam_end, saved.beam_end);
+        assert_eq!(
+            b.client_visuals()
+                .drawables
+                .lock()
+                .unwrap()
+                .get(&b_id)
+                .unwrap()
+                .position,
+            crate::common::Coord3D::ZERO
+        );
+        a_visuals.clear_objectless_drawables();
+        assert!(a.client_visuals().drawables.lock().unwrap().is_empty());
+        assert!(
+            b.client_visuals()
+                .drawables
+                .lock()
+                .unwrap()
+                .contains_key(&b_id)
+        );
+        assert!(uninstall_active_if_current(&b));
+        assert!(uninstall_active_if_current(&a));
+        drop(a_visuals);
+        drop(saved);
+        drop(restored);
+        drop(a);
+        assert!(a_weak.upgrade().is_none(), "drawable must not retain world");
     }
 
     #[test]

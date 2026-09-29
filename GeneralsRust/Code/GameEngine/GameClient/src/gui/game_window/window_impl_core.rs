@@ -33,14 +33,6 @@ impl GameWindow {
             combobox_links: None,
             listbox_links: None,
             slider_thumb: None,
-            press_scale: 1.0,
-            press_scale_target: 1.0,
-            press_scale_velocity: 0.0,
-            press_spring_strength: 60.0,
-            press_spring_damping: 10.0,
-            press_impulse: -4.5,
-            release_impulse: 5.5,
-            press_was_down: false,
         }
     }
 
@@ -54,24 +46,13 @@ impl GameWindow {
         self.inst_data.style
     }
 
-    pub(crate) fn is_press_anim_enabled(&self) -> bool {
-        if matches!(
+    pub(crate) fn needs_periodic_widget_state_sync(&self) -> bool {
+        matches!(
             self.widget,
             Some(WindowWidget::PushButton(_))
                 | Some(WindowWidget::CheckBox(_))
                 | Some(WindowWidget::RadioButton(_))
-        ) {
-            return true;
-        }
-        self.inst_data.style & (GWS_PUSH_BUTTON | GWS_CHECK_BOX | GWS_RADIO_BUTTON) != 0
-    }
-
-    pub fn get_press_scale(&self) -> f32 {
-        if self.is_press_anim_enabled() {
-            self.press_scale
-        } else {
-            1.0
-        }
+        ) || self.inst_data.style & (GWS_PUSH_BUTTON | GWS_CHECK_BOX | GWS_RADIO_BUTTON) != 0
     }
 
     pub(crate) fn sync_state_from_widget(&mut self) {
@@ -107,47 +88,6 @@ impl GameWindow {
                 state.set(WindowState::SELECTED, selected);
             }
             self.inst_data.state = state;
-        }
-
-        if self.is_press_anim_enabled() && pressed != self.press_was_down {
-            self.press_scale_target = if pressed { 0.94 } else { 1.0 };
-            self.press_scale_velocity = if pressed {
-                self.press_impulse
-            } else {
-                self.release_impulse
-            };
-            self.press_was_down = pressed;
-        }
-    }
-
-    pub fn update_press_animation(&mut self, delta_time: f32) {
-        if !self.is_press_anim_enabled() {
-            self.press_scale = 1.0;
-            self.press_scale_target = 1.0;
-            self.press_scale_velocity = 0.0;
-            self.press_was_down = false;
-            return;
-        }
-
-        // Keep press animation in sync even if input bypassed window message routing.
-        self.sync_state_from_widget();
-
-        let dt = delta_time.max(0.0);
-        if dt == 0.0 {
-            return;
-        }
-
-        let displacement = self.press_scale - self.press_scale_target;
-        let accel = -self.press_spring_strength * displacement
-            - self.press_spring_damping * self.press_scale_velocity;
-        self.press_scale_velocity += accel * dt;
-        self.press_scale += self.press_scale_velocity * dt;
-
-        if (self.press_scale - self.press_scale_target).abs() < 0.0005
-            && self.press_scale_velocity.abs() < 0.0005
-        {
-            self.press_scale = self.press_scale_target;
-            self.press_scale_velocity = 0.0;
         }
     }
 
@@ -1813,7 +1753,6 @@ impl GameWindow {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return WindowMsgHandled::Ignored;
         }
-        self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
             let result = input_callback(self, msg, data1, data2);
             if result.is_ignored() {
@@ -1836,7 +1775,6 @@ impl GameWindow {
         if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
             return WindowMsgHandled::Ignored;
         }
-        self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
             let result = input_callback(self, msg, data1, data2);
             if result.is_ignored() {
@@ -1846,27 +1784,6 @@ impl GameWindow {
             }
         } else {
             self.handle_widget_input(msg, data1, data2)
-        }
-    }
-
-    pub(crate) fn update_press_state_from_message(&mut self, msg: WindowMessage) {
-        if !self.is_press_anim_enabled() {
-            return;
-        }
-        match msg {
-            WindowMessage::LeftDown => {
-                if !self.press_was_down {
-                    self.press_scale_target = 0.94;
-                    self.press_scale_velocity = self.press_impulse;
-                    self.press_was_down = true;
-                }
-            }
-            WindowMessage::LeftUp if self.press_was_down => {
-                self.press_scale_target = 1.0;
-                self.press_scale_velocity = self.release_impulse;
-                self.press_was_down = false;
-            }
-            _ => {}
         }
     }
 

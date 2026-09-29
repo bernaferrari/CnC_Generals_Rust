@@ -90,16 +90,6 @@ pub struct GameWindow {
 
     // Slider thumb child window reference
     pub(crate) slider_thumb: Option<WindowId>,
-
-    // Press animation state for elastic button feel
-    pub(crate) press_scale: f32,
-    pub(crate) press_scale_target: f32,
-    pub(crate) press_scale_velocity: f32,
-    pub(crate) press_spring_strength: f32,
-    pub(crate) press_spring_damping: f32,
-    pub(crate) press_impulse: f32,
-    pub(crate) release_impulse: f32,
-    pub(crate) press_was_down: bool,
 }
 
 #[derive(Debug, Clone, Copy)]

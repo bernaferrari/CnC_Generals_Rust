@@ -31,7 +31,6 @@ pub use crate_tick::{
     AICommand, AudioEventRequest, FixedStepDiagnostics, GameMode, PendingSpecialAbility,
     PlayerStatistics, SimTimingSnapshot,
 };
-pub(self) use crate_tick::GAME_LOGIC;
 pub use gameworld_authority::{GameWorldAuthority, current_gameworld_authority};
 pub(crate) use host::PathfindingHeightSamples;
 pub use host::{GameLogic, RuntimeWeatherState};

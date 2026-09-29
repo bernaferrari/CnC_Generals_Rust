@@ -11,6 +11,30 @@ mod tests {
     }
 
     #[test]
+    fn revealing_control_bar_preserves_authored_parent_position() {
+        // ControlBar.cpp:3001-3014 restores the authored default position;
+        // showing its command children must not invent another bottom pin.
+        for (width, height) in [(640, 480), (1280, 960)] {
+            let authored_y = (416.0 * height as f32 / 600.0) as i32;
+            let parent = crate::gui::with_window_manager(|manager| {
+                manager.destroy_all_windows();
+                manager.set_screen_size(width, height);
+                let parent = manager
+                    .create_window(None, 0, authored_y, width, 100)
+                    .expect("control bar parent");
+                parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
+                parent
+            });
+            reveal_ingame_command_window();
+            assert_eq!(
+                parent.borrow().get_position(),
+                (0, authored_y),
+                "display {width}x{height}"
+            );
+        }
+    }
+
+    #[test]
     fn first_multi_selection_enables_shared_order_when_one_unit_can_act() {
         let mut control_bar = ControlBar::new();
         let mut attack_move = CommandButton::default();
@@ -20,14 +44,10 @@ mod tests {
 
         // First selected unit is restricted; second can execute this shared
         // button. C++ updateContextMultiSelect enables it after both visits.
-        let first_can = control_bar.record_multi_select_button_availability(
-            &attack_move,
-            CommandAvailability::Restricted,
-        );
-        let second_can = control_bar.record_multi_select_button_availability(
-            &attack_move,
-            CommandAvailability::Available,
-        );
+        let first_can = control_bar
+            .record_multi_select_button_availability(&attack_move, CommandAvailability::Restricted);
+        let second_can = control_bar
+            .record_multi_select_button_availability(&attack_move, CommandAvailability::Available);
         assert!(!first_can && second_can);
         control_bar.finish_multi_select_button_state(&attack_move, u32::from(second_can));
         let state = control_bar.button_states.get("Command_AttackMove").unwrap();
@@ -36,10 +56,12 @@ mod tests {
 
         // The last object's Restricted result must not cancel an earlier
         // capable group member in the C++ final any-object pass.
-        assert!(control_bar.record_multi_select_button_availability(
-            &attack_move,
-            CommandAvailability::Available,
-        ));
+        assert!(
+            control_bar.record_multi_select_button_availability(
+                &attack_move,
+                CommandAvailability::Available,
+            )
+        );
         assert!(!control_bar.record_multi_select_button_availability(
             &attack_move,
             CommandAvailability::Restricted,
@@ -168,7 +190,7 @@ mod tests {
 
         // C++ path: TheUpgradeCenter->findUpgrade()->getButtonImage()
         {
-            use game_engine::common::ini::{INIError, INI};
+            use game_engine::common::ini::{INI, INIError};
             use gamelogic::upgrade::center::with_upgrade_center_mut;
             let source = format!("{UPGRADE}\nButtonImage = {IMAGE}\nEnd\n");
             let mut ini = INI::new();
@@ -288,7 +310,10 @@ mod tests {
             formatted.contains("1250"),
             "MoneyDisplay text must include the player cash amount, got {formatted}"
         );
-        assert_ne!(formatted, "1250", "must wrap amount in GUI:ControlBarMoneyDisplay or $ prefix");
+        assert_ne!(
+            formatted, "1250",
+            "must wrap amount in GUI:ControlBarMoneyDisplay or $ prefix"
+        );
     }
 
     #[test]
@@ -319,7 +344,7 @@ mod tests {
         assert!(
             hidden || text.as_deref() != Some("PLACEHOLDER"),
             "MoneyDisplay must be hidden without a player or rewritten from ThePlayerList, got text={text:?} hidden={hidden}"
-    );
+        );
     }
 
     #[test]
@@ -413,7 +438,9 @@ mod tests {
             .write()
             .add_image(crate::display::image::Image::with_name(IMAGE));
         let _ = crate::gui::with_window_manager(|manager| {
-            let win = manager.create_window(None, 0, 0, 139, 109).expect("RightHUD");
+            let win = manager
+                .create_window(None, 0, 0, 139, 109)
+                .expect("RightHUD");
             win.borrow_mut().set_name("ControlBar.wnd:RightHUD");
         });
         apply_scheme_right_hud_image(IMAGE);
@@ -457,7 +484,9 @@ mod tests {
         // owned shortcut special power or a populated shortcut selection
         // button, the GenPowersShortcutBar column is never revealed.
         let _ = crate::gui::with_window_manager(|manager| {
-            let win = manager.create_window(None, 0, 0, 48, 426).expect("shortcut tray");
+            let win = manager
+                .create_window(None, 0, 0, 48, 426)
+                .expect("shortcut tray");
             win.borrow_mut()
                 .set_name("ControlBar.wnd:GenPowersShortcutBarParent");
             let _ = win.borrow_mut().hide(true);

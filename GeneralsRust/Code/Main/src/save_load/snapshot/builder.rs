@@ -26,6 +26,31 @@ impl SnapshotBuilder {
 
     /// Create complete world snapshot from current game state
     pub fn create_world_snapshot(&self, game_logic: &GameLogic) -> SaveLoadResult<WorldSnapshot> {
+        #[cfg(feature = "game_client")]
+        {
+            self.create_world_snapshot_impl(game_logic, None)
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            self.create_world_snapshot_impl(game_logic)
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    pub fn create_world_snapshot_with_client(
+        &self,
+        game_logic: &GameLogic,
+        client: &game_client::core::game_client::GameClient,
+    ) -> SaveLoadResult<WorldSnapshot> {
+        self.create_world_snapshot_impl(game_logic, Some(client))
+    }
+
+    fn create_world_snapshot_impl(
+        &self,
+        game_logic: &GameLogic,
+        #[cfg(feature = "game_client")]
+        client: Option<&game_client::core::game_client::GameClient>,
+    ) -> SaveLoadResult<WorldSnapshot> {
         log::info!("Creating world snapshot from game state");
 
         // Snapshot all objects from game state
@@ -140,7 +165,20 @@ impl SnapshotBuilder {
             cave_system: game_logic.cave_system_residual().clone(),
             tunnel_network: game_logic.tunnel_network_residual().clone(),
             airfield_parking: self.snapshot_airfield_parking(game_logic),
-            persist_v18: super::persist_v18::capture_persist_v18(game_logic),
+            persist_v18: {
+                #[cfg(feature = "game_client")]
+                {
+                    if let Some(client) = client {
+                        super::persist_v18::capture_persist_v18_with_client(game_logic, client)
+                    } else {
+                        super::persist_v18::capture_persist_v18(game_logic)
+                    }
+                }
+                #[cfg(not(feature = "game_client"))]
+                {
+                    super::persist_v18::capture_persist_v18(game_logic)
+                }
+            },
             object_experience_trackers: self.snapshot_object_experience_trackers(game_logic),
             object_command_sets: self.snapshot_object_command_sets(game_logic),
             object_disguises: self.snapshot_object_disguises(game_logic),
@@ -239,9 +277,9 @@ impl SnapshotBuilder {
             restore_w3d_ghost_manager_from_xfer_bytes(&ghost_bytes)?;
         }
         save_lock_live_w3d_ghosts(false)?;
-        if let Some(client_bytes) = take_loaded_game_client_xfer() {
-            restore_game_client_from_xfer_bytes(&client_bytes)?;
-        }
+        // CHUNK_GameClient belongs to the presentation client. The host keeps
+        // its bytes staged until the candidate GameLogic commits; applying
+        // them here would mutate the still-playable client's drawables.
         let visual_world = gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
             &game_logic.engine_stores,
         ));

@@ -983,12 +983,20 @@ impl ObjectFactory {
         };
 
         let drawable_id = Drawable::allocate_drawable_id();
-        let drawable = Arc::new(RwLock::new(Drawable::new(
+        let mut drawable = Drawable::new(
             drawable_id,
             object_id,
             model_name.to_string(),
             drawable_type,
-        )));
+        );
+        // This legacy factory is still reached through a process singleton.
+        // Capture its currently executing world once at creation; the retained
+        // Drawable never resolves ambient state when weapon recoil fires.
+        let visual_owner =
+            crate::helpers::ClientVisualHandle::new(crate::system::engine_stores::active())
+                .downgrade();
+        drawable.bind_visual_owner(visual_owner);
+        let drawable = Arc::new(RwLock::new(drawable));
 
         let _ = template.module_descriptors();
 

@@ -78,7 +78,7 @@ impl GameClient {
             self.draw_presentation_selection_residual();
             // C++ TheInGameUI->update message/superweapon drains before postDraw.
             self.drain_logic_hud_messages();
-            apply_queued_weapon_recoils();
+            self.apply_queued_weapon_recoils();
             for drawable in self.drawable_map.values_mut() {
                 if let Some(basic) = drawable
                     .as_any_mut()

@@ -25,12 +25,13 @@ use super::{
     list_box_solid_content_width, list_box_solid_frame_and_content_widths,
 };
 use crate::gui::gadgets::{
-    Color, ListBox, ListBoxItemData, ProgressBar, PushButton, TabControl, TabControlData,
-    TextAlignment, TextEntry, VerticalAlignment,
+    Color, InputEvent, ListBox, ListBoxItemData, ProgressBar, PushButton, TabControl,
+    TabControlData, TextAlignment, TextEntry, VerticalAlignment,
 };
 use crate::gui::game_window::{
-    GameWindow, WindowInstanceData, WindowState, WindowStatus, WindowWidget,
+    GameWindow, WindowInstanceData, WindowMessage, WindowState, WindowStatus, WindowWidget,
 };
+use crate::gui::window_manager::WindowManager;
 
 #[test]
 fn test_truncate_to_i32_matches_cpp_cast_behavior() {
@@ -202,7 +203,7 @@ fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
     window.set_status(WindowStatus::ENABLED);
     let _ = window.set_position(10, 20);
     let _ = window.set_size(100, 30);
-    let scaled = super::press_scaled_rect(&window);
+    let scaled = super::authored_window_rect(&window);
     let (btn_pos, _, _, btn_idx) = crate::gui::ui_renderer::UIRenderer::gadget_gpu_fill_rect_mesh(
         scaled,
         [1.0, 1.0, 1.0, 1.0],
@@ -211,6 +212,89 @@ fn gadget_gpu_fill_rect_mesh_is_two_triangles_matching_window_rect() {
     assert_eq!(btn_idx.len(), 6);
     assert_eq!(btn_pos[0][0], scaled.x);
     assert_eq!(btn_pos[0][1], scaled.y);
+}
+
+#[test]
+fn pressed_button_keeps_cpp_authored_draw_bounds() {
+    // W3DPushButton.cpp draws every state at winGetScreenPosition/winGetSize.
+    let mut manager = WindowManager::new();
+    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    window
+        .borrow_mut()
+        .set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
+    window
+        .borrow_mut()
+        .send_routed_input_message(WindowMessage::LeftDown, 0, 0);
+    std::thread::sleep(std::time::Duration::from_millis(16));
+    manager.update();
+
+    let window = window.borrow();
+    assert_eq!(window.get_screen_position(), (10, 20));
+    assert_eq!(window.get_size(), (100, 30));
+    assert_eq!(
+        super::authored_window_bounds_i32(&window),
+        (10, 20, 100, 30)
+    );
+}
+
+#[test]
+fn window_update_still_syncs_button_widget_state() {
+    let mut manager = WindowManager::new();
+    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    window
+        .borrow_mut()
+        .set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
+
+    window
+        .borrow_mut()
+        .widget_mut()
+        .unwrap()
+        .handle_input(&InputEvent::MouseEnter { x: 15, y: 25 });
+    assert!(
+        !window
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
+    manager.update();
+    assert!(
+        window
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
+}
+
+#[test]
+fn window_update_does_not_add_nonbutton_state_sync() {
+    let mut manager = WindowManager::new();
+    let window = manager.create_window(None, 10, 20, 100, 30).unwrap();
+    window
+        .borrow_mut()
+        .set_widget(WindowWidget::ListBox(ListBox::new(8, 0, 0, 100, 30)));
+
+    window
+        .borrow_mut()
+        .widget_mut()
+        .unwrap()
+        .handle_input(&InputEvent::MouseEnter { x: 15, y: 25 });
+    assert!(
+        !window
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
+    manager.update();
+    assert!(
+        !window
+            .borrow()
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED)
+    );
 }
 
 #[test]

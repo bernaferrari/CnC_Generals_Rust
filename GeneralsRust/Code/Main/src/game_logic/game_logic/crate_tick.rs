@@ -128,11 +128,6 @@ impl PendingSpecialAbility {
     }
 }
 
-/// Bridge Main's lightweight Team enum to GameEngine's Arc<RwLock<Team>>.
-/// Uses the global TeamFactory to look up teams by player/faction name.
-/// Global GameLogic singleton instance
-pub(super) static GAME_LOGIC: OnceLock<Arc<Mutex<GameLogic>>> = OnceLock::new();
-
 /// Audio event request (mirrors C++ AudioEventRTS pattern)
 /// These events are queued each frame and processed by the audio system
 #[derive(Debug, Clone)]

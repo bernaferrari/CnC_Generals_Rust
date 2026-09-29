@@ -140,7 +140,7 @@ pub use client_drawable::*;
 pub use game_client_save::{
     CHUNK_GAME_CLIENT, capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
     restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
-    take_loaded_game_client_xfer,
+    take_loaded_game_client_xfer, validate_game_client_xfer_bytes,
 };
 pub use game_state::*;
 pub use gamelogic::system::shroud_manager::{

@@ -375,6 +375,28 @@ fn restore_radar_event(entry: &RadarEventPersist) -> RadarEvent {
 }
 
 pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
+    #[cfg(feature = "game_client")]
+    {
+        capture_persist_v18_impl(game_logic, None)
+    }
+    #[cfg(not(feature = "game_client"))]
+    {
+        capture_persist_v18_impl(game_logic)
+    }
+}
+
+#[cfg(feature = "game_client")]
+pub fn capture_persist_v18_with_client(
+    game_logic: &GameLogic,
+    client: &game_client::core::game_client::GameClient,
+) -> WorldPersistV18 {
+    capture_persist_v18_impl(game_logic, Some(client))
+}
+
+fn capture_persist_v18_impl(
+    game_logic: &GameLogic,
+    #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
+) -> WorldPersistV18 {
     let mut persist = WorldPersistV18::default();
 
     persist.rank_level_limit = TheGameLogic::get_rank_level_limit();
@@ -556,7 +578,7 @@ pub fn capture_persist_v18(game_logic: &GameLogic) -> WorldPersistV18 {
             })
             .collect();
         #[cfg(feature = "game_client")]
-        if let Some(left) = game_client::core::capture_live_drawable_xfer_visuals(id.0) {
+        if let Some(left) = client.and_then(|client| client.capture_drawable_xfer_visuals(id.0)) {
             explicit_opacity = left.explicit_opacity;
             stealth_opacity = left.stealth_opacity;
             effective_stealth_opacity = left.effective_stealth_opacity;
@@ -849,45 +871,57 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
         if entry.tint_envelope.seen {
             crate::game_logic::restore_drawable_tint_envelope(entry.object_id, entry.tint_envelope);
         }
-        #[cfg(feature = "game_client")]
-        {
-            let visuals = game_client::drawable::DrawableXferVisualSnapshot {
-                explicit_opacity: entry.explicit_opacity,
-                stealth_opacity: entry.stealth_opacity,
-                effective_stealth_opacity: entry.effective_stealth_opacity,
-                instance_scale: entry.instance_scale,
-                heat_vision_opacity: entry.heat_vision_opacity,
-                tint_status: entry.tint_status,
-                prev_tint_status: entry.prev_tint_status,
-                hidden: entry.hidden || entry.drawable_status != 0,
-                hidden_by_stealth: entry.hidden_by_stealth,
-                expiration_date: entry.expiration_date,
-                has_loco: entry.has_loco_info,
-                loco_pitch: entry.loco_pitch,
-                loco_pitch_rate: entry.loco_pitch_rate,
-                loco_roll: entry.loco_roll,
-                loco_roll_rate: entry.loco_roll_rate,
-                loco_yaw: entry.loco_yaw,
-                loco_accel_pitch: entry.loco_accel_pitch,
-                loco_accel_pitch_rate: entry.loco_accel_pitch_rate,
-                loco_accel_roll: entry.loco_accel_roll,
-                loco_accel_roll_rate: entry.loco_accel_roll_rate,
-                overlay_icons: entry
-                    .overlay_icons
-                    .iter()
-                    .map(|icon| {
-                        (
-                            icon.name.clone(),
-                            icon.keep_till_frame,
-                            icon.template_name.clone(),
-                            icon.anim_frame,
-                        )
-                    })
-                    .collect(),
-            };
-            let _ =
-                game_client::core::restore_live_drawable_xfer_visuals(entry.object_id, &visuals);
+    }
+}
+
+/// Apply the client half of `Drawable::xfer` only after a staged world commits.
+/// The logic half above runs against the candidate and never mutates the
+/// still-playable client's drawable map.
+#[cfg(feature = "game_client")]
+pub fn apply_drawable_xfer_to_client(
+    persist: &WorldPersistV18,
+    game_logic: &GameLogic,
+    client: &mut game_client::core::game_client::GameClient,
+) {
+    for entry in &persist.drawable_xfer {
+        if game_logic.host_object(ObjectId(entry.object_id)).is_none() {
+            continue;
         }
+        let visuals = game_client::drawable::DrawableXferVisualSnapshot {
+            explicit_opacity: entry.explicit_opacity,
+            stealth_opacity: entry.stealth_opacity,
+            effective_stealth_opacity: entry.effective_stealth_opacity,
+            instance_scale: entry.instance_scale,
+            heat_vision_opacity: entry.heat_vision_opacity,
+            tint_status: entry.tint_status,
+            prev_tint_status: entry.prev_tint_status,
+            hidden: entry.hidden || entry.drawable_status != 0,
+            hidden_by_stealth: entry.hidden_by_stealth,
+            expiration_date: entry.expiration_date,
+            has_loco: entry.has_loco_info,
+            loco_pitch: entry.loco_pitch,
+            loco_pitch_rate: entry.loco_pitch_rate,
+            loco_roll: entry.loco_roll,
+            loco_roll_rate: entry.loco_roll_rate,
+            loco_yaw: entry.loco_yaw,
+            loco_accel_pitch: entry.loco_accel_pitch,
+            loco_accel_pitch_rate: entry.loco_accel_pitch_rate,
+            loco_accel_roll: entry.loco_accel_roll,
+            loco_accel_roll_rate: entry.loco_accel_roll_rate,
+            overlay_icons: entry
+                .overlay_icons
+                .iter()
+                .map(|icon| {
+                    (
+                        icon.name.clone(),
+                        icon.keep_till_frame,
+                        icon.template_name.clone(),
+                        icon.anim_frame,
+                    )
+                })
+                .collect(),
+        };
+        let _ = client.restore_drawable_xfer_visuals(entry.object_id, &visuals);
     }
 }
 

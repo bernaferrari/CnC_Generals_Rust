@@ -209,9 +209,48 @@ pub struct ClientVisualHandle {
     stores: Arc<crate::system::engine_stores::EngineStores>,
 }
 
+/// A drawable's link to its visual world. The world may own the drawable
+/// through `ClientVisualState::drawables`, so this link must be weak.
+#[derive(Clone)]
+pub(crate) struct DrawableVisualOwner {
+    stores: std::sync::Weak<crate::system::engine_stores::EngineStores>,
+}
+
+impl std::fmt::Debug for DrawableVisualOwner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DrawableVisualOwner(..)")
+    }
+}
+
+impl DrawableVisualOwner {
+    pub(crate) fn note_weapon_recoil(&self, object_id: ObjectID, amount: f32, aim_angle: f32) {
+        if let Some(stores) = self.stores.upgrade() {
+            ClientVisualHandle::new(stores).note_weapon_recoil(object_id, amount, aim_angle);
+        }
+    }
+}
+
 impl ClientVisualHandle {
     pub fn new(stores: Arc<crate::system::engine_stores::EngineStores>) -> Self {
         Self { stores }
+    }
+
+    pub(crate) fn downgrade(&self) -> DrawableVisualOwner {
+        DrawableVisualOwner {
+            stores: Arc::downgrade(&self.stores),
+        }
+    }
+
+    pub(crate) fn note_weapon_recoil(&self, object_id: ObjectID, amount: f32, aim_angle: f32) {
+        if amount == 0.0 {
+            return;
+        }
+        self.stores
+            .client_visuals()
+            .weapon_recoils
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push((object_id, amount, aim_angle));
     }
 
     pub fn snapshot_objectless_drawables(&self) -> Vec<(u32, DrawableState)> {
@@ -237,15 +276,30 @@ impl ClientVisualHandle {
         entries
     }
 
-    /// Save restore still creates authored DrawModules through the legacy
-    /// client façade. Pin its existing lookup to this captured world for the
-    /// synchronous operation; the explicit handle migration continues in
-    /// hq-w5bdv as module constructors gain world parameters.
+    /// Destroy only objectless drawables in the captured world, in the same
+    /// per-ID order as the existing GameClient Xfer bridge.
+    pub fn clear_objectless_drawables(&self) {
+        let ids: Vec<u32> = self
+            .snapshot_objectless_drawables()
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        // DrawModule teardown can still use the legacy client façade (for
+        // example police lights). Keep that synchronous callback pinned to
+        // this owner until those modules carry their own visual handle.
+        crate::system::engine_stores::with_active_stores(&self.stores, || {
+            for id in ids {
+                TheGameClient::destroy_drawable_in(&self.stores, id);
+            }
+        });
+    }
+
+    /// Recreate authored DrawModules in the captured world. Module transform
+    /// callbacks still resolve some legacy state through TheGameClient, so
+    /// scope only this synchronous operation to the captured owner.
     pub fn restore_objectless_drawable(&self, saved_id: u32, state: &DrawableState) {
         crate::system::engine_stores::with_active_stores(&self.stores, || {
-            if let Some(client) = TheGameClient::get() {
-                client.restore_objectless_drawable(saved_id, state);
-            }
+            TheGameClient::restore_objectless_drawable_in(&self.stores, saved_id, state);
         });
     }
 
@@ -505,23 +559,6 @@ impl TheGameClient {
         let _ = _frame; // suppress unused warning until full implementation
     }
 
-    pub fn note_weapon_recoil(&self, object_id: ObjectID, amount: f32, aim_angle: f32) {
-        let stores = crate::system::engine_stores::active();
-        let visuals = stores.client_visuals();
-        if amount == 0.0 {
-            return;
-        }
-        visuals
-            .weapon_recoils
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push((object_id, amount, aim_angle));
-    }
-
-    pub fn take_weapon_recoils(&self) -> Vec<(ObjectID, f32, f32)> {
-        ClientVisualHandle::new(crate::system::engine_stores::active()).take_weapon_recoils()
-    }
-
     pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {
         // C++ W3DGameClient.cpp:202 TheTerrainRenderObject->unitMoved(obj)
         let Some(info) = OBJECT_REGISTRY.with_object(object_id, |obj| {
@@ -578,7 +615,13 @@ impl TheGameClient {
     }
 
     pub fn create_drawable(&self, template: &dyn crate::common::ThingTemplate) -> u32 {
-        let stores = crate::system::engine_stores::active();
+        Self::create_drawable_in(&crate::system::engine_stores::active(), template)
+    }
+
+    fn create_drawable_in(
+        stores: &Arc<crate::system::engine_stores::EngineStores>,
+        template: &dyn crate::common::ThingTemplate,
+    ) -> u32 {
         let visuals = stores.client_visuals();
         let id = Drawable::allocate_drawable_id();
         let beam_width = template
@@ -604,12 +647,9 @@ impl TheGameClient {
         } else {
             DrawableType::Animated
         };
-        let drawable = Arc::new(RwLock::new(Drawable::new(
-            id,
-            INVALID_ID,
-            model_name,
-            drawable_type,
-        )));
+        let mut drawable = Drawable::new(id, INVALID_ID, model_name, drawable_type);
+        drawable.bind_visual_owner(ClientVisualHandle::new(Arc::clone(stores)).downgrade());
+        let drawable = Arc::new(RwLock::new(drawable));
 
         let module_thing: Arc<dyn ModuleThing> = Arc::new(DrawableThingHandle::new(&drawable));
         let mut drawable_modules: Vec<(
@@ -758,7 +798,10 @@ fn laser_visuals_from_thing_template(
 
 impl TheGameClient {
     pub fn destroy_drawable(&self, id: u32) {
-        let stores = crate::system::engine_stores::active();
+        Self::destroy_drawable_in(&crate::system::engine_stores::active(), id);
+    }
+
+    fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::EngineStores>, id: u32) {
         let visuals = stores.client_visuals();
         let mut map = visuals.drawables.lock().unwrap();
         let removed_drawable = map
@@ -768,7 +811,9 @@ impl TheGameClient {
         drop(map);
 
         if let Some(object_id) = removed_drawable {
-            self.clear_object_model_draws(object_id);
+            if object_id != INVALID_ID {
+                visuals.model_draw_frames.lock().unwrap().remove(&object_id);
+            }
         }
 
         let mut tree_map = visuals.terrain_trees.lock().unwrap();
@@ -1237,8 +1282,11 @@ impl TheGameClient {
         }
     }
 
-    fn rekey_drawable(&self, from: u32, to: u32) {
-        let stores = crate::system::engine_stores::active();
+    fn rekey_drawable_in(
+        stores: &Arc<crate::system::engine_stores::EngineStores>,
+        from: u32,
+        to: u32,
+    ) {
         let visuals = stores.client_visuals();
         if from == to || to == 0 {
             return;
@@ -1264,39 +1312,74 @@ impl TheGameClient {
     /// Recreate one objectless drawable at the saved DrawableID so leftover
     /// PUC / Jet / Chinook / Prison IDs rematch after load.
     pub fn restore_objectless_drawable(&self, saved_id: u32, state: &DrawableState) {
+        Self::restore_objectless_drawable_in(
+            &crate::system::engine_stores::active(),
+            saved_id,
+            state,
+        );
+    }
+
+    fn restore_objectless_drawable_in(
+        stores: &Arc<crate::system::engine_stores::EngineStores>,
+        saved_id: u32,
+        state: &DrawableState,
+    ) {
         if saved_id == 0 || state.template_name.trim().is_empty() {
             return;
         }
-        if self.find_drawable_by_id(saved_id).is_some() {
-            self.set_drawable_position(saved_id, &state.position);
-            self.set_drawable_orientation(saved_id, state.orientation);
-            self.set_drawable_shroud_status_object_id(saved_id, state.shroud_status_object_id);
-            if let (Some(start), Some(end)) = (state.beam_start, state.beam_end) {
-                self.set_drawable_beam(saved_id, &start, &end);
+        let exists = stores
+            .client_visuals()
+            .drawables
+            .lock()
+            .ok()
+            .is_some_and(|map| map.contains_key(&saved_id));
+        if !exists {
+            let Some(template) = TheThingFactory::find_template(state.template_name.as_str())
+            else {
+                return;
+            };
+            let created = Self::create_drawable_in(stores, template.as_ref());
+            if created == 0 {
+                return;
             }
-            if let Some(frame) = state.expiration_frame {
-                self.set_drawable_expiration_date(saved_id, frame);
+            if created != saved_id {
+                Self::rekey_drawable_in(stores, created, saved_id);
             }
-            return;
         }
-        let Some(template) = TheThingFactory::find_template(state.template_name.as_str()) else {
+
+        // Keep the C++ xfer restoration sequence: position transform first,
+        // then orientation transform, followed by shroud/beam/lifetime fields.
+        let Ok(mut map) = stores.client_visuals().drawables.lock() else {
             return;
         };
-        let created = self.create_drawable(template.as_ref());
-        if created == 0 {
+        let Some(restored) = map.get_mut(&saved_id) else {
             return;
+        };
+        restored.position = state.position;
+        if let Some(drawable) = restored.drawable.as_ref() {
+            if let Ok(mut guard) = drawable.write() {
+                guard.set_transform(Matrix3D::from_translation(state.position));
+            }
         }
-        if created != saved_id {
-            self.rekey_drawable(created, saved_id);
+        restored.orientation = state.orientation;
+        if let Some(drawable) = restored.drawable.as_ref() {
+            if let Ok(mut guard) = drawable.write() {
+                let translation = guard.get_position();
+                let rotation = glam::Quat::from_rotation_z(state.orientation);
+                guard.set_transform(Matrix3D::from_scale_rotation_translation(
+                    glam::Vec3::ONE,
+                    rotation,
+                    glam::Vec3::new(translation.x, translation.y, translation.z),
+                ));
+            }
         }
-        self.set_drawable_position(saved_id, &state.position);
-        self.set_drawable_orientation(saved_id, state.orientation);
-        self.set_drawable_shroud_status_object_id(saved_id, state.shroud_status_object_id);
+        restored.shroud_status_object_id = state.shroud_status_object_id;
         if let (Some(start), Some(end)) = (state.beam_start, state.beam_end) {
-            self.set_drawable_beam(saved_id, &start, &end);
+            restored.beam_start = Some(start);
+            restored.beam_end = Some(end);
         }
         if let Some(frame) = state.expiration_frame {
-            self.set_drawable_expiration_date(saved_id, frame);
+            restored.expiration_frame = Some(frame);
         }
     }
 

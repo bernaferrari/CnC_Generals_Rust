@@ -29,7 +29,9 @@ use crate::common::audio::TimeOfDay;
 use crate::common::*;
 use crate::effects::FXList;
 use crate::helpers::TheAudio;
-use crate::helpers::{ModelDrawSourceIdentity, TheGameClient, TheGameLogic, TheGlobalData};
+use crate::helpers::{
+    DrawableVisualOwner, ModelDrawSourceIdentity, TheGameClient, TheGameLogic, TheGlobalData,
+};
 use crate::object::body::body_module::BodyDamageType;
 use crate::object::draw::draw_module::{
     DebrisDrawInterface, DrawModule, ObjectDrawInterface, RGBColor, ShadowType,
@@ -1089,6 +1091,9 @@ pub struct Drawable {
 
     /// Back-reference to the owning object (for script/selection integrations).
     object_ref: Option<Weak<RwLock<crate::object::Object>>>,
+
+    /// Weak because the visual world may retain this Drawable in its map.
+    visual_owner: Option<DrawableVisualOwner>,
 
     /// Drawable classification
     #[allow(dead_code)]

@@ -27,6 +27,9 @@ pub struct GameClient {
     last_visual_time_frame: u32,
     next_drawable_id: DrawableId,
     local_player_id: i32,
+    /// Presentation companion for the driving GameLogic instance. Bound by
+    /// the engine only when a world becomes active, never by construction.
+    visual_world: Option<gamelogic::helpers::ClientVisualHandle>,
     /// Last presentation military caption applied (avoid per-frame re-push).
     last_applied_military_caption: Option<String>,
     /// Last presentation remaining_ms (detect leftover re-fire / re-arm).
