@@ -269,6 +269,7 @@ fn run_executable_smoke_once(
         thread::sleep(Duration::from_millis(100));
     }
 
+    append_smoke_failure_diagnostics(&mut result, &st, &tmp);
     let _ = fs::remove_dir_all(&tmp);
 
     // Lifecycle: shutdown — merge latched poll residuals, then the gates.
@@ -514,8 +515,18 @@ fn latch_status_residuals(
     }
 }
 
-/// Phase 0 (asset/bootstrap wait): until Menu, or Booting far enough to
-/// accept commands (startup progress / hard deadline).
+fn live_main_menu_wnd_ready(snap: &StatusSnap) -> bool {
+    snap.state == "Menu"
+        && snap.shell_active
+        && snap.shell_screen_count > 0
+        && snap
+            .shell_top_wnd
+            .to_ascii_lowercase()
+            .ends_with("mainmenu.wnd")
+}
+
+/// Phase 0 (asset/bootstrap wait): wait for the live MainMenu WND when the
+/// child has WND enabled. Soft UI mode retains the earlier startup fallback.
 fn smoke_phase_wait_menu(
     st: &mut SmokeRunState,
     result: &mut ExecutableSmokeResult,
@@ -525,13 +536,23 @@ fn smoke_phase_wait_menu(
     driver: SmokeDriver,
     started: Instant,
 ) {
-    // Wait until Menu or Booting finished enough to accept commands.
-    if snap.state == "Menu"
+    let startup_fallback_ready = snap.state == "Menu"
         || (snap.state != "Booting"
             && snap.startup_progress >= 0.99
             && started.elapsed() > Duration::from_secs(8))
-        || started.elapsed() > Duration::from_secs(25)
-    {
+        || started.elapsed() > Duration::from_secs(25);
+    // C++ GameLogic::startNewGame(GAME_SHELL) pushes MainMenu.wnd before the
+    // player can select Skirmish. `shell_active` alone can be true with an
+    // empty stack while the load screen is still running.
+    let live_main_menu_ready = live_main_menu_wnd_ready(snap);
+    let manual_observer = launch == ExecutableSmokeLaunch::Windowed
+        && driver == SmokeDriver::ManualObserver;
+    let ready = if manual_observer || !runtime_host_wnd_enabled() {
+        startup_fallback_ready
+    } else {
+        live_main_menu_ready
+    };
+    if ready {
         if launch == ExecutableSmokeLaunch::Windowed
             && driver == SmokeDriver::ManualObserver
         {
@@ -581,14 +602,9 @@ fn smoke_phase_windowed_inject(
         let ready = st.commanded_at
             .map(|t| t.elapsed() > Duration::from_millis(600))
             .unwrap_or(true);
-        // Bare Menu (early latch before show_shell_menu) is not enough.
-        // Require shell_active (MainMenu.wnd pushed). Top WND / prior ok
-        // residual may corroborate, but screen_count alone is not ready.
-        let shell_ready = snap.shell_active
-            || (snap.shell_top_wnd.to_ascii_lowercase().contains("mainmenu")
-                && snap.shell_active)
-            || snap.last_gameplay_cmd.starts_with("winit_menu_nav_ok")
-            || snap.last_gameplay_cmd.starts_with("winit_click_named_ok");
+        // Only the live MainMenu WND can receive a named gadget click.
+        // `shell_active` may be true while the screen stack is still empty.
+        let shell_ready = live_main_menu_wnd_ready(snap);
         let nav_ok = snap.wnd_widget_tree_nav
             || snap.last_gameplay_cmd.starts_with("winit_menu_nav_ok")
             || st.saw_wnd_widget_tree_nav;

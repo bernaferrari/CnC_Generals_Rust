@@ -17,8 +17,93 @@ use crate::executable_smoke_source::EXECUTABLE_SMOKE_SRC;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::EXECUTABLE_SMOKE_SRC;
+    use super::*;
+
+    #[test]
+    fn failed_smoke_keeps_bounded_child_error_and_shell_state() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("child_stderr.txt"),
+            format!(
+                "{}\nthread 'main' panicked at game.rs:42\n",
+                "x".repeat(8192)
+            ),
+        )
+        .unwrap();
+        let mut result = ExecutableSmokeResult::default();
+        result.status = "process_exited".into();
+        let st = SmokeRunState {
+            shell_wnd_detail: "active=true count=0 top=".into(),
+            ..Default::default()
+        };
+
+        append_smoke_failure_diagnostics(&mut result, &st, dir.path());
+
+        assert!(
+            result
+                .detail
+                .contains("shell_last=active=true count=0 top=")
+        );
+        assert!(result.detail.contains("panicked at game.rs:42"));
+        assert!(!result.detail.contains(&"x".repeat(4097)));
+    }
+
+    #[test]
+    fn automated_smoke_waits_for_live_shell_wnd_before_skirmish_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("control.txt");
+        fs::write(&control, "").unwrap();
+        let mut st = SmokeRunState::default();
+        let mut result = ExecutableSmokeResult::default();
+        let mut snap = StatusSnap {
+            state: "Loading".into(),
+            startup_progress: 1.0,
+            ..Default::default()
+        };
+        let started = Instant::now() - Duration::from_secs(26);
+
+        smoke_phase_wait_menu(
+            &mut st,
+            &mut result,
+            &snap,
+            &control,
+            ExecutableSmokeLaunch::HeadlessHost,
+            SmokeDriver::Automated,
+            started,
+        );
+        assert_eq!(st.phase, 0);
+        assert!(fs::read_to_string(&control).unwrap().is_empty());
+
+        snap.state = "Menu".into();
+        snap.shell_active = true;
+        smoke_phase_wait_menu(
+            &mut st,
+            &mut result,
+            &snap,
+            &control,
+            ExecutableSmokeLaunch::HeadlessHost,
+            SmokeDriver::Automated,
+            started,
+        );
+        assert_eq!(st.phase, 0, "shell_active alone is not a WND tree");
+
+        snap.shell_screen_count = 1;
+        snap.shell_top_wnd = "Menus/MainMenu.wnd".into();
+        latch_shell_wnd_residuals(&mut st, &snap);
+        smoke_phase_wait_menu(
+            &mut st,
+            &mut result,
+            &snap,
+            &control,
+            ExecutableSmokeLaunch::HeadlessHost,
+            SmokeDriver::Automated,
+            started,
+        );
+        assert_eq!(st.phase, 10);
+        assert!(fs::read_to_string(&control).unwrap().contains("open_skirmish_menu"));
+    }
+
     #[test]
     fn kill_stale_matches_runtime_host_underscore() {
         let src = EXECUTABLE_SMOKE_SRC;
