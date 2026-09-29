@@ -13,12 +13,35 @@ struct StagedRestoreWorld {
     /// queued only after the staged world has committed, then validated
     /// against the first fresh presentation topology by RenderPipeline.
     client_drawables: crate::save_load::snapshot::ClientDrawableWorldSnapshot,
+    /// Decoded client state stays detached until the candidate world commits.
+    game_client_xfer_bytes: Option<Vec<u8>>,
+    client_persist: crate::save_load::snapshot::WorldPersistV18,
     /// Driving-instance logic-RNG ADC words captured at save time.  C++
     /// keeps RandomValue process-static and no load path reseeds it
     /// (GameState.cpp:628-741), so the commit boundary reseeds the staged
     /// instance from these words instead of leaving it on the game-start
     /// re-derivation.  `[0; 6]` marks a pre-v22 save: keep that stream.
     logic_rng_seed_words: [u32; 6],
+}
+
+/// A staging error leaves the old match intact. An error after world install
+/// requires the C++ GameState load-failure reset before the menu can render.
+#[derive(Debug)]
+pub(super) enum HostLoadFailure {
+    Staging(String),
+    Committed(String),
+}
+
+impl HostLoadFailure {
+    fn requires_match_reset(&self) -> bool {
+        matches!(self, Self::Committed(_))
+    }
+
+    fn into_message(self) -> String {
+        match self {
+            Self::Staging(message) | Self::Committed(message) => message,
+        }
+    }
 }
 
 impl CnCGameEngine {
@@ -1104,6 +1127,12 @@ impl CnCGameEngine {
         self.host_advance_direct_visual_world_epoch();
         #[cfg(feature = "game_client")]
         self.game_client.invalidate_presentation_drawable_world();
+        #[cfg(feature = "game_client")]
+        self.game_client.bind_visual_world(
+            gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+                &self.game_logic.engine_stores,
+            )),
+        );
         self.render_pipeline.invalidate_world_visual_state();
         self.invalidate_presentation_terrain_cache();
         self.draw_module_name_cache.borrow_mut().clear();
@@ -1136,14 +1165,14 @@ impl CnCGameEngine {
         game_engine::common::random_value::set_game_logic_random_seed_state(seed_words);
     }
 
-    /// Install a fully staged save world as one no-fail host boundary.
+    /// Install a fully staged save world and its GameClient companion.
     ///
     /// Unlike `host_replace_game_logic`, this also owns the legacy singleton
     /// bundle mutated by map loading.  The order is intentional: invalidate
     /// old UI/log ownership, install candidate globals, install matching host
     /// logic, then run TeamFactory post-unlock callbacks against that complete
     /// candidate world before rebuilding the shadow from host authority.
-    fn host_replace_staged_restore_world(&mut self, staged: StagedRestoreWorld) {
+    fn host_replace_staged_restore_world(&mut self, staged: StagedRestoreWorld) -> Result<(), String> {
         #[cfg(feature = "game_client")]
         self.host_invalidate_active_popup_for_world_boundary();
 
@@ -1155,15 +1184,43 @@ impl CnCGameEngine {
             runtime_world,
             shroud: _,
             client_drawables,
+            game_client_xfer_bytes,
+            client_persist,
             logic_rng_seed_words,
         } = staged;
+        // Destroy the previous client's Drawables while its own world and the
+        // C++-style ambient module callbacks still refer to that old world.
+        // Some DrawModule destructors consult TheGameClient during teardown.
+        self.host_advance_direct_visual_world_epoch();
+        #[cfg(feature = "game_client")]
+        self.game_client.invalidate_presentation_drawable_world();
+        self.render_pipeline.invalidate_world_visual_state();
+
         let deferred_effects = runtime_world.install_globals();
         let old_logic = std::mem::replace(&mut self.game_logic, logic);
-
-        // C++ `createInactiveTeam` executes `ExecuteActionsOnCreate`
-        // synchronously.  Staging deferred the guard-drop callbacks solely to
-        // avoid targeting the old world; now that both halves are committed,
-        // execute them in original queue order before shadow reconstruction.
+        #[cfg(feature = "game_client")]
+        self.game_client.bind_visual_world(
+            gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+                &self.game_logic.engine_stores,
+            )),
+        );
+        #[cfg(feature = "game_client")]
+        if let Some(bytes) = game_client_xfer_bytes.as_deref() {
+            crate::save_load::snapshot::restore_game_client_from_xfer_bytes(
+                &mut self.game_client,
+                bytes,
+            )
+            .map_err(|err| format!("failed to restore CHUNK_GameClient after world commit: {err}"))?;
+        }
+        #[cfg(feature = "game_client")]
+        crate::save_load::snapshot::persist_v18::apply_drawable_xfer_to_client(
+            &client_persist,
+            &self.game_logic,
+            &mut self.game_client,
+        );
+        // C++ restores CHUNK_GameClient before the post-load world is exposed.
+        // Deferred team callbacks may create client FX, so execute them only
+        // after the matching client's drawable state has been installed.
         deferred_effects.execute_after_logic_commit();
         drop(old_logic);
         crate::command_system::reset_host_recorder_after_successful_load(
@@ -1172,15 +1229,10 @@ impl CnCGameEngine {
         crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         // C++ RandomValue is process-static and no load path reseeds it
         // (GameState.cpp:628-741); only mission saves InitRandom(0) in their
-        // message-loop follow-up.  Reseed the committed world's driving
-        // instance here — after staging's map load and singleton install —
-        // so the first post-load draw continues the save-point stream.
+        // message-loop follow-up.  Reseed after all staged map work, including
+        // deferred team actions, so the first post-load draw continues the
+        // save-point stream.
         Self::host_restore_staged_logic_rng(&mut self.game_logic, logic_rng_seed_words);
-
-        self.host_advance_direct_visual_world_epoch();
-        #[cfg(feature = "game_client")]
-        self.game_client.invalidate_presentation_drawable_world();
-        self.render_pipeline.invalidate_world_visual_state();
         // Keep the client companion staged until the first complete frozen
         // frame after the successful world replacement.  `set_presentation_frame`
         // performs source-identity validation before collection and removes
@@ -1218,6 +1270,7 @@ impl CnCGameEngine {
             shadow.reset_for_world_boundary();
             shadow.sync_from_host(&self.game_logic);
         }
+        Ok(())
     }
 
     pub(super) fn host_save_game_authority(
@@ -1260,10 +1313,11 @@ impl CnCGameEngine {
         let save_path = self.save_file_manager.get_save_path(slot);
         let result = self
             .save_file_manager
-            .save_game_with_client_drawable_snapshot(
+            .save_game_with_client_state(
                 slot,
                 &self.game_logic,
                 client_drawables,
+                &mut self.game_client,
                 save_info,
             )
             .map_err(|e| format!("{e}"));
@@ -1364,13 +1418,17 @@ impl CnCGameEngine {
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
     ) -> Result<StagedRestoreWorld, String> {
+        // A previous aborted decode cannot lend its client chunk to this save.
+        let _ = crate::save_load::snapshot::take_loaded_game_client_xfer();
         let (snapshot, save_info) = save_file_manager
             .load_game_snapshot(slot)
             .map_err(|err| format!("{err}"))?;
+        let game_client_xfer_bytes = crate::save_load::snapshot::take_loaded_game_client_xfer();
 
         Self::stage_decoded_saved_world_for_restore(
             &snapshot,
             save_info,
+            game_client_xfer_bytes,
             slot,
             active_mode,
             template_catalog,
@@ -1391,6 +1449,7 @@ impl CnCGameEngine {
     fn stage_decoded_saved_world_for_restore<F>(
         snapshot: &crate::save_load::WorldSnapshot,
         save_info: SaveGameInfo,
+        game_client_xfer_bytes: Option<Vec<u8>>,
         slot: &str,
         active_mode: crate::game_logic::GameMode,
         template_catalog: &std::collections::HashMap<String, crate::game_logic::ThingTemplate>,
@@ -1402,6 +1461,10 @@ impl CnCGameEngine {
             &mut crate::game_logic::GameLogic,
         ) -> Result<(), String>,
     {
+        if let Some(bytes) = game_client_xfer_bytes.as_deref() {
+            crate::save_load::snapshot::validate_game_client_xfer_bytes(bytes)
+                .map_err(|err| format!("{err}"))?;
+        }
         let saved_map = save_info.map_name.trim();
         if saved_map.is_empty() || saved_map == "-" || saved_map.eq_ignore_ascii_case("unknown") {
             return Err(format!(
@@ -1475,29 +1538,32 @@ impl CnCGameEngine {
             runtime_world,
             shroud: snapshot.shroud.clone(),
             client_drawables: snapshot.client_drawables.clone(),
+            game_client_xfer_bytes,
+            client_persist: snapshot.persist_v18.clone(),
             logic_rng_seed_words: snapshot.logic_rng_seed_words,
         })
     }
 
     /// Wave 928: single load authority boundary.
-    pub(super) fn host_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
-        let save_path = self.save_file_manager.get_save_path(slot);
-        let result = self.host_try_load_game_authority(slot);
-        // C++ GameState::loadGame (GameState.cpp:695-712): MessageBoxOk
-        // GUI:Error / GUI:ErrorLoadingGame with the filepath on xfer or
-        // loadPostProcess failure. Missing, truncated, and non-host
-        // CHUNK_GameLogic saves must not fail silently.
-        Self::surface_load_game_ui_feedback(&save_path, &result);
-        result
+    pub(super) fn host_load_game_authority(
+        &mut self,
+        slot: &str,
+    ) -> Result<SaveGameInfo, HostLoadFailure> {
+        self.host_try_load_game_authority(slot)
     }
 
-    fn host_try_load_game_authority(&mut self, slot: &str) -> Result<SaveGameInfo, String> {
+    fn host_try_load_game_authority(
+        &mut self,
+        slot: &str,
+    ) -> Result<SaveGameInfo, HostLoadFailure> {
         let save_info = self
             .save_file_manager
             .get_save_info(slot)
-            .map_err(|err| format!("{err}"))?;
+            .map_err(|err| HostLoadFailure::Staging(format!("{err}")))?;
         if save_info.save_type == SaveFileType::Mission {
-            return self.host_restart_mission_from_save(slot, save_info);
+            return self
+                .host_restart_mission_from_save(slot, save_info)
+                .map_err(HostLoadFailure::Staging);
         }
 
         // Keep the current world untouched until the save metadata, exact map,
@@ -1517,13 +1583,16 @@ impl CnCGameEngine {
             Ok(staged) => staged,
             Err(err) => {
                 crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
-                return Err(err);
+                return Err(HostLoadFailure::Staging(err));
             }
         };
 
-        crate::save_load::commit_stashed_campaign_state();
         let save_info = staged.info.clone();
-        self.host_replace_staged_restore_world(staged);
+        if let Err(err) = self.host_replace_staged_restore_world(staged) {
+            crate::save_load::rollback_campaign_after_failed_load(prior_campaign);
+            return Err(HostLoadFailure::Committed(err));
+        }
+        crate::save_load::commit_stashed_campaign_state();
         info!(
             "Game loaded successfully from slot '{}' on map '{}'",
             slot,
@@ -1533,18 +1602,15 @@ impl CnCGameEngine {
     }
 
     /// C++ `GameState::loadGame` user feedback (`GameState.cpp:695-712`).
-    fn surface_load_game_ui_feedback(
-        save_path: &std::path::Path,
-        result: &Result<SaveGameInfo, String>,
-    ) {
+    fn surface_load_game_ui_feedback(save_path: &std::path::Path) {
         #[cfg(feature = "game_client")]
-        if result.is_err() {
+        {
             let filepath = save_path.display().to_string();
             let (title, body) = crate::save_load::format_error_loading_game(&filepath);
             let _ = game_client::gui::message_box_ok(&title, &body, None);
         }
         #[cfg(not(feature = "game_client"))]
-        let _ = (save_path, result);
+        let _ = save_path;
     }
 
     /// C++ `GameState::loadGame` (`GameState.cpp:706-742`) for
@@ -1837,14 +1903,26 @@ impl CnCGameEngine {
                 self.transition_to_state(GameState::InGame);
                 Ok(())
             }
-            Err(err) => {
+            Err(failure) => {
+                let committed = failure.requires_match_reset();
+                let err = failure.into_message();
                 warn!("Load failed for '{}': {}", slot, err);
-                // Do not reset GameLogic, presentation, or renderer state:
-                // `stage_saved_world_for_restore` has not installed anything
-                // on error. Transitioning out of Loading only hides its shell
-                // overlay; it does not invalidate the still-playable match.
-                self.transition_to_state(Self::staged_load_failure_return_state(prior_state));
-                Err(err.to_string())
+                if committed {
+                    // C++ GameState::loadGame clears GameLogic data and resets
+                    // GameEngine on a post-process failure. The staged Rust
+                    // path can preserve an old match before commit, but once
+                    // a nested Drawable Xfer fails it must not expose the
+                    // partly installed world as a playable InGame state.
+                    self.return_to_main_menu_after_match();
+                } else {
+                    self.transition_to_state(Self::staged_load_failure_return_state(prior_state));
+                }
+                // C++ GameState.cpp:695-712 resets the engine before showing
+                // GUI:ErrorLoadingGame. A committed failure's menu teardown
+                // would otherwise destroy a dialog created beforehand.
+                let save_path = self.save_file_manager.get_save_path(slot);
+                Self::surface_load_game_ui_feedback(&save_path);
+                Err(err)
             }
         }
     }
@@ -2071,17 +2149,21 @@ mod staged_restore_tests {
 
     #[test]
     fn staged_load_error_branch_preserves_live_world_contract() {
+        assert!(!HostLoadFailure::Staging("bad map".into()).requires_match_reset());
+        assert!(HostLoadFailure::Committed("bad drawable".into()).requires_match_reset());
         let source = include_str!("host_authority.rs");
         let start = source
             .find("pub(super) fn host_load_game_from_ui")
             .expect("load UI authority");
         let body = &source[start..];
-        let error = &body[body.find("Err(err) =>").expect("load error branch")..];
+        let error = &body[body.find("Err(failure) =>").expect("load error branch")..];
         let error = &error[..error
             .find("\n            }\n        }\n    }\n}")
             .unwrap_or(error.len())];
+        assert!(error.contains("failure.requires_match_reset()"));
+        assert!(error.contains("if committed {"));
+        assert!(error.contains("self.return_to_main_menu_after_match()"));
         assert!(error.contains("Self::staged_load_failure_return_state(prior_state)"));
-        assert!(!error.contains("return_to_main_menu_after_match"));
         assert!(!error.contains("host_clear_match_residuals"));
         assert!(!error.contains("invalidate_world_visual_state"));
         assert!(!error.contains("invalidate_presentation_drawable_world"));
@@ -2098,11 +2180,13 @@ mod staged_restore_tests {
             body.contains("GUI:ErrorLoadingGame") || body.contains("format_error_loading_game")
         );
         assert!(body.contains("message_box_ok"));
-        let authority = source
-            .find("pub(super) fn host_load_game_authority")
-            .expect("load authority");
-        let authority_body = &source[authority..];
-        assert!(authority_body.contains("surface_load_game_ui_feedback"));
+        let ui = source
+            .find("pub(super) fn host_load_game_from_ui")
+            .expect("load UI boundary");
+        let ui_body = &source[ui..];
+        let reset = ui_body.find("self.return_to_main_menu_after_match()").expect("failed commit reset");
+        let message = ui_body.find("Self::surface_load_game_ui_feedback(&save_path)").expect("load error dialog");
+        assert!(reset < message, "C++ resets before showing the failed-load dialog");
     }
 
     #[test]
@@ -2157,6 +2241,30 @@ mod staged_restore_tests {
         );
     }
 
+    #[cfg(feature = "game_client")]
+    #[test]
+    fn malformed_client_chunk_rejects_candidate_before_touching_live_client() {
+        let mut live = Box::new(game_client::core::game_client::GameClient::new().expect("client"));
+        live.mark_initialized();
+        live.set_frame(777);
+        let logic = GameLogic::new();
+        let catalog = logic.templates.clone();
+        let invalid_chunk = vec![3, 0, 0, 0, 0, 1, 0xff, 0xff, 0xff, 0xff];
+        let err = CnCGameEngine::stage_decoded_saved_world_for_restore(
+            &crate::save_load::WorldSnapshot::default(),
+            save_info("corrupt_client", "Not A Retail Map".to_string()),
+            Some(invalid_chunk),
+            "corrupt_client",
+            GameMode::Skirmish,
+            &catalog,
+            |_snapshot, _staged| panic!("invalid client chunk must fail before stage restore"),
+        )
+        .err()
+        .expect("reject malformed client chunk");
+        assert!(err.contains("invalid CHUNK_GameClient"), "{err}");
+        assert_eq!(live.get_frame(), 777);
+    }
+
     #[test]
     fn staged_restore_requires_the_saved_retail_map_before_snapshot_restore() {
         let Some(map_name) = retail_map_path_for_test() else {
@@ -2204,14 +2312,30 @@ mod staged_restore_tests {
                 ..Default::default()
             }],
         };
-        saves
-            .save_game_with_client_drawable_snapshot(
+        #[cfg(feature = "game_client")]
+        let save_result = {
+            let mut client = game_client::core::game_client::GameClient::new()
+                .expect("source client");
+            client.bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+                &source.engine_stores,
+            )));
+            client.set_frame(41);
+            saves.save_game_with_client_state(
                 "valid_map",
                 &source,
                 client_drawables.clone(),
+                &mut client,
                 &save_info("valid_map", map_name.clone()),
             )
-            .expect("write valid staged restore save");
+        };
+        #[cfg(not(feature = "game_client"))]
+        let save_result = saves.save_game_with_client_drawable_snapshot(
+            "valid_map",
+            &source,
+            client_drawables.clone(),
+            &save_info("valid_map", map_name.clone()),
+        );
+        save_result.expect("write valid staged restore save");
 
         let restored = CnCGameEngine::stage_saved_world_for_restore(
             &mut saves,
@@ -2235,6 +2359,11 @@ mod staged_restore_tests {
             restored.client_drawables, client_drawables,
             "staged restore must carry the renderer companion to the commit boundary"
         );
+        #[cfg(feature = "game_client")]
+        crate::save_load::snapshot::validate_game_client_xfer_bytes(
+            restored.game_client_xfer_bytes.as_deref().expect("staged client chunk"),
+        )
+        .expect("staged client chunk remains valid until commit");
         assert!(restored.logic.isInGame());
         assert_eq!(restored.logic.get_current_map_name(), restored.info.map_name);
         assert_eq!(restored.logic.get_current_frame(), 321);
@@ -2389,9 +2518,29 @@ mod staged_restore_tests {
             ),
         );
 
+        #[cfg(feature = "game_client")]
+        let mut live_client = {
+            let mut client = Box::new(
+                game_client::core::game_client::GameClient::new().expect("live client"),
+            );
+            client.mark_initialized();
+            client.set_frame(777);
+            client
+        };
+        #[cfg(feature = "game_client")]
+        let staged_client_bytes = {
+            let mut saved = game_client::core::game_client::GameClient::new()
+                .expect("saved client payload");
+            saved.set_frame(42);
+            Some(saved.capture_xfer_bytes().expect("valid client chunk"))
+        };
+        #[cfg(not(feature = "game_client"))]
+        let staged_client_bytes: Option<Vec<u8>> = None;
+
         let err = match CnCGameEngine::stage_decoded_saved_world_for_restore(
             &snapshot,
             info,
+            staged_client_bytes,
             "forced_stage_failure",
             GameMode::Skirmish,
             &catalog,
@@ -2413,6 +2562,13 @@ mod staged_restore_tests {
             Err(err) => err,
         };
         assert!(err.contains("forced failure after staged snapshot restore"));
+
+        #[cfg(feature = "game_client")]
+        assert_eq!(
+            live_client.get_frame(),
+            777,
+            "failed staging must not deserialize CHUNK_GameClient into the live client"
+        );
 
         assert_eq!(global_probe(), before, "rollback must restore live globals");
         let resumed_ai_group_id = {

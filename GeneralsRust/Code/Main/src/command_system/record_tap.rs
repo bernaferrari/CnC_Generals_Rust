@@ -139,10 +139,10 @@ fn append_game_message_to_stream(msg: &GameMessage) {
     }
 }
 
-/// Transient replay handoff for one logical game. C++ `RecorderClass::update`
-/// appends playback messages before `GameLogic::processCommandList`; the
-/// callback channel crosses that one engine callback boundary, while all
-/// decoded pending state stays on the driving game instance.
+/// Transient command and replay handoff for one logical game. C++ propagates
+/// client messages before `RecorderClass::update`, which appends playback
+/// messages before `GameLogic::processCommandList`. The callback channel
+/// crosses the client/logic boundary; decoded state stays on the game instance.
 pub struct ReplayPendingState {
     incoming: Receiver<Vec<GameMessage>>,
     sender: Sender<Vec<GameMessage>>,
@@ -151,6 +151,7 @@ pub struct ReplayPendingState {
     teams: Vec<ReplayTeamOp>,
     remirror: Vec<i32>,
     host_logic_frame: Arc<AtomicU32>,
+    last_recorder_update_frame: Option<u32>,
     last_logic_crc: u32,
     last_logic_crc_frame: u32,
 }
@@ -166,6 +167,7 @@ impl Default for ReplayPendingState {
             teams: Vec::new(),
             remirror: Vec::new(),
             host_logic_frame: Arc::new(AtomicU32::new(0)),
+            last_recorder_update_frame: None,
             last_logic_crc: 0,
             last_logic_crc_frame: u32::MAX,
         }
@@ -182,6 +184,7 @@ impl ReplayPendingState {
         self.teams.clear();
         self.remirror.clear();
         self.host_logic_frame.store(0, Ordering::Relaxed);
+        self.last_recorder_update_frame = None;
         self.last_logic_crc = 0;
         self.last_logic_crc_frame = u32::MAX;
     }
@@ -204,10 +207,12 @@ impl ReplayPendingState {
         std::mem::take(&mut self.remirror)
     }
 
-    fn drain_incoming(&mut self) {
+    fn take_incoming(&mut self) -> Vec<GameMessage> {
+        let mut pending = Vec::new();
         while let Ok(messages) = self.incoming.try_recv() {
-            apply_replay_messages_to_host(self, &messages);
+            pending.extend(messages);
         }
+        pending
     }
 }
 
@@ -265,6 +270,31 @@ fn snapshot_command_list() -> Vec<GameMessage> {
     {
         Vec::new()
     }
+}
+
+/// GameClient routes a completed stream batch to Main before GameLogic runs.
+/// Direct taps already waiting from an earlier UI operation retain their
+/// place; the new stream batch precedes this logic frame's MSG_LOGIC_CRC.
+fn merge_routed_messages_into_command_list(messages: &[GameMessage]) {
+    #[cfg(feature = "game_client")]
+    {
+        if messages.is_empty() {
+            return;
+        }
+        if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
+        {
+            let (crc_taps, direct_taps): (Vec<_>, Vec<_>) = list
+                .snapshot_messages()
+                .into_iter()
+                .partition(|message| matches!(message.get_type(), GameMessageType::LogicCRC(_)));
+            list.retain_messages(|_| false);
+            list.append_message_list(direct_taps);
+            list.append_message_list(messages.to_vec());
+            list.append_message_list(crc_taps);
+        }
+    }
+    #[cfg(not(feature = "game_client"))]
+    let _ = messages;
 }
 
 fn take_command_list_messages() -> Vec<GameMessage> {
@@ -611,8 +641,18 @@ pub fn flush_recorder_and_replay_authority(
     host_queue: &mut VecDeque<GameCommand>,
 ) {
     install_host_replay_bridges();
-    let playback = host_recorder_is_playback();
     let frame = host_logic_frame(state);
+    if state.last_recorder_update_frame == Some(frame) {
+        // GameLogic has a second post-AI command pass in this logic frame.
+        // Its orders still drain through process_commands. A synchronous UI
+        // command may also arrive after the first pass; keep its direct tap
+        // for the next recorder frame instead of dropping it here.
+        return;
+    }
+
+    let routed = state.take_incoming();
+    merge_routed_messages_into_command_list(&routed);
+    let playback = host_recorder_is_playback();
     // C++ posts MSG_LOGIC_CRC onto the stream before TheRecorder->update().
     let posted = post_host_logic_crc_if_due(state, frame, 0);
     let _ = with_recorder_mut(|recorder| {
@@ -626,10 +666,7 @@ pub fn flush_recorder_and_replay_authority(
             }
         }
     });
-
-    // Router batches delivered before or during this recorder update belong
-    // to this same logic frame. They preceded playback's CommandList entries.
-    state.drain_incoming();
+    state.last_recorder_update_frame = Some(frame);
 
     if playback {
         // C++ cullBadCommands drops user network orders before processCommandList.
@@ -637,6 +674,9 @@ pub fn flush_recorder_and_replay_authority(
         let messages = take_command_list_messages();
         apply_replay_messages_to_host(state, &messages);
     } else {
+        // The client delivered this batch to its legacy queue already. Main
+        // executes each translated host order once after Recorder snapshots it.
+        apply_replay_messages_to_host(state, &routed);
         // C++ clears all messages at the end of the logic frame. Main already
         // owns the executable orders in `host_queue`; leaving lifecycle
         // messages here makes a second pass call startRecording again.
@@ -1586,6 +1626,213 @@ mod tests {
                     .all(|msg| !matches!(msg.get_type(), GameMessageType::LogicCRC(_))),
                 "written MSG_LOGIC_CRC entries must be consumed, not retained"
             );
+        });
+    }
+
+    #[test]
+    fn recorder_updates_once_even_when_commands_are_processed_twice_in_a_frame() {
+        // C++ GameLogic::update calls Recorder::UPDATE once before command
+        // dispatch. Rust's second post-AI command pass still executes orders,
+        // but must not tick the recorder for the same logic frame again.
+        with_recorder_test_lock(|| {
+            use std::sync::atomic::AtomicUsize;
+
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
+            clear_command_list();
+            let updates = Arc::new(AtomicUsize::new(0));
+            let counted_updates = Arc::clone(&updates);
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.set_command_source(Some(Arc::new(move || {
+                    counted_updates.fetch_add(1, Ordering::SeqCst);
+                    Vec::new()
+                })));
+            });
+
+            let mut queue = VecDeque::new();
+            stamp_host_logic_frame(&mut state, 7);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            assert_eq!(updates.load(Ordering::SeqCst), 1);
+
+            stamp_host_logic_frame(&mut state, 8);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            assert_eq!(updates.load(Ordering::SeqCst), 2);
+
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.set_command_source(Some(Arc::new(snapshot_command_list)));
+            });
+            clear_command_list();
+        });
+    }
+
+    #[test]
+    fn recorder_preserves_a_direct_order_arriving_after_the_first_flush() {
+        // Main UI paths synchronously queue and process an order between logic
+        // ticks. Once this frame has recorded, its CommandList tap belongs to
+        // the next recorder snapshot; another process_commands call cannot
+        // drop it merely because the logic frame has not advanced yet.
+        with_recorder_test_lock(|| {
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
+            clear_command_list();
+            let snapshots = Arc::new(Mutex::new(Vec::<Vec<GameMessage>>::new()));
+            let captured = Arc::clone(&snapshots);
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.set_command_source(Some(Arc::new(move || {
+                    let snapshot = snapshot_command_list();
+                    captured
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .push(snapshot.clone());
+                    snapshot
+                })));
+            });
+
+            let mut queue = VecDeque::new();
+            stamp_host_logic_frame(&mut state, 7);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            append_to_command_list(GameMessage::with_player(GameMessageType::DoStop, 1));
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            assert!(matches!(
+                snapshot_command_list()[0].get_type(),
+                GameMessageType::DoStop
+            ));
+
+            stamp_host_logic_frame(&mut state, 8);
+            state
+                .sender
+                .send(vec![GameMessage::with_player(
+                    GameMessageType::DoMoveTo(Coord3D::new(3.0, 0.0, 4.0)),
+                    1,
+                )])
+                .unwrap();
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            let captured = snapshots.lock().unwrap_or_else(|error| error.into_inner());
+            assert_eq!(captured.len(), 2);
+            assert!(captured[0].is_empty());
+            assert_eq!(captured[1].len(), 2);
+            assert!(matches!(captured[1][0].get_type(), GameMessageType::DoStop));
+            assert!(matches!(
+                captured[1][1].get_type(),
+                GameMessageType::DoMoveTo(_)
+            ));
+            drop(captured);
+
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.set_command_source(Some(Arc::new(snapshot_command_list)));
+            });
+            clear_command_list();
+        });
+    }
+
+    #[test]
+    fn recorder_sees_routed_stream_orders_before_same_frame_crc() {
+        // C++ GameEngine::update propagates the MessageStream before the
+        // GameLogic CRC/Recorder phase. The GameClient route callback transfers
+        // the ordered batch, which the owner places on CommandList before the
+        // recorder snapshots this logic frame.
+        with_recorder_test_lock(|| {
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
+            let temp = tempfile::tempdir().unwrap();
+            let global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            {
+                let mut data = global.write();
+                data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                data.map_name = "Maps/RecorderOrder.map".to_string();
+                data.pending_file.clear();
+            }
+            clear_command_list();
+            let snapshots = Arc::new(Mutex::new(Vec::<Vec<GameMessage>>::new()));
+            let captured = Arc::clone(&snapshots);
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.set_command_source(Some(Arc::new(move || {
+                    let messages = snapshot_command_list();
+                    captured
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .push(messages.clone());
+                    messages
+                })));
+                recorder
+                    .start_recording(1, 1, 0, 30)
+                    .expect("start order recording");
+            });
+
+            state
+                .sender
+                .send(vec![
+                    GameMessage::with_player(GameMessageType::DoStop, 1),
+                    GameMessage::with_player(
+                        GameMessageType::DoMoveTo(Coord3D::new(7.0, 0.0, 9.0)),
+                        1,
+                    ),
+                ])
+                .unwrap();
+            let mut crc = GameMessage::new(GameMessageType::LogicCRC(0x1234));
+            crc.append_boolean_argument(false);
+            append_to_command_list(crc);
+
+            stamp_host_logic_frame(&mut state, 7);
+            let mut queue = VecDeque::new();
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+
+            let captured = snapshots.lock().unwrap_or_else(|error| error.into_inner());
+            assert_eq!(captured.len(), 1, "one recorder snapshot per logic frame");
+            assert!(matches!(captured[0][0].get_type(), GameMessageType::DoStop));
+            assert!(matches!(
+                captured[0][1].get_type(),
+                GameMessageType::DoMoveTo(_)
+            ));
+            assert!(matches!(
+                captured[0][2].get_type(),
+                GameMessageType::LogicCRC(0x1234)
+            ));
+            assert_eq!(queue.len(), 2, "routed orders execute once");
+            drop(captured);
+
+            with_recorder_mut(|recorder| recorder.stop_recording());
+            let played = Arc::new(Mutex::new(Vec::<GameMessage>::new()));
+            let played_sink = Arc::clone(&played);
+            let mut reader = game_engine::common::recorder::Recorder::new();
+            reader.set_command_sink(Some(Arc::new(move |message| {
+                played_sink
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .push(message);
+            })));
+            assert!(reader.playback_file("00000000.rep".to_string()).unwrap());
+            played.lock().unwrap().clear(); // playback_file emits its own MSG_NEW_GAME.
+            for frame in 1..=7 {
+                reader.set_current_frame(frame);
+                reader.update();
+            }
+            let played = played.lock().unwrap_or_else(|error| error.into_inner());
+            assert!(matches!(played[0].get_type(), GameMessageType::DoStop));
+            assert!(matches!(played[1].get_type(), GameMessageType::DoMoveTo(_)));
+            assert!(matches!(
+                played[2].get_type(),
+                GameMessageType::LogicCRC(0x1234)
+            ));
+            assert_eq!(played.len(), 4, "duplicate flush must not write twice");
+            assert!(matches!(
+                played[3].get_type(),
+                GameMessageType::ClearGameData
+            )); // End-of-file playback lifecycle message.
+            drop(played);
+
+            with_recorder_mut(|recorder| {
+                recorder.reset();
+                recorder.set_command_source(Some(Arc::new(snapshot_command_list)));
+            });
+            clear_command_list();
         });
     }
 

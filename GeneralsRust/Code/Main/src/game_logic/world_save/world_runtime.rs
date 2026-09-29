@@ -230,22 +230,18 @@ impl GameLogic {
             .flatten()
     }
 
-    /// Initialize the GameLogic singleton
+    /// Initialize a GameLogic world for engine use.
     pub fn initialize() -> GameLogic {
-        // For the engine, return a new instance as requested by the original code
-        GameLogic::new()
-    }
-
-    /// Get reference to the GameLogic singleton
-    pub fn instance() -> Arc<Mutex<GameLogic>> {
-        GAME_LOGIC
-            .get_or_init(|| Arc::new(Mutex::new(GameLogic::new())))
-            .clone()
-    }
-
-    /// Initialize the global GameLogic singleton
-    pub fn init_global() {
-        let _ = GAME_LOGIC.get_or_init(|| Arc::new(Mutex::new(GameLogic::new())));
+        // C++ GameLogic construction is field initialization; engine init is
+        // the explicit point at which this world becomes visible to its
+        // singleton-era consumers. Staged candidates install at reset below.
+        let logic = GameLogic::new();
+        if !gamelogic::runtime_world_transaction::world_runtime_staging_active() {
+            logic.publish_gameworld_authority_context();
+            logic.install_as_active_stores();
+            GameLogic::register_leftover_object_create_overrides_overlay();
+        }
+        logic
     }
 
     /// Start a new game with specified mode

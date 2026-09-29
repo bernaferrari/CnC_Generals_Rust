@@ -223,34 +223,16 @@ pub fn ensure_scheme_draw_registered() {
     });
 }
 
-pub(super) fn press_scaled_rect(window: &GameWindow) -> UIRect {
+pub(super) fn authored_window_rect(window: &GameWindow) -> UIRect {
     let (x, y) = window.get_screen_position();
     let (width, height) = window.get_size();
-    let mut rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
-    let scale = window.get_press_scale();
-    if (scale - 1.0).abs() > f32::EPSILON {
-        let cx = rect.x + rect.width * 0.5;
-        let cy = rect.y + rect.height * 0.5;
-        let scaled_width = rect.width * scale;
-        let scaled_height = rect.height * scale;
-        rect = UIRect::new(
-            cx - scaled_width * 0.5,
-            cy - scaled_height * 0.5,
-            scaled_width,
-            scaled_height,
-        );
-    }
-    rect
+    UIRect::new(x as f32, y as f32, width as f32, height as f32)
 }
 
-pub(super) fn press_scaled_bounds_i32(window: &GameWindow) -> (i32, i32, i32, i32) {
-    let rect = press_scaled_rect(window);
-    (
-        rect.x.round() as i32,
-        rect.y.round() as i32,
-        rect.width.round() as i32,
-        rect.height.round() as i32,
-    )
+pub(super) fn authored_window_bounds_i32(window: &GameWindow) -> (i32, i32, i32, i32) {
+    let (x, y) = window.get_screen_position();
+    let (width, height) = window.get_size();
+    (x, y, width, height)
 }
 
 pub(super) trait RgbaColor {
@@ -377,7 +359,7 @@ pub(super) fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceDa
         return;
     }
 
-    let rect = press_scaled_rect(window);
+    let rect = authored_window_rect(window);
     let origin_x = rect.x as i32;
     let origin_y = rect.y as i32;
     let width = rect.width as i32;
@@ -470,7 +452,7 @@ pub(super) fn draw_main_menu_button_drop_shadow_text(
         return;
     }
 
-    let (origin_x, origin_y, width, height) = press_scaled_bounds_i32(window);
+    let (origin_x, origin_y, width, height) = authored_window_bounds_i32(window);
     let (text_color, drop_color) =
         if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
             (

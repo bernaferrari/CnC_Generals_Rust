@@ -886,13 +886,58 @@ impl SaveFileManager {
         client_drawables: ClientDrawableWorldSnapshot,
         save_info: &SaveGameInfo,
     ) -> SaveLoadResult<()> {
+        self.save_game_with_client_state_impl(
+            filename,
+            game_logic,
+            client_drawables,
+            None,
+            save_info,
+        )
+    }
+
+    /// Save the committed host world's visual companion from its owning client.
+    pub fn save_game_with_client_state(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        client: &mut game_client::core::game_client::GameClient,
+        save_info: &SaveGameInfo,
+    ) -> SaveLoadResult<()> {
+        self.save_game_with_client_state_impl(
+            filename,
+            game_logic,
+            client_drawables,
+            Some(client),
+            save_info,
+        )
+    }
+
+    fn save_game_with_client_state_impl(
+        &mut self,
+        filename: &str,
+        game_logic: &GameLogic,
+        client_drawables: ClientDrawableWorldSnapshot,
+        mut client: Option<&mut game_client::core::game_client::GameClient>,
+        save_info: &SaveGameInfo,
+    ) -> SaveLoadResult<()> {
         let save_path = self.get_save_path(filename);
         let temp_path = self.get_temp_path(&format!("{}_temp", filename));
 
         // Create snapshot of current game state
         let snapshot_builder = SnapshotBuilder::new();
-        let mut world_snapshot = snapshot_builder.create_world_snapshot(game_logic)?;
+        let mut world_snapshot = if let Some(client) = client.as_deref() {
+            snapshot_builder.create_world_snapshot_with_client(game_logic, client)?
+        } else {
+            snapshot_builder.create_world_snapshot(game_logic)?
+        };
         world_snapshot.client_drawables = client_drawables;
+        // C++ GameState writes the logic chunk before GameClient::xfer.
+        let client_xfer_bytes = if let Some(client) = client {
+            capture_game_client_xfer_bytes(client)?
+        } else {
+            Vec::new()
+        };
         set_pending_save_game_mode(Some(cpp_game_mode_from_live(game_logic.game_mode())));
         crate::save_load::stamp_player_team_chunks(game_logic);
 
@@ -902,7 +947,8 @@ impl SaveFileManager {
         std::fs::create_dir_all(&self.temp_directory)?;
 
         // Save to temporary file first
-        let write_result = self.save_to_file(&temp_path, &world_snapshot, save_info);
+        let write_result =
+            self.save_to_file(&temp_path, &world_snapshot, save_info, &client_xfer_bytes);
         set_pending_save_game_mode(None);
         write_result?;
 
@@ -1129,6 +1175,7 @@ impl SaveFileManager {
         path: &Path,
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
+        client_xfer_bytes: &[u8],
     ) -> SaveLoadResult<()> {
         let file = OpenOptions::new()
             .create(true)
@@ -1136,7 +1183,11 @@ impl SaveFileManager {
             .truncate(true)
             .open(path)?;
         let mut writer = BufWriter::new(file);
-        let encoded = Self::write_common_sav_chunks(world_snapshot, save_info)?;
+        let encoded = Self::write_common_sav_chunks_with_client_bytes(
+            world_snapshot,
+            save_info,
+            client_xfer_bytes,
+        )?;
         writer.write_all(&encoded)?;
         writer.flush()?;
         Ok(())
@@ -1238,9 +1289,22 @@ impl SaveFileManager {
         world_snapshot: &WorldSnapshot,
         save_info: &SaveGameInfo,
     ) -> SaveLoadResult<Vec<u8>> {
+        Self::write_common_sav_chunks_with_client_bytes(world_snapshot, save_info, &[])
+    }
+
+    fn write_common_sav_chunks_with_client_bytes(
+        world_snapshot: &WorldSnapshot,
+        save_info: &SaveGameInfo,
+        client_xfer_bytes: &[u8],
+    ) -> SaveLoadResult<Vec<u8>> {
         let logic_payload = bincode_legacy::serialize(world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        Self::write_common_sav_chunks_with_payload(world_snapshot, save_info, logic_payload)
+        Self::write_common_sav_chunks_with_payload_and_client(
+            world_snapshot,
+            save_info,
+            logic_payload,
+            client_xfer_bytes,
+        )
     }
 
     /// Shared 17-block container writer. Logic payload is kept separate so
@@ -1251,8 +1315,21 @@ impl SaveFileManager {
         save_info: &SaveGameInfo,
         logic_payload: Vec<u8>,
     ) -> SaveLoadResult<Vec<u8>> {
+        Self::write_common_sav_chunks_with_payload_and_client(
+            world_snapshot,
+            save_info,
+            logic_payload,
+            &[],
+        )
+    }
+
+    fn write_common_sav_chunks_with_payload_and_client(
+        world_snapshot: &WorldSnapshot,
+        save_info: &SaveGameInfo,
+        logic_payload: Vec<u8>,
+        game_client_bytes: &[u8],
+    ) -> SaveLoadResult<Vec<u8>> {
         let ghost_bytes = capture_w3d_ghost_xfer_bytes().unwrap_or_default();
-        let game_client_bytes = capture_game_client_xfer_bytes().unwrap_or_default();
         let particle_system_bytes = capture_particle_system_xfer_bytes().unwrap_or_default();
         let terrain_visual_bytes = capture_terrain_visual_xfer_bytes().unwrap_or_default();
         let block_names: &[&str] = if save_info.save_type == SaveFileType::Mission {
@@ -1297,7 +1374,7 @@ impl SaveFileManager {
                         if game_client_bytes.is_empty() {
                             write_null_snapshot_version(xfer)
                         } else {
-                            let mut bytes = game_client_bytes.clone();
+                            let mut bytes = game_client_bytes.to_vec();
                             // SAFETY: owned byte vector of exact
                             // length handed to the save writer.
                             unsafe {

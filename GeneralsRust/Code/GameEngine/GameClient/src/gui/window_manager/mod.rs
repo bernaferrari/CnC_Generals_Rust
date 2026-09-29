@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::time::Instant;
 
 use crate::gui::gadgets::{
     CheckBox, ComboBox, HorizontalSlider, ListBox, ProgressBar, PushButton, RadioButton,
@@ -207,9 +206,6 @@ pub struct WindowManager {
 
     // Window transition handler (WindowTransitions.ini)
     transitions: GameWindowTransitionsHandler,
-
-    // Timing for per-frame updates
-    last_update: Instant,
 }
 
 impl WindowManager {
@@ -233,7 +229,6 @@ impl WindowManager {
             screen_size: (800, 600),
             radio_groups: HashMap::new(),
             transitions: GameWindowTransitionsHandler::new(),
-            last_update: Instant::now(),
         }
     }
 
@@ -361,26 +356,25 @@ impl WindowManager {
             }
         }
         self.transitions.update();
-        let now = Instant::now();
-        let delta_time = now.duration_since(self.last_update).as_secs_f32();
-        self.last_update = now;
-        self.update_press_animations(delta_time);
+        self.sync_widget_states();
     }
 
-    fn update_press_animations(&mut self, delta_time: f32) {
+    fn sync_widget_states(&mut self) {
         for window in &self.root_windows {
-            Self::update_press_animation_recursive(window, delta_time);
+            Self::sync_widget_states_recursive(window);
         }
     }
 
-    fn update_press_animation_recursive(window: &Rc<RefCell<GameWindow>>, delta_time: f32) {
+    fn sync_widget_states_recursive(window: &Rc<RefCell<GameWindow>>) {
         {
             let mut win = window.borrow_mut();
-            win.update_press_animation(delta_time);
+            if win.needs_periodic_widget_state_sync() {
+                win.sync_state_from_widget();
+            }
         }
         let children = window.borrow().children().to_vec();
         for child in children {
-            Self::update_press_animation_recursive(&child, delta_time);
+            Self::sync_widget_states_recursive(&child);
         }
     }
 }

@@ -5,7 +5,7 @@ pub(super) fn draw_video_buffer(window: &GameWindow, inst_data: &WindowInstanceD
     let Some(frame) = frame else {
         return;
     };
-    let rect = press_scaled_rect(window);
+    let rect = authored_window_rect(window);
     let offset = inst_data.image_offset;
     let rect = UIRect::new(
         rect.x + offset.x as f32,
@@ -20,10 +20,10 @@ pub(super) fn draw_video_buffer(window: &GameWindow, inst_data: &WindowInstanceD
 }
 
 pub(super) fn draw_overlay_image(window: &GameWindow, name: &str) {
-    let (x, y, w, h) = press_scaled_bounds_i32(window);
+    let (x, y, w, h) = authored_window_bounds_i32(window);
     with_window_manager_ref(|manager| {
         if let Some(image) = manager.win_find_image(name) {
-            manager.win_draw_image(&image, x, y, x + w, y + h, WIN_COLOR_UNDEFINED);
+            manager.win_draw_transparent_overlay_image(&image, x, y, x + w, y + h);
         }
     });
 }
@@ -34,21 +34,38 @@ pub(super) fn draw_button_overlays(window: &GameWindow, inst_data: &WindowInstan
         draw_overlay_image(window, "Cameo_push");
     }
 
-    if status.contains(WindowStatus::USE_OVERLAY_STATES) && status.contains(WindowStatus::ENABLED) {
-        if inst_data.state.contains(WindowState::HILITED) {
-            if inst_data.state.contains(WindowState::PUSHED) {
-                draw_overlay_image(window, "Cameo_push");
-            } else {
-                draw_overlay_image(window, "Cameo_hilited");
-            }
-        } else if inst_data.state.contains(WindowState::PUSHED) {
-            draw_overlay_image(window, "Cameo_push");
+    if let Some(name) = push_button_state_overlay_name(status, inst_data.state) {
+        // C++ W3DPushButton.cpp:429-449 enables state overlays only when
+        // both mapped images exist; FLASHING above is independent.
+        let has_overlay_pair = with_window_manager_ref(|manager| {
+            manager.win_find_image("Cameo_push").is_some()
+                && manager.win_find_image("Cameo_hilited").is_some()
+        });
+        if has_overlay_pair {
+            draw_overlay_image(window, name);
         }
     }
 }
 
+fn push_button_state_overlay_name(
+    status: WindowStatus,
+    state: WindowState,
+) -> Option<&'static str> {
+    if !status.contains(WindowStatus::USE_OVERLAY_STATES) || !status.contains(WindowStatus::ENABLED)
+    {
+        return None;
+    }
+    if state.contains(WindowState::SELECTED) {
+        Some("Cameo_push")
+    } else if state.contains(WindowState::HILITED) {
+        Some("Cameo_hilited")
+    } else {
+        None
+    }
+}
+
 pub(super) fn draw_button_style_overlay(window: &GameWindow, button: &PushButton) {
-    let (x, y, w, h) = press_scaled_bounds_i32(window);
+    let (x, y, w, h) = authored_window_bounds_i32(window);
     if let Some(ref overlay) = button.style().overlay_image {
         with_window_manager_ref(|manager| {
             if let Some(image) = manager.win_find_image(overlay) {
@@ -181,7 +198,7 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
         return;
     };
 
-    let rect = press_scaled_rect(window);
+    let rect = authored_window_rect(window);
     let start_x = rect.x as i32 + inst_data.image_offset.x;
     let start_y = rect.y as i32 + inst_data.image_offset.y;
     let end_x = start_x + rect.width as i32;
@@ -262,7 +279,7 @@ pub(super) fn draw_push_button_image_three(
     center: &crate::gui::game_window::Image,
     right: &crate::gui::game_window::Image,
 ) {
-    let rect = press_scaled_rect(window);
+    let rect = authored_window_rect(window);
     let origin_x = rect.x as i32;
     let origin_y = rect.y as i32;
     let width = rect.width as i32;
@@ -318,8 +335,7 @@ pub(super) fn draw_push_button_image_three(
                     } else {
                         let uv = mapped.get_uv();
                         let tex = mapped.get_texture_size().x;
-                        let from_uv =
-                            ((uv.max.x - uv.min.x).abs() * tex as f32).round() as i32;
+                        let from_uv = ((uv.max.x - uv.min.x).abs() * tex as f32).round() as i32;
                         if from_uv > 1 { from_uv } else { center.width }
                     }
                 })
@@ -377,7 +393,7 @@ pub(super) fn draw_push_button_image_three(
 }
 
 pub(super) fn draw_push_button_solid_base(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let rect = press_scaled_rect(window);
+    let rect = authored_window_rect(window);
 
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
     let (_, color_index) =
@@ -455,4 +471,31 @@ pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &Window
         }
     }
     draw_button_overlays(window, inst_data);
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+
+    #[test]
+    fn cameo_overlay_follows_cpp_selected_and_hilited_flags() {
+        let status = WindowStatus::ENABLED | WindowStatus::USE_OVERLAY_STATES;
+        assert_eq!(
+            push_button_state_overlay_name(status, WindowState::HILITED),
+            Some("Cameo_hilited")
+        );
+        assert_eq!(
+            push_button_state_overlay_name(status, WindowState::HILITED | WindowState::SELECTED),
+            Some("Cameo_push")
+        );
+        assert_eq!(
+            push_button_state_overlay_name(status, WindowState::SELECTED),
+            Some("Cameo_push")
+        );
+        assert_eq!(
+            push_button_state_overlay_name(WindowStatus::USE_OVERLAY_STATES, WindowState::HILITED),
+            None,
+            "disabled C++ buttons do not draw state overlays"
+        );
+    }
 }

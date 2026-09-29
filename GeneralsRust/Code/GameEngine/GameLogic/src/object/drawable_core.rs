@@ -17,6 +17,7 @@ impl Drawable {
             drawable_id: normalize_drawable_id(drawable_id),
             object_id,
             object_ref: None,
+            visual_owner: None,
             drawable_type,
 
             transform: Matrix3D::IDENTITY,
@@ -250,12 +251,20 @@ impl Drawable {
             }
         }
         adjusted += std::f32::consts::PI;
-        let loco = self.loco_info.get_or_insert_with(LegacyDrawableLocoInfo::default);
+        let loco = self
+            .loco_info
+            .get_or_insert_with(LegacyDrawableLocoInfo::default);
         loco.acceleration_pitch_rate += recoil_amount * adjusted.cos();
         loco.acceleration_roll_rate += recoil_amount * adjusted.sin();
-        if let Some(client) = crate::helpers::TheGameClient::get() {
-            client.note_weapon_recoil(self.object_id, recoil_amount, recoil_angle);
+        if let Some(owner) = &self.visual_owner {
+            owner.note_weapon_recoil(self.object_id, recoil_amount, recoil_angle);
         }
+    }
+
+    /// Bind the visual world at drawable creation, before weapon callbacks can
+    /// enqueue recoil. No active-world lookup occurs when the weapon fires.
+    pub(crate) fn bind_visual_owner(&mut self, owner: DrawableVisualOwner) {
+        self.visual_owner = Some(owner);
     }
 
     /// Iterate every registered DRAW module, matching C++ `getDrawModules()` walks.

@@ -168,7 +168,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             g: 0.2,
                             b: 0.4,
                             a: 1.0,
-            multiview_mask: None,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -185,6 +184,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
         }
 

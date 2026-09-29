@@ -687,25 +687,10 @@ impl GameLogic {
             install_multiplayer_scripts: false,
         };
         instance.rebuild_objective_lookup();
-        // Fresh instance = clean authority barrier: deep readers on this thread
-        // see this instance's (default-off) switches, never a prior test's.
-        instance.publish_gameworld_authority_context();
-        // World-start boundary: make this world's bundle the ambient store
-        // context (C++ single-world engine) — unless a runtime world stage
-        // owns the thread. A staged candidate must not displace the live
-        // world's resolution between the stage's `begin` and the candidate's
-        // own start_new_game boundary; it installs there instead (reset()).
-        if !gamelogic::runtime_world_transaction::world_runtime_staging_active() {
-            instance.install_as_active_stores();
-        }
-        GameLogic::register_leftover_object_create_overrides_overlay();
-        // C++ TheGameLogic::clearGameData tears per-world shroud down with the
-        // world (ThePartitionManager::reset + ThePlayerList::reset destroy
-        // PartitionData shroudedness and each Player's Shroud). The residual
-        // process-global ShroudManager bridge must not leak a previous
-        // world's object-shroud entries into this one (Object IDs recycle).
-        // Reset through this world's own bundle explicitly — the constructor
-        // no longer installs it globally first.
+        // C++ GameLogic::GameLogic only initializes fields. Constructing a
+        // candidate must not publish its authority, store bundle, or override
+        // callback while another world is live. Its fresh shroud is still
+        // reset through the owned bundle so recycled object IDs cannot leak.
         instance
             .engine_stores
             .shroud()
@@ -738,6 +723,8 @@ impl GameLogic {
     /// Reset method - matching C++ GameLogic interface
     pub fn reset(&mut self) {
         log::debug!("GameLogic::reset() - resetting game state");
+        self.publish_gameworld_authority_context();
+        Self::register_leftover_object_create_overrides_overlay();
         // start_new_game boundary (world_runtime.rs) routes through here: a
         // world starting a game becomes the ambient store context. Staged
         // candidates install at this same boundary — after the stage's
@@ -1308,5 +1295,53 @@ impl GameLogic {
         // load_map does not call reset, so preserve_host_players still keeps AI.
         self.ai_manager = AIManager::new();
         log::debug!("GameLogic::reset() complete");
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn constructing_candidate_does_not_publish_it() {
+        let mut live = GameLogic::initialize();
+        live.set_damage_authority(true);
+        let live_stores = Arc::clone(&live.engine_stores);
+
+        let candidate = GameLogic::new();
+        assert!(Arc::ptr_eq(
+            &gamelogic::system::engine_stores::active(),
+            &live_stores
+        ));
+        assert!(super::gameworld_authority::current_gameworld_authority().damage);
+        assert!(!Arc::ptr_eq(&candidate.engine_stores, &live_stores));
+        drop(candidate);
+        assert!(Arc::ptr_eq(
+            &gamelogic::system::engine_stores::active(),
+            &live_stores
+        ));
+
+        {
+            let _stage = gamelogic::runtime_world_transaction::WorldRuntimeStageScope::enter();
+            let staged = GameLogic::initialize();
+            assert!(Arc::ptr_eq(
+                &gamelogic::system::engine_stores::active(),
+                &live_stores
+            ));
+            assert!(super::gameworld_authority::current_gameworld_authority().damage);
+            drop(staged);
+        }
+
+        let initialized = GameLogic::initialize();
+        assert!(Arc::ptr_eq(
+            &gamelogic::system::engine_stores::active(),
+            &initialized.engine_stores
+        ));
+        assert!(!super::gameworld_authority::current_gameworld_authority().damage);
+        drop(initialized);
+        assert!(Arc::ptr_eq(
+            &gamelogic::system::engine_stores::active(),
+            &live_stores
+        ));
     }
 }

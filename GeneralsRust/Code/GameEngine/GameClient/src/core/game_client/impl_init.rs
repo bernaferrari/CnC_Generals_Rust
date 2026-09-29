@@ -35,6 +35,7 @@ impl GameClient {
             last_visual_time_frame: u32::MAX,
             next_drawable_id: DrawableId(1),
             local_player_id: 0,
+            visual_world: None,
             last_applied_military_caption: None,
             last_applied_military_caption_remaining_ms: None,
             last_applied_cinematic_text: None,
@@ -123,6 +124,12 @@ impl GameClient {
         Self::register_w3d_ghost_snapshot_bridges();
         get_campaign_manager().init();
         self.initialized = true;
+    }
+
+    /// Bind the committed logic world's presentation queues to this client.
+    /// A staged candidate does not call this until its world is installed.
+    pub fn bind_visual_world(&mut self, visual_world: gamelogic::helpers::ClientVisualHandle) {
+        self.visual_world = Some(visual_world);
     }
 
     /// Republish this client's address to the live snapshot slot after the
@@ -246,14 +253,14 @@ impl GameClient {
             let campaign = campaign_manager.get_current_campaign()?;
             Some((
                 campaign.name.clone(),
-                campaign_manager
-                    .get_current_mission_number()
-                    .unwrap_or(-1),
+                campaign_manager.get_current_mission_number().unwrap_or(-1),
                 campaign_manager.get_current_map().unwrap_or_default(),
             ))
         })));
         register_campaign_manager_runtime_hooks(
-            Some(Arc::new(|| get_campaign_manager().capture_logic_chunk_state())),
+            Some(Arc::new(|| {
+                get_campaign_manager().capture_logic_chunk_state()
+            })),
             Some(Arc::new(|state| {
                 get_campaign_manager().apply_logic_chunk_state(state);
             })),
@@ -262,12 +269,9 @@ impl GameClient {
         register_save_load_skirmish_hooks(
             Some(Arc::new(|| {
                 // C++ GameStateMap.cpp:406 xferSnapshot(TheSkirmishGameInfo) v4.
-                let bytes = crate::gui::skirmish_setup::snapshot_skirmish_lobby().encode_xfer_bytes();
-                if bytes.is_empty() {
-                    None
-                } else {
-                    Some(bytes)
-                }
+                let bytes =
+                    crate::gui::skirmish_setup::snapshot_skirmish_lobby().encode_xfer_bytes();
+                if bytes.is_empty() { None } else { Some(bytes) }
             })),
             Some(Arc::new(|payload| {
                 crate::gui::skirmish_setup::restore_skirmish_lobby(payload);
@@ -638,7 +642,6 @@ impl GameClient {
         // C++ W3DDisplay::init: if getStaticLODLevel()==UNKNOWN, find+set.
         game_engine::common::game_lod::ensure_static_lod_applied();
 
-
         if self.subsystem_manager.in_game_ui.is_none() {
             let mut ui = InGameUISubsystem::default();
             ui.init()?;
@@ -785,7 +788,7 @@ impl GameClient {
     }
 
     pub fn pump_message_stream(&self) -> GameClientResult<()> {
-        let completed_messages = {
+        let mut completed_messages = {
             let mut stream = THE_MESSAGE_STREAM.write().map_err(|_| {
                 GameClientError::SubsystemError("Message stream lock poisoned".into())
             })?;
@@ -794,37 +797,26 @@ impl GameClient {
             })?
         };
 
-        if !completed_messages.is_empty() {
-            let command_list_arc = get_command_list();
-            let mut command_list = command_list_arc.write().map_err(|_| {
-                GameClientError::SubsystemError("Command list lock poisoned".into())
-            })?;
-            command_list.append_message_list(completed_messages);
+        if game_engine::common::recorder::with_recorder(|recorder| recorder.is_playback())
+            .unwrap_or(false)
+        {
+            // C++ Recorder::updatePlayback culls live user network orders
+            // before GameLogic dispatch. The owner now ticks Recorder later,
+            // so filter them before routing into the legacy queue as well.
+            completed_messages.retain(|message| {
+                let kind = message.get_type();
+                !(is_network_command_message(kind) && !matches!(kind, GameMessageType::LogicCRC(_)))
+            });
         }
 
-        with_recorder_mut(|recorder| {
-            recorder.set_current_frame(self.frame);
-            recorder.update();
-        });
-
-        self.flush_command_list_to_logic()
-    }
-
-    fn flush_command_list_to_logic(&self) -> GameClientResult<()> {
-        let command_list_arc = get_command_list();
-        let commands = {
-            let mut command_list = command_list_arc.write().map_err(|_| {
-                GameClientError::SubsystemError("Command list lock poisoned".into())
-            })?;
-            command_list.reset_frame_counter();
-            command_list.get_all_commands()
-        };
-
-        if commands.is_empty() {
+        if completed_messages.is_empty() {
             return Ok(());
         }
 
-        route_commands_to_gamelogic(commands, self.frame).map_err(|err| {
+        // Main owns direct host orders already. Route only messages produced by
+        // this client stream; its host callback carries an ordered copy to
+        // GameLogic's recorder tick before the commands execute there.
+        route_commands_to_gamelogic(completed_messages, self.frame).map_err(|err| {
             GameClientError::SubsystemError(format!("Failed to route commands: {err}"))
         })?;
 

@@ -1588,7 +1588,9 @@ impl Engine {
 
     fn finish_screenshot_readback(&self, pending: ScreenshotReadback) -> EngineResult<()> {
         let buffer_slice = pending.buffer.slice(..);
-        let data = buffer_slice.get_mapped_range().expect("buffer map");
+        let data = buffer_slice.get_mapped_range().map_err(|err| {
+            EngineError::Screenshot(format!("Screenshot buffer unavailable: {err}"))
+        })?;
         let mapped_bytes = data.to_vec();
 
         drop(data);
@@ -1694,13 +1696,17 @@ impl Engine {
             let _ = sender.send(result);
         });
         // Not a submit: wait for the debug readback map.
-        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|err| EngineError::Screenshot(format!("Screenshot GPU poll failed: {err}")))?;
         receiver
             .recv()
             .map_err(|_| EngineError::Screenshot("Screenshot readback channel closed".into()))?
             .map_err(|err| EngineError::Screenshot(format!("GPU buffer map failed: {err}")))?;
 
-        let data = buffer_slice.get_mapped_range().expect("buffer map");
+        let data = buffer_slice.get_mapped_range().map_err(|err| {
+            EngineError::Screenshot(format!("Screenshot buffer unavailable: {err}"))
+        })?;
         let mut image_data = vec![0u8; width as usize * height as usize * 4];
 
         for (row_index, dest_chunk) in image_data.chunks_exact_mut(width as usize * 4).enumerate() {
@@ -1761,9 +1767,8 @@ fn write_screenshot_png(
         .finish()
         .map_err(|err| EngineError::Screenshot(format!("PNG finalise error: {err}")))?;
 
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
+    // rename replaces an existing file. Removing it first creates a gap
+    // where a live frame consumer sees no screenshot at all.
     fs::rename(&temp_path, path).map_err(|err| {
         EngineError::Screenshot(format!(
             "Failed to promote screenshot {:?} -> {:?}: {}",
@@ -1786,6 +1791,10 @@ fn write_screenshot_png(
 }
 
 fn unique_temp_path(path: &Path) -> PathBuf {
+    // Wall-clock resolution is too coarse to distinguish concurrent writers.
+    // This sequence identifies files only; it owns no simulation state.
+    static NEXT_TEMP_FILE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = NEXT_TEMP_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -1795,7 +1804,7 @@ fn unique_temp_path(path: &Path) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("ww3d-screenshot");
-    let temp_name = format!(".{base_name}.{pid}.{stamp}.tmp");
+    let temp_name = format!(".{base_name}.{pid}.{stamp}.{sequence}.tmp");
     path.with_file_name(temp_name)
 }
 
@@ -2454,6 +2463,106 @@ mod tests {
     fn headless_engine() -> Engine {
         pollster::block_on(Engine::new_headless(EngineConfig::default()))
             .expect("headless engine for frame-clock tests")
+    }
+
+    #[test]
+    fn concurrent_screenshots_have_distinct_temporary_paths() {
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(16));
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    (0..2_000)
+                        .map(|_| unique_temp_path(Path::new("frame.png")))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut paths = std::collections::HashSet::new();
+        for worker in workers {
+            for path in worker.join().expect("screenshot naming worker") {
+                assert!(
+                    paths.insert(path.clone()),
+                    "concurrent captures shared temporary path: {path:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn screenshot_replacement_keeps_published_file_available() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let path = unique_temp_path(&std::env::temp_dir().join("screenshot-publication.png"));
+        let pixels = [0_u8; 16];
+        write_screenshot_png(&path, 2, 2, &pixels).expect("initial screenshot");
+        let running = Arc::new(AtomicBool::new(true));
+        let reader_path = path.clone();
+        let reader_running = running.clone();
+        let reader = std::thread::spawn(move || {
+            let mut missing = 0;
+            while reader_running.load(Ordering::Relaxed) {
+                match fs::read(&reader_path) {
+                    Ok(_) => {}
+                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => missing += 1,
+                    Err(err) => panic!("read published screenshot: {err}"),
+                }
+            }
+            missing
+        });
+        for _ in 0..500 {
+            write_screenshot_png(&path, 2, 2, &pixels).expect("replace screenshot");
+        }
+        running.store(false, Ordering::Relaxed);
+        let missing = reader.join().expect("screenshot reader");
+        fs::remove_file(&path).expect("remove screenshot");
+        fs::remove_file(screenshot_meta_path(&path)).expect("remove metadata");
+        assert_eq!(
+            missing, 0,
+            "replacement temporarily removed the published screenshot"
+        );
+    }
+
+    #[test]
+    fn screenshot_destroyed_after_map_completion_returns_error() {
+        let _lock = engine_test_lock();
+        let engine = headless_engine();
+        let buffer = engine.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("screenshot completion race"),
+            size: 256,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let (sender, completion) = mpsc::channel();
+        buffer
+            .slice(..)
+            .map_async(wgpu::MapMode::Read, move |result| {
+                sender.send(result).expect("map completion receiver");
+            });
+        engine
+            .device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .expect("map poll");
+        completion
+            .recv()
+            .expect("map callback")
+            .expect("successful map");
+        // Device loss can invalidate a buffer after a successful map callback.
+        buffer.destroy();
+        let pending = ScreenshotReadback {
+            path: std::env::temp_dir().join("destroyed-screenshot-must-not-write.png"),
+            buffer,
+            width: 1,
+            height: 1,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            row_size: 4,
+            padded_row_size: 256,
+            completion,
+        };
+        assert!(matches!(
+            engine.finish_screenshot_readback(pending),
+            Err(EngineError::Screenshot(_))
+        ));
     }
 
     /// Regression: begin_render() must never advance the frame clock. After

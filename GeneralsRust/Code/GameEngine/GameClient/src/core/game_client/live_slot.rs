@@ -222,31 +222,30 @@ pub fn query_live_drawable_fx_pose(
 }
 
 
-/// Capture leftover `BasicDrawable::xfer` visuals for one object-bound drawable.
-pub fn capture_live_drawable_xfer_visuals(
-    object_id: ObjectID,
-) -> Option<crate::drawable::DrawableXferVisualSnapshot> {
-    with_live_game_client_mut(|client| {
-        let drawable_id = client.get_drawable_for_object(object_id)?;
-        let drawable = client.find_drawable_by_id(drawable_id)?;
+impl GameClient {
+    /// Capture C++ `BasicDrawable::xfer` visuals from this client.
+    pub fn capture_drawable_xfer_visuals(
+        &self,
+        object_id: ObjectID,
+    ) -> Option<crate::drawable::DrawableXferVisualSnapshot> {
+        let drawable_id = self.get_drawable_for_object(object_id)?;
+        let drawable = self.find_drawable_by_id(drawable_id)?;
         drawable
             .as_any()
             .downcast_ref::<crate::drawable::BasicDrawable>()
             .map(|basic| basic.capture_xfer_visuals())
-    })
-    .flatten()
-}
+    }
 
-/// Restore leftover `BasicDrawable::xfer` visuals onto the live GameClient.
-pub fn restore_live_drawable_xfer_visuals(
-    object_id: ObjectID,
-    visuals: &crate::drawable::DrawableXferVisualSnapshot,
-) -> bool {
-    with_live_game_client_mut(|client| {
-        let Some(drawable_id) = client.get_drawable_for_object(object_id) else {
+    /// Restore C++ `BasicDrawable::xfer` visuals onto this client.
+    pub fn restore_drawable_xfer_visuals(
+        &mut self,
+        object_id: ObjectID,
+        visuals: &crate::drawable::DrawableXferVisualSnapshot,
+    ) -> bool {
+        let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
             return false;
         };
-        let Some(drawable) = client.find_drawable_by_id_mut(drawable_id) else {
+        let Some(drawable) = self.find_drawable_by_id_mut(drawable_id) else {
             return false;
         };
         if let Some(basic) = drawable
@@ -258,25 +257,23 @@ pub fn restore_live_drawable_xfer_visuals(
         } else {
             false
         }
-    })
-    .unwrap_or(false)
+    }
 }
 
-/// Apply queued logic-fire recoil on the presentation drawable.
-pub fn apply_queued_weapon_recoils() {
-    let Some(client_bridge) = gamelogic::helpers::TheGameClient::get() else {
-        return;
-    };
-    let queued = client_bridge.take_weapon_recoils();
-    if queued.is_empty() {
-        return;
-    }
-    let _ = with_live_game_client_mut(|client| {
+impl GameClient {
+    /// Apply queued logic-fire recoil on this client's presentation drawables.
+    /// `update` already owns `&mut self`, so routing back through the live
+    /// pointer would create an overlapping mutable borrow of this same value.
+    fn apply_queued_weapon_recoils(&mut self) {
+        let Some(visual_world) = self.visual_world.as_ref() else {
+            return;
+        };
+        let queued = visual_world.take_weapon_recoils();
         for (object_id, amount, aim_angle) in queued {
-            let Some(drawable_id) = client.get_drawable_for_object(object_id) else {
+            let Some(drawable_id) = self.get_drawable_for_object(object_id) else {
                 continue;
             };
-            let Some(drawable) = client.find_drawable_by_id_mut(drawable_id) else {
+            let Some(drawable) = self.find_drawable_by_id_mut(drawable_id) else {
                 continue;
             };
             if let Some(basic) = drawable
@@ -286,7 +283,7 @@ pub fn apply_queued_weapon_recoils() {
                 basic.apply_recoil_impulse(amount, aim_angle);
             }
         }
-    });
+    }
 }
 
 /// Recoil matrix for the presentation drawable, if it is not identity.
@@ -400,6 +397,42 @@ mod live_slot_tests {
 
         clear_live_game_client(&mut client);
         assert_eq!(live_game_client_frame(), None);
+    }
+
+    #[test]
+    fn explicit_drawable_visual_restore_targets_only_its_client() {
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut live = Box::new(GameClient::new().expect("live client"));
+        let mut target = Box::new(GameClient::new().expect("target client"));
+        for client in [&mut live, &mut target] {
+            let mut drawable = crate::drawable::BasicDrawable::new(DrawableId::INVALID);
+            drawable.set_object_id(Some(73));
+            client
+                .register_drawable_with_template(Box::new(drawable), Some("Test".into()))
+                .expect("register object drawable");
+        }
+        live.mark_initialized();
+        let original = live
+            .capture_drawable_xfer_visuals(73)
+            .expect("live visuals");
+        let visuals = crate::drawable::DrawableXferVisualSnapshot {
+            explicit_opacity: 0.42,
+            hidden: true,
+            ..original.clone()
+        };
+        assert!(target.restore_drawable_xfer_visuals(73, &visuals));
+        let restored = target
+            .capture_drawable_xfer_visuals(73)
+            .expect("target visuals");
+        assert_eq!(restored.explicit_opacity, 0.42);
+        assert!(restored.hidden);
+        let live_after = live
+            .capture_drawable_xfer_visuals(73)
+            .expect("live visuals remain");
+        assert_eq!(live_after.explicit_opacity, original.explicit_opacity);
+        assert_eq!(live_after.hidden, original.hidden);
     }
 
     #[test]

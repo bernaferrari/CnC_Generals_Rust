@@ -268,7 +268,14 @@ fn test_screenshot() {
     init_headless_blocking(config).unwrap();
 
     // Create temp directory for screenshot
-    let temp_dir = std::env::temp_dir().join("ww3d_test_screenshots");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let temp_dir = std::env::temp_dir().join(format!(
+        "ww3d_test_screenshots_{}_{stamp}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&temp_dir).unwrap();
 
     let screenshot_path = temp_dir.join("test_screenshot.png");
@@ -281,12 +288,34 @@ fn test_screenshot() {
     let frame = begin_render().unwrap();
     end_render(frame).unwrap();
 
-    // Check that screenshot was created
-    assert!(screenshot_path.exists(), "Screenshot file was not created");
+    // Capture is queued: retire the GPU map, drain its completion on the next
+    // frame, then wait for the asynchronous PNG writer to publish the file.
+    device()
+        .unwrap()
+        .poll(wgpu::PollType::wait_indefinitely())
+        .unwrap();
+    let frame = begin_render().unwrap();
+    end_render(frame).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !screenshot_path.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "Screenshot file was not created"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let decoder = png::Decoder::new(std::io::BufReader::new(
+        std::fs::File::open(&screenshot_path).unwrap(),
+    ));
+    let mut reader = decoder.read_info().expect("published PNG header");
+    let mut pixels = vec![0; reader.output_buffer_size().expect("PNG buffer size")];
+    let output = reader
+        .next_frame(&mut pixels)
+        .expect("published PNG pixels");
+    assert_eq!((output.width, output.height), (1280, 720));
 
     // Clean up
-    std::fs::remove_file(&screenshot_path).ok();
-    std::fs::remove_dir(&temp_dir).ok();
+    std::fs::remove_dir_all(&temp_dir).unwrap();
 
     shutdown().unwrap();
 }

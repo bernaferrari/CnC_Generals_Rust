@@ -30,6 +30,12 @@ fn note_win_draw_image_command() {
     WIN_DRAW_IMAGE_COMMANDS.fetch_add(1, Ordering::Relaxed);
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum MissingImagePolicy {
+    Placeholder,
+    Skip,
+}
+
 impl WindowManager {
     /// Draw an image in the provided screen rect.
     pub fn win_draw_image(
@@ -63,6 +69,52 @@ impl WindowManager {
         color: Color,
         mode: crate::display::DrawImageMode,
     ) {
+        self.win_draw_image_with_policy(
+            image,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            color,
+            mode,
+            MissingImagePolicy::Placeholder,
+        );
+    }
+
+    /// C++ W3DPushButton overlays are optional transparent art. Missing pixels
+    /// must leave the base cameo visible rather than drawing a full opaque
+    /// missing-art placeholder over it.
+    pub(crate) fn win_draw_transparent_overlay_image(
+        &self,
+        image: &Image,
+        start_x: i32,
+        start_y: i32,
+        end_x: i32,
+        end_y: i32,
+    ) {
+        self.win_draw_image_with_policy(
+            image,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            WIN_COLOR_UNDEFINED,
+            crate::display::DrawImageMode::Alpha,
+            MissingImagePolicy::Skip,
+        );
+    }
+
+    fn win_draw_image_with_policy(
+        &self,
+        image: &Image,
+        start_x: i32,
+        start_y: i32,
+        end_x: i32,
+        end_y: i32,
+        color: Color,
+        mode: crate::display::DrawImageMode,
+        missing_policy: MissingImagePolicy,
+    ) {
         let color_rgba = if color != WIN_COLOR_UNDEFINED {
             color_to_rgba(color)
         } else {
@@ -77,9 +129,9 @@ impl WindowManager {
                         found_mapped = true;
                         if let Some(gpu) = mapped.get_gpu_texture() {
                             let uv = mapped.get_uv();
-                            let rotated = mapped.get_status().contains(
-                                crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE,
-                            );
+                            let rotated = mapped
+                                .get_status()
+                                .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
                             Some((
                                 std::sync::Arc::new(gpu.view().clone()),
                                 uv.min.x,
@@ -109,9 +161,9 @@ impl WindowManager {
                     }
                     mapped.get_gpu_texture().map(|gpu| {
                         let uv = mapped.get_uv();
-                        let rotated = mapped.get_status().contains(
-                            crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE,
-                        );
+                        let rotated = mapped
+                            .get_status()
+                            .contains(crate::display::image::ImageStatus::ROTATED_90_CLOCKWISE);
                         (
                             std::sync::Arc::new(gpu.view().clone()),
                             uv.min.x,
@@ -145,7 +197,7 @@ impl WindowManager {
                 );
                 note_win_draw_image_command();
                 true
-            } else if found_mapped {
+            } else if found_mapped && missing_policy == MissingImagePolicy::Placeholder {
                 // C++ W3DDisplay::drawImage treats DrawData COLOR as a modulate
                 // tint on the image, never a standalone fill. When the mapped
                 // image exists but its pixels could not be hydrated (e.g. the
@@ -168,10 +220,11 @@ impl WindowManager {
         });
         if submitted != Some(true) {
             let _ = ensure_client_mapped_image(&image.name);
-            if get_mapped_image_collection()
-                .read()
-                .find_image_by_name(&image.name)
-                .is_some()
+            if missing_policy == MissingImagePolicy::Placeholder
+                && get_mapped_image_collection()
+                    .read()
+                    .find_image_by_name(&image.name)
+                    .is_some()
             {
                 note_win_draw_image_command();
             }
@@ -712,6 +765,36 @@ impl WindowManager {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+
+    #[test]
+    fn missing_transparent_overlay_does_not_queue_opaque_base_placeholder() {
+        let name = "MissingCameoOverlayPolicyTest";
+        get_mapped_image_collection()
+            .write()
+            .add_image(crate::display::image::Image::with_name(name));
+        let manager = WindowManager::new();
+        let image = manager.win_find_image(name).expect("mapped metadata");
+
+        reset_win_draw_image_queued_count();
+        manager.win_draw_transparent_overlay_image(&image, 0, 0, 64, 64);
+        assert_eq!(
+            win_draw_image_queued_count(),
+            0,
+            "missing overlay pixels must leave the base cameo visible"
+        );
+
+        manager.win_draw_image(&image, 0, 0, 64, 64, WIN_COLOR_UNDEFINED);
+        assert_eq!(
+            win_draw_image_queued_count(),
+            1,
+            "base image keeps its existing missing-art placeholder"
+        );
     }
 }
 
