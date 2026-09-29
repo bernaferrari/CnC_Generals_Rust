@@ -52,6 +52,7 @@ impl SubsystemInterface for TerrainVisualImpl {
             crate::terrain::DEFAULT_WATER_TRACK_MODULES,
         );
         self.water_named_bind_groups.clear();
+        self.road_named_bind_groups.clear();
         self.river_gpu.bind_group = None;
         self.shroud_gpu.bind_group = None;
         self.shroud_gpu.dest_texture = None;

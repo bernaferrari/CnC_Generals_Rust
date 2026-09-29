@@ -73,14 +73,32 @@ pub(super) fn query_window_is_iconic(window: &Window, fallback: bool) -> bool {
 /// Render-surface extent in logical points (C++ `TheDisplay` width/height).
 ///
 /// The swapchain and every logical-space consumer (WND window manager, UI
-/// renderer, tactical viewport) share this size; winit's `inner_size` is
-/// physical and must only be used for input-space math.
+/// renderer, tactical viewport, pointer input, and selection overlays) share
+/// this size; winit's `inner_size` reports physical pixels on HiDPI displays.
 pub(super) fn render_surface_extent(window: &Window) -> (u32, u32) {
-    let scale = window.scale_factor().max(0.0001);
-    let size = window.inner_size();
+    logical_surface_extent(window.inner_size(), window.scale_factor())
+}
+
+/// Convert winit's physical client extent to the display coordinates shared
+/// by mouse input, WND hit tests, selection overlays, and the WGPU viewport.
+pub(super) fn logical_surface_extent(size: winit::dpi::PhysicalSize<u32>, scale: f64) -> (u32, u32) {
+    let scale = scale.max(0.0001);
     let w = ((size.width as f64) / scale).round().max(1.0) as u32;
     let h = ((size.height as f64) / scale).round().max(1.0) as u32;
     (w, h)
+}
+
+#[cfg(test)]
+mod cursor_extent_tests {
+    use super::logical_surface_extent;
+    use winit::dpi::PhysicalSize;
+
+    #[test]
+    fn cursor_display_bounds_scale_with_window_and_hidpi() {
+        assert_eq!(logical_surface_extent(PhysicalSize::new(640, 480), 1.0), (640, 480));
+        assert_eq!(logical_surface_extent(PhysicalSize::new(1280, 960), 1.0), (1280, 960));
+        assert_eq!(logical_surface_extent(PhysicalSize::new(1280, 960), 2.0), (640, 480));
+    }
 }
 
 /// Apply headless-hide / windowed-show, then return the honest winit residual.

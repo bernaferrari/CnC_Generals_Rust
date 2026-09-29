@@ -948,19 +948,19 @@ impl CnCGameEngine {
             (world_min.y + world_max.y) * 0.5,
             (world_min.z + world_max.z) * 0.5,
         );
-        let metadata_initial_camera: Option<Vec3> = if let Some(pres) = presentation {
-            // C++ startNewGame looks at InitialCameraPosition waypoint.
-            // presentation.camera_focus is the script MOVE_CAMERA_TO queue
-            // (often y=0) and must not replace the map waypoint (hq-bq4n).
-            pres.world_env
-                .initial_camera_position
-                .map(|f| Vec3::new(f[0], f[1], f[2]))
-                .or_else(|| pres.camera_focus.map(|f| Vec3::new(f[0], f[1], f[2])))
-        } else {
-            None
-        };
-        // Gameplay ground is X/Z (Y-up). InitialCamera.y is height, not a map axis.
-        let metadata_target = metadata_initial_camera.map(|pos| Vec2::new(pos.x, pos.z));
+        // The map waypoint retains C++ coordinates: X/Y ground and Z height.
+        // Script camera requests are already in the Rust X/Z-ground basis.
+        // C++ GameLogic::startNewGame sends the waypoint to W3DView::lookAt,
+        // which queries terrain at (pos.x, pos.y).
+        let metadata_initial_camera = presentation
+            .and_then(|pres| pres.world_env.initial_camera_position);
+        let metadata_target = metadata_initial_camera
+            .map(Self::cpp_initial_camera_ground_focus)
+            .or_else(|| {
+                presentation
+                    .and_then(|pres| pres.camera_focus)
+                    .map(|focus| Vec2::new(focus[0], focus[2]))
+            });
 
         let clamp_focus_to_world = |focus: Vec2| {
             Vec2::new(
@@ -1048,6 +1048,10 @@ impl CnCGameEngine {
         );
 
         (camera_target, camera_position, zoom)
+    }
+
+    pub(super) fn cpp_initial_camera_ground_focus(position: [f32; 3]) -> Vec2 {
+        Vec2::new(position[0], position[1])
     }
 
     pub(super) fn sample_startup_camera_heights(
@@ -2166,8 +2170,7 @@ impl CnCGameEngine {
         }
     }
 
-    /// True when the boot overlay should release to Menu instead of waiting
-    /// forever for INI / optional shell-map decode.
+    /// True when the boot overlay may release to Menu without a shell map.
     pub(super) fn startup_load_should_release_to_menu(&self) -> bool {
         let StartupLoadState::InProgress {
             started_at,
@@ -2182,7 +2185,17 @@ impl CnCGameEngine {
         if !wants_menu {
             return false;
         }
-        // Session create is 0.18; after that the remaining work is optional shell.
+        // C++ GameLogic::startNewGame(GAME_SHELL) completes the map before it
+        // pushes/shows MainMenu.wnd. Exposing Menu while the worker still owns
+        // ShellMapMD paints buttons over an empty black world for many seconds.
+        // configured_startup_shell_map disables shell_map_on if the asset is
+        // genuinely missing, so that case can still take the timeout below.
+        if self.startup_start_in_menu
+            && game_engine::common::global_data::read().writable.shell_map_on
+        {
+            return false;
+        }
+        // Session create is 0.18; with no shell map, this work is optional.
         (*last_worker_progress >= 0.18 && started_at.elapsed() >= Duration::from_secs(8))
             || started_at.elapsed() >= Duration::from_secs(15)
     }

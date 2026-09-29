@@ -14,6 +14,11 @@ impl TerrainVisualImpl {
         // drop them so the next refresh rebuilds against this device instead
         // of binding stale textures (wgpu cross-device bind is invalid).
         self.skybox_textures = [None, None, None, None, None];
+        self.road_named_bind_groups.clear();
+        self.road_texture = None;
+        self.road_sampler = None;
+        self.road_texture_bind_group = None;
+        self.road_texture_search_exhausted = false;
         self.skybox_background_bind_group = None;
         self.skybox_background_view = None;
         self.last_skybox_face_bind = None;
@@ -657,6 +662,8 @@ impl TerrainVisualImpl {
 
         let mut road_meshes = Vec::new();
         let mut bridge_meshes = Vec::new();
+        let authored_roads = game_engine::common::ini::try_get_terrain_roads();
+        let retry_road_authoring = authored_roads.is_none();
         let height_map = self.height_map.as_ref();
         let height_at = |x: f32, y: f32| {
             height_map
@@ -671,6 +678,11 @@ impl TerrainVisualImpl {
 
         self.road_system
             .for_each_visible_overlay_source(|road, segment| {
+                let texture_name = authored_road_texture_name(
+                    road.name.as_str(),
+                    segment.properties.texture_override.as_deref(),
+                    authored_roads.as_deref(),
+                );
                 if matches!(road.road_type, RoadType::StoneBridge { .. }) {
                     let width = segment.width.max(0.1);
                     let scale = (width / 10.0).max(0.01);
@@ -700,12 +712,13 @@ impl TerrainVisualImpl {
                     let gpu_vertices = fill_bridge_gpu_upload_vertices(&baked.vertices);
                     let gpu_indices: Vec<u32> =
                         baked.indices.iter().map(|index| *index as u32).collect();
-                    if let Some(mesh) = Self::upload_overlay_mesh(
+                    if let Some(mut mesh) = Self::upload_overlay_mesh(
                         &device,
                         "Bridge Mesh",
                         &gpu_vertices,
                         &gpu_indices,
                     ) {
+                        mesh.texture_name = texture_name;
                         bridge_meshes.push(mesh);
                     }
                     return;
@@ -742,12 +755,13 @@ impl TerrainVisualImpl {
                             );
                             let gpu_indices: Vec<u32> =
                                 indices.iter().map(|index| *index as u32).collect();
-                            if let Some(mesh) = Self::upload_overlay_mesh(
+                            if let Some(mut mesh) = Self::upload_overlay_mesh(
                                 &device,
                                 "Road Mesh",
                                 &gpu_vertices,
                                 &gpu_indices,
                             ) {
+                                mesh.texture_name = texture_name;
                                 road_meshes.push(mesh);
                             }
                             return;
@@ -789,20 +803,37 @@ impl TerrainVisualImpl {
                     &global_lights,
                     ambient_color,
                 );
-                if let Some(mesh) = Self::upload_overlay_mesh(
+                if let Some(mut mesh) = Self::upload_overlay_mesh(
                     &device,
                     "Road Mesh",
                     &gpu_vertices,
                     &geometry.indices,
                 ) {
+                    mesh.texture_name = texture_name;
                     road_meshes.push(mesh);
                 }
             });
 
         self.road_meshes = road_meshes;
         self.bridge_meshes = bridge_meshes;
+        drop(authored_roads);
+        let mut road_texture_names = Vec::new();
+        for mesh in self.road_meshes.iter().chain(&self.bridge_meshes) {
+            if !mesh.texture_name.is_empty()
+                && !road_texture_names
+                    .iter()
+                    .any(|name: &String| name.eq_ignore_ascii_case(&mesh.texture_name))
+            {
+                road_texture_names.push(mesh.texture_name.clone());
+            }
+        }
+        for name in road_texture_names {
+            self.ensure_named_road_texture(&device, &name);
+        }
         self.update_scorch_meshes(&device);
-        self.overlay_gpu_meshes_dirty = false;
+        // Roads.ini may briefly hold its write lock during map load. Keep the
+        // mesh dirty so the following frame can bind authored textures.
+        self.overlay_gpu_meshes_dirty = retry_road_authoring;
         Ok(())
 
     }
@@ -860,6 +891,7 @@ impl TerrainVisualImpl {
                 usage: wgpu::BufferUsages::INDEX,
             }),
             index_count: indices.len() as u32,
+            texture_name: String::new(),
             bib_highlight: false,
         })
     }
@@ -1066,8 +1098,13 @@ impl TerrainVisualImpl {
         {
             pass.set_pipeline(road_pipeline);
             pass.set_bind_group(0, camera_bg, &[]);
-            pass.set_bind_group(1, road_bg, &[]);
             for mesh in self.road_meshes.iter().chain(self.bridge_meshes.iter()) {
+                let texture_bg = self
+                    .road_named_bind_groups
+                    .get(&mesh.texture_name.to_ascii_lowercase())
+                    .map(|named| &named.bind_group)
+                    .unwrap_or(road_bg);
+                pass.set_bind_group(1, texture_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
@@ -1156,6 +1193,53 @@ impl TerrainVisualImpl {
         self.road_texture = Some(texture);
         self.road_texture_bind_group = Some(bind_group);
         self.road_texture_is_fallback = used_fallback;
+    }
+
+    fn ensure_named_road_texture(&mut self, device: &wgpu::Device, name: &str) {
+        let key = name.to_ascii_lowercase();
+        if self.road_named_bind_groups.contains_key(&key) {
+            return;
+        }
+        let (Some(layout), Some(sampler)) = (
+            self.road_texture_bind_group_layout.as_ref(),
+            self.road_sampler.as_ref(),
+        ) else {
+            return;
+        };
+        let texture = Self::road_texture_path_candidates(name)
+            .into_iter()
+            .find_map(|path| {
+                self.load_texture_from_path(device, &path)
+                    .ok()
+                    .map(|texture| (texture, path))
+            });
+        let Some((texture, source_path)) = texture else {
+            warn!("Roads.ini texture '{}' missing; retaining road fallback", name);
+            return;
+        };
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Authored Road Texture Bind Group"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        });
+        self.road_named_bind_groups.insert(
+            key,
+            NamedRoadBind {
+                _texture: texture,
+                bind_group,
+            },
+        );
+        info!("Roads.ini texture '{}' bound from {}", name, source_path);
     }
 
     fn wanted_snow_texture_name() -> String {
@@ -2612,6 +2696,86 @@ fn pack_water_rgba_int(color: (f32, f32, f32, f32)) -> u32 {
     (a << 24) | (r << 16) | (g << 8) | b
 }
 
+/// Resolve the exact Roads.ini texture for a map road or bridge. Synthetic
+/// joins carry the source RoadTypeId, so they keep the same source art.
+fn authored_road_texture_name(
+    road_name: &str,
+    metadata: Option<&str>,
+    roads: Option<&game_engine::common::ini::ini_road::TerrainRoadCollection>,
+) -> String {
+    let Some(roads) = roads else {
+        return String::new();
+    };
+    let road_type_id = metadata.and_then(|metadata| {
+        metadata
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix("RoadTypeId="))
+            .and_then(|value| value.parse::<u32>().ok())
+    });
+    roads
+        .iter_roads()
+        .find(|road| road.name.as_str().eq_ignore_ascii_case(road_name))
+        .or_else(|| road_type_id.and_then(|id| roads.iter_roads().find(|road| road.id == id)))
+        .or_else(|| {
+            roads
+                .iter_bridges()
+                .find(|bridge| bridge.name.as_str().eq_ignore_ascii_case(road_name))
+        })
+        .map(|road| road.texture.as_str().trim().to_string())
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod authored_road_texture_tests {
+    use super::*;
+    use game_engine::common::ini::ini_road::TerrainRoadCollection;
+
+    #[test]
+    fn each_source_road_and_synthetic_join_uses_its_own_texture() {
+        let mut roads = TerrainRoadCollection::new();
+        let cobble = roads.new_road(AsciiString::from("Cobblestone"));
+        cobble.texture = AsciiString::from("TRCobbleStones.tga");
+        let cobble_id = cobble.id;
+        let dirt = roads.new_road(AsciiString::from("DirtRoad"));
+        dirt.texture = AsciiString::from("TRDirtRoad.tga");
+        let dirt_id = dirt.id;
+        let bridge = roads.new_bridge(AsciiString::from("IronBridge"));
+        bridge.texture = AsciiString::from("TBIronBridge.tga");
+
+        assert_eq!(
+            authored_road_texture_name("Cobblestone", None, Some(&roads)),
+            "TRCobbleStones.tga"
+        );
+        assert_eq!(
+            authored_road_texture_name("DirtRoad", None, Some(&roads)),
+            "TRDirtRoad.tga"
+        );
+        assert_eq!(
+            authored_road_texture_name(
+                "__SYNTH_TEE__",
+                Some(&format!("RoadTypeId={dirt_id} Kind=TEE")),
+                Some(&roads)
+            ),
+            "TRDirtRoad.tga"
+        );
+        assert_eq!(
+            authored_road_texture_name(
+                "Cobblestone",
+                Some(&format!("RoadTypeId={dirt_id}")),
+                Some(&roads)
+            ),
+            "TRCobbleStones.tga",
+            "name wins over stale metadata"
+        );
+        assert_ne!(cobble_id, dirt_id);
+        assert_eq!(
+            authored_road_texture_name("IronBridge", None, Some(&roads)),
+            "TBIronBridge.tga"
+        );
+        assert_eq!(authored_road_texture_name("Unknown", None, Some(&roads)), "");
+    }
+}
+
 #[cfg(test)]
 mod splat_texture_class_tests {
     use super::*;
@@ -2803,5 +2967,3 @@ mod directional_blend_alpha_tests {
         assert_eq!(directional_blend_alpha(&b, 1.0, 1.0), 0.0);
     }
 }
-
-

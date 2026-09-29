@@ -670,7 +670,8 @@ impl CnCGameEngine {
         // Wave 602: InGame logic+presentation residual.
         // Retail m_TiVOFastMode residual: extra logic steps while armed.
         let ff_steps = replay_logic_step_count(self.replay_fast_forward);
-        // Windowed passes None: the live 6-step clamp drops excess backlog.
+        // Windowed passes None: one C++-equivalent logic step per presented
+        // frame, dropping any excess backlog after a stall.
         // Some(1) or Some(2) keep the carry, so every later frame runs that
         // many steps and the match stays in slow motion. Headless keeps Some(4).
         let step_budget = if self.runtime_host_headless {

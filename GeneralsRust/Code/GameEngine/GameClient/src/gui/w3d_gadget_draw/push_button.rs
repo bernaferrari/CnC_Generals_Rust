@@ -175,7 +175,9 @@ pub(super) fn draw_push_button_image_one(window: &GameWindow, inst_data: &Window
     let image = button_draw_entry_image(draw_data, index);
 
     let Some(image) = image else {
-        draw_push_button_solid_base(window, inst_data);
+        // C++ W3DGadgetPushButtonImageDrawOne skips its image draw block when
+        // this state's image is absent. The WND color is not a fill fallback:
+        // MainMenu.wnd authors solid red there while awaiting image art.
         return;
     };
 

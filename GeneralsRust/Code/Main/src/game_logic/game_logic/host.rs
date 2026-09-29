@@ -1335,6 +1335,9 @@ pub struct GameLogic {
     pub(super) spawned_map_object_ids: Vec<(ObjectId, usize)>,
     pub(super) terrain: Option<super::terrain::TerrainData>,
     pub(super) runtime_road_segments: Vec<super::script_loader::RuntimeRoadSegment>,
+    /// Authored map water geometry retained by this game instance for the
+    /// presentation freeze (C++ PolygonTrigger water areas).
+    pub(super) runtime_water_triggers: Vec<gamelogic::polygon_trigger::PolygonTrigger>,
     pub(super) runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
     pub(super) pathfinding_height_samples: Option<PathfindingHeightSamples>,
     pub(super) weather_state: RuntimeWeatherState,

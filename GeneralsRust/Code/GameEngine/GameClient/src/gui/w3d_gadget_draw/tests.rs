@@ -713,6 +713,18 @@ fn w3d_push_button_image_draw_queues_nothing_when_no_image_is_bound() {
 }
 
 #[test]
+fn w3d_push_button_image_one_never_falls_back_to_authored_red_color() {
+    // The image helper itself must keep W3DPushButton.cpp:288-368 semantics,
+    // even when a caller invokes it before the state's image is assigned.
+    super::reset_shipped_ui_draw_command_count();
+    let mut window = test_window(20, 60, 64, 64);
+    window.set_status(WindowStatus::ENABLED | WindowStatus::IMAGE);
+    window.instance_data_mut().enabled_draw_data[0].color = 0xFFFF_0000;
+    super::draw_push_button_image_one(&window, window.instance_data());
+    assert_eq!(super::shipped_ui_draw_command_count(), 0);
+}
+
+#[test]
 fn w3d_power_and_progress_queue_commands_without_art() {
     super::reset_shipped_ui_draw_command_count();
     let mut progress = test_window(10, 10, 200, 16);

@@ -144,9 +144,9 @@ impl CnCGameEngine {
             // C++ LookAtXlat.cpp:267-291 / 427-447 uses TheDisplay getWidth/Height,
             // not the 80% tactical view. Treating tac_h as the bottom edge starts
             // downward pan across the whole command bar.
-            let size = self.window.inner_size();
-            let win_w = size.width.max(1) as f32;
-            let win_h = size.height.max(1) as f32;
+            let (win_w, win_h) = super::super::types::render_surface_extent(&self.window);
+            let win_w = win_w as f32;
+            let win_h = win_h as f32;
             if mx < EDGE_SCROLL_SIZE {
                 edge_dx = -1.0;
             } else if mx >= win_w - EDGE_SCROLL_SIZE {
@@ -202,11 +202,12 @@ impl CnCGameEngine {
                 }
                 LookAtScrollType::Rmb => {
                     if let Some(mut anchor) = self.rmb_scroll_anchor {
-                        let size = self.window.inner_size();
+                        let (display_w, display_h) =
+                            super::super::types::render_surface_extent(&self.window);
                         crate::cnc_game_engine::options_bridge::clamp_move_rmb_scroll_anchor(
                             &mut anchor,
                             self.mouse_position,
-                            (size.width as f32, size.height as f32),
+                            (display_w as f32, display_h as f32),
                             self.move_rmb_scroll_anchor,
                         );
                         self.rmb_scroll_anchor = Some(anchor);
@@ -1175,9 +1176,9 @@ impl CnCGameEngine {
             }
             let fade = self.game_client.letterbox_overlay_fade();
             let enabled = self.game_client.letterbox_overlay_enabled();
-            let size = self.window.inner_size();
-            let width = size.width.max(1) as f32;
-            let height = size.height.max(1) as f32;
+            let (width, height) = super::super::types::render_surface_extent(&self.window);
+            let width = width as f32;
+            let height = height as f32;
             let plan =
                 game_client::display::display_fx::letterbox_plan(width, height, fade, enabled);
             let my = self.mouse_position.1;

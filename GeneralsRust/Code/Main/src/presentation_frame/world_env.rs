@@ -425,6 +425,42 @@ impl PresentationRuntimeHeightmap {
     }
 }
 
+/// C++ PolygonTrigger water geometry in its authored X/Y ground, Z height basis.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PresentationWaterArea {
+    pub points: Vec<[f32; 3]>,
+    pub is_river: bool,
+    pub river_start: i32,
+}
+
+impl PresentationWaterArea {
+    fn from_trigger(trigger: &gamelogic::polygon_trigger::PolygonTrigger) -> Option<Self> {
+        if !trigger.is_water_area() || trigger.get_num_points() <= 2 {
+            return None;
+        }
+        let mut points = Vec::with_capacity(trigger.get_num_points() as usize);
+        for i in 0..trigger.get_num_points() {
+            let point = trigger.get_point(i)?;
+            points.push([point.x as f32, point.y as f32, point.z as f32]);
+        }
+        Some(Self {
+            points,
+            is_river: trigger.is_river(),
+            river_start: trigger.get_river_start(),
+        })
+    }
+
+    #[cfg(feature = "game_client")]
+    pub fn to_terrain_water_area(&self) -> game_client::terrain::terrain_visual::TerrainWaterArea {
+        game_client::terrain::terrain_visual::TerrainWaterArea {
+            // Main's WGPU terrain uses Y-up and X/Z ground.
+            points: self.points.iter().map(|[x, y, z]| [*x, *z, *y]).collect(),
+            is_river: self.is_river,
+            river_start: self.river_start,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct PresentationWorldEnv {
     pub map_name: String,
@@ -487,6 +523,9 @@ pub struct PresentationWorldEnv {
     pub road_segments: Vec<PresentationRoadSegment>,
     /// Bridge segments frozen for terrain-road bake.
     pub bridge_segments: Vec<PresentationBridgeSegment>,
+    /// Map water polygons frozen from this GameLogic instance for WGPU.
+    #[serde(default)]
+    pub water_areas: Vec<PresentationWaterArea>,
     /// Full runtime heightmap freeze for terrain-visual bake (no live GameLogic).
     pub runtime_heightmap: Option<Arc<PresentationRuntimeHeightmap>>,
     /// Terrain texture classes freeze for source-tile bake without live GameLogic.
@@ -566,6 +605,11 @@ impl PresentationWorldEnv {
                     template_name,
                 },
             )
+            .collect();
+        let water_areas = logic
+            .terrain_water_triggers_snapshot()
+            .iter()
+            .filter_map(PresentationWaterArea::from_trigger)
             .collect();
         // Cap prewarm names so snapshot stays small (startup model resolve only).
         const PREWARM_CAP: usize = 256;
@@ -675,6 +719,7 @@ impl PresentationWorldEnv {
             height_samples_from_terrain,
             road_segments,
             bridge_segments,
+            water_areas,
             runtime_heightmap,
             terrain_texture_classes,
             initial_camera_position: meta
@@ -825,6 +870,48 @@ fn default_clear_alpha() -> u8 {
 
 fn default_fog_alpha() -> u8 {
     127
+}
+
+#[cfg(test)]
+mod water_area_tests {
+    use super::PresentationWaterArea;
+    use gamelogic::common::{AsciiString, ICoord3D};
+    use gamelogic::polygon_trigger::PolygonTrigger;
+
+    #[test]
+    fn frozen_water_preserves_authored_vertices_and_river_metadata() {
+        // C++ renderWater checks isWaterArea and points, but not shouldRender.
+        let mut trigger = PolygonTrigger::new(
+            7,
+            AsciiString::from("Water Area"),
+            vec![
+                ICoord3D::new(-22, 577, 21),
+                ICoord3D::new(-20, -694, 22),
+                ICoord3D::new(1513, -696, 23),
+            ],
+        );
+        trigger.set_water_area(true);
+        trigger.set_river(true);
+        trigger.set_river_start(2);
+        trigger.set_should_render(false);
+
+        let frozen = PresentationWaterArea::from_trigger(&trigger).expect("water area");
+        assert_eq!(
+            frozen.points,
+            vec![
+                [-22.0, 577.0, 21.0],
+                [-20.0, -694.0, 22.0],
+                [1513.0, -696.0, 23.0]
+            ]
+        );
+        assert!(frozen.is_river);
+        assert_eq!(frozen.river_start, 2);
+        #[cfg(feature = "game_client")]
+        assert_eq!(
+            frozen.to_terrain_water_area().points[0],
+            [-22.0, 21.0, 577.0]
+        );
+    }
 }
 
 #[cfg(test)]

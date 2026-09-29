@@ -11,7 +11,9 @@ use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use game_engine::common::ascii_string::AsciiString;
-use game_engine::common::audio::audio_event_rts::AudioEventRts;
+use game_engine::common::audio::audio_event_rts::{
+    AudioEventInfo, AudioEventRts, AudioPriority, ST_GLOBAL,
+};
 use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::audio::game_audio::get_global_audio_manager;
 use game_engine::common::bit_flags::{
@@ -29,6 +31,23 @@ use gamelogic::player::{NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS, Player};
 use parking_lot::Mutex;
 use std::error::Error;
 use std::sync::Arc;
+
+/// C++ `Drawable::startAmbientSound` compares its Z-up world position with
+/// `TheAudio`'s listener before asking the mixer to start a local sound.
+pub(super) fn ambient_sound_is_in_range(
+    info: &AudioEventInfo,
+    drawable_position: Vector3,
+    listener: &game_engine::common::audio::Coord3D,
+) -> bool {
+    if (info.type_field & ST_GLOBAL) != 0 || info.priority == AudioPriority::Critical {
+        return true;
+    }
+    // Presentation drawables are Y-up; C++ audio Coord3D uses Z for height.
+    let dx = drawable_position.x - listener.x;
+    let dy = drawable_position.z - listener.y;
+    let dz = drawable_position.y - listener.z;
+    dx * dx + dy * dy + dz * dz < info.max_distance * info.max_distance
+}
 
 impl BasicDrawable {
     /// Get mutable reference to icon info, creating if necessary
@@ -259,16 +278,6 @@ impl BasicDrawable {
             return;
         }
 
-        let info = event.get_audio_event_info();
-        if only_if_permanent && info.as_ref().is_some_and(|info| !info.is_permanent_sound()) {
-            return;
-        }
-        if only_if_permanent && info.is_none() {
-            // Template name with no AudioEventInfo: treat as non-permanent skip, matching
-            // C++ `if (info)` guard (missing info never plays when onlyIfPermanent).
-            // When onlyIfPermanent is false we still play by name.
-        }
-
         event.set_drawable_id_override(self.id.0);
         event.set_time_of_day(match tod {
             TimeOfDay::Morning => game_engine::common::audio::audio_event_rts::TimeOfDay::Morning,
@@ -280,9 +289,31 @@ impl BasicDrawable {
         });
         if let Some(audio) = get_global_audio_manager() {
             if let Ok(mut manager) = audio.lock() {
-                let handle = manager.add_audio_event(&event);
-                event.set_playing_handle(handle);
+                // The object-template route supplies a name but not its info.
+                // C++ resolves that info before its permanent/range checks.
+                let info = event
+                    .get_audio_event_info()
+                    .or_else(|| manager.find_audio_event_info(event.get_event_name()));
+                let Some(info) = info else {
+                    // C++ discards an ambient event whose name has no info.
+                    return;
+                };
+                event.set_audio_event_info(info.clone());
+                if only_if_permanent && !info.is_permanent_sound() {
+                    return;
+                }
+                if ambient_sound_is_in_range(&info, self.position, manager.get_listener_position())
+                {
+                    let handle = manager.add_audio_event(&event);
+                    event.set_playing_handle(handle);
+                }
             }
+        } else if only_if_permanent
+            && event
+                .get_audio_event_info()
+                .is_some_and(|info| !info.is_permanent_sound())
+        {
+            return;
         }
         self.ambient_sound_event = Some(event);
     }

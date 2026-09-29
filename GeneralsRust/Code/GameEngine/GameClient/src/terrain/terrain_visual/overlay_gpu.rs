@@ -192,6 +192,11 @@ impl TerrainVisualImpl {
         }
     }
 
+    /// Count GPU polygon-water meshes after a map handoff (not per-frame telemetry).
+    pub fn polygon_water_mesh_count(&self) -> usize {
+        self.polygon_water_meshes.len()
+    }
+
     pub fn add_heat_smudge(&mut self, smudge: TerrainSmudge) {
         self.overlay.smudges.push(smudge);
         self.overlay.overlays_dirty = true;
@@ -220,37 +225,6 @@ impl TerrainVisualImpl {
         if let Ok(records) = decode_wak_records(&bytes) {
             self.water_tracks.load_records(&records);
             self.flush_water_tracks();
-        }
-    }
-
-    fn ingest_logic_water_areas(&mut self) {
-        if !self.overlay.water_areas.is_empty() {
-            return;
-        }
-        let Ok(logic) = gamelogic::terrain::get_terrain_logic().read() else {
-            return;
-        };
-        let mut areas = Vec::new();
-        for trigger in logic.get_trigger_areas().get_triggers() {
-            if !trigger.is_water_area() || !trigger.get_should_render() {
-                continue;
-            }
-            let mut points = Vec::new();
-            for i in 0..trigger.get_num_points() {
-                if let Some(p) = trigger.get_point(i) {
-                    points.push([p.x as f32, p.z as f32, p.y as f32]);
-                }
-            }
-            if points.len() >= 3 {
-                areas.push(TerrainWaterArea {
-                    points,
-                    is_river: trigger.is_river(),
-                    river_start: trigger.get_river_start(),
-                });
-            }
-        }
-        if !areas.is_empty() {
-            self.overlay.water_areas = areas;
         }
     }
 
@@ -561,7 +535,6 @@ impl TerrainVisualImpl {
     }
 
     fn sync_polygon_water_meshes(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
-        self.ingest_logic_water_areas();
         self.polygon_water_meshes.clear();
         if self.overlay.water_areas.is_empty() {
             return Ok(());
@@ -1731,4 +1704,3 @@ mod overlay_gpu_tests {
         assert_eq!(visual.shroud_alpha_at_world(0.0, 0.0), 64.0 / 255.0);
     }
 }
-

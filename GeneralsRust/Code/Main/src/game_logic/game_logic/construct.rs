@@ -677,6 +677,7 @@ impl GameLogic {
             spawned_map_object_ids: Vec::new(),
             terrain: None,
             runtime_road_segments: Vec::new(),
+            runtime_water_triggers: Vec::new(),
             runtime_terrain_texture_classes: Vec::new(),
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
@@ -1297,6 +1298,7 @@ impl GameLogic {
         self.recent_beacons.clear();
         self.terrain = None;
         self.runtime_road_segments.clear();
+        self.runtime_water_triggers.clear();
         self.pathfinding_height_samples = None;
         self.weather_state = RuntimeWeatherState::default();
         // Host AI is match-scoped. Wipe so rematch / start_new_game cannot leave
