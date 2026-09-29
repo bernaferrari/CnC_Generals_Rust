@@ -231,6 +231,11 @@ pub struct TextureFileCache {
     current_texture: Option<String>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for TextureFileCache {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for TextureFileCache {}
+
 impl TextureFileCache {
     /// Create a cache with default configuration.
     pub fn new(file_prefix: &str) -> Self {

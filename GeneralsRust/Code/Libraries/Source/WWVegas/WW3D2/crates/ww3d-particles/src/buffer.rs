@@ -361,31 +361,32 @@ impl ParticleBuffer {
             particle.velocity += self.acceleration * delta_time_seconds;
             particle.position += particle.velocity * delta_time_seconds;
 
-            // Update visual properties
-            let age_normalized = (particle.age as f32 / particle.max_age as f32).clamp(0.0, 1.0);
+            // C++ key times are seconds (part_buf.cpp multiplies them by 1000
+            // and compares with age in milliseconds).
+            let age_seconds = particle.age as f32 / 1000.0;
             particle.size = self
                 .size_property
-                .sample(age_normalized, &particle.size_random)
+                .sample(age_seconds, &particle.size_random)
                 .max(0.0);
             particle.color = self
                 .color_property
-                .sample(age_normalized, &particle.color_random);
+                .sample(age_seconds, &particle.color_random);
             particle.alpha = self
                 .opacity_property
-                .sample(age_normalized, &particle.alpha_random)
+                .sample(age_seconds, &particle.alpha_random)
                 .clamp(0.0, 1.0);
             let rotation_speed = self
                 .rotation_property
-                .sample(age_normalized, &particle.rotation_random);
+                .sample(age_seconds, &particle.rotation_random);
             particle.rotation_speed = rotation_speed;
             particle.rotation =
                 (particle.rotation + rotation_speed * delta_time_seconds).rem_euclid(1.0);
             particle.frame = self
                 .frame_property
-                .sample(age_normalized, &particle.frame_random);
+                .sample(age_seconds, &particle.frame_random);
             particle.blur_time = self
                 .blur_time_property
-                .sample(age_normalized, &particle.blur_time_random);
+                .sample(age_seconds, &particle.blur_time_random);
 
             self.max_size = self.max_size.max(particle.size);
         }
@@ -1045,9 +1046,15 @@ impl ParticleBuffer {
             RenderMode::QuadParticles => self.particles.len() as f32 * 2.0 * 0.0625,
             RenderMode::Line => (2 * self.particles.len() - 1) as f32 * 0.0625,
             RenderMode::LineGroup => {
-                // LineGroup has two modes (Tetrahedron=4, Prism=8)
-                // Use average for now
-                self.particles.len() as f32 * 6.0 * 0.0625
+                let triangles_per_line = self
+                    .line_group_renderer
+                    .as_ref()
+                    .map(|group| match group.line_mode {
+                        LineMode::Tetrahedron => 4.0,
+                        LineMode::Prism => 8.0,
+                    })
+                    .unwrap_or(4.0);
+                self.particles.len() as f32 * triangles_per_line * 0.0625
             }
         };
 
@@ -1085,7 +1092,9 @@ impl ParticleBuffer {
         lod += 1;
         for i in lod..self.lod_count {
             let polycount = self.cost[i];
-            let benefit_factor = if polycount > f32::EPSILON {
+            // C++ wwmath.h WWMATH_EPSILON is 0.0001. A zero cost is stored as
+            // 0.000001, which must take the zero-benefit branch.
+            let benefit_factor = if polycount > 0.0001 {
                 1.0 - (0.5 / (polycount * polycount))
             } else {
                 0.0

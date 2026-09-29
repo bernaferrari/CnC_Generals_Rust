@@ -406,9 +406,10 @@ impl LocalizationManager {
         let mut available_languages = Vec::new();
 
         // Scan for .json language files
-        let mut entries = tokio::fs::read_dir(&self.base_path).await?;
+        let entries = std::fs::read_dir(&self.base_path)?;
 
-        while let Some(entry) = entries.next_entry().await? {
+        for entry in entries {
+            let entry = entry?;
             let path = entry.path();
 
             if path.is_file() && path.extension().is_some_and(|ext| ext == "json") {
@@ -444,7 +445,7 @@ impl LocalizationManager {
 
     /// Load language metadata from file
     async fn load_language_metadata(&self, path: &Path) -> Result<LanguageInfo, LocalizationError> {
-        let content = tokio::fs::read_to_string(path).await?;
+        let content = std::fs::read_to_string(path)?;
         let pack: LanguagePack =
             serde_json::from_str(&content).map_err(|e| LocalizationError::ParseFailed {
                 path: path.to_string_lossy().to_string(),
@@ -493,7 +494,7 @@ impl LocalizationManager {
 
         log::info!("Loading language pack: {}", language_code);
 
-        let content = tokio::fs::read_to_string(&file_path).await?;
+        let content = std::fs::read_to_string(&file_path)?;
         let language_pack: LanguagePack =
             serde_json::from_str(&content).map_err(|e| LocalizationError::ParseFailed {
                 path: file_path.to_string_lossy().to_string(),
@@ -979,7 +980,7 @@ impl LocalizationManager {
             let json = serde_json::to_string_pretty(pack)
                 .map_err(|e| LocalizationError::EncodingError(e.to_string()))?;
 
-            tokio::fs::write(output_path, json).await?;
+            std::fs::write(output_path, json)?;
             log::info!(
                 "Exported translations for {} to {}",
                 language_code,

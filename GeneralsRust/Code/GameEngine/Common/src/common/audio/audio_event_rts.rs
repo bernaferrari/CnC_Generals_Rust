@@ -12,6 +12,7 @@ use crate::common::random_value::{
     get_game_audio_random_value, get_game_audio_random_value_real, get_game_logic_random_value,
 };
 use crate::common::system::file_system::get_file_system;
+#[cfg(feature = "async")]
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -19,6 +20,7 @@ use std::sync::{
     Arc, OnceLock, RwLock,
     atomic::{AtomicI32, AtomicU32, Ordering},
 };
+#[cfg(feature = "async")]
 use tokio::sync::mpsc;
 
 // Common imports - these would come from other modules
@@ -464,7 +466,9 @@ pub struct AudioEventRts {
     /// C++ `PlayingAudio::m_requestStop` — leave the sample running for Decay.
     pub request_stop: bool,
     // New async-related fields
+    #[cfg(feature = "async")]
     pub playback_future: Option<tokio::task::JoinHandle<Result<(), AudioError>>>,
+    #[cfg(feature = "async")]
     pub completion_sender: Option<mpsc::UnboundedSender<AudioEventComplete>>,
 }
 
@@ -552,7 +556,9 @@ impl Clone for AudioEventRts {
             portion_to_play_next: self.portion_to_play_next,
             request_stop: self.request_stop,
             // Don't clone async handles - they should be recreated
+            #[cfg(feature = "async")]
             playback_future: None,
+            #[cfg(feature = "async")]
             completion_sender: None,
         }
     }
@@ -588,7 +594,9 @@ impl AudioEventRts {
             portion_to_play_next: PortionToPlay::Attack,
             request_stop: false,
             // Initialize async fields
+            #[cfg(feature = "async")]
             playback_future: None,
+            #[cfg(feature = "async")]
             completion_sender: None,
         }
     }
@@ -899,6 +907,7 @@ impl AudioEventRts {
     }
 
     /// Async audio playback methods
+    #[cfg(feature = "async")]
     pub async fn start_async_playback(&mut self) -> Result<(), AudioError> {
         if self.playback_future.is_some() {
             return Err(AudioError::PlaybackFailed {
@@ -923,6 +932,7 @@ impl AudioEventRts {
         Ok(())
     }
 
+    #[cfg(feature = "async")]
     pub async fn stop_async_playback(&mut self) -> Result<(), AudioError> {
         if let Some(handle) = self.playback_future.take() {
             handle.abort();
@@ -944,6 +954,7 @@ impl AudioEventRts {
         }
     }
 
+    #[cfg(feature = "async")]
     pub fn is_async_playing(&self) -> bool {
         self.playback_future
             .as_ref()
@@ -951,6 +962,7 @@ impl AudioEventRts {
             .unwrap_or(false)
     }
 
+    #[cfg(feature = "async")]
     async fn async_audio_playback(
         mut event: AudioEventRts,
         completion_sender: mpsc::UnboundedSender<AudioEventComplete>,
@@ -1120,10 +1132,14 @@ impl AudioEventRts {
         self.request_stop = false;
 
         // Reset async components
+        #[cfg(feature = "async")]
         if let Some(handle) = self.playback_future.take() {
             handle.abort();
         }
-        self.completion_sender = None;
+        #[cfg(feature = "async")]
+        {
+            self.completion_sender = None;
+        }
     }
 
     pub fn get_pitch_shift(&self) -> Real {

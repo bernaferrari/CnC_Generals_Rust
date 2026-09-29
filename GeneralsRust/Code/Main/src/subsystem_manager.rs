@@ -630,6 +630,7 @@ impl AudioManagerSubsystem {
                     };
 
                     if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                        #[cfg(not(target_arch = "wasm32"))]
                         tokio::task::block_in_place(|| {
                             let _ = handle.block_on(
                                 crate::assets::manager::play_cnc_sound_effect_scaled(
@@ -638,6 +639,15 @@ impl AudioManagerSubsystem {
                                 ),
                             );
                         });
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            let _ = handle.block_on(
+                                crate::assets::manager::play_cnc_sound_effect_scaled(
+                                    &sound_path,
+                                    volume_scale,
+                                ),
+                            );
+                        }
                     }
                 }
             }

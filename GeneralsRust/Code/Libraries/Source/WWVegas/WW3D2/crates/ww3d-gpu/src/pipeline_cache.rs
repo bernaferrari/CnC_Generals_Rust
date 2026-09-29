@@ -112,9 +112,16 @@ impl PipelineCacheStats {
 pub struct PipelineCache {
     /// Cached pipelines
     pipelines: HashMap<PipelineCacheKey, Arc<pipeline::RenderPipeline>>,
+
     /// Cache statistics
     stats: PipelineCacheStats,
 }
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for PipelineCache {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for PipelineCache {}
+
 
 impl PipelineCache {
     /// Create a new pipeline cache

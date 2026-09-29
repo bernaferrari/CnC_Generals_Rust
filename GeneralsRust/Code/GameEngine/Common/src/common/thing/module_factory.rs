@@ -910,22 +910,26 @@ impl ModuleFactory {
 }
 
 impl Snapshotable for ModuleFactory {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ ModuleFactory::crc() is intentionally empty
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ModuleFactory.cpp:681-687 — every registered ModuleData, not a unique-Arc subset.
+        for module_data in &self.module_data_list {
+            module_data.crc(xfer)?;
+        }
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ ModuleFactory.cpp lines 690-702
+        // C++ ModuleFactory.cpp:690-702
         const CURRENT_VERSION: u8 = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("ModuleFactory::xfer version failed: {}", e))?;
 
-        for module_data in &mut self.module_data_list {
-            if let Some(data) = Arc::get_mut(module_data) {
-                data.xfer(xfer)?;
-            }
+        // Module data is shared with templates via Arc. C++ still xfers every
+        // entry; save/load is single-threaded, so exclusive mutation is valid.
+        for module_data in &self.module_data_list {
+            let data = unsafe { &mut *(Arc::as_ptr(module_data) as *mut dyn ModuleData) };
+            data.xfer(xfer)?;
         }
         Ok(())
     }

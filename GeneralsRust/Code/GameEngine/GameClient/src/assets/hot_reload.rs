@@ -23,7 +23,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
-use tokio::fs::metadata;
+
 use tokio::sync::{Notify, RwLock as AsyncRwLock};
 use tokio::task::JoinHandle;
 

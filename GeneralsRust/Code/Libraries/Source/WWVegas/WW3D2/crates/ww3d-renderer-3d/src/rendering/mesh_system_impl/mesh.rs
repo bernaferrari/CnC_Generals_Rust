@@ -992,6 +992,8 @@ impl MeshClass {
 
         new_mesh.decal_records = self.decal_records.clone();
         new_mesh.deformed_world_vertices = self.deformed_world_vertices.clone();
+        new_mesh.bone_palette = self.bone_palette.clone();
+        new_mesh.bone_palette_version = self.bone_palette_version;
         new_mesh.decal_meshes = self.decal_meshes.clone();
         new_mesh.rebuild_decal_mesh();
 

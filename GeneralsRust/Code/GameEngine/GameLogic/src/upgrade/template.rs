@@ -5,7 +5,7 @@
 //!
 //! Original C++ Author: Colin Day, March 2002
 
-use super::{UpgradeError, UpgradeMask, UpgradeResult, upgrade_mask_for_name};
+use super::{UpgradeError, UpgradeMask, UpgradeResult};
 use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -43,8 +43,10 @@ pub struct UpgradeTemplate {
     research_sound: AudioEventRTS,
     /// Secondary sound played when research completed
     unit_specific_sound: AudioEventRTS,
-    /// Button image name
+    /// Button image name (cleared after cacheButtonImage)
     button_image_name: AsciiString,
+    /// Cached mapped image. C++ m_buttonImage.
+    button_image: Option<game_engine::common::ini::ini_mapped_image::Image>,
     /// Academy classification
     academy_classification: u32,
     /// Whether upgrade affects existing objects of this type
@@ -57,7 +59,6 @@ impl UpgradeTemplate {
     /// Create a new upgrade template
     pub fn new(name: AsciiString) -> Self {
         let name_key = NameKeyGenerator::name_to_key(&name);
-        let mask = upgrade_mask_for_name(&name);
 
         Self {
             upgrade_type: UpgradeType::Player,
@@ -66,40 +67,28 @@ impl UpgradeTemplate {
             display_name_label: AsciiString::default(),
             build_time: 0.0,
             cost: 0,
-            mask,
+            mask: UpgradeMask::none(),
             research_sound: AudioEventRTS::default(),
             unit_specific_sound: AudioEventRTS::default(),
             button_image_name: AsciiString::default(),
+            button_image: None,
             academy_classification: 0,
             affects_existing_objects: true,
             is_stackable: false,
         }
     }
 
-    /// Create a veterancy upgrade
-    /// Matches C++ UpgradeTemplate::friend_makeVeterancyUpgrade
-    pub fn make_veterancy_upgrade(level: &str) -> Self {
+    /// Matches C++ UpgradeTemplate::friend_makeVeterancyUpgrade.
+    /// Mask is left as assigned by UpgradeCenter::newUpgrade.
+    pub fn friend_make_veterancy_upgrade(&mut self, level: &str) {
         let mut name = AsciiString::from("Upgrade_Veterancy_");
         name.push_str(level);
-
-        let name_key = NameKeyGenerator::name_to_key(&name);
-        let mask = upgrade_mask_for_name(&name);
-
-        Self {
-            upgrade_type: UpgradeType::Object,
-            name,
-            name_key,
-            display_name_label: AsciiString::default(),
-            build_time: 0.0,
-            cost: 0,
-            mask,
-            research_sound: AudioEventRTS::default(),
-            unit_specific_sound: AudioEventRTS::default(),
-            button_image_name: AsciiString::default(),
-            academy_classification: 0,
-            affects_existing_objects: true,
-            is_stackable: false,
-        }
+        self.upgrade_type = UpgradeType::Object;
+        self.name_key = NameKeyGenerator::name_to_key(&name);
+        self.name = name;
+        self.display_name_label.clear();
+        self.build_time = 0.0;
+        self.cost = 0;
     }
 
     // Getters
@@ -174,8 +163,34 @@ impl UpgradeTemplate {
 
     pub fn set_name(&mut self, name: AsciiString) {
         self.name_key = NameKeyGenerator::name_to_key(&name);
-        self.mask = upgrade_mask_for_name(&name);
         self.name = name;
+    }
+
+    /// Matches C++ UpgradeTemplate::friend_setUpgradeMask
+    pub fn friend_set_upgrade_mask(&mut self, mask: UpgradeMask) {
+        self.mask = mask;
+    }
+
+    /// Matches C++ UpgradeTemplate::cacheButtonImage
+    pub fn cache_button_image(&mut self) {
+        if self.button_image_name.is_empty() {
+            return;
+        }
+        if let Some(collection) =
+            game_engine::common::ini::ini_mapped_image::get_mapped_image_collection()
+        {
+            let images = collection.read();
+            if let Some(image) = images.find_image_by_name(self.button_image_name.as_str()) {
+                self.button_image = Some(image.clone());
+                self.button_image_name.clear();
+            }
+        }
+    }
+
+    pub fn get_button_image(
+        &self,
+    ) -> Option<&game_engine::common::ini::ini_mapped_image::Image> {
+        self.button_image.as_ref()
     }
 
     pub fn set_display_name(&mut self, label: AsciiString) {

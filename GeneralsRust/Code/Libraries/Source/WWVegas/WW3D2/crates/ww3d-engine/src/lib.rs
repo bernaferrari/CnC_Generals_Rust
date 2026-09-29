@@ -804,6 +804,11 @@ pub struct Engine {
     pending_screenshot_readbacks: Vec<ScreenshotReadback>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for Engine {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Engine {}
+
 impl Engine {
     /// Create a windowed engine instance using the supplied surface target.
     /// Reference: ww3d.cpp:185-234 (WW3D::Init)

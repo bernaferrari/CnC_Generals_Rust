@@ -40,6 +40,18 @@ impl RAMFile {
         }
     }
 
+    /// Own an already-read archive payload. Used after `ArchiveFileSystem::open_file`.
+    pub fn from_bytes(filename: &str, bytes: Vec<u8>) -> Option<Self> {
+        let mut file = Self::new();
+        if file.base.open_base(filename, FileAccess::READ).is_err() {
+            return None;
+        }
+        file.size = bytes.len() as i32;
+        file.data = Some(bytes);
+        file.pos = 0;
+        Some(file)
+    }
+
     /// Open a RAMFile from another File implementation.
     ///
     /// This reads the entire contents of the source file into memory,

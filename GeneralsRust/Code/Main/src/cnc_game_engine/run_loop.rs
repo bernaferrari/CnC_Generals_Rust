@@ -186,7 +186,7 @@ pub async fn run_cnc_game(
 
     #[allow(deprecated)]
     event_loop.run(move |event, elwt| {
-        elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+        elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
 
         let mut drive_frame = |
             engine: &mut CnCGameEngine,
@@ -644,7 +644,7 @@ pub async fn run_cnc_game(
                     }
 
                     next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
-                    elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+                    elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
                 }
                 _ => {}
             }
@@ -928,7 +928,7 @@ pub async fn run_cnc_game(
                 {
                     elwt.set_control_flow(ControlFlow::Poll);
                 } else {
-                    elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
+                    elwt.set_control_flow(control_flow_wait_until(next_redraw_at));
                 }
             }
             Event::LoopExiting => {
@@ -979,6 +979,18 @@ pub(super) fn resolve_ui_structure_template_name(name: &str) -> String {
 
 /// C++ `GameEngine::execute` wait (`GameEngine.cpp:856-866`):
 /// `(now - prevTime)` includes the just-finished `update()`+draw.
+fn control_flow_wait_until(deadline: Instant) -> ControlFlow {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        ControlFlow::WaitUntil(deadline)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let delay = deadline.saturating_duration_since(Instant::now());
+        ControlFlow::WaitUntil(web_time::Instant::now() + delay)
+    }
+}
+
 /// Effective period is `max(work, limit)`, not `work+limit`.
 fn execute_wait_deadline(prev_time: Instant, interval: Option<Duration>) -> Instant {
     match interval {

@@ -633,6 +633,11 @@ impl WgpuWrapper {
             ));
         self.texture_changes += 1;
     }
+    /// Texture currently bound on `stage`, if any.
+    pub fn peek_stage_texture(&self, stage: usize) -> Option<&TextureBaseClass> {
+        self.render_state.textures.get(stage)?.as_deref()
+    }
+
 
     /// Bind a vertex material.
     pub fn set_material(&mut self, material: Option<&VertexMaterialClass>) {
@@ -784,14 +789,32 @@ impl WgpuWrapper {
                 .shader
                 .clone()
                 .ok_or_else(|| Error::NotInitialized("Shader not bound".into()))?;
+
+            for (stage, texture) in self.render_state.textures.iter().enumerate() {
+                if let Some(texture) = texture {
+                    texture.apply(stage);
+                }
+            }
+            let texture_view = self
+                .render_state
+                .textures
+                .first()
+                .and_then(|texture| texture.as_ref())
+                .and_then(|texture| texture.texture_view.as_ref());
+            let sampler = self
+                .render_state
+                .textures
+                .first()
+                .and_then(|texture| texture.as_ref())
+                .and_then(|texture| texture.sampler.as_ref());
             let resources = shader.apply(
                 &self.device,
                 &self.surface_config,
                 &self.render_state.view,
                 &self.render_state.world,
                 None,
-                None,
-                None,
+                texture_view,
+                sampler,
             );
             let distance = (self.render_state.view * self.render_state.world).w_axis.z;
             let vertex_buffer = ww3d_gpu::GpuBuffer::from_existing(
@@ -887,14 +910,32 @@ impl WgpuWrapper {
                 }
             });
 
+
+            for (stage, texture) in self.render_state.textures.iter().enumerate() {
+                if let Some(texture) = texture {
+                    texture.apply(stage);
+                }
+            }
+            let texture_view = self
+                .render_state
+                .textures
+                .first()
+                .and_then(|texture| texture.as_ref())
+                .and_then(|texture| texture.texture_view.as_ref());
+            let sampler = self
+                .render_state
+                .textures
+                .first()
+                .and_then(|texture| texture.as_ref())
+                .and_then(|texture| texture.sampler.as_ref());
             let resources = shader.apply(
                 &self.device,
                 &self.surface_config,
                 &self.render_state.view,
                 &self.render_state.world,
                 None,
-                None,
-                None,
+                texture_view,
+                sampler,
             );
             let vertex_buffer = self
                 .render_state
@@ -1512,6 +1553,11 @@ impl Drop for WgpuWrapper {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for WgpuWrapper {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for WgpuWrapper {}
+
 /// Global wrapper instance mirroring the DX8 global singleton.
 static WGPU_WRAPPER_INSTANCE: OnceLock<Mutex<WgpuWrapper>> = OnceLock::new();
 
@@ -1523,6 +1569,12 @@ pub fn get_wgpu_wrapper() -> std::sync::MutexGuard<'static, WgpuWrapper> {
         .lock()
         .expect("WgpuWrapper mutex poisoned")
 }
+/// Wrapper if `init_wgpu_wrapper*` has run. `None` when rendering is not up.
+pub fn try_get_wgpu_wrapper() -> Option<std::sync::MutexGuard<'static, WgpuWrapper>> {
+    let slot = WGPU_WRAPPER_INSTANCE.get()?;
+    Some(slot.lock().expect("WgpuWrapper mutex poisoned"))
+}
+
 
 fn set_global_wrapper(wrapper: WgpuWrapper) -> Result<()> {
     if let Some(slot) = WGPU_WRAPPER_INSTANCE.get() {

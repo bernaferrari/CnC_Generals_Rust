@@ -7,6 +7,11 @@ struct AnimationDurationResolver {
     cache_ms: Mutex<HashMap<String, Option<Real>>>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for AnimationDurationResolver {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for AnimationDurationResolver {}
+
 impl AnimationDurationResolver {
     fn new(asset_manager: Arc<AssetManager>) -> Self {
         Self {

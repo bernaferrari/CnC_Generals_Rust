@@ -126,6 +126,19 @@ impl DX8TextureCategoryClass {
             });
         }
     }
+    /// C++ TextureCategoryClass::Add_Render_Task from a shared category (`&self`).
+    pub fn enqueue_render_task(
+        &self,
+        polygon_renderer: Arc<DX8PolygonRendererClass>,
+        mesh: Arc<MeshClass>,
+    ) {
+        if let Ok(mut guard) = self.render_tasks.lock() {
+            guard.push(MeshRenderTask {
+                polygon_renderer,
+                mesh,
+            });
+        }
+    }
 
     pub fn clear_render_tasks(&mut self) {
         if let Ok(mut guard) = self.render_tasks.lock() {

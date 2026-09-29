@@ -3,7 +3,7 @@ use crate::core::error::Result;
 use crate::material_system::MaterialPassClass;
 use crate::render_object_system::{FogSettings, RenderInfoClass};
 use crate::rendering::frame_uniform_arena::FrameUniformArena;
-use crate::rendering::lighting_system::{LightClass, LightType};
+use crate::rendering::lighting_system::{LightClass, LightEnvironmentClass, LightType};
 use crate::rendering::shadow_system::live_cascade_shadow::LiveCascadeShadowMap;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
@@ -423,17 +423,27 @@ fn build_lighting_uniform(render_info: &RenderInfoClass) -> LightingUniform {
 
     if let Some(environment) = render_info.lighting.as_ref() {
         ambient = environment.ambient;
-        for light in &environment.lights {
-            if light_count == MAX_LIGHTS {
-                break;
+        if environment.output_light_count() > 0 {
+            // C++ DX8Wrapper::Set_Light_Environment: processed output lights,
+            // not the raw scene LightClass list.
+            let count = environment.output_light_count().min(4).min(MAX_LIGHTS);
+            for index in 0..count {
+                lights[index] = pack_output_light(environment, index);
             }
-            let Ok(light) = light.lock() else { continue };
-            if !light.enabled {
-                continue;
-            }
+            light_count = count;
+        } else {
+            for light in &environment.lights {
+                if light_count == MAX_LIGHTS {
+                    break;
+                }
+                let Ok(light) = light.lock() else { continue };
+                if !light.enabled {
+                    continue;
+                }
 
-            lights[light_count] = pack_light(&light);
-            light_count += 1;
+                lights[light_count] = pack_light(&light);
+                light_count += 1;
+            }
         }
     }
 
@@ -446,6 +456,41 @@ fn build_lighting_uniform(render_info: &RenderInfoClass) -> LightingUniform {
         light_meta: [light_count as f32, 0.0, 0.0, 0.0],
         lights,
     }
+}
+
+fn pack_output_light(environment: &LightEnvironmentClass, index: usize) -> PackedLight {
+    let mut packed = PackedLight::zeroed();
+    if environment.is_point_light(index) {
+        let diffuse = environment.point_diffuse(index);
+        let ambient = environment.point_ambient(index);
+        let center = environment.point_center(index);
+        let outer = environment.point_outer_radius(index);
+        let inner = environment.point_inner_radius(index);
+        let atten1 = if (inner - outer).abs() < 1e-5 {
+            0.0
+        } else {
+            0.1 / inner.max(1e-5)
+        };
+        let atten2 = if outer.abs() > 1e-5 {
+            8.0 / (outer * outer)
+        } else {
+            0.0
+        };
+        packed.color = [diffuse.x, diffuse.y, diffuse.z, 1.0];
+        packed.position_range = [center.x, center.y, center.z, outer.max(0.001)];
+        packed.spot_params = [ambient.x, ambient.y, atten1, atten2];
+        packed.direction = [0.0, 0.0, 0.0, 1.0];
+        return packed;
+    }
+    let diffuse = environment.get_output_light_diffuse(index);
+    // C++ negates the camera-space direction into D3DLIGHT8::Direction.
+    let dir = -environment.get_output_light_direction(index);
+    packed.color = [diffuse.x, diffuse.y, diffuse.z, 1.0];
+    packed.direction = [dir.x, dir.y, dir.z, 0.0];
+    if index == 0 {
+        packed.spot_params = [1.0, 1.0, 1.0, 0.0];
+    }
+    packed
 }
 
 fn pack_light(light: &LightClass) -> PackedLight {

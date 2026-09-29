@@ -84,6 +84,8 @@ pub struct CombatSystem {
     impact_fx: Vec<ProjectileImpactFx>,
     /// C++ TheRadar->tryUnderAttackEvent victims from this projectile pass.
     pending_under_attack: Vec<ObjectId>,
+    /// Victims whose HP hit zero this projectile/splash pass; world tick runs onDie.
+    pending_on_die: Vec<ObjectId>,
     /// Parsed fire-time FX/OCL references accepted with queued projectile shots.
     fire_ocl: Vec<WeaponFireOcl>,
 }

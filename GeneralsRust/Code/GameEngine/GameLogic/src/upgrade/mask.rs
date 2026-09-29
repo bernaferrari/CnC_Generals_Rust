@@ -125,6 +125,11 @@ static UPGRADE_MASK_REGISTRY: Lazy<RwLock<UpgradeMaskRegistry>> =
 /// Get or allocate an upgrade mask for the given name
 /// Matches C++ UpgradeCenter mask allocation in newUpgrade()
 pub fn upgrade_mask_for_name(name: &str) -> UpgradeMask {
+    if let Ok(center) = super::center::get_upgrade_center().read() {
+        if let Some(template) = center.find_upgrade(name) {
+            return template.get_mask();
+        }
+    }
     let key = NameKeyGenerator::name_to_key(name);
     let mut registry = UPGRADE_MASK_REGISTRY
         .write()

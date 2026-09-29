@@ -27,7 +27,9 @@ use crate::common::system::file_system::get_file_system;
 use glam::Mat4;
 use hound::WavReader;
 use lewton::inside_ogg::OggStreamReader;
+#[cfg(not(target_arch = "wasm32"))]
 use minimp3::{Decoder as Mp3Decoder, Error as Mp3Error};
+#[cfg(not(target_arch = "wasm32"))]
 use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source, SpatialSink};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -1066,6 +1068,13 @@ impl AudioManager {
     }
 
     fn duration_ms_from_mp3(data: &[u8]) -> Option<Real> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = data;
+            return None;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
         let mut decoder = Mp3Decoder::new(Cursor::new(data));
         let mut total_ms = 0.0f64;
 
@@ -1087,6 +1096,7 @@ impl AudioManager {
         }
 
         (total_ms > 0.0).then_some(total_ms as Real)
+        }
     }
 
     fn duration_ms_from_ogg(data: &[u8]) -> Option<Real> {
@@ -2665,6 +2675,7 @@ impl Default for AudioManager {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn get_rodio_stream_handle() -> Option<OutputStreamHandle> {
     thread_local! {
         static STATE: RefCell<Option<(OutputStream, OutputStreamHandle)>> = const { RefCell::new(None) };
@@ -2704,11 +2715,13 @@ impl AsRef<[u8]> for CachedAudioBytes {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum RodioVoice {
     Flat(Sink),
     Spatial(SpatialSink),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl RodioVoice {
     fn set_volume(&self, volume: f32) {
         match self {
@@ -2761,12 +2774,14 @@ impl RodioVoice {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct RodioPlaybackHook {
     sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
     listener_position: Mutex<Coord3D>,
     listener_orientation: Mutex<Coord3D>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct RodioSinkState {
     sink: Arc<Mutex<RodioVoice>>,
     base_volume: Real,
@@ -2778,6 +2793,7 @@ struct RodioSinkState {
     duration_ms: Option<Real>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl RodioPlaybackHook {
     fn new() -> Self {
         let _ = get_rodio_stream_handle();
@@ -2925,6 +2941,7 @@ impl RodioPlaybackHook {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl SoundPlaybackHook for RodioPlaybackHook {
     fn play(&self, event: &AudioEventRts) -> Result<(), String> {
         let handle = event.get_playing_handle();
@@ -3157,9 +3174,32 @@ impl SoundPlaybackHook for RodioPlaybackHook {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn register_rodio_playback_hook() -> bool {
     let hook = Arc::new(RodioPlaybackHook::new());
     register_sound_playback_hook(hook)
+}
+
+/// Wasm has no rodio OutputStream. Playback requests still hit this hook.
+#[cfg(target_arch = "wasm32")]
+struct WasmPlaybackHook;
+
+#[cfg(target_arch = "wasm32")]
+impl SoundPlaybackHook for WasmPlaybackHook {
+    fn play(&self, _event: &AudioEventRts) -> Result<(), String> {
+        Err("wasm audio output is not available".to_string())
+    }
+    fn stop(&self, _handle: AudioHandle) {}
+    fn pause(&self, _handle: AudioHandle) {}
+    fn resume(&self, _handle: AudioHandle) {}
+    fn is_playing(&self, _handle: AudioHandle) -> bool {
+        false
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn register_wasm_playback_hook() {
+    let _ = register_sound_playback_hook(Arc::new(WasmPlaybackHook));
 }
 
 pub const AHSV_NO_SOUND: AudioHandle = 0x0000_0000;
@@ -3308,7 +3348,10 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
     if THE_AUDIO.set(manager.clone()).is_err() {
         THE_AUDIO.get().expect("THE_AUDIO set but missing").clone()
     } else {
+        #[cfg(not(target_arch = "wasm32"))]
         register_rodio_playback_hook();
+        #[cfg(target_arch = "wasm32")]
+        register_wasm_playback_hook();
         register_animation_sound_library(manager.clone());
         // Parsers register via THE_AUDIO; load after the singleton is published.
         load_audio_event_inis();

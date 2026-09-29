@@ -20,6 +20,11 @@ pub struct RenderPipeline {
     label: Option<String>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for RenderPipeline {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for RenderPipeline {}
+
 impl RenderPipeline {
     /// Create a new render pipeline
     pub fn new(

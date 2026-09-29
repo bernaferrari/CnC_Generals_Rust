@@ -445,13 +445,10 @@ impl Snapshot for GameStateMap {
                         save_info.pristine_map_name = pristine_map_name.clone();
                     }
 
-                    if version >= 2 {
-                        // Game mode
-                        let mut game_mode: i32 =
-                            notify_get_game_mode().unwrap_or(effective_game_mode);
-                        xfer.xfer_int(&mut game_mode)?;
-                        effective_game_mode = game_mode;
-                    }
+                    // C++ uses currentVersion >= 2, not the stored file version.
+                    let mut game_mode: i32 = notify_get_game_mode().unwrap_or(effective_game_mode);
+                    xfer.xfer_int(&mut game_mode)?;
+                    effective_game_mode = game_mode;
 
                     if first_save {
                         self.embed_pristine_map(&pristine_map_name, xfer)
@@ -495,13 +492,10 @@ impl Snapshot for GameStateMap {
                         }
                     }
 
-                    if version >= 2 {
-                        // Game mode
-                        let mut game_mode: i32 = 0;
-                        xfer.xfer_int(&mut game_mode)?;
-                        effective_game_mode = game_mode;
-                        notify_set_game_mode(game_mode);
-                    }
+                    let mut game_mode: i32 = 0;
+                    xfer.xfer_int(&mut game_mode)?;
+                    effective_game_mode = game_mode;
+                    notify_set_game_mode(game_mode);
 
                     let save_map_path = state.get_save_game_info().save_game_map_name.clone();
                     self.extract_and_save_map(&save_map_path, xfer)

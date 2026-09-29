@@ -635,6 +635,11 @@ pub struct WgpuRenderBackend {
     command_encoder: Option<wgpu::CommandEncoder>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for WgpuRenderBackend {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for WgpuRenderBackend {}
+
 impl WgpuRenderBackend {
     /// Create a new WGPU render backend
     pub fn new(device: std::sync::Arc<ww3d_gpu::device::GpuDevice>) -> Self {

@@ -25,6 +25,10 @@ pub struct UpgradeCenter {
     upgrade_list: Vec<Arc<UpgradeTemplate>>,
     /// Default upgrade template for inheritance
     default_upgrade: Option<Arc<UpgradeTemplate>>,
+    /// Next bit assigned by newUpgrade (C++ m_nextTemplateMaskBit)
+    next_template_mask_bit: u32,
+    /// C++ buttonImagesCached — one-shot during reset
+    button_images_cached: bool,
 }
 
 impl UpgradeCenter {
@@ -35,6 +39,8 @@ impl UpgradeCenter {
             upgrades: HashMap::new(),
             upgrade_list: Vec::new(),
             default_upgrade: None,
+            next_template_mask_bit: 0,
+            button_images_cached: false,
         }
     }
 
@@ -55,45 +61,61 @@ impl UpgradeCenter {
         );
     }
 
-    /// Reset the upgrade center
-    /// Matches C++ UpgradeCenter::reset
+    /// Matches C++ UpgradeCenter::reset — cache button images once.
     pub fn reset(&mut self) {
-        log::info!("Resetting UpgradeCenter");
-        // Keep templates, just reset runtime state if needed
+        if self.button_images_cached {
+            return;
+        }
+        if game_engine::common::ini::ini_mapped_image::get_mapped_image_collection().is_none() {
+            return;
+        }
+        let list = std::mem::take(&mut self.upgrade_list);
+        self.upgrade_list = list
+            .into_iter()
+            .map(|arc| {
+                let mut template = (*arc).clone();
+                template.cache_button_image();
+                let cached = Arc::new(template);
+                self.upgrades.insert(cached.get_name_key(), cached.clone());
+                if cached.get_name().as_str() == "DefaultUpgrade" {
+                    self.default_upgrade = Some(cached.clone());
+                }
+                cached
+            })
+            .collect();
+        self.button_images_cached = true;
     }
 
-    /// Create a new upgrade template
     /// Matches C++ UpgradeCenter::newUpgrade
     pub fn new_upgrade(&mut self, name: AsciiString) -> Arc<UpgradeTemplate> {
         let name_key = NameKeyGenerator::name_to_key(&name);
 
-        // Check if already exists
         if let Some(existing) = self.upgrades.get(&name_key) {
-            log::warn!("Upgrade '{}' already exists, returning existing", name);
-            return existing.clone();
+            if !name.is_empty() {
+                return existing.clone();
+            }
         }
 
-        let mut template = UpgradeTemplate::new(name.clone());
+        let mut template = if let Some(default) = &self.default_upgrade {
+            (**default).clone()
+        } else {
+            UpgradeTemplate::new(name.clone())
+        };
+        template.set_name(name.clone());
 
-        // Copy defaults if available
-        if let Some(default) = &self.default_upgrade {
-            template.set_upgrade_type(default.get_upgrade_type());
-            template.set_build_time(default.get_build_time());
-            template.set_cost(default.get_cost());
-        }
+        let mut mask = super::UpgradeMask::none();
+        mask.set_bit(self.next_template_mask_bit as usize);
+        self.next_template_mask_bit = self.next_template_mask_bit.saturating_add(1);
+        template.friend_set_upgrade_mask(mask);
 
         let template = Arc::new(template);
-
-        // Store in registry
-        self.upgrades.insert(name_key, template.clone());
+        self.upgrades.insert(template.get_name_key(), template.clone());
         self.upgrade_list.insert(0, template.clone());
 
-        // Check if this is the default upgrade
         if name.as_str() == "DefaultUpgrade" {
             self.default_upgrade = Some(template.clone());
         }
 
-        log::debug!("Created upgrade template: {}", name);
         template
     }
 
@@ -105,16 +127,18 @@ impl UpgradeCenter {
         self.create_veterancy_upgrade(level);
     }
 
-    /// Create a veterancy upgrade
     fn create_veterancy_upgrade(&mut self, level: &str) {
-        let template = UpgradeTemplate::make_veterancy_upgrade(level);
-        let name_key = template.get_name_key();
-        let template = Arc::new(template);
-
+        let template = self.new_upgrade(AsciiString::from(""));
+        let empty_key = template.get_name_key();
+        let mut owned = (*template).clone();
+        owned.friend_make_veterancy_upgrade(level);
+        let name_key = owned.get_name_key();
+        let template = Arc::new(owned);
+        self.upgrades.remove(&empty_key);
         self.upgrades.insert(name_key, template.clone());
-        self.upgrade_list.insert(0, template);
-
-        log::debug!("Created veterancy upgrade: {}", level);
+        if let Some(slot) = self.upgrade_list.first_mut() {
+            *slot = template;
+        }
     }
 
     fn store_parsed_template(&mut self, name_key: NameKeyType, template: Arc<UpgradeTemplate>) {
@@ -184,28 +208,9 @@ impl UpgradeCenter {
 
         if money.get_money() < cost {
             if display_reason {
-                let message = format!(
-                    "Cannot afford upgrade '{}': need {} but have {}",
-                    template.get_name(),
-                    cost,
-                    money.get_money()
-                );
-                log::info!("{}", message);
-
-                // Show UI message via TheInGameUI
-                // Matches C++ UpgradeCenter displaying affordability messages
-                crate::helpers::TheInGameUI::display_message(&message);
+                crate::helpers::TheInGameUI::display_message("GUI:NotEnoughMoneyToUpgrade");
             }
             return false;
-        }
-
-        if let Some(tree_guard) = get_tech_tree() {
-            if !tree_guard.can_research(template.get_name_key(), player) {
-                if display_reason {
-                    crate::helpers::TheInGameUI::display_message("GUI:UpgradePrereqNotMet");
-                }
-                return false;
-            }
         }
 
         true

@@ -40,6 +40,16 @@ impl engine_module::Object for CommonObjectHandle {
         }
     }
 
+    fn register_with_partition(&self) {
+        let Ok(guard) = self.object.read() else {
+            return;
+        };
+        let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+            return;
+        };
+        partition.register_object_at(guard.get_id(), *guard.get_position());
+    }
+
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn engine_module::Object>>> {
         let arc: Arc<RwLock<dyn engine_module::Object>> = self.object.clone();
         Some(arc)

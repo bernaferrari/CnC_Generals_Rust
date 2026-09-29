@@ -292,7 +292,7 @@ impl ParticleLoader {
         let color_prop = ParticleColorProperty::with_keyframes(
             Vec3::new(1.0, 0.3, 0.0), // Orange start
             Vec3::new(0.2, 0.2, 0.2), // Random variation
-            vec![0.0, 0.5, 1.0],      // Times
+            vec![0.0, 1.5, 3.0],      // Times in seconds
             vec![
                 Vec3::new(1.0, 0.3, 0.0), // Start: Orange
                 Vec3::new(1.0, 0.6, 0.0), // Middle: Yellow-orange
@@ -303,14 +303,14 @@ impl ParticleLoader {
         let opacity_prop = ParticleOpacityProperty::with_keyframes(
             1.0,
             0.0,
-            vec![0.0, 0.7, 1.0],
+            vec![0.0, 2.1, 3.0],
             vec![1.0, 0.8, 0.0],
         );
 
         let size_prop = ParticleSizeProperty::with_keyframes(
             0.5,
             0.2,
-            vec![0.0, 0.5, 1.0],
+            vec![0.0, 1.5, 3.0],
             vec![0.5, 1.0, 0.1],
         );
 

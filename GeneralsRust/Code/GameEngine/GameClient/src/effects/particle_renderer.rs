@@ -597,6 +597,11 @@ pub struct ParticleRenderer {
     pub stats: ParticleRenderStats,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for ParticleRenderer {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for ParticleRenderer {}
+
 /// The currently active WGPU owner for GameClient particle textures.
 ///
 /// A standalone `Display` and Main's shared-frame WGPU renderer can be

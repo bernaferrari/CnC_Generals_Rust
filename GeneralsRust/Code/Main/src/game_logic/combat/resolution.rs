@@ -28,6 +28,7 @@ impl CombatSystem {
             next_projectile_id: ObjectId(100000), // Start high to avoid conflicts with objects
             impact_fx: Vec::new(),
             pending_under_attack: Vec::new(),
+            pending_on_die: Vec::new(),
             fire_ocl: Vec::new(),
         }
     }
@@ -45,6 +46,24 @@ impl CombatSystem {
     /// Drain victims that took live projectile/area damage this pass.
     pub fn take_pending_under_attack(&mut self) -> Vec<ObjectId> {
         std::mem::take(&mut self.pending_under_attack)
+    }
+    /// Drain victims killed by projectile or splash this pass (once each).
+    pub fn take_pending_on_die(&mut self) -> Vec<ObjectId> {
+        std::mem::take(&mut self.pending_on_die)
+    }
+
+    fn note_kill_for_on_die(
+        &mut self,
+        id: ObjectId,
+        before_hp: f32,
+        killed: bool,
+        now_alive: bool,
+        already: bool,
+    ) {
+        let lethal = killed || (before_hp > 0.0 && !now_alive);
+        if lethal && !already {
+            self.pending_on_die.push(id);
+        }
     }
 
     /// C++ Object.cpp:1847-1849: enqueue only when actual HP was dealt and
@@ -764,6 +783,13 @@ impl CombatSystem {
                             *death_type,
                         );
                         let hp_lost = (before - target.health.current).max(0.0);
+                        self.note_kill_for_on_die(
+                            *target_id,
+                            before,
+                            destroyed,
+                            target.health.is_alive(),
+                            target.status.on_die_started,
+                        );
                         self.queue_under_attack_if_dealt(*target_id, *damage_type, hp_lost);
                         if destroyed {
                             log::debug!(
@@ -886,13 +912,20 @@ impl CombatSystem {
                                     splash_fx_source.clone(),
                                 );
                                 let before = obj.health.current;
-                                obj.take_damage_from_typed_death(
+                                let destroyed = obj.take_damage_from_typed_death(
                                     area_damage,
                                     Some(*shooter_id),
                                     *damage_type,
                                     *death_type,
                                 );
                                 let hp_lost = (before - obj.health.current).max(0.0);
+                                self.note_kill_for_on_die(
+                                    *vid,
+                                    before,
+                                    destroyed,
+                                    obj.health.is_alive(),
+                                    obj.status.on_die_started,
+                                );
                                 self.queue_under_attack_if_dealt(*vid, *damage_type, hp_lost);
                             }
                         }

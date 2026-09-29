@@ -229,6 +229,11 @@ pub struct Image {
     gpu_texture: Option<Arc<GPUTexture>>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for Image {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Image {}
+
 impl Image {
     /// Create a new empty image
     pub fn new() -> Self {
@@ -590,6 +595,11 @@ pub struct ImageCollection {
     images: HashMap<String, Image>,
     texture_size: i32,
 }
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for ImageCollection {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for ImageCollection {}
 
 impl ImageCollection {
     /// Create a new image collection

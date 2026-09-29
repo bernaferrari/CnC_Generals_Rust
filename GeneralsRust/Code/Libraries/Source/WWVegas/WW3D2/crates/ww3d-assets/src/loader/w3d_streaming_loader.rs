@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
-use tokio::sync::mpsc;
+use std::sync::mpsc;
 
 use crate::AssetManager;
 
@@ -199,9 +199,9 @@ pub struct StreamingW3dLoader {
     /// Loaded asset cache
     asset_cache: Arc<RwLock<HashMap<PathBuf, CachedAsset>>>,
     /// Task sender for loading requests
-    task_sender: mpsc::UnboundedSender<AssetLoadRequest>,
+    task_sender: mpsc::Sender<AssetLoadRequest>,
     /// Task receiver for loading requests
-    task_receiver: Arc<Mutex<mpsc::UnboundedReceiver<AssetLoadRequest>>>,
+    task_receiver: Arc<Mutex<mpsc::Receiver<AssetLoadRequest>>>,
     /// Loading threads
     loading_threads: Vec<std::thread::JoinHandle<()>>,
     /// Maximum concurrent loads
@@ -216,7 +216,7 @@ impl StreamingW3dLoader {
         let loading_assets = Arc::new(RwLock::new(HashMap::new()));
         let asset_cache = Arc::new(RwLock::new(HashMap::new()));
 
-        let (task_sender, task_receiver) = mpsc::unbounded_channel();
+        let (task_sender, task_receiver) = mpsc::channel();
 
         Self {
             _asset_manager: asset_manager,
@@ -337,7 +337,7 @@ impl StreamingW3dLoader {
     /// Loading worker thread function
     fn loading_worker_thread(
         thread_id: usize,
-        receiver: Arc<Mutex<mpsc::UnboundedReceiver<AssetLoadRequest>>>,
+        receiver: Arc<Mutex<mpsc::Receiver<AssetLoadRequest>>>,
         memory_pool: Arc<Mutex<AssetMemoryPool>>,
         asset_cache: Arc<RwLock<HashMap<PathBuf, CachedAsset>>>,
         loading_assets: Arc<RwLock<HashMap<PathBuf, AssetLoadRequest>>>,
@@ -349,11 +349,11 @@ impl StreamingW3dLoader {
                 let mut receiver_lock = receiver.lock().unwrap();
                 match receiver_lock.try_recv() {
                     Ok(req) => req,
-                    Err(mpsc::error::TryRecvError::Empty) => {
+                    Err(mpsc::TryRecvError::Empty) => {
                         std::thread::sleep(std::time::Duration::from_millis(1));
                         continue;
                     }
-                    Err(mpsc::error::TryRecvError::Disconnected) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => break,
                 }
             };
 

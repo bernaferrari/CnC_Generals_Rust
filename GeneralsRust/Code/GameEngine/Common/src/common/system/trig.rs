@@ -69,12 +69,12 @@ pub fn fast_tan(angle: f32) -> f32 {
 
 /// C++ `ACos` under `DEFAULT_TRIG`: `acosf`.
 pub fn fast_arccos(x: f32) -> f32 {
-    x.clamp(-1.0, 1.0).acos()
+    x.acos()
 }
 
 /// C++ `ASin` under `DEFAULT_TRIG`: `asinf`.
 pub fn fast_arcsin(x: f32) -> f32 {
-    x.clamp(-1.0, 1.0).asin()
+    x.asin()
 }
 
 /// Fast arc tangent using built-in atan2 (for simplicity)

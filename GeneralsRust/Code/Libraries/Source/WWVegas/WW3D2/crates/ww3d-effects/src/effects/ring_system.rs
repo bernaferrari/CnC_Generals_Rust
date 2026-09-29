@@ -11,6 +11,7 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use ww3d_core::{
+    WW3D,
     errors::W3DError,
     w3d_format::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct},
     wwstring::StringClass,
@@ -23,10 +24,10 @@ use ww3d_renderer_3d::{
         AABoxClass, AABoxCollisionTestClass, AABoxIntersectionTestClass, DecalGeneratorClass,
         MaterialInfoClass, OBBoxCollisionTestClass, OBBoxIntersectionTestClass,
         RayCollisionTestClass, RenderInfoClass, RenderObjClass, RenderObjClassId,
-        SpecialRenderInfoClass, SphereClass,
+        SpecialRenderInfoClass, SphereClass, StaticSortRenderObject,
     },
     rendering::{
-        mesh_system::{MeshClass, MeshModelClass},
+        mesh_system::{MeshClass, MeshModelClass, SORT_LEVEL_NONE},
         shader_system::shader::ShaderClass,
     },
     texture_system::TextureClass,
@@ -712,10 +713,24 @@ impl RenderObjClass for RingRenderObjClass {
             return Ok(());
         }
 
+        // C++ ringobj.cpp:607-615. Guess only while polygon sorting is off.
+        let mut sort_level = SORT_LEVEL_NONE;
+        if !WW3D::is_sorting_enabled() {
+            sort_level = match self.definition.shader.as_deref() {
+                Some(shader) => shader.guess_sort_level(),
+                None => ShaderClass::new().guess_sort_level(),
+            };
+        }
+        if WW3D::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
+            let sort_object = StaticSortRenderObject::from_arc(Arc::new(self.clone()));
+            if WW3D::add_to_static_sort_list(sort_object, sort_level).is_ok() {
+                return Ok(());
+            }
+        }
+
         if self.mesh_dirty || self.vertices.is_empty() || self.indices.is_empty() {
             return Ok(());
         }
-
         if let Some(mesh) = self.build_render_mesh() {
             Renderer::with_global_mut(|renderer| {
                 renderer.queue_mesh(mesh.clone())?;

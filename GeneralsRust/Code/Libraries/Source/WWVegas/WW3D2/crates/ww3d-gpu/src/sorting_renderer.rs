@@ -35,6 +35,11 @@ pub struct RenderBatch {
     pub index_format: wgpu::IndexFormat,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for RenderBatch {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for RenderBatch {}
+
 impl RenderBatch {
     /// Create a new render batch
     pub fn new(
@@ -94,6 +99,11 @@ pub struct SortingRenderer {
     /// Minimum vertex buffer size
     min_vertex_buffer_size: usize,
 }
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for SortingRenderer {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for SortingRenderer {}
 
 impl SortingRenderer {
     /// Create a new sorting renderer

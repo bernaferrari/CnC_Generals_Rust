@@ -4,9 +4,23 @@
 //! equivalent to the DirectX8 vertex/index buffer functionality.
 
 use crate::core::error::{Error, Result};
-use bytemuck::{Pod, Zeroable};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use bytemuck::{Pod, Zeroable};
 use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device};
+
+/// CPU view returned by vertex/index `lock`. `unlock` uploads `data` at `offset`.
+#[derive(Debug, Clone)]
+pub struct BufferLock {
+    pub offset: u64,
+    pub data: Vec<u8>,
+}
+
+impl BufferLock {
+    pub fn bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+}
 
 /// Reference counting for engine resources
 pub trait EngineRef {
@@ -20,12 +34,13 @@ pub trait EngineRef {
 pub struct WgpuVertexBuffer {
     /// WGPU buffer handle
     buffer: Arc<Buffer>,
-    /// Buffer size in bytes
     size: u64,
     /// Number of vertices
     vertex_count: u32,
-    /// Vertex stride/size in bytes
+    /// Vertex stride/size in bytes (FVF stride)
     vertex_stride: u32,
+    /// True while a CPU lock is outstanding.
+    locked: Arc<AtomicBool>,
     /// Reference count
     ref_count: std::sync::atomic::AtomicU32,
 }
@@ -60,6 +75,7 @@ impl WgpuVertexBuffer {
             size,
             vertex_count: vertex_count as u32,
             vertex_stride,
+            locked: Arc::new(AtomicBool::new(false)),
             ref_count: std::sync::atomic::AtomicU32::new(1),
         })
     }
@@ -92,6 +108,7 @@ impl WgpuVertexBuffer {
             size,
             vertex_count,
             vertex_stride,
+            locked: Arc::new(AtomicBool::new(false)),
             ref_count: std::sync::atomic::AtomicU32::new(1),
         })
     }
@@ -132,6 +149,33 @@ impl WgpuVertexBuffer {
         self.update_data(queue, 0, data)
     }
 
+    /// DX8 `VertexBuffer::Lock`. Returns a zeroed writable byte view of `size`
+    /// bytes at `offset`. `discard` matches `D3DLOCK_DISCARD` (contents are not
+    /// preserved). [`unlock`](Self::unlock) uploads the view into this buffer.
+    pub fn lock(&self, offset: u64, size: u64, discard: bool) -> Result<BufferLock> {
+        if size == 0 || offset.saturating_add(size) > self.size {
+            return Err(Error::BufferOverflow("Vertex buffer lock range".to_string()));
+        }
+        if self.locked.swap(true, Ordering::AcqRel) {
+            return Err(Error::BufferOverflow("Vertex buffer already locked".to_string()));
+        }
+        let _ = discard;
+        Ok(BufferLock {
+            offset,
+            data: vec![0u8; size as usize],
+        })
+    }
+
+    /// DX8 `VertexBuffer::Unlock`. Writes the locked bytes into the existing GPU buffer.
+    pub fn unlock(&self, queue: &wgpu::Queue, view: BufferLock) -> Result<()> {
+        if !self.locked.load(Ordering::Acquire) {
+            return Err(Error::BufferOverflow("Vertex buffer not locked".to_string()));
+        }
+        self.update_data(queue, view.offset, &view.data)?;
+        self.locked.store(false, Ordering::Release);
+        Ok(())
+    }
+
     /// Get buffer usage
     pub fn usage(&self) -> BufferUsages {
         // This information isn't directly available from the buffer
@@ -167,6 +211,7 @@ impl Clone for WgpuVertexBuffer {
             size: self.size,
             vertex_count: self.vertex_count,
             vertex_stride: self.vertex_stride,
+            locked: Arc::clone(&self.locked),
             ref_count: std::sync::atomic::AtomicU32::new(
                 self.ref_count.load(std::sync::atomic::Ordering::Relaxed),
             ),
@@ -197,6 +242,8 @@ pub struct WgpuIndexBuffer {
     index_format: wgpu::IndexFormat,
     /// DX8 `IndexBufferClass::Type`: 0 DX8, 1 sorting, 2 dynamic DX8, 3 dynamic sorting.
     buffer_type: u32,
+    /// True while a CPU lock is outstanding.
+    locked: Arc<AtomicBool>,
     /// Reference count
     ref_count: std::sync::atomic::AtomicU32,
 }
@@ -235,6 +282,7 @@ impl WgpuIndexBuffer {
             index_count,
             index_format,
             buffer_type: 0,
+            locked: Arc::new(AtomicBool::new(false)),
             ref_count: std::sync::atomic::AtomicU32::new(1),
         })
     }
@@ -276,6 +324,7 @@ impl WgpuIndexBuffer {
             index_count,
             index_format,
             buffer_type: 0,
+            locked: Arc::new(AtomicBool::new(false)),
             ref_count: std::sync::atomic::AtomicU32::new(1),
         })
     }
@@ -331,6 +380,31 @@ impl WgpuIndexBuffer {
         let data = bytemuck::cast_slice(indices);
         self.update_data(queue, 0, data)
     }
+
+    /// DX8 `IndexBuffer::Lock`. Writable byte view uploaded by [`unlock`](Self::unlock).
+    pub fn lock(&self, offset: u64, size: u64, discard: bool) -> Result<BufferLock> {
+        if size == 0 || offset.saturating_add(size) > self.size {
+            return Err(Error::BufferOverflow("Index buffer lock range".to_string()));
+        }
+        if self.locked.swap(true, Ordering::AcqRel) {
+            return Err(Error::BufferOverflow("Index buffer already locked".to_string()));
+        }
+        let _ = discard;
+        Ok(BufferLock {
+            offset,
+            data: vec![0u8; size as usize],
+        })
+    }
+
+    /// DX8 `IndexBuffer::Unlock`. Writes the locked bytes into the existing GPU buffer.
+    pub fn unlock(&self, queue: &wgpu::Queue, view: BufferLock) -> Result<()> {
+        if !self.locked.load(Ordering::Acquire) {
+            return Err(Error::BufferOverflow("Index buffer not locked".to_string()));
+        }
+        self.update_data(queue, view.offset, &view.data)?;
+        self.locked.store(false, Ordering::Release);
+        Ok(())
+    }
 }
 
 impl EngineRef for WgpuIndexBuffer {
@@ -361,6 +435,7 @@ impl Clone for WgpuIndexBuffer {
             index_count: self.index_count,
             index_format: self.index_format,
             buffer_type: self.buffer_type,
+            locked: Arc::clone(&self.locked),
             ref_count: std::sync::atomic::AtomicU32::new(
                 self.ref_count.load(std::sync::atomic::Ordering::Relaxed),
             ),
@@ -457,6 +532,25 @@ impl DynamicVertexBufferAccess {
         self.offset = 0;
         self.count = 0;
     }
+
+    /// Lock `count` vertices at `offset`, using the buffer FVF stride.
+    pub fn lock(&self, discard: bool) -> Result<BufferLock> {
+        let buffer = self
+            .buffer
+            .as_ref()
+            .ok_or_else(|| Error::BufferOverflow("No dynamic vertex buffer".to_string()))?;
+        let stride = buffer.vertex_stride() as u64;
+        buffer.lock(self.offset as u64 * stride, self.count as u64 * stride, discard)
+    }
+
+    /// Upload a dynamic vertex lock into the existing buffer.
+    pub fn unlock(&self, queue: &wgpu::Queue, view: BufferLock) -> Result<()> {
+        let buffer = self
+            .buffer
+            .as_ref()
+            .ok_or_else(|| Error::BufferOverflow("No dynamic vertex buffer".to_string()))?;
+        buffer.unlock(queue, view)
+    }
 }
 
 impl Default for DynamicVertexBufferAccess {
@@ -512,6 +606,29 @@ impl DynamicIndexBufferAccess {
         self.buffer = None;
         self.offset = 0;
         self.buffer_type = 4;
+    }
+
+    /// Lock indices from `offset` through the end of the buffer.
+    pub fn lock(&self, discard: bool) -> Result<BufferLock> {
+        let buffer = self
+            .buffer
+            .as_ref()
+            .ok_or_else(|| Error::BufferOverflow("No dynamic index buffer".to_string()))?;
+        let stride = match buffer.index_format() {
+            wgpu::IndexFormat::Uint16 => 2u64,
+            wgpu::IndexFormat::Uint32 => 4u64,
+        };
+        let start = self.offset as u64 * stride;
+        buffer.lock(start, buffer.size().saturating_sub(start), discard)
+    }
+
+    /// Upload a dynamic index lock into the existing buffer.
+    pub fn unlock(&self, queue: &wgpu::Queue, view: BufferLock) -> Result<()> {
+        let buffer = self
+            .buffer
+            .as_ref()
+            .ok_or_else(|| Error::BufferOverflow("No dynamic index buffer".to_string()))?;
+        buffer.unlock(queue, view)
     }
 }
 

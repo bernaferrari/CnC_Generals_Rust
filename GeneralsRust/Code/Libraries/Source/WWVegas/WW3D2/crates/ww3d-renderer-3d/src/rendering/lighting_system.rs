@@ -260,6 +260,50 @@ impl LightEnvironmentClass {
             .unwrap_or(Vec3::ZERO)
     }
 
+    pub fn output_light_count(&self) -> usize {
+        self.output_lights.len()
+    }
+
+    pub fn is_point_light(&self, index: usize) -> bool {
+        self.input_lights.get(index).is_some_and(|light| light.is_point)
+    }
+
+    pub fn point_diffuse(&self, index: usize) -> Vec3 {
+        self.input_lights
+            .get(index)
+            .map(|light| light.point_diffuse)
+            .unwrap_or(Vec3::ZERO)
+    }
+
+    pub fn point_ambient(&self, index: usize) -> Vec3 {
+        self.input_lights
+            .get(index)
+            .map(|light| light.point_ambient)
+            .unwrap_or(Vec3::ZERO)
+    }
+
+    pub fn point_center(&self, index: usize) -> Vec3 {
+        self.input_lights
+            .get(index)
+            .map(|light| light.center)
+            .unwrap_or(Vec3::ZERO)
+    }
+
+    pub fn point_outer_radius(&self, index: usize) -> f32 {
+        self.input_lights
+            .get(index)
+            .map(|light| light.outer_radius)
+            .unwrap_or(0.0)
+    }
+
+    pub fn point_inner_radius(&self, index: usize) -> f32 {
+        self.input_lights
+            .get(index)
+            .map(|light| light.inner_radius)
+            .unwrap_or(0.0)
+    }
+
+
     /// Remove a light from the environment
     pub fn remove_light(&mut self, light_id: u32) {
         self.sources

@@ -230,6 +230,12 @@ pub struct GpuContext {
     pub performance_stats: GpuPerformanceStats,
 }
 
+// wasm32 wgpu types are `Rc`. The global context is only touched on the browser thread.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for GpuContext {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for GpuContext {}
+
 impl GpuContext {
     /// Create a new GPU context.
     ///

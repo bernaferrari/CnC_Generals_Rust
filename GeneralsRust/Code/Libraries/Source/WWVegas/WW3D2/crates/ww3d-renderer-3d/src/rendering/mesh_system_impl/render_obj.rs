@@ -55,6 +55,17 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
             return Ok(());
         }
 
+        if ww3d_core::WW3D::are_static_sort_lists_enabled() && self.sort_level != SORT_LEVEL_NONE {
+            let mesh_arc = Arc::new(self.clone());
+            let sort_handle = StaticSortRenderObject::from_arc(Arc::clone(&mesh_arc));
+            StaticSortManager::add_to_static_sort_list_with_mesh(
+                sort_handle,
+                self.sort_level,
+                Some(mesh_arc),
+            );
+            return Ok(());
+        }
+
         let mut render_base_passes = !rinfo
             .current_override_flags()
             .contains(crate::render_object_system::RenderInfoOverrideFlags::ADDITIONAL_PASSES_ONLY);
@@ -65,13 +76,20 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
         {
             render_base_passes = true;
         }
-
-        // Static-sort deferral matches C++ SORT_LEVEL_NONE check.
-        if ww3d_core::WW3D::are_static_sort_lists_enabled() && self.sort_level != SORT_LEVEL_NONE {
-            return Ok(());
+        if render_base_passes {
+            if let Some(model) = &self.model {
+                let mesh_arc = Arc::new(self.clone());
+                for polygon_renderer in &model.polygon_renderer_list {
+                    if let Some(category) = polygon_renderer.get_texture_category() {
+                        category.enqueue_render_task(
+                            Arc::clone(polygon_renderer),
+                            Arc::clone(&mesh_arc),
+                        );
+                    }
+                }
+            }
         }
 
-        let _ = render_base_passes;
         Ok(())
     }
 

@@ -394,7 +394,6 @@ impl MeshModelClass {
 
     /// Register the mesh for rendering with proper material pass ordering
     pub fn register_for_rendering(&mut self) {
-        // Set vertex and index counts
         if !self.vertices.is_empty() {
             self.vertex_count = self.vertices.len() as u32;
         }
@@ -404,6 +403,28 @@ impl MeshModelClass {
         }
 
         self.sort_material_passes();
+
+        // C++ MeshModelClass::Register_For_Rendering → DX8MeshRenderer::Register_Mesh_Type
+        // adds one DX8PolygonRendererClass per material pass to PolygonRendererList.
+        self.polygon_renderer_list.clear();
+        if self.material_passes.is_empty() {
+            return;
+        }
+        let index_count = self.index_count;
+        let vertex_count = self.vertex_count;
+        self.polygon_renderer_list = self
+            .material_passes
+            .iter()
+            .map(|pass| {
+                let mut renderer = DX8PolygonRendererClass::new();
+                renderer.index_count = index_count;
+                renderer.vertex_count = vertex_count;
+                renderer.shader = pass.shader.clone();
+                renderer.vertex_material = pass.vertex_material.clone();
+                renderer.material_pass = Some(Arc::new(pass.clone()));
+                Arc::new(renderer)
+            })
+            .collect();
     }
 
     /// Sort material passes by render order for proper state management

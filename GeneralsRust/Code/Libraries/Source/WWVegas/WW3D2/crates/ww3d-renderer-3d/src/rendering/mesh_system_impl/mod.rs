@@ -373,6 +373,11 @@ pub struct MeshClass {
     uv_offset_override: Option<[f32; 2]>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for MeshClass {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for MeshClass {}
+
 /// Concatenated live sources for residual `include_str!` scans.
 pub const MESH_SYSTEM_SRC: &str = concat!(
     include_str!("mod.rs"),

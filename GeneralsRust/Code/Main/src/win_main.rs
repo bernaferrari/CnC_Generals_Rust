@@ -25,7 +25,7 @@ use std::os::raw::{c_char, c_int};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Builder, Runtime};
 use winit::{
     self,
     dpi::{LogicalSize, PhysicalPosition},
@@ -364,7 +364,13 @@ pub fn is_launcher_shutdown_requested() -> bool {
 
 /// Build window + event loop and run the cross-platform RTS path from WinMain.
 fn launch_rts_runtime() -> Result<c_int> {
+    #[cfg(not(target_arch = "wasm32"))]
     let rt = Runtime::new().context("Failed to create Tokio runtime for WinMain path")?;
+    #[cfg(target_arch = "wasm32")]
+    let rt = Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .context("Failed to create Tokio runtime for WinMain path")?;
     let exit_code = rt.block_on(async {
         let cmd_args = command_line::initialize_command_line()
             .map_err(|e| anyhow::anyhow!("Failed to parse command line: {e}"))?;

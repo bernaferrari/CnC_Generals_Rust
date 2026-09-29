@@ -1152,6 +1152,13 @@ impl GameLogic {
         for victim in self.combat_system.take_pending_under_attack() {
             let _ = self.try_under_attack_from_damage(victim);
         }
+        for victim in self.combat_system.take_pending_on_die() {
+            let killer = self.objects.get(&victim).and_then(|o| {
+                o.last_damage_source
+                    .and_then(|src| self.objects.get(&src).map(|s| s.team))
+            });
+            self.mark_object_for_destruction(victim, killer);
+        }
         // Wave 470: countermeasure flare spawn/object residual stays host-owned
         // even when GameWorld sole-integrates projectile flight.
         self.flush_countermeasure_flare_spawns();

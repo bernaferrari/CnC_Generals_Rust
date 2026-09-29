@@ -15,7 +15,7 @@ use std::collections::HashMap;
 /// Scene ID enumeration - equivalent to C++ SceneClass RTTI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SceneId {
-    Unknown = 0xFFFFFFFF,
+    Unknown = -1,
     #[default]
     Scene = 0,
     Simple = 1,

@@ -626,7 +626,7 @@ impl GameEngine {
         if limit_ms > 0.0 {
             let limit = Duration::from_millis(limit_ms as u64);
             while now.duration_since(prev_frame_time) < limit {
-                tokio::time::sleep(Duration::from_millis(0)).await;
+                std::thread::yield_now();
                 now = Instant::now();
             }
         }

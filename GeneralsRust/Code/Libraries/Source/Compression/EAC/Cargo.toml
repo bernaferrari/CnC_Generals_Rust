@@ -9,7 +9,7 @@ license = "GPL-3.0"
 repository = "https://github.com/GeneralsRust/EAC"
 
 [features]
-default = ["simd", "streaming"]
+default = ["simd"]
 simd = ["wide"]
 streaming = ["tokio"]
 benchmarks = ["criterion"]

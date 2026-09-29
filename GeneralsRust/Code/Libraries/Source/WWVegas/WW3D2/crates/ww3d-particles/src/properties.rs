@@ -112,11 +112,9 @@ where
     where
         T: ParticlePropertyValue,
     {
-        let base = if self.num_keyframes <= 1 {
-            // No keyframes or only one keyframe, return start value
+        let base = if self.num_keyframes == 0 {
             self.start.clone()
         } else {
-            // Interpolate between keyframes
             self.interpolate_keyframes(age_normalized)
         };
 
@@ -141,8 +139,15 @@ where
     {
         let key_times = self.key_times.as_ref().unwrap();
         let values = self.values.as_ref().unwrap();
+        let first_time = key_times[0];
+        if age <= first_time {
+            if first_time > 0.0 {
+                let factor = (age / first_time).clamp(0.0, 1.0);
+                return T::lerp(&self.start, &values[0], factor);
+            }
+            return values[0].clone();
+        }
 
-        // Find the keyframes to interpolate between
         for i in 0..(self.num_keyframes - 1) {
             let t0 = key_times[i as usize];
             let t1 = key_times[(i + 1) as usize];
@@ -153,7 +158,6 @@ where
             }
         }
 
-        // Age is beyond the last keyframe, return the last value
         values.last().cloned().unwrap_or_else(|| self.start.clone())
     }
 }
@@ -211,18 +215,20 @@ impl ParticlePropertyRandom for f32 {
 
 impl ParticlePropertyRandom for Vec3 {
     fn random_offset(rand: &Self, rng: &mut DeterministicRng) -> Self {
+        // part_buf.cpp Reset_Colors: less than 1/255 is not a color random.
+        const COLOR_RAND_EPSILON: f32 = 0.0038;
         Vec3::new(
-            if rand.x.abs() <= f32::EPSILON {
+            if rand.x.abs() < COLOR_RAND_EPSILON {
                 0.0
             } else {
                 rng.next_signed_f32() * rand.x
             },
-            if rand.y.abs() <= f32::EPSILON {
+            if rand.y.abs() < COLOR_RAND_EPSILON {
                 0.0
             } else {
                 rng.next_signed_f32() * rand.y
             },
-            if rand.z.abs() <= f32::EPSILON {
+            if rand.z.abs() < COLOR_RAND_EPSILON {
                 0.0
             } else {
                 rng.next_signed_f32() * rand.z

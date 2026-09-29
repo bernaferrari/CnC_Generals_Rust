@@ -255,6 +255,11 @@ pub struct Renderer {
     animation_coordinator: animation_synchronization::AnimationFrameCoordinator,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for Renderer {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Renderer {}
+
 impl Renderer {
     /// Create a new renderer with GPU integration
     pub fn new(gpu_device: std::sync::Arc<ww3d_gpu::device::GpuDevice>) -> Self {

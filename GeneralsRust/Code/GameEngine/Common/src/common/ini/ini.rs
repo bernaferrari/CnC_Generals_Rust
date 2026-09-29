@@ -1114,8 +1114,8 @@ async fn collect_ini_files_current_then_nested(
 
     while let Some(current) = pending.pop() {
         let mut child_dirs = Vec::new();
-        if let Ok(mut entries) = tokio::fs::read_dir(&current).await {
-            while let Some(entry) = entries.next_entry().await.transpose() {
+        if let Ok(entries) = std::fs::read_dir(&current) {
+            for entry in entries {
                 let Ok(entry) = entry else {
                     continue;
                 };

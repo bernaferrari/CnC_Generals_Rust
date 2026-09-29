@@ -90,6 +90,10 @@ impl CacheFlags {
         self.0 &= !flag.0;
     }
 
+    fn set(&mut self, flag: CacheFlags) {
+        self.0 |= flag.0;
+    }
+
     fn clear_all(&mut self) {
         self.0 = 0;
     }
@@ -239,6 +243,29 @@ impl BaseThing {
             .unwrap_or((false, 0.0))
     }
 
+    /// C++ `getUnitDirectionVector2D`: Cos/Sin of cached angle, then VALID_DIRVECTOR.
+    fn refresh_direction_cache(&mut self) {
+        let angle = self.cached_angle;
+        self.cached_dir_vector.x = angle.cos();
+        self.cached_dir_vector.y = angle.sin();
+        self.cached_dir_vector.z = 0.0;
+        self.cache_flags.set(CacheFlags::VALID_DIRVECTOR);
+    }
+
+    /// C++ `getHeightAboveTerrain` / `getHeightAboveTerrainOrWater` cache fill.
+    fn refresh_altitude_caches(&mut self) {
+        self.cached_altitude_above_terrain = self.calculate_height_above_terrain();
+        self.cache_flags.set(CacheFlags::VALID_ALTITUDE_TERRAIN);
+        let pos = self.cached_pos;
+        let (is_underwater, water_z) = self.is_underwater(pos.x, pos.y);
+        if is_underwater {
+            self.cached_altitude_above_terrain_or_water = pos.z - water_z;
+        } else {
+            self.cached_altitude_above_terrain_or_water = self.cached_altitude_above_terrain;
+        }
+        self.cache_flags.set(CacheFlags::VALID_ALTITUDE_SEALEVEL);
+    }
+
     /// Normalize angle to -PI..PI range
     fn normalize_angle(angle: Real) -> Real {
         use std::f32::consts::PI;
@@ -287,6 +314,7 @@ impl Thing for BaseThing {
             self.cached_pos = *pos;
             self.cache_flags.clear(CacheFlags::VALID_ALTITUDE_TERRAIN);
             self.cache_flags.clear(CacheFlags::VALID_ALTITUDE_SEALEVEL);
+            self.refresh_altitude_caches();
             self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
         } else {
             let mut mtx = self.transform;
@@ -319,6 +347,11 @@ impl Thing for BaseThing {
             }
             if self.cache_flags.has(CacheFlags::VALID_ALTITUDE_SEALEVEL) {
                 self.cached_altitude_above_terrain_or_water += z - old_pos.z;
+            }
+            if !self.cache_flags.has(CacheFlags::VALID_ALTITUDE_TERRAIN)
+                || !self.cache_flags.has(CacheFlags::VALID_ALTITUDE_SEALEVEL)
+            {
+                self.refresh_altitude_caches();
             }
 
             self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
@@ -366,7 +399,8 @@ impl Thing for BaseThing {
 
         self.cached_angle = Self::normalize_angle(angle);
         self.cached_pos = pos;
-        self.cache_flags.clear(CacheFlags::VALID_DIRVECTOR);
+        // Direction changed: recompute the unit vector instead of leaving the ctor zero.
+        self.refresh_direction_cache();
         self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
     }
 
@@ -379,13 +413,6 @@ impl Thing for BaseThing {
     }
 
     fn get_unit_direction_vector_2d(&self) -> &Coord3D {
-        if !self.cache_flags.has(CacheFlags::VALID_DIRVECTOR) {
-            let angle = self.get_orientation();
-            let _cached_dir = self.cached_dir_vector;
-            // Note: In mutable context, we'd update the cache here
-            // For immutable access, we return the current cached value
-            let _ = (angle, _cached_dir); // Silence warnings
-        }
         &self.cached_dir_vector
     }
 
@@ -436,6 +463,8 @@ impl Thing for BaseThing {
         self.cached_pos.z = mx.get_z_translation();
         self.cached_angle = mx.get_z_rotation();
         self.cache_flags.clear_all();
+        self.refresh_direction_cache();
+        self.refresh_altitude_caches();
 
         self.react_to_transform_change(&old_mtx, &old_pos, old_angle);
     }

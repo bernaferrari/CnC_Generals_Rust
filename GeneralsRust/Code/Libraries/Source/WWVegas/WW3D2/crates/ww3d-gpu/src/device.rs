@@ -23,6 +23,12 @@ pub struct GpuDevice {
     resource_tracker: ResourceTracker,
 }
 
+// wasm32 wgpu handles are `Rc`. This target does not spawn GPU threads.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for GpuDevice {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for GpuDevice {}
+
 impl GpuDevice {
     /// Create a new GPU device from WGPU device
     pub fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {

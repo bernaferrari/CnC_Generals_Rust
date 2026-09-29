@@ -411,8 +411,7 @@ impl AssetValidator {
             checksum,
             validation_time,
             file_size: data.len() as u64,
-            last_modified: tokio::fs::metadata(path)
-                .await
+            last_modified: std::fs::metadata(path)
                 .ok()
                 .and_then(|m| m.modified().ok()),
             repair_suggestions,
@@ -776,8 +775,7 @@ impl AssetValidator {
 
     /// Load static fallback asset from file
     async fn load_static_fallback(&self, path: &Path) -> Result<Vec<u8>, ValidationError> {
-        tokio::fs::read(path)
-            .await
+        std::fs::read(path)
             .map_err(|e| ValidationError::RepairFailed {
                 path: path.to_string_lossy().to_string(),
                 error: e.to_string(),
@@ -914,8 +912,7 @@ impl AssetValidator {
                 })?;
             Ok(bytes.to_vec())
         } else {
-            tokio::fs::read(&config.fallback_path)
-                .await
+            std::fs::read(&config.fallback_path)
                 .map_err(|error| ValidationError::RepairFailed {
                     path: config.fallback_path.to_string_lossy().to_string(),
                     error: error.to_string(),

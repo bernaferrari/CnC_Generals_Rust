@@ -32,7 +32,7 @@ log = {workspace = true}
 env_logger = {workspace = true}
 
 # Async runtime
-tokio = { workspace = true }
+
 async-trait = { workspace = true }
 
 # Utilities
@@ -121,7 +121,7 @@ wide = {workspace = true}
 packed_simd_2 = {workspace = true, optional = true}
 
 # Advanced graphics features
-spirv-reflect = {workspace = true}
+
 half = {workspace = true, features = ["bytemuck", "serde"]}
 noise = {workspace = true}
 bracket-noise = {workspace = true}
@@ -251,3 +251,10 @@ path = "examples/gui_demo.rs"
 name = "rendering_benchmark"
 harness = false
 path = "benches/rendering.rs"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+spirv-reflect = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1.53.1", default-features = false, features = ["rt", "sync", "time", "macros", "io-util"] }

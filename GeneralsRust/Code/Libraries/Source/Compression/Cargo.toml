@@ -9,7 +9,7 @@ license = "GPL-3.0"
 repository = "https://github.com/GeneralsRust/Compression"
 
 [features]
-default = ["parallel", "benchmarks"]
+default = ["parallel"]
 parallel = ["rayon"]
 benchmarks = ["criterion"]
 

@@ -622,6 +622,8 @@ impl HLod {
         // Scale the transform
         self.transform = Mat4::from_scale(Vec3::splat(scale_factor)) * self.transform;
     }
+
+
 }
 
 #[derive(Clone, Copy, Debug)]

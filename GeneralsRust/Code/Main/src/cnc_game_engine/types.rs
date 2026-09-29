@@ -223,6 +223,7 @@ unsafe extern "C" {
 /// Client-logical cursor if the OS pointer is inside this window's NSView.
 /// Maps through AppKit convertRectToScreen — winit inner_position is wrong on
 /// this host (HID at Solo Play was landing on EarthMap2).
+#[cfg(target_os = "macos")]
 pub(super) fn macos_cursor_client_if_in_window(window: &Window) -> Option<(f32, f32)> {
     // SAFETY: CGEventCreate(null) creates a new event reference owned by
     // us, checked below before use.

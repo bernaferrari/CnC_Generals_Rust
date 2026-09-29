@@ -170,7 +170,8 @@ fn parse_level(level: &str) -> LevelFilter {
 /// 8. Initialize subsystems in correct order
 /// 9. Run game loop (GameMain)
 /// 10. Clean shutdown
-#[tokio::main]
+#[cfg_attr(target_arch = "wasm32", tokio::main(flavor = "current_thread"))]
+#[cfg_attr(not(target_arch = "wasm32"), tokio::main)]
 async fn main() {
     if let Err(err) = set_working_directory_to_executable() {
         warn!(

@@ -240,6 +240,11 @@ struct OcclusionOverlayRenderer {
     uniform_bind_group: wgpu::BindGroup,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for OcclusionOverlayRenderer {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for OcclusionOverlayRenderer {}
+
 impl OcclusionOverlayRenderer {
     fn new() -> Option<Self> {
         let device = ww3d_engine::device().ok()?;

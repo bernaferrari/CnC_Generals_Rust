@@ -286,6 +286,11 @@ pub struct TerrainVisualImpl {
     flat_lod_meshes: Vec<GpuRoadMesh>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for TerrainVisualImpl {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for TerrainVisualImpl {}
+
 struct GpuChunkMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,

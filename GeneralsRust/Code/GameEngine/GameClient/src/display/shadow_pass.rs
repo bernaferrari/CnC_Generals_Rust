@@ -483,6 +483,11 @@ struct ShadowPassGpu {
     equivalent_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for ShadowPassGpu {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for ShadowPassGpu {}
 const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 const OVERLAY_VERTEX_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
