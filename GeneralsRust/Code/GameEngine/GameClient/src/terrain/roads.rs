@@ -497,7 +497,7 @@ impl RoadSegment {
         })
     }
 
-    fn runtime_texture_override_f32(&self, key: &str) -> Option<f32> {
+    pub(crate) fn runtime_texture_override_f32(&self, key: &str) -> Option<f32> {
         self.runtime_texture_override_value(key)
             .and_then(|value| value.parse::<f32>().ok())
             .filter(|value| value.is_finite())

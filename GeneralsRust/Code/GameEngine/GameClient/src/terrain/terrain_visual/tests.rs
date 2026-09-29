@@ -16,14 +16,17 @@ mod tests {
         let center = frustum_ground_footprint_center(view, projection, 0.0)
             .expect("pitched tactical view must meet the terrain plane");
         assert!((center.x - look.x).abs() < 0.1);
-        assert!(center.y > look.z, "footprint should extend ahead of look-at");
+        assert!(
+            center.y > look.z,
+            "footprint should extend ahead of look-at"
+        );
 
         let mut visual = TerrainVisualImpl::new();
         visual.config.world_size = (3_500.0, 3_500.0);
         visual.height_map = Some(HeightMap::new(350, 350, 255.0, 10.0));
         visual.reset_draw_area_state();
         visual.recenter_draw_area_for_view(view, projection);
-        let eye_centered_origin = (eye.z / 10.0).floor() as i32 - visual.draw_height / 2;
+        let eye_centered_origin = (eye.z / 10.0 - visual.draw_height as f32 / 2.0) as i32;
         assert!(
             visual.draw_origin_y > eye_centered_origin + 20,
             "draw window must move toward the visible far terrain"
@@ -32,6 +35,46 @@ mod tests {
         let horizon_view = Mat4::look_at_rh(eye, eye + Vec3::Z, Vec3::Y);
         visual.recenter_draw_area_for_view(horizon_view, projection);
         assert_eq!(visual.draw_origin_y, eye_centered_origin);
+    }
+
+    #[test]
+    fn bordered_draw_window_uses_authored_heightmap_sample_coordinates() {
+        // C++ HeightMap.cpp ADJUST_FROM_INDEX_TO_REAL and updateCenter use
+        // MAP_XY_FACTOR plus the stored border, even though camera bounds use
+        // only the playable interior. A 200-sample map with 20 border samples
+        // has 1600 playable world units but 10 world units per sample.
+        let mut heightmap = HeightMap::new(200, 200, 255.0, 10.0);
+        heightmap.border_size = 20;
+        let mut visual = TerrainVisualImpl::new();
+        visual.config.world_size = (1_600.0, 1_600.0);
+        visual.height_map = Some(heightmap);
+        visual.reset_draw_area_state();
+
+        visual.recenter_draw_area_on_world_position(1_000.0, 1_000.0);
+        assert_eq!(visual.draw_origin_x, 55);
+        assert_eq!(visual.draw_origin_y, 55);
+        assert_eq!(
+            visual.draw_area_bounds_world(),
+            (350.0, 350.0, 1_630.0, 1_630.0)
+        );
+    }
+
+    #[test]
+    fn draw_window_casts_after_border_offset_for_negative_fractional_world_position() {
+        let mut heightmap = HeightMap::new(200, 200, 255.0, 10.0);
+        heightmap.border_size = 70;
+        let mut visual = TerrainVisualImpl::new();
+        visual.config.world_size = (600.0, 600.0);
+        visual.height_map = Some(heightmap);
+        visual.reset_draw_area_state();
+
+        // C++: Int((-9.9 / 10) + 70 - (129 / 2.0)) == 4.
+        visual.recenter_draw_area_on_world_position(-9.9, -9.9);
+        assert_eq!((visual.draw_origin_x, visual.draw_origin_y), (4, 4));
+        assert_eq!(
+            visual.draw_area_bounds_world(),
+            (-660.0, -660.0, 620.0, 620.0)
+        );
     }
 
     fn runtime_road_segment(
@@ -173,7 +216,10 @@ mod tests {
 
         visual.upload_extra_blend_overlay();
         let upload = visual.last_extra_blend_gpu_upload();
-        assert!(!upload.is_empty(), "GPU extra-blend upload must be non-empty");
+        assert!(
+            !upload.is_empty(),
+            "GPU extra-blend upload must be non-empty"
+        );
         assert_eq!(upload.tile_count, 2);
         assert_eq!(upload.positions, vec![0 | (0 << 16), 1 | (1 << 16)]);
         assert!(
@@ -344,8 +390,8 @@ mod tests {
     #[test]
     fn live_chunk_upload_bakes_do_the_dynamic_light() {
         use crate::fx_list::{
-            clear_scene_dynamic_lights, create_display_light_pulse, do_the_dynamic_light,
-            drain_display_light_pulses, scene_dynamic_lights, DisplayLightPulse,
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            do_the_dynamic_light, drain_display_light_pulses, scene_dynamic_lights,
         };
 
         let _ = drain_display_light_pulses();
@@ -380,12 +426,14 @@ mod tests {
             ]
         };
         assert_eq!(baked, expected);
-        assert_ne!(baked, static_rgba, "pulse must change sun-lit terrain color");
+        assert_ne!(
+            baked, static_rgba,
+            "pulse must change sun-lit terrain color"
+        );
 
         let src = crate::terrain::terrain_visual::TERRAIN_VISUAL_SRC;
         assert!(
-            src.contains("bake_terrain_vertex_dynamic_light")
-                && src.contains("needs_light_rebake"),
+            src.contains("bake_terrain_vertex_dynamic_light") && src.contains("needs_light_rebake"),
             "live TerrainVisual chunk upload must rebake createLightPulse"
         );
         clear_scene_dynamic_lights();
@@ -431,7 +479,6 @@ mod tests {
         clear_terrain_scorches();
     }
 
-
     fn bib_test_visual() -> TerrainVisualImpl {
         let mut visual = TerrainVisualImpl::new();
         let heightmap = HeightMap::new(32, 32, 255.0, 1.0);
@@ -440,7 +487,6 @@ mod tests {
             .expect("bib test heightmap should load");
         visual
     }
-
 
     /// C++ InGameUI placement lifecycle: preview adds highlight bibs for the
     /// current blockers (W3DBibBuffer::addBib dedupes per owner, so re-adding
@@ -455,10 +501,16 @@ mod tests {
         let drawable = TerrainBibOwnerKind::Drawable;
         let transform = Mat4::IDENTITY;
 
-        assert!(visual.add_faction_bib(1, object, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0));
-        assert!(visual.add_faction_bib(2, object, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0));
+        assert!(
+            visual.add_faction_bib(1, object, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0)
+        );
+        assert!(
+            visual.add_faction_bib(2, object, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0)
+        );
         // Same owner re-add (drag frame): update, not growth.
-        assert!(visual.add_faction_bib(2, object, transform, 21.0, 21.0, false, 0.0, 0.0, true, 0.0));
+        assert!(
+            visual.add_faction_bib(2, object, transform, 21.0, 21.0, false, 0.0, 0.0, true, 0.0)
+        );
         assert_eq!(visual.terrain_bibs().len(), 2);
 
         // Cursor moved: only blocker 1 still blocks — owner 2 is pruned.
@@ -469,7 +521,9 @@ mod tests {
         // The client place icon carries its own Drawable-kind bib; the
         // placement-end clear must keep it (minus highlight) and drop the
         // host preview bibs.
-        assert!(visual.add_faction_bib(7, drawable, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0));
+        assert!(visual.add_faction_bib(
+            7, drawable, transform, 20.0, 20.0, false, 0.0, 0.0, true, 0.0
+        ));
         visual.clear_placement_highlight_bibs();
         assert_eq!(visual.terrain_bibs().len(), 1);
         assert_eq!(visual.terrain_bibs()[0].owner_kind, drawable);
@@ -481,8 +535,7 @@ mod tests {
     /// TGA) the stand-in is the C++ red highlight read at partial alpha.
     #[test]
     fn bib_stand_in_is_translucent_red_when_tga_missing() {
-        let (highlight_color, highlight_alpha) =
-            bib_stand_in_appearance(true, false);
+        let (highlight_color, highlight_alpha) = bib_stand_in_appearance(true, false);
         let (normal_color, normal_alpha) = bib_stand_in_appearance(false, false);
         let (art_color, art_alpha) = bib_stand_in_appearance(true, true);
         assert!(highlight_color[0] > 0.8 && highlight_color[1] < 0.4);

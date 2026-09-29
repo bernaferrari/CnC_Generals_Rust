@@ -9,7 +9,6 @@ impl SubsystemInterface for ControlBar {
         leftover_ensure_named_window(BUTTON_LARGE);
         leftover_ensure_named_window(CONTROL_BAR_PARENT);
 
-
         log::info!("Control Bar initialized successfully");
         Ok(())
     }
@@ -60,6 +59,8 @@ impl SubsystemInterface for ControlBar {
         self.radar_glow_window_enabled = true;
         self.displayed_construct_percent = -1.0;
         self.displayed_ocl_timer_seconds = 0;
+        self.presentation_money = None;
+        self.last_displayed_money = -1;
 
         Ok(())
     }
