@@ -29,9 +29,15 @@ fn audio_fallback_handle() -> Handle {
     static HANDLE: OnceLock<Handle> = OnceLock::new();
     HANDLE
         .get_or_init(|| {
+            #[cfg(not(target_arch = "wasm32"))]
             let runtime = Builder::new_multi_thread()
                 .enable_all()
                 .thread_name("audio-playback")
+                .build()
+                .expect("Failed to create audio playback runtime");
+            #[cfg(target_arch = "wasm32")]
+            let runtime = Builder::new_current_thread()
+                .enable_time()
                 .build()
                 .expect("Failed to create audio playback runtime");
             let handle = runtime.handle().clone();
@@ -47,6 +53,11 @@ struct AssetAudioPlaybackHook {
     asset_manager: Arc<AssetManager>,
     handle_map: Arc<Mutex<HashMap<AudioHandle, Option<u64>>>>,
 }
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for AssetAudioPlaybackHook {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for AssetAudioPlaybackHook {}
 
 impl AssetAudioPlaybackHook {
     fn new(asset_manager: Arc<AssetManager>) -> Self {

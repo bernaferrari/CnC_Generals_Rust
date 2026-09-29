@@ -520,6 +520,9 @@ impl KindOf {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ObjectStatus {
     pub destroyed: bool,
+    /// C++ `Object::onDie` ran once for this death (die modules must not re-fire).
+    #[serde(default)]
+    pub on_die_started: bool,
     /// C++ isEffectivelyDead residual (rubble kept in world).
     #[serde(default)]
     pub effectively_dead: bool,

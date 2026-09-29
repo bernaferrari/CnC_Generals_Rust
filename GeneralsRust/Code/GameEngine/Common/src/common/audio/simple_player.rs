@@ -12,7 +12,40 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::AudioHandle;
+#[cfg(not(target_arch = "wasm32"))]
 use super::engine::{AudioEngine, AudioEngineConfig};
+#[cfg(target_arch = "wasm32")]
+struct AudioEngine;
+#[cfg(target_arch = "wasm32")]
+struct AudioEngineConfig;
+#[cfg(target_arch = "wasm32")]
+impl AudioEngineConfig {
+    fn default() -> Self {
+        Self
+    }
+}
+#[cfg(target_arch = "wasm32")]
+impl AudioEngine {
+    fn with_config(_: AudioEngineConfig) -> Result<Self, ()> {
+        Err(())
+    }
+    fn stop_source(&self, _: AudioHandle) -> Result<(), ()> {
+        Err(())
+    }
+    fn stop(&self) -> Result<(), ()> {
+        Err(())
+    }
+    fn play(&self, _: &str, _: f32, _: bool, _: Option<()>) -> Result<AudioHandle, ()> {
+        Err(())
+    }
+    fn pause(&self, _: AudioHandle) -> Result<(), ()> {
+        Err(())
+    }
+    fn resume(&self, _: AudioHandle) -> Result<(), ()> {
+        Err(())
+    }
+
+}
 pub type HResult = i32;
 pub type Bool = bool;
 

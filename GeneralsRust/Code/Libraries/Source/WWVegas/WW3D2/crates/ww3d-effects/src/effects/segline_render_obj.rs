@@ -164,17 +164,12 @@ impl RenderObjClass for SegLineRenderObj {
     } // Line segment has 2 triangles
 
     fn render(&self, rinfo: &RenderInfoClass) -> RendererResult<()> {
-        // Sorting policy matches C++ SegmentedLineClass
-        let sort_enabled = WW3D::is_sorting_enabled()
-            && WW3D::are_static_sort_lists_enabled()
-            && !self.disable_sorting;
-        let sort_hint = self.renderer.sort_hint();
-        let sort_level = if self.sort_level >= 0 {
-            self.sort_level as u32
-        } else {
-            sort_hint
-        };
-        if sort_enabled && sort_level != SORT_LEVEL_NONE {
+        // C++ segline.cpp:302-312. Guess only while polygon sorting is off.
+        let mut sort_level = SORT_LEVEL_NONE;
+        if !WW3D::is_sorting_enabled() {
+            sort_level = self.renderer.shader().guess_sort_level();
+        }
+        if WW3D::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
             let sort_object = StaticSortRenderObject::from_arc(Arc::new(self.clone()));
             if WW3D::add_to_static_sort_list(sort_object, sort_level).is_ok() {
                 return Ok(());

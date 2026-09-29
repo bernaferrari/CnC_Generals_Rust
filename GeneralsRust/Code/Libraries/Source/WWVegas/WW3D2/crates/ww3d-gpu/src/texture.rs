@@ -29,6 +29,11 @@ pub struct GpuTexture {
     last_update: std::time::Instant,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for GpuTexture {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for GpuTexture {}
+
 impl GpuTexture {
     /// Create a new GPU texture
     pub fn new(

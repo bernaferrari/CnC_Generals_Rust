@@ -349,6 +349,11 @@ pub struct AssetManager {
     shutdown_notify: Arc<Notify>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for AssetManager {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for AssetManager {}
+
 /// Asset loading statistics
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct AssetStats {
@@ -1144,8 +1149,7 @@ impl AssetManager {
             self.config.base_path.join(path)
         };
         if full_path.exists() {
-            return tokio::fs::read(&full_path)
-                .await
+            return std::fs::read(&full_path)
                 .map_err(|e| AssetError::LoadingFailed {
                     path: path.to_string_lossy().to_string(),
                     error: e.to_string(),
@@ -1247,8 +1251,7 @@ impl AssetManager {
                 if let Some(info) = archive.get_file_info(&current) {
                     if let Ok(data) = archive.extract_file(&current).await {
                         let size = info.size;
-                        let last_modified = tokio::fs::metadata(archive.archive_path())
-                            .await
+                        let last_modified = std::fs::metadata(archive.archive_path())
                             .ok()
                             .and_then(|m| m.modified().ok());
                         return Ok((data, size, last_modified, info.compression));
@@ -1259,13 +1262,12 @@ impl AssetManager {
             let full_path = self.config.base_path.join(&current);
             if full_path.exists() {
                 let data =
-                    tokio::fs::read(&full_path)
-                        .await
+                    std::fs::read(&full_path)
                         .map_err(|e| AssetError::LoadingFailed {
                             path: current.to_string_lossy().to_string(),
                             error: e.to_string(),
                         })?;
-                let metadata = tokio::fs::metadata(&full_path).await.ok();
+                let metadata = std::fs::metadata(&full_path).ok();
                 let last_modified = metadata.and_then(|m| m.modified().ok());
                 let size = data.len() as u64;
                 return Ok((data, size, last_modified, CompressionType::None));

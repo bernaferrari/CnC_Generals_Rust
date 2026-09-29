@@ -853,10 +853,19 @@ impl RenderObject for HLod {
         if self.hidden {
             return Ok(());
         }
-        let count = self.get_num_sub_objects();
-        for index in 0..count {
-            if let Some(sub_object) = self.get_sub_object(index) {
-                sub_object.render(render_pass)?;
+        if let Some(lod) = self.get_current_lod() {
+            for node in &lod.models {
+                if let Some(model) = &node.model {
+                    if crate::hlod_bounding_box::should_skip_obbox_render(model.as_ref()) {
+                        continue;
+                    }
+                    model.render(render_pass)?;
+                }
+            }
+        }
+        for node in &self.additional_models.models {
+            if let Some(model) = &node.model {
+                model.render(render_pass)?;
             }
         }
         Ok(())

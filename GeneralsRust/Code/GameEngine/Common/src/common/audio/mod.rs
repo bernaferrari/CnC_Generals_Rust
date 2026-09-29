@@ -48,6 +48,7 @@ pub mod url_launch;
 // New comprehensive audio system modules
 pub mod assets; // Audio asset management and caching
 pub mod effects;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod engine; // Core audio engine with rodio backend
 pub mod mixing; // Advanced audio mixing and effects
 pub mod spatial; // 3D spatial audio with HRTF
@@ -100,6 +101,7 @@ pub use url_launch::{
 };
 
 // Re-export new audio system components
+#[cfg(not(target_arch = "wasm32"))]
 pub use engine::{
     Audio3DParams, AudioCommand, AudioEngine, AudioEngineConfig, AudioListener, AudioResponse,
     AudioSource, AudioSourceState,
@@ -150,6 +152,7 @@ pub const E_OUTOFMEMORY: HResult = -3;
 
 /// Initialize the comprehensive audio system
 /// This function sets up all the necessary audio managers and subsystems
+#[cfg(not(target_arch = "wasm32"))]
 pub fn initialize_audio_system() -> Result<ComprehensiveAudioSystem, Box<dyn std::error::Error>> {
     let config = AudioEngineConfig::default();
     let mut audio_system = ComprehensiveAudioSystem::new(config)?;
@@ -158,6 +161,7 @@ pub fn initialize_audio_system() -> Result<ComprehensiveAudioSystem, Box<dyn std
 }
 
 /// Comprehensive audio system combining all components
+#[cfg(not(target_arch = "wasm32"))]
 pub struct ComprehensiveAudioSystem {
     /// Core audio engine
     pub engine: AudioEngine,
@@ -173,6 +177,7 @@ pub struct ComprehensiveAudioSystem {
     pub stream_manager: StreamManager,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ComprehensiveAudioSystem {
     /// Create a new comprehensive audio system
     pub fn new(config: AudioEngineConfig) -> Result<Self, Box<dyn std::error::Error>> {
@@ -464,6 +469,7 @@ pub fn create_default_audio_settings() -> AudioSettings {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn test_audio_system_initialization() {
         let audio_manager = initialize_audio_system();

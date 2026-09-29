@@ -9,6 +9,14 @@
 )]
 use super::*;
 
+struct ShadowCallbackDevice {
+    device: std::sync::Arc<wgpu::Device>,
+}
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for ShadowCallbackDevice {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for ShadowCallbackDevice {}
 impl RenderPipeline {
     pub fn execute(
         &mut self,
@@ -321,7 +329,9 @@ impl RenderPipeline {
                 .as_ref()
                 .and_then(|lighting| lighting.sun_direction)
                 .unwrap_or([0.0, 0.0, -1.0]);
-            let device = graphics_system.device_arc();
+            let device = ShadowCallbackDevice {
+                device: graphics_system.device_arc(),
+            };
             let shadow_viewport_px = self.tactical_viewport_pixel_size();
             self.enqueue_post_frame_callback(move |gpu_frame| {
                 let Some(depth_view) = gpu_frame.depth_view_arc() else {
@@ -329,7 +339,7 @@ impl RenderPipeline {
                 };
                 let color_view = gpu_frame.color_view_arc();
                 game_client::display::shadow_pass::record_shadow_and_occlusion_passes(
-                    device.as_ref(),
+                    device.device.as_ref(),
                     gpu_frame.encoder(),
                     color_view.as_ref(),
                     depth_view.as_ref(),

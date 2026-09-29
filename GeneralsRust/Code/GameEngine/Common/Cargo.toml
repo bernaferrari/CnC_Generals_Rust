@@ -6,7 +6,7 @@ rust-version.workspace = true
 
 
 [dependencies]
-rodio_compat = { workspace = true }
+
 # Common dependencies for game engine functionality
 libc = {workspace = true}
 bitflags = {workspace = true}
@@ -36,12 +36,12 @@ rand = { workspace = true }
 fastrand = {workspace = true}
 
 # Async runtime and futures
-tokio = { workspace = true, optional = true }
+
 async-trait = { workspace = true, optional = true }
 futures = {workspace = true, optional = true}
 
 # Modern audio libraries for high-quality audio system
-rodio = {workspace = true, features = ["symphonia", "wav"]}
+
 cpal = {workspace = true, optional = true}
 symphonia = {workspace = true, features = ["all"], optional = true}
 # hound = { version = "3.5", optional = true }  # Now required
@@ -51,7 +51,7 @@ rubato = {workspace = true, optional = true}
 crossbeam-channel = {workspace = true}
 hound = {workspace = true}
 lewton = {workspace = true}
-minimp3 = {workspace = true}
+
 
 # 3D audio and spatial processing
 # spatial-audio = { version = "0.3", optional = true }  # Not available
@@ -65,7 +65,7 @@ rayon = {workspace = true}
 
 # Memory management
 bumpalo = {workspace = true}
-region = {workspace = true}
+
 
 # System information
 num_cpus = {workspace = true}
@@ -128,3 +128,15 @@ test = true
 [dev-dependencies]
 tokio-test = {workspace = true}
 criterion = {workspace = true, features = ["html_reports"]}
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, optional = true }
+rodio_compat = { workspace = true }
+rodio = { workspace = true, features = ["symphonia", "wav"] }
+minimp3 = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1.53.1", default-features = false, features = ["rt", "sync", "time", "macros", "io-util"], optional = true }
+getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
+getrandom_04 = { package = "getrandom", version = "0.4.2", features = ["wasm_js"] }
+uuid = { workspace = true, features = ["js"] }

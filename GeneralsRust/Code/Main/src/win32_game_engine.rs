@@ -75,6 +75,11 @@ pub struct Win32GameEngine {
     subsystem_manager: Option<SubsystemManager>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for Win32GameEngine {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Win32GameEngine {}
+
 use crate::subsystem_interfaces::SubsystemManager;
 
 impl Win32GameEngine {

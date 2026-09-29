@@ -9,7 +9,7 @@ ww3d-core = { path = "../ww3d-core" }
 ww3d-gpu = { path = "../ww3d-gpu" }
 glam = {workspace = true, features = ["bytemuck"]}
 binrw = {workspace = true}
-tokio = {workspace = true, features = ["full"]}
+
 thiserror = {workspace = true}
 bytemuck = {workspace = true, features = ["derive"]}
 wgpu = {workspace = true}

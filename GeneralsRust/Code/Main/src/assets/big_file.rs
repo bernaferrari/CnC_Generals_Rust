@@ -10,8 +10,8 @@ use anyhow::{Result, anyhow};
 use log::{error, info};
 use std::collections::HashMap;
 use std::path::Path;
-use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 
 /// BIG file identifier - exactly as in C++
 const _BIG_FILE_IDENTIFIER: &[u8; 4] = b"BIGF";
@@ -122,7 +122,7 @@ impl BIGFile {
         let _metadata = std::fs::metadata(path)?;
         // BIG file size check (logging disabled)
 
-        let mut file = File::open(path).await?;
+        let mut file = File::open(path)?;
 
         self.path = path.to_string_lossy().to_string();
         self.name = path
@@ -135,7 +135,7 @@ impl BIGFile {
 
         // Read and verify BIG file header
         let mut identifier = [0u8; 4];
-        file.read_exact(&mut identifier).await?;
+        file.read_exact(&mut identifier)?;
 
         // BIG file header check (logging disabled)
 
@@ -149,18 +149,18 @@ impl BIGFile {
 
         // Read archive file size (4 bytes, little endian)
         let mut size_bytes = [0u8; 4];
-        file.read_exact(&mut size_bytes).await?;
+        file.read_exact(&mut size_bytes)?;
         let _archive_size = u32::from_le_bytes(size_bytes);
         // Archive size (logging disabled)
 
         // Read number of files (4 bytes, BIG ENDIAN - as per C++ code using ntohl)
         let mut count_bytes = [0u8; 4];
-        file.read_exact(&mut count_bytes).await?;
+        file.read_exact(&mut count_bytes)?;
         self.file_count = u32::from_be_bytes(count_bytes); // ntohl equivalent
         // BIG file count (logging disabled)
 
         // Skip to directory listing at offset 0x10 (as per C++ code)
-        file.seek(SeekFrom::Start(0x10)).await?;
+        file.seek(SeekFrom::Start(0x10))?;
 
         // Parse directory entries
         //
@@ -174,19 +174,19 @@ impl BIGFile {
 
             // Read file offset (4 bytes, BIG ENDIAN)
             let mut offset_bytes = [0u8; 4];
-            file.read_exact(&mut offset_bytes).await?;
+            file.read_exact(&mut offset_bytes)?;
             file_info.offset = u32::from_be_bytes(offset_bytes); // ntohl equivalent
 
             // Read file size (4 bytes, BIG ENDIAN)
             let mut size_bytes = [0u8; 4];
-            file.read_exact(&mut size_bytes).await?;
+            file.read_exact(&mut size_bytes)?;
             file_info.size = u32::from_be_bytes(size_bytes); // ntohl equivalent
 
             // Read null-terminated filename
             let mut filename_bytes = Vec::new();
             loop {
                 let mut byte = [0u8; 1];
-                file.read_exact(&mut byte).await?;
+                file.read_exact(&mut byte)?;
                 if byte[0] == 0 {
                     break;
                 }
@@ -330,7 +330,7 @@ impl BIGFile {
 
         // Seek to file offset
         // Seeking to file offset (logging disabled)
-        file.seek(SeekFrom::Start(file_info.offset as u64)).await?;
+        file.seek(SeekFrom::Start(file_info.offset as u64))?;
 
         // Read file data with timeout protection (reduced logging)
         if file_info.size > 0 && filename.ends_with(".w3d") {
@@ -344,25 +344,10 @@ impl BIGFile {
 
         let mut data = vec![0u8; file_info.size as usize];
 
-        // Add timeout to prevent hanging on large reads
-        match tokio::time::timeout(
-            tokio::time::Duration::from_secs(5),
-            file.read_exact(&mut data),
-        )
-        .await
-        {
-            Ok(Ok(_)) => {
-                // Success - only log for important files
-                if filename.ends_with(".w3d") {
-                    println!("✅ Loaded model: {} bytes", data.len());
-                }
-            }
-            Ok(Err(e)) => {
-                return Err(anyhow!("Failed to read file data: {}", e));
-            }
-            Err(_) => {
-                return Err(anyhow!("File read timeout after 5s for {}", filename));
-            }
+        file.read_exact(&mut data)
+            .map_err(|e| anyhow!("Failed to read file data: {}", e))?;
+        if filename.ends_with(".w3d") {
+            println!("✅ Loaded model: {} bytes", data.len());
         }
 
         // File extraction success (logging disabled)

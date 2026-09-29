@@ -776,6 +776,11 @@ pub trait Object: Send + Sync {
         // Default empty implementation
     }
 
+    /// C++ `ThePartitionManager->registerObject` after create modules.
+    /// Default is a no-op; the GameLogic object handle registers with the
+    /// existing partition manager.
+    fn register_with_partition(&self) {}
+
     /// Try to upgrade into a concrete object handle if available.
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn Object>>> {
         None

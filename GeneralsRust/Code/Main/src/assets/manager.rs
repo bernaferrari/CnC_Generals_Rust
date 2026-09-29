@@ -75,6 +75,11 @@ pub struct AssetManager {
     manual_big_files: Vec<PathBuf>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for AssetManager {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for AssetManager {}
+
 /// C++ HAnim assets are shared by their fully-qualified `Hierarchy.Animation`
 /// identity, but a geometry HTree is only allowed to bind a motion authored
 /// for that exact hierarchy. A model basename is deliberately not part of the
@@ -1203,6 +1208,20 @@ impl AssetManager {
             .await
     }
 
+    fn block_on_runtime<F, T>(future: F) -> T
+    where
+        F: Future<Output = T>,
+    {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(future))
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            tokio::runtime::Handle::current().block_on(future)
+        }
+    }
+
     /// Load texture synchronously - blocks until loaded, returns texture name for cache lookup
     pub fn load_texture_blocking(
         &mut self,
@@ -1210,24 +1229,20 @@ impl AssetManager {
         queue: &wgpu::Queue,
         texture_name: &str,
     ) -> String {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let _ = self.load_texture(device, queue, texture_name).await;
-                texture_name.to_string()
-            })
+        Self::block_on_runtime(async {
+            let _ = self.load_texture(device, queue, texture_name).await;
+            texture_name.to_string()
         })
     }
 
     /// Prime only raw texture data synchronously (no GPU texture upload).
     pub fn prime_texture_raw_blocking(&mut self, texture_name: &str) -> String {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let _ = self
-                    .texture_manager
-                    .prime_raw_texture(&mut self.archive_system, texture_name)
-                    .await;
-                texture_name.to_string()
-            })
+        Self::block_on_runtime(async {
+            let _ = self
+                .texture_manager
+                .prime_raw_texture(&mut self.archive_system, texture_name)
+                .await;
+            texture_name.to_string()
         })
     }
 
@@ -1260,15 +1275,13 @@ impl AssetManager {
             return;
         }
 
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                for name in unique {
-                    let _ = self
-                        .texture_manager
-                        .prime_raw_texture(&mut self.archive_system, &name)
-                        .await;
-                }
-            })
+        Self::block_on_runtime(async {
+            for name in unique {
+                let _ = self
+                    .texture_manager
+                    .prime_raw_texture(&mut self.archive_system, &name)
+                    .await;
+            }
         });
     }
 
@@ -2018,12 +2031,10 @@ impl AssetManager {
     fn load_companion_animation_blocking(&mut self, identity: &str) -> Result<W3dAnimation> {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
-                return tokio::task::block_in_place(|| {
-                    handle.block_on(
-                        self.model_loader
-                            .load_companion_animation(&mut self.archive_system, identity),
-                    )
-                });
+                return handle.block_on(
+                    self.model_loader
+                        .load_companion_animation(&mut self.archive_system, identity),
+                );
             }
             return Err(anyhow!(
                 "synchronous W3D companion loading not supported on current-thread runtime"
@@ -2102,9 +2113,7 @@ impl AssetManager {
     }
 
     pub fn load_w3d_model_blocking(&mut self, model_name: &str) -> Result<W3DModel> {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(self.load_w3d_model_async(model_name))
-        })
+        Self::block_on_runtime(self.load_w3d_model_async(model_name))
     }
 
     /// Load a model synchronously by cloning from cache or loading through the W3D parser path.
@@ -2135,12 +2144,10 @@ impl AssetManager {
 
         let model = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
-                tokio::task::block_in_place(|| {
-                    handle.block_on(
-                        self.model_loader
-                            .load_model(&mut self.archive_system, &resolved_name),
-                    )
-                })
+                handle.block_on(
+                    self.model_loader
+                        .load_model(&mut self.archive_system, &resolved_name),
+                )
             } else {
                 Err(anyhow!(
                     "Synchronous W3D loading not supported on current-thread runtime"
@@ -2148,7 +2155,7 @@ impl AssetManager {
             }
         } else {
             let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
+                .enable_time()
                 .build()?;
             runtime.block_on(
                 self.model_loader

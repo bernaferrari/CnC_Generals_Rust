@@ -256,6 +256,36 @@ impl LocalFileSystem {
     }
 }
 
+fn load_common_archives_from_search_paths(search_paths: &[PathBuf]) {
+    use crate::common::system::archive_file_system::{
+        get_archive_file_system, init_archive_file_system,
+    };
+    if get_archive_file_system().is_none() {
+        init_archive_file_system();
+    }
+    let Some(mut archive) = get_archive_file_system() else {
+        return;
+    };
+    if archive.total_virtual_files() > 0 {
+        return;
+    }
+    for dir in search_paths {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let is_big = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("big"));
+            if is_big {
+                let _ = archive.open_archive_file(path.to_string_lossy().as_ref());
+            }
+        }
+    }
+}
+
 impl Default for LocalFileSystem {
     fn default() -> Self {
         Self::new()
@@ -275,6 +305,8 @@ impl FileSystemBackend for LocalFileSystem {
 
             if let Ok(current_dir) = std::env::current_dir() {
                 self.add_search_path(current_dir.join("Data"));
+                self.add_search_path(current_dir.join("Data").join("English"));
+                self.add_search_path(current_dir.join("Data").join("Windows"));
                 self.add_search_path(current_dir.join("Art"));
                 self.add_search_path(current_dir.join("Maps"));
             }
@@ -282,11 +314,13 @@ impl FileSystemBackend for LocalFileSystem {
             for install in crate::common::system::install_layout::zh_install_roots() {
                 self.add_search_path(&install);
                 self.add_search_path(install.join("Data"));
+                self.add_search_path(install.join("Data").join("English"));
+                self.add_search_path(install.join("Data").join("Windows"));
             }
             for extracted in crate::common::system::install_layout::extracted_asset_roots() {
                 self.add_search_path(extracted);
             }
-
+            load_common_archives_from_search_paths(&self.search_paths);
             self.initialized = true;
         }
         self.state = SubsystemState::Running;
@@ -304,7 +338,6 @@ impl FileSystemBackend for LocalFileSystem {
     fn open_file(&mut self, filename: &str, access: FileAccess) -> Option<Box<dyn File>> {
         if let Some(file_path) = self.find_file_path(filename) {
             let mut local_file = LocalFile::new();
-
             if local_file
                 .open(file_path.to_string_lossy().as_ref(), access)
                 .is_ok()
@@ -313,11 +346,25 @@ impl FileSystemBackend for LocalFileSystem {
             }
         }
 
-        None
+        if access.contains(FileAccess::WRITE) || !access.contains(FileAccess::READ) {
+            return None;
+        }
+
+        let mut archive = crate::common::system::archive_file_system::get_archive_file_system()?;
+        let mut reader = archive.open_file(filename, 1).ok()?;
+        let mut bytes = Vec::new();
+        use std::io::Read;
+        reader.read_to_end(&mut bytes).ok()?;
+        let ram = crate::common::system::ram_file::RAMFile::from_bytes(filename, bytes)?;
+        Some(Box::new(ram))
     }
 
     fn does_file_exist(&self, filename: &str) -> bool {
-        self.find_file_path(filename).is_some()
+        if self.find_file_path(filename).is_some() {
+            return true;
+        }
+        crate::common::system::archive_file_system::get_archive_file_system()
+            .is_some_and(|archive| archive.does_file_exist(filename))
     }
 
     fn get_file_list_in_directory(
@@ -383,7 +430,23 @@ impl FileSystemBackend for LocalFileSystem {
                 return Some(Self::metadata_to_file_info(&metadata));
             }
         }
-
+        if let Some(archive) =
+            crate::common::system::archive_file_system::get_archive_file_system()
+        {
+            let mut archived = crate::common::system::archive_file::FileInfo {
+                size: 0,
+                modified_time: 0,
+                is_directory: false,
+            };
+            if archive.get_file_info(filename, &mut archived).ok() == Some(true) {
+                return Some(FileInfo {
+                    size_low: (archived.size & 0xFFFF_FFFF) as i32,
+                    size_high: ((archived.size >> 32) & 0xFFFF_FFFF) as i32,
+                    timestamp_low: 0,
+                    timestamp_high: 0,
+                });
+            }
+        }
         None
     }
 
@@ -739,6 +802,53 @@ mod tests {
         );
 
         fs::remove_dir_all(test_root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn disk_miss_opens_file_from_common_archive() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::common::system::archive_file_system::{
+            get_archive_file_system, init_archive_file_system,
+        };
+        use std::io::{Seek, Write};
+
+        let dir = PathBuf::from("test_local_archive_miss");
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir)?;
+        let big_path = dir.join("probe.big");
+        let name = "zh-local-miss-probe.txt";
+        {
+            let mut file = fs::File::create(&big_path)?;
+            file.write_all(b"BIGF")?;
+            file.write_all(&100u32.to_le_bytes())?;
+            file.write_all(&1u32.to_be_bytes())?;
+            file.write_all(&50u32.to_be_bytes())?;
+            file.write_all(&50u32.to_be_bytes())?;
+            file.write_all(&11u32.to_be_bytes())?;
+            file.write_all(name.as_bytes())?;
+            file.write_all(&[0])?;
+            let pos = file.stream_position()? as usize;
+            file.write_all(&vec![0u8; 50 - pos])?;
+            file.write_all(b"Hello World")?;
+        }
+
+        if get_archive_file_system().is_none() {
+            init_archive_file_system();
+        }
+        get_archive_file_system()
+            .expect("archive singleton")
+            .open_archive_file(big_path.to_string_lossy().as_ref())?;
+
+        let mut backend = LocalFileSystem::new();
+        assert!(backend.does_file_exist(name));
+        let mut opened = backend
+            .open_file(name, FileAccess::READ)
+            .expect("archive file after disk miss");
+        let mut buf = [0u8; 11];
+        assert_eq!(opened.read(&mut buf)?, 11);
+        assert_eq!(&buf, b"Hello World");
+
+        fs::remove_dir_all(dir)?;
         Ok(())
     }
 }

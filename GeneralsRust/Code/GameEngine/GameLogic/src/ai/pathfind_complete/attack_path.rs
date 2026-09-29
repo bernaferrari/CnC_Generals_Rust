@@ -30,7 +30,9 @@ impl PathfindingSystem {
             return PathResult::none();
         }
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
-        let layer = PathfindLayerEnum::Ground;
+        let victim_cell = GridCoord::from_world(victim_pos);
+        // Destination pathfind layer (bridge/rooftop), not ground by default.
+        let layer = self.get_layer_for_coord(victim_cell);
 
         // Quick check: step toward victim (C++ i=1..10, delta * i * 0.5 * cell)
         {
@@ -105,7 +107,6 @@ impl PathfindingSystem {
         if !self.is_valid_coord(start) {
             return PathResult::none();
         }
-        let victim_cell = GridCoord::from_world(victim_pos);
         let is_vehicle = Self::object_is_vehicle(obj_id);
 
         // A* open list: (f, g, x, y). Goal is any in-range attack cell, not victim cell.

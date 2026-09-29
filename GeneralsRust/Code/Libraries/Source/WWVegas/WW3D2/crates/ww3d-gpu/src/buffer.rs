@@ -34,6 +34,12 @@ pub struct GpuBuffer {
     last_update: std::time::Instant,
 }
 
+// `wasm32-unknown-unknown` wgpu buffers are `Rc`. That target is single-threaded.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for GpuBuffer {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for GpuBuffer {}
+
 impl GpuBuffer {
     /// Create a new GPU buffer
     pub fn new(

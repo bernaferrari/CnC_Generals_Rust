@@ -762,7 +762,7 @@ impl SoundEffectManager {
 
         let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
 
-        #[cfg(feature = "audio")]
+        #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
         {
             use rodio_compat::{Decoder, Sink, Source, SpatialSink};
             use std::io::Cursor;

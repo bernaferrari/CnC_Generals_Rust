@@ -192,9 +192,8 @@ impl WW3D {
             for (object, level) in pending_items.iter().cloned() {
                 backend.add_to_static_sort_list(object, level)?;
             }
-            if !pending_items.is_empty() {
-                backend.flush_static_sort_lists()?;
-            }
+            // C++ Render_And_Clear runs from the frame, not from renderer init.
+            // A flush here has no pass and only drops the objects.
             Ok(())
         }) {
             if let Err(err) = result {

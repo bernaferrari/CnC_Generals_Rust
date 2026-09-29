@@ -33,6 +33,11 @@ struct ShaderFilterGpu {
     last_kind: FilterType,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for ShaderFilterGpu {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for ShaderFilterGpu {}
+
 static FILTER_GPU: Mutex<Option<ShaderFilterGpu>> = Mutex::new(None);
 
 fn needs_rtt(composite: &ViewFilterComposite) -> bool {

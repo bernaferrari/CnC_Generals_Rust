@@ -863,12 +863,13 @@ impl TextureBaseClass {
         self.asset_type
     }
 
-    /// Apply texture to current shader
+    /// C++ `TextureClass::Apply`: bind this texture on the DX8/wgpu stage.
     pub fn apply(&self, stage: usize) {
-        // Bind texture to shader stage
-        // In a full implementation, this would bind the texture to the specified shader stage
-        // using the WGPU bind group system
-        let _ = stage; // Use parameter to avoid warning
+        if let Some(mut wrapper) =
+            crate::rendering::wgpu_renderer::wgpu_wrapper::try_get_wgpu_wrapper()
+        {
+            wrapper.set_texture(stage, Some(self));
+        }
     }
 
     /// Peek at underlying texture handle

@@ -167,8 +167,7 @@ impl AssetManager {
         let asset_path = self.find_asset_file(name)?;
 
         // Load asset data
-        let asset_data = tokio::fs::read(&asset_path)
-            .await
+        let asset_data = std::fs::read(&asset_path)
             .map_err(|e| anyhow!("Failed to read asset {}: {}", name, e))?;
 
         // Create asset metadata
@@ -294,7 +293,7 @@ impl AssetManager {
         path: &Path,
         data: &[u8],
     ) -> Result<AssetMetadata> {
-        let metadata = tokio::fs::metadata(path).await?;
+        let metadata = std::fs::metadata(path)?;
 
         let asset_type = self.determine_asset_type(path);
 

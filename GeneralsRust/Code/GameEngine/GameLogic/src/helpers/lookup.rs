@@ -771,6 +771,7 @@ impl TheThingFactory {
             .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
 
+        register_created_object_with_partition(&base);
         Ok(base)
     }
 
@@ -828,6 +829,7 @@ impl TheThingFactory {
             .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
 
+        register_created_object_with_partition(&base);
         Ok(base)
     }
 
@@ -890,8 +892,22 @@ impl TheThingFactory {
             .with_object(object_id, |instance| instance.base())
             .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
 
+        register_created_object_with_partition(&base);
         Ok(base)
     }
+}
+
+/// C++ `ThingFactory::newObject` — `ThePartitionManager->registerObject`.
+fn register_created_object_with_partition(
+    object: &std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+) {
+    let Ok(guard) = object.read() else {
+        return;
+    };
+    let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+        return;
+    };
+    partition.register_object_at(guard.get_id(), *guard.get_position());
 }
 
 /// TheFXListStore singleton - FX list storage system (matching C++ TheFXListStore)

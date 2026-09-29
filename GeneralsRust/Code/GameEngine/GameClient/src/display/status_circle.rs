@@ -85,6 +85,11 @@ struct FadeGpu {
     saturate: wgpu::RenderPipeline,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for FadeGpu {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for FadeGpu {}
+
 static FADE_GPU: Mutex<Option<FadeGpu>> = Mutex::new(None);
 
 fn fade_blend(

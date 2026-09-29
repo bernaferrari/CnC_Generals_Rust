@@ -14,6 +14,11 @@ pub struct SharedGpuDevice {
     pub queue: wgpu::Queue,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for SharedGpuDevice {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for SharedGpuDevice {}
+
 #[derive(Debug)]
 enum Slot {
     Vacant,

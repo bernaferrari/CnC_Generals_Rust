@@ -1597,32 +1597,34 @@ impl ShaderClass {
 
     /// Get static sort category for render ordering
     /// This determines the order in which objects are rendered
+    /// C++ shader.cpp Get_SS_Category.
     pub fn get_ss_category(&self) -> StaticSortCategoryType {
-        // Opaque
         if self.get_alpha_test() == AlphaTestType::Disable
             && self.get_dst_blend_func() == DstBlendFuncType::Zero
         {
             return StaticSortCategoryType::Opaque;
         }
 
-        // Alpha Test (only when it remains effectively opaque)
-        if self.get_alpha_test() == AlphaTestType::Enable
-            && self.get_dst_blend_func() == DstBlendFuncType::Zero
-        {
-            return StaticSortCategoryType::AlphaTest;
+        if self.get_alpha_test() == AlphaTestType::Enable {
+            if self.get_dst_blend_func() == DstBlendFuncType::Zero {
+                return StaticSortCategoryType::AlphaTest;
+            }
+            if self.get_src_blend_func() == SrcBlendFuncType::SrcAlpha
+                && self.get_dst_blend_func() == DstBlendFuncType::InvSrcAlpha
+            {
+                return StaticSortCategoryType::AlphaTest;
+            }
         }
 
-        // Additive
         if self.get_src_blend_func() == SrcBlendFuncType::One
             && self.get_dst_blend_func() == DstBlendFuncType::One
         {
             return StaticSortCategoryType::Additive;
         }
 
-        // Screen (lighten blend)
+        // C++ screen is ONE + ONE_MINUS_SRC_COLOR only, not inverse source alpha.
         if self.get_src_blend_func() == SrcBlendFuncType::One
-            && (self.get_dst_blend_func() == DstBlendFuncType::InvSrcColor
-                || self.get_dst_blend_func() == DstBlendFuncType::InvSrcAlpha)
+            && self.get_dst_blend_func() == DstBlendFuncType::InvSrcColor
         {
             return StaticSortCategoryType::Screen;
         }
@@ -1630,9 +1632,7 @@ impl ShaderClass {
         StaticSortCategoryType::Other
     }
 
-    /// Guess the static sort level based on shader category
-    /// Returns a sort level that determines render order priority
-    /// C++ Reference: shader.cpp lines 1123-1145
+    /// C++ shader.cpp Guess_Sort_Level.
     pub fn guess_sort_level(&self) -> u32 {
         let category = self.get_ss_category();
 
@@ -2087,6 +2087,50 @@ mod tests {
             DepthMaskType::Disable,
             ColorMaskType::Enable,
             SrcBlendFuncType::SrcAlpha,
+            DstBlendFuncType::InvSrcAlpha,
+            FogFuncType::Disable,
+            PriGradientType::Disable,
+            SecGradientType::Disable,
+            TexturingType::Enable,
+            AlphaTestType::Disable,
+            CullModeType::Enable,
+            DetailColorFuncType::Disable,
+            DetailAlphaFuncType::Disable,
+        );
+
+        assert_eq!(shader.get_ss_category(), StaticSortCategoryType::Other);
+        assert_eq!(shader.guess_sort_level(), SORT_LEVEL_BIN1);
+    }
+
+    #[test]
+    fn alpha_test_with_src_alpha_blend_stays_unsorted() {
+        let shader = ShaderClass::create_from_components(
+            DepthCompareType::Lequal,
+            DepthMaskType::Enable,
+            ColorMaskType::Enable,
+            SrcBlendFuncType::SrcAlpha,
+            DstBlendFuncType::InvSrcAlpha,
+            FogFuncType::Disable,
+            PriGradientType::Disable,
+            SecGradientType::Disable,
+            TexturingType::Enable,
+            AlphaTestType::Enable,
+            CullModeType::Enable,
+            DetailColorFuncType::Disable,
+            DetailAlphaFuncType::Disable,
+        );
+
+        assert_eq!(shader.get_ss_category(), StaticSortCategoryType::AlphaTest);
+        assert_eq!(shader.guess_sort_level(), SORT_LEVEL_NONE);
+    }
+
+    #[test]
+    fn one_plus_inv_src_alpha_is_not_screen() {
+        let shader = ShaderClass::create_from_components(
+            DepthCompareType::Lequal,
+            DepthMaskType::Disable,
+            ColorMaskType::Enable,
+            SrcBlendFuncType::One,
             DstBlendFuncType::InvSrcAlpha,
             FogFuncType::Disable,
             PriGradientType::Disable,

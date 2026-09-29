@@ -88,9 +88,13 @@ impl RenderObjClass for SphereRenderObj {
     } // Typical sphere tessellation
 
     fn render(&self, rinfo: &RenderInfoClass) -> RendererResult<()> {
-        let sort_enabled = WW3D::is_sorting_enabled() && WW3D::are_static_sort_lists_enabled();
-        let sort_level = self.shader.guess_sort_level();
-        if sort_enabled && sort_level != SORT_LEVEL_NONE {
+        // C++ sphereobj.cpp:540-546. Guess only while polygon sorting is off.
+        // Static-sort enqueue is a separate flag and does not require sorting.
+        let mut sort_level = SORT_LEVEL_NONE;
+        if !WW3D::is_sorting_enabled() {
+            sort_level = self.shader.guess_sort_level();
+        }
+        if WW3D::are_static_sort_lists_enabled() && sort_level != SORT_LEVEL_NONE {
             let sort_object = StaticSortRenderObject::from_arc(Arc::new(self.clone()));
             if WW3D::add_to_static_sort_list(sort_object, sort_level).is_ok() {
                 return Ok(());

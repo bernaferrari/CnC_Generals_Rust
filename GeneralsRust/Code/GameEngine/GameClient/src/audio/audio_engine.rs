@@ -17,7 +17,7 @@ use kira::Decibels;
 use kira::DefaultBackend;
 use kira::Tween;
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
-use kira::sound::streaming::StreamingSoundSettings;
+
 
 fn kira_amplitude(amp: f64) -> Decibels {
     if amp <= 0.0001 {
@@ -925,9 +925,9 @@ impl AudioEngine {
         // Try to load from cache first, then from disk.
         let _cached = self.cache.get_or_load(&path.to_string_lossy());
 
-        // kira's StaticSoundData::from_file handles loading directly.
-        // If the file is missing we fall back gracefully.
-        let mut sound_data = StaticSoundData::from_file(path)?.with_settings(
+        // `from_file` is native-only (`not(wasm32)`). `from_cursor` is the shared loader.
+        let bytes = std::fs::read(path)?;
+        let mut sound_data = StaticSoundData::from_cursor(std::io::Cursor::new(bytes))?.with_settings(
             StaticSoundSettings::new()
                 .volume(kira_amplitude(volume as f64))
                 .playback_rate(1.0),

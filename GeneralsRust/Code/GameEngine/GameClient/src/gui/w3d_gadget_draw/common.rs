@@ -297,6 +297,11 @@ pub(super) struct RadarObjectOverlayTextureCache {
     pub(super) hero_object_ids: Vec<u32>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for RadarObjectOverlayTextureCache {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for RadarObjectOverlayTextureCache {}
+
 pub(super) fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache>
 {
     pub(super) static CACHE: OnceLock<Mutex<RadarObjectOverlayTextureCache>> = OnceLock::new();
@@ -315,6 +320,11 @@ pub(super) struct RadarLayerTextureCache {
     pub(super) layer_revision: u64,
     pub(super) texture: Option<Arc<wgpu::TextureView>>,
 }
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for RadarLayerTextureCache {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for RadarLayerTextureCache {}
 
 pub(super) fn radar_terrain_texture_cache() -> &'static Mutex<RadarLayerTextureCache> {
     pub(super) static CACHE: LazyLock<Mutex<RadarLayerTextureCache>> =

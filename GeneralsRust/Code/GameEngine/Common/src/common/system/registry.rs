@@ -251,19 +251,134 @@ pub fn zh_registry() -> &'static Registry {
 fn registry_lookup_keys(path: &str, key: &str) -> Vec<String> {
     let mut keys = Vec::new();
     let trimmed_path = path.trim_matches('\\');
+    // C++ opens HKLM `SOFTWARE\\Electronic Arts\\EA Games\\Command and Conquer Generals Zero Hour` + path.
     if trimmed_path.is_empty() {
-        keys.push(key.to_string());
         keys.push(format!("{}\\{}", ZH_REGISTRY_ROOT, key));
-    } else {
-        keys.push(format!("{}\\{}", trimmed_path, key));
-        keys.push(format!("{}\\{}\\{}", ZH_REGISTRY_ROOT, trimmed_path, key));
         keys.push(key.to_string());
+    } else {
+        keys.push(format!("{}\\{}\\{}", ZH_REGISTRY_ROOT, trimmed_path, key));
+        keys.push(format!("{}\\{}", trimmed_path, key));
     }
     keys
 }
 
-/// C++ `GetStringFromRegistry`. Looks up `path+key` then bare `key`.
+#[cfg(all(windows, feature = "windows"))]
+fn hive_query(
+    root: winapi::shared::minwindef::HKEY,
+    path: &str,
+    key: &str,
+    string: bool,
+) -> Option<Vec<u8>> {
+    use std::ffi::CString;
+    use winapi::shared::minwindef::DWORD;
+    use winapi::um::winnt::{KEY_READ, REG_DWORD, REG_SZ};
+    use winapi::um::winreg::{RegCloseKey, RegOpenKeyExA, RegQueryValueExA};
+
+    let full = registry_lookup_keys(path, key).into_iter().next()?;
+    let (subkey, value_name) = full.rsplit_once('\\')?;
+    let subkey = CString::new(subkey).ok()?;
+    let value_name = CString::new(value_name).ok()?;
+    unsafe {
+        let mut hkey = std::ptr::null_mut();
+        if RegOpenKeyExA(root, subkey.as_ptr(), 0, KEY_READ, &mut hkey) != 0 {
+            return None;
+        }
+        let mut kind: DWORD = 0;
+        let mut size: DWORD = 0;
+        if RegQueryValueExA(
+            hkey,
+            value_name.as_ptr(),
+            std::ptr::null_mut(),
+            &mut kind,
+            std::ptr::null_mut(),
+            &mut size,
+        ) != 0
+            || size == 0
+            || (string && kind != REG_SZ)
+            || (!string && kind != REG_DWORD)
+        {
+            RegCloseKey(hkey);
+            return None;
+        }
+        let mut buf = vec![0u8; size as usize];
+        let ok = RegQueryValueExA(
+            hkey,
+            value_name.as_ptr(),
+            std::ptr::null_mut(),
+            &mut kind,
+            buf.as_mut_ptr(),
+            &mut size,
+        ) == 0;
+        RegCloseKey(hkey);
+        ok.then_some(buf)
+    }
+}
+
+#[cfg(all(windows, feature = "windows"))]
+fn hklm_set(path: &str, key: &str, bytes: &[u8], string: bool) -> bool {
+    use std::ffi::CString;
+    use winapi::shared::minwindef::DWORD;
+    use winapi::um::winnt::{KEY_WRITE, REG_DWORD, REG_OPTION_NON_VOLATILE, REG_SZ};
+    use winapi::um::winreg::{RegCloseKey, RegCreateKeyExA, RegSetValueExA, HKEY_LOCAL_MACHINE};
+
+    let Some(full) = registry_lookup_keys(path, key).into_iter().next() else {
+        return false;
+    };
+    let Some((subkey, value_name)) = full.rsplit_once('\\') else {
+        return false;
+    };
+    let Ok(subkey) = CString::new(subkey) else {
+        return false;
+    };
+    let Ok(value_name) = CString::new(value_name) else {
+        return false;
+    };
+    unsafe {
+        let mut hkey = std::ptr::null_mut();
+        if RegCreateKeyExA(
+            HKEY_LOCAL_MACHINE,
+            subkey.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            REG_OPTION_NON_VOLATILE,
+            KEY_WRITE,
+            std::ptr::null_mut(),
+            &mut hkey,
+            std::ptr::null_mut(),
+        ) != 0
+        {
+            return false;
+        }
+        let kind: DWORD = if string { REG_SZ } else { REG_DWORD };
+        let ok = RegSetValueExA(
+            hkey,
+            value_name.as_ptr(),
+            0,
+            kind,
+            bytes.as_ptr(),
+            bytes.len() as u32,
+        ) == 0;
+        RegCloseKey(hkey);
+        ok
+    }
+}
+
+/// C++ `GetStringFromRegistry`. HKLM on Windows, then the JSON store.
 pub fn get_string_from_registry(path: &str, key: &str) -> Option<String> {
+    #[cfg(all(windows, feature = "windows"))]
+    {
+        use winapi::um::winreg::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+        if let Some(buf) = hive_query(HKEY_LOCAL_MACHINE, path, key, true)
+            .or_else(|| hive_query(HKEY_CURRENT_USER, path, key, true))
+        {
+            let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
+            if let Ok(text) = String::from_utf8(buf[..end].to_vec()) {
+                if !text.is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+    }
     let registry = zh_registry();
     for candidate in registry_lookup_keys(path, key) {
         if let Ok(value) = registry.read_string(&candidate) {
@@ -273,8 +388,19 @@ pub fn get_string_from_registry(path: &str, key: &str) -> Option<String> {
     None
 }
 
-/// C++ `GetUnsignedIntFromRegistry`.
+/// C++ `GetUnsignedIntFromRegistry`. HKLM on Windows, then the JSON store.
 pub fn get_unsigned_int_from_registry(path: &str, key: &str) -> Option<u32> {
+    #[cfg(all(windows, feature = "windows"))]
+    {
+        use winapi::um::winreg::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+        if let Some(buf) = hive_query(HKEY_LOCAL_MACHINE, path, key, false)
+            .or_else(|| hive_query(HKEY_CURRENT_USER, path, key, false))
+        {
+            if buf.len() >= 4 {
+                return Some(u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]));
+            }
+        }
+    }
     let registry = zh_registry();
     for candidate in registry_lookup_keys(path, key) {
         if let Ok(value) = registry.read_dword(&candidate) {
@@ -283,6 +409,39 @@ pub fn get_unsigned_int_from_registry(path: &str, key: &str) -> Option<u32> {
     }
     None
 }
+
+/// C++ `setStringInRegistry` for the Zero Hour HKLM key, then the JSON store.
+pub fn set_string_in_registry(path: &str, key: &str, value: &str) -> bool {
+    #[cfg(all(windows, feature = "windows"))]
+    {
+        let mut bytes = value.as_bytes().to_vec();
+        bytes.push(0);
+        if !hklm_set(path, key, &bytes, true) {
+            return false;
+        }
+    }
+    let full = registry_lookup_keys(path, key).into_iter().next();
+    let Some(full) = full else {
+        return false;
+    };
+    zh_registry().write_string(&full, value).is_ok()
+}
+
+/// C++ `setUnsignedIntInRegistry` for the Zero Hour HKLM key, then the JSON store.
+pub fn set_unsigned_int_in_registry(path: &str, key: &str, value: u32) -> bool {
+    #[cfg(all(windows, feature = "windows"))]
+    {
+        if !hklm_set(path, key, &value.to_le_bytes(), false) {
+            return false;
+        }
+    }
+    let full = registry_lookup_keys(path, key).into_iter().next();
+    let Some(full) = full else {
+        return false;
+    };
+    zh_registry().write_dword(&full, value).is_ok()
+}
+
 
 /// C++ `GetRegistryLanguage` — default `"english"`.
 pub fn get_registry_language() -> String {
@@ -362,5 +521,19 @@ mod tests {
         let mut keys = registry.keys();
         keys.sort();
         assert_eq!(keys, vec!["a", "c"]);
+    }
+
+    #[test]
+    fn zh_hklm_language_is_readable() {
+        let registry = zh_registry();
+        let full = format!("{}\\Language", ZH_REGISTRY_ROOT);
+        registry
+            .write_string(&full, "german")
+            .expect("seed zh language");
+        assert_eq!(
+            get_string_from_registry("", "Language").as_deref(),
+            Some("german")
+        );
+        registry.remove(&full).ok();
     }
 }

@@ -289,6 +289,13 @@ pub struct UIRenderer {
     last_frame_stats: RenderStats,
 }
 
+// wasm32 wgpu resources are `Rc`, and this target does not run the UI renderer
+// on a second thread. Native stays without this impl: cosmic-text is `!Sync`.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for UIRenderer {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for UIRenderer {}
+
 /// cosmic_text layout state. `FontSystem` / `SwashCache` / `TextBuffer` are
 /// `Send + !Sync` (interior `RefCell`). UIRenderer serializes them with
 /// `Mutex<FontRuntime>` instead of an `unsafe impl Sync`.

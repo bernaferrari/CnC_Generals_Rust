@@ -46,6 +46,11 @@ struct PendingCommand {
     buffer: CommandBuffer,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for PendingCommand {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for PendingCommand {}
+
 static FRAME_ACTIVE: AtomicBool = AtomicBool::new(false);
 static PENDING: Mutex<Vec<PendingCommand>> = Mutex::new(Vec::new());
 static LAST_FRAME_SUBMIT_COUNT: AtomicU64 = AtomicU64::new(0);

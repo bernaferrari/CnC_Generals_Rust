@@ -797,6 +797,7 @@ impl GameState {
         notify_clear_game_data();
         if let Some(engine) = get_game_engine() {
             let mut engine = engine.lock();
+            #[cfg(feature = "async")]
             if let Err(err) = futures::executor::block_on(engine.reset()) {
                 eprintln!("Error resetting game engine after failed load: {}", err);
             }
@@ -828,6 +829,7 @@ impl GameState {
         // C++ parity: reset the runtime engine before deserializing save data.
         if let Some(engine) = get_game_engine() {
             let mut engine = engine.lock();
+            #[cfg(feature = "async")]
             if let Err(err) = futures::executor::block_on(engine.reset()) {
                 eprintln!("Error resetting game engine before load: {}", err);
             }

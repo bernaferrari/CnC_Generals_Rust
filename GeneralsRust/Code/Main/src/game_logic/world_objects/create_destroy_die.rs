@@ -3065,6 +3065,16 @@ impl GameLogic {
         killer: Option<Team>,
         direct_destroy: bool,
     ) {
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(|o| o.status.on_die_started)
+        {
+            return;
+        }
+        if let Some(obj) = self.objects.get_mut(&id) {
+            obj.status.on_die_started = true;
+        }
         self.assault_transport_give_final_orders(id);
         // C++ AIUpdate dtor / setCurrentVictim(NULL) + turret nuke on death.
         self.drop_jet_targeters_on_attack_exit(id);

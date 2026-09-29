@@ -12,6 +12,17 @@ use crate::graphics::fow_uniform_integration::frozen_fow_model_fields;
 use crate::graphics::render_item::RenderItemBonePaletteSource;
 use ww3d_renderer_3d::rendering::mesh_system::FrozenFowVisibility;
 
+struct LaserCallbackPack {
+    pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    camera_bg: std::sync::Arc<wgpu::BindGroup>,
+    buffer: std::sync::Arc<wgpu::Buffer>,
+    vertex_count: u32,
+}
+
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for LaserCallbackPack {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for LaserCallbackPack {}
 #[cfg(feature = "game_client")]
 use game_client::effects::particle_renderer::{ParticleUniforms, register_particle_renderer};
 #[cfg(feature = "game_client")]
@@ -257,7 +268,12 @@ impl ForwardPass {
         );
         let pipeline = gpu.pipeline.clone();
         let camera_bg = gpu.camera_bind_group.clone();
-        // Capture enough to draw after the 3D scene.
+        let pack = LaserCallbackPack {
+            pipeline,
+            camera_bg,
+            buffer,
+            vertex_count,
+        };
         self.renderer.enqueue_post_frame_callback(move |frame| {
             let color_view = frame.color_view_arc();
             let depth_view = frame.depth_view_arc();
@@ -289,10 +305,10 @@ impl ForwardPass {
                 occlusion_query_set: None,
                 multiview_mask: None,
 });
-            render_pass.set_pipeline(pipeline.as_ref());
-            render_pass.set_bind_group(0, Some(camera_bg.as_ref()), &[]);
-            render_pass.set_vertex_buffer(0, buffer.slice(..));
-            render_pass.draw(0..vertex_count, 0..1);
+            render_pass.set_pipeline(pack.pipeline.as_ref());
+            render_pass.set_bind_group(0, Some(pack.camera_bg.as_ref()), &[]);
+            render_pass.set_vertex_buffer(0, pack.buffer.slice(..));
+            render_pass.draw(0..pack.vertex_count, 0..1);
             drop(render_pass);
             Ok(())
         });
@@ -1087,6 +1103,7 @@ impl ForwardPass {
         Ok(Some(Arc::new(mesh)))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
@@ -1094,9 +1111,26 @@ impl ForwardPass {
         self.renderer.enqueue_post_frame_callback(callback);
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
+    where
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
+    {
+        self.renderer.enqueue_post_frame_callback(callback);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+    {
+        self.renderer.enqueue_pre_scene_callback(callback);
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
+    where
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
     {
         self.renderer.enqueue_pre_scene_callback(callback);
     }

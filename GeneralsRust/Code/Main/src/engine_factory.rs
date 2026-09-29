@@ -724,21 +724,21 @@ impl SubsystemInterface for DefaultFileSystemSubsystem {
 #[async_trait]
 impl FileSystemSubsystem for DefaultFileSystemSubsystem {
     async fn init_file_system(&mut self) -> Result<()> {
-        tokio::fs::create_dir_all(&self.root_dir).await?;
+        std::fs::create_dir_all(&self.root_dir)?;
         Ok(())
     }
 
     async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let resolved = self.resolve_path(path);
-        Ok(tokio::fs::read(resolved).await?)
+        Ok(std::fs::read(resolved)?)
     }
 
     async fn write_file(&self, path: &str, data: &[u8]) -> Result<()> {
         let resolved = self.resolve_path(path);
         if let Some(parent) = resolved.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+            std::fs::create_dir_all(parent)?;
         }
-        tokio::fs::write(resolved, data).await?;
+        std::fs::write(resolved, data)?;
         Ok(())
     }
 
@@ -873,7 +873,7 @@ impl DefaultAssetSubsystem {
 
     async fn read_asset_bytes(&self, path: &str) -> Result<(PathBuf, Vec<u8>)> {
         let resolved = self.resolve_asset_path(path);
-        Ok((resolved.clone(), tokio::fs::read(resolved).await?))
+        Ok((resolved.clone(), std::fs::read(resolved)?))
     }
 
     fn insert_asset(&mut self, asset: Box<dyn Any + Send + Sync>) -> u32 {
@@ -1250,7 +1250,7 @@ impl DefaultConfigSubsystem {
     }
 
     async fn load_bootstrap_path(&mut self, path: &Path) -> Result<bool> {
-        match tokio::fs::read_to_string(path).await {
+        match std::fs::read_to_string(path) {
             Ok(text) => {
                 self.parse_ini_text(&text)?;
                 self.loaded_bootstrap_paths.push(path.to_path_buf());
@@ -1337,14 +1337,14 @@ impl ConfigSubsystem for DefaultConfigSubsystem {
         self.values.clear();
         self.loaded_bootstrap_paths.clear();
 
-        let text = tokio::fs::read_to_string(path).await?;
+        let text = std::fs::read_to_string(path)?;
         self.parse_ini_text(&text)?;
         Ok(())
     }
 
     async fn save_config(&self, path: &str) -> Result<()> {
         if let Some(parent) = Path::new(path).parent() {
-            tokio::fs::create_dir_all(parent).await?;
+            std::fs::create_dir_all(parent)?;
         }
 
         let mut out = String::new();
@@ -1366,7 +1366,7 @@ impl ConfigSubsystem for DefaultConfigSubsystem {
             }
         }
 
-        tokio::fs::write(path, out).await?;
+        std::fs::write(path, out)?;
         Ok(())
     }
 

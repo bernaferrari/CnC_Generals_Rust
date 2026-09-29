@@ -209,6 +209,11 @@ pub struct DrawableDrawPipeline {
     failed_textures: HashSet<String>,
 }
 
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for DrawableDrawPipeline {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for DrawableDrawPipeline {}
+
 impl DrawableDrawPipeline {
     /// Create the pipeline. Call once at startup with the graphics device/queue.
     pub fn new(

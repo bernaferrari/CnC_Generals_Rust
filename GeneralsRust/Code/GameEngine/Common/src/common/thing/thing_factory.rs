@@ -691,8 +691,8 @@ impl ThingFactory {
             }
         }
 
-        // Register with partition manager
-        // ThePartitionManager->registerObject(obj);
+        // C++ ThingFactory.cpp: all objects join the existing partition manager.
+        obj.register_with_partition();
 
         // Initialize the object
         obj.init_object();

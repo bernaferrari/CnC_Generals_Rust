@@ -11,7 +11,7 @@ ww3d-collision = { path = "../ww3d-collision" }
 glam = {workspace = true, features = ["bytemuck"]}
 wgpu = {workspace = true}
 winit = {workspace = true}
-tokio = {workspace = true, features = ["full"]}
+
 crossbeam = {workspace = true}
 rayon = {workspace = true}
 binrw = {workspace = true}
@@ -19,3 +19,9 @@ bytemuck = {workspace = true, features = ["derive"]}
 thiserror = {workspace = true}
 anyhow = {workspace = true}
 rand = {workspace = true}
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1.53.1", default-features = false, features = ["rt", "sync", "time", "macros", "io-util"] }

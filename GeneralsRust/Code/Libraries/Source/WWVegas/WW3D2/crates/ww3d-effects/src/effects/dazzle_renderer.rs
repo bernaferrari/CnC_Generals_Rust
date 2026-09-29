@@ -385,7 +385,7 @@ impl DazzleGpuRenderer {
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Dazzle Pipeline Layout"),
-            bind_group_layouts: &[Some(&uniform_bind_group_layout), &texture_bind_group_layout],
+            bind_group_layouts: &[Some(&uniform_bind_group_layout), Some(&texture_bind_group_layout)],
             immediate_size: 0,
         });
 
@@ -397,7 +397,7 @@ impl DazzleGpuRenderer {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[DazzleVertex::desc()],
+                    buffers: &[Some(DazzleVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {

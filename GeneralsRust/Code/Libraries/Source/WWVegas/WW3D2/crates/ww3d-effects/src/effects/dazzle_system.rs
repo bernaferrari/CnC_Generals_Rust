@@ -320,7 +320,7 @@ impl DazzleManager {
     pub fn load_configs_from_ini<P: AsRef<Path>>(&mut self, filename: P) -> Result<()> {
         let path = filename.as_ref();
         let mut ini = Ini::new();
-        ini.load(&path.to_string_lossy())
+        ini.load(path)
             .map_err(W3DError::IoError)?;
         let map = ini.get_map_ref();
 

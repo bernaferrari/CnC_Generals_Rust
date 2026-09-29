@@ -7,7 +7,7 @@
 */
 
 use glam::{Vec2, Vec3, Vec4};
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 /// Maximum subdivision levels (from C++ MAX_SEGLINE_SUBDIV_LEVELS)
 pub const MAX_SUBDIV_LEVELS: usize = 7;
