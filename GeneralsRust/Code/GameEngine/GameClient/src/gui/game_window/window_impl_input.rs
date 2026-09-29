@@ -1177,12 +1177,20 @@ impl GameWindow {
                         crate::gui::ime_manager::attach_or_detach_for_focus(window, focused);
                     }
                 });
-            } else if focused {
-                if !matches!(self.widget, Some(WindowWidget::RadioButton(_))) {
-                    self.set_hilite_state(true);
-                }
-            } else {
-                self.set_hilite_state(false);
+            } else if matches!(
+                self.widget,
+                Some(WindowWidget::PushButton(_))
+                    | Some(WindowWidget::CheckBox(_))
+                    | Some(WindowWidget::VerticalSlider(_))
+                    | Some(WindowWidget::HorizontalSlider(_))
+                    | Some(WindowWidget::ListBox(_))
+                    | Some(WindowWidget::ComboBox(_))
+            ) {
+                // These gadget system callbacks change WIN_STATE_HILITED on
+                // GWM_INPUT_FOCUS in C++. USER windows (including Skirmish's
+                // SubParent) do not; their hilite draw data may be a solid
+                // debug color rather than the normal panel background.
+                self.set_hilite_state(focused);
             }
             if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
                 if !self.owner_is_self {

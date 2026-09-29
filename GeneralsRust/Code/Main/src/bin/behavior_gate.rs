@@ -208,7 +208,7 @@ fn main() {
             );
         }
         match exec.status.as_str() {
-            "success" | "success_partial_exit" | "success_forced_exit" => {
+            "success" | "success_forced_exit" => {
                 if !(exec.executable_host_ok && exec.reached_ingame) {
                     failed.push(format!(
                         "executable_smoke status={} host_ok={} ingame={} detail={}",

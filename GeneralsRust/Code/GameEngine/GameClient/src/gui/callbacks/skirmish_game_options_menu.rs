@@ -15,7 +15,7 @@ use crate::gui::{
     WindowMsgHandled, WindowStatus, get_shell, get_skirmish_setup, message_box_ok,
     message_box_ok_cancel, queue_shell_pop, queue_shell_reverse_animate_window,
     queue_shell_shutdown_complete, show_shell_map_if_available, try_with_shell_mut,
-    with_window_manager,
+    with_window_manager, write_input_focus_response,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use crate::message_stream::{GameMessageType, get_message_stream};
@@ -289,10 +289,8 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
     );
     update_map_start_spots(state, meta.as_ref());
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
-        if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
-            let label = map_display_name(&map_name, meta.as_ref());
-            widget.set_text(label);
-        }
+        let label = map_display_name(&map_name, meta.as_ref());
+        let _ = text_entry.borrow_mut().set_text(&label);
     }
 }
 
@@ -730,9 +728,7 @@ fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
     // this the authored WND literal "Static Text" stays visible on screen.
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         let label = map_display_name(&map_name, meta.as_ref());
-        if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
-            widget.set_text(label);
-        }
+        let _ = text_entry.borrow_mut().set_text(&label);
     }
 
     if is_skirmish {
@@ -791,10 +787,8 @@ fn skirmish_update_slot_list(state: &mut SkirmishGameOptionsState) {
     let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
-        if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
-            let label = map_display_name(&map_name, meta.as_ref());
-            widget.set_text(label);
-        }
+        let label = map_display_name(&map_name, meta.as_ref());
+        let _ = text_entry.borrow_mut().set_text(&label);
     }
 
     for i in 0..MAX_SLOTS {
@@ -1975,8 +1969,14 @@ pub fn skirmish_game_options_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
+    // C++ SkirmishGameOptionsMenuSystem handles GWM_INPUT_FOCUS by accepting
+    // focus without changing WIN_STATE_HILITED. Letting the generic USER
+    // handler run selects SubParent's solid-blue HILITEDRAWDATA.
+    if msg == WindowMessage::InputFocus {
+        return write_input_focus_response(data1, data2, true);
+    }
     let mut handled = false;
     with_state(|state| match msg {
         WindowMessage::GadgetSelected => {
@@ -2118,6 +2118,20 @@ pub fn skirmish_game_options_menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skirmish_parent_focus_does_not_hilite_user_window() {
+        use crate::gui::{WindowMsgPayload, WindowState, pop_payload, push_payload};
+
+        let window = GameWindow::new();
+        let token = push_payload(WindowMsgPayload::Bool(false));
+        assert_eq!(
+            skirmish_game_options_menu_system(&window, WindowMessage::InputFocus, 1, token),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(pop_payload(token), Some(WindowMsgPayload::Bool(true)));
+        assert!(!window.instance_data().state.contains(WindowState::HILITED));
+    }
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {

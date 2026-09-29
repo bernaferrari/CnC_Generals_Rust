@@ -289,9 +289,9 @@ pub struct TerrainVisualImpl {
 }
 
 #[cfg(target_arch = "wasm32")]
+// The legacy global Mutex requires Send until the renderer is instance-owned.
+// No caller requires sharing &TerrainVisualImpl across threads on wasm.
 unsafe impl Send for TerrainVisualImpl {}
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for TerrainVisualImpl {}
 
 struct GpuChunkMesh {
     vertex_buffer: Buffer,

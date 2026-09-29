@@ -14,6 +14,9 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta};
 
+use game_engine::common::ini::ini_mouse::{MouseSettings, RGBAColorInt, get_mouse_settings};
+use game_engine::common::ini::{INI, INILoadType};
+
 use super::{InputError, InputStats};
 use crate::system::SubsystemInterface;
 
@@ -1165,6 +1168,30 @@ impl Mouse {
         self.use_tooltip_alt_back_color = alt_back_color;
         self.adjust_tooltip_alt_color = adjust_alt_color;
     }
+
+    fn apply_ini_settings(&mut self, settings: &MouseSettings) {
+        fn rgba(color: RGBAColorInt) -> [u8; 4] {
+            [color.red, color.green, color.blue, color.alpha]
+        }
+
+        self.init_from_settings(
+            &settings.tooltip_font_name,
+            settings.tooltip_font_size,
+            settings.tooltip_font_is_bold,
+            settings.tooltip_animate_background,
+            settings.tooltip_fill_time,
+            settings.tooltip_delay_time,
+            settings.tooltip_width,
+            rgba(settings.tooltip_color_text),
+            rgba(settings.tooltip_color_highlight),
+            rgba(settings.tooltip_color_shadow),
+            rgba(settings.tooltip_color_background),
+            rgba(settings.tooltip_color_border),
+            settings.use_tooltip_alt_text_color,
+            settings.use_tooltip_alt_back_color,
+            settings.adjust_tooltip_alt_color,
+        );
+    }
 }
 
 impl Default for Mouse {
@@ -1192,6 +1219,18 @@ pub fn with_mouse<R>(f: impl FnOnce(&mut Mouse) -> R) -> R {
 impl SubsystemInterface for Mouse {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Initializing Mouse subsystem");
+        // C++ Mouse::parseIni loads this before Mouse::init. The Common INI
+        // parser owns MouseSettings; apply the parsed values to the live mouse
+        // so tooltip font, delay, wrap width, and colors match the retail INI.
+        let mut ini = INI::new();
+        match ini.load("Data/INI/Mouse.ini", INILoadType::Overwrite) {
+            Ok(_) => {
+                if let Some(settings) = get_mouse_settings() {
+                    self.apply_ini_settings(&settings);
+                }
+            }
+            Err(err) => log::warn!("Mouse.ini unavailable; retaining constructor defaults: {err}"),
+        }
         self.enabled = true;
         self.stats.reset();
         Ok(())
@@ -1213,6 +1252,35 @@ impl SubsystemInterface for Mouse {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retail_mouse_ini_settings_widen_and_shrink_tooltip_text() {
+        let text = "The Battle Honors a player has received by achieving certain goals";
+        let mut constructor = Mouse::new();
+        constructor.visible = true;
+        constructor.tooltip_state.display_tooltip = true;
+        constructor.tooltip_state.tooltip_text = text.to_string();
+        let default_lines = constructor
+            .compute_tooltip_draw_info(640.0, 480.0)
+            .expect("constructor tooltip")
+            .lines
+            .len();
+
+        let mut settings = MouseSettings::default();
+        settings.tooltip_font_name = "Arial".to_string();
+        settings.tooltip_font_size = 8;
+        settings.tooltip_width = 0.20;
+        settings.tooltip_animate_background = false;
+        settings.tooltip_delay_time = 800;
+        constructor.apply_ini_settings(&settings);
+        let info = constructor
+            .compute_tooltip_draw_info(640.0, 480.0)
+            .expect("retail tooltip");
+        assert_eq!(info.font_size, 8.0);
+        assert!(info.lines.len() < default_lines);
+        assert!(!info.animate_background);
+        assert_eq!(constructor.tooltip_delay_time_ms, 800);
+    }
 
     #[test]
     fn test_button_state_transitions() {

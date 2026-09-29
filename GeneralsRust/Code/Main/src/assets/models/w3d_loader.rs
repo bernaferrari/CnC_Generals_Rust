@@ -180,8 +180,19 @@ impl W3DLoader {
         Self
     }
 
-    /// Load W3D model from BIG archive
+    /// Async-compatible entry point for callers already in the load pipeline.
+    /// BIG reads below are synchronous, matching C++'s on-demand model load.
     pub async fn load_model(
+        &self,
+        archive_system: &mut ArchiveFileSystem,
+        model_name: &str,
+    ) -> Result<W3DModel> {
+        self.load_model_sync(archive_system, model_name)
+    }
+
+    /// Resolve and parse a W3D model in the current frame without entering a
+    /// nested Tokio runtime.
+    pub fn load_model_sync(
         &self,
         archive_system: &mut ArchiveFileSystem,
         model_name: &str,
@@ -197,13 +208,12 @@ impl W3DLoader {
         let mut last_error = None;
         for path_variant in path_variations {
             debug!("Trying W3D path: {}", path_variant);
-            match archive_system.open_file(&path_variant).await {
+            match archive_system.open_file_sync(&path_variant) {
                 Ok(model_data) => {
                     debug!("Found W3D file at path: {}", path_variant);
                     debug!("Loaded W3D file data: {} bytes", model_data.len());
                     let mut model = self.parse_w3d_data(&model_data, base_name.to_string())?;
-                    self.attach_missing_named_hlod_hierarchies(archive_system, &mut model)
-                        .await;
+                    self.attach_missing_named_hlod_hierarchies(archive_system, &mut model);
                     return Ok(model);
                 }
                 Err(e) => {
@@ -228,6 +238,15 @@ impl W3DLoader {
         archive_system: &mut ArchiveFileSystem,
         identity: &str,
     ) -> Result<W3dAnimation> {
+        self.load_companion_animation_sync(archive_system, identity)
+    }
+
+    /// Read an exact companion synchronously for render-time prewarming.
+    pub fn load_companion_animation_sync(
+        &self,
+        archive_system: &mut ArchiveFileSystem,
+        identity: &str,
+    ) -> Result<W3dAnimation> {
         let filename = w3d_companion_animation_filename(identity)
             .ok_or_else(|| anyhow!("invalid W3D Draw animation identity '{identity}'"))?;
         let candidates = w3d_companion_animation_archive_path_variants(identity)
@@ -235,7 +254,7 @@ impl W3DLoader {
         let mut last_error = None;
 
         for candidate in candidates {
-            match archive_system.open_file(&candidate).await {
+            match archive_system.open_file_sync(&candidate) {
                 Ok(data) => match self.load_companion_animation_from_bytes(&data, identity) {
                     Ok(animation) => return Ok(animation),
                     Err(error) => {
@@ -290,7 +309,7 @@ impl W3DLoader {
     /// in this file, open `{HierarchyName}.w3d` through the existing archive
     /// path set and retain only that named HTree. Missing companions stay
     /// fail-closed (`Init_Default`); they must not abort geometry load.
-    async fn attach_missing_named_hlod_hierarchies(
+    fn attach_missing_named_hlod_hierarchies(
         &self,
         archive_system: &mut ArchiveFileSystem,
         model: &mut W3DModel,
@@ -303,7 +322,7 @@ impl W3DLoader {
             }
             let mut attached = false;
             for candidate in w3d_companion_hierarchy_archive_path_variants(&hierarchy_name) {
-                match archive_system.open_file(&candidate).await {
+                match archive_system.open_file_sync(&candidate) {
                     Ok(data) => {
                         if self.import_named_hlod_hierarchy_from_bytes(
                             model,

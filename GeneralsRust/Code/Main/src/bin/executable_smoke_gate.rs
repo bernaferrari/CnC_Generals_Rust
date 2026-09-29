@@ -75,7 +75,7 @@ fn main() {
 
     // Soft environments without display/binary: non-zero but distinct for CI classification.
     match r.status.as_str() {
-        "success" | "success_partial_exit" | "success_forced_exit" if r.executable_host_ok => {
+        "success" | "success_forced_exit" if r.executable_host_ok => {
             println!(
                 "executable_smoke_gate: PASS (executable_host_ok=true playable_claim=false ingame={} menu={} gameplay_cmd={} skirmish_menu={} frames={} new_game={} presentation_ok={} live_fallback_ok={} render_items={} render_stable={})",
                 r.reached_ingame,

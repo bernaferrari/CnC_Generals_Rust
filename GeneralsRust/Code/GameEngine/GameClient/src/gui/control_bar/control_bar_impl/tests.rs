@@ -11,6 +11,58 @@ mod tests {
     }
 
     #[test]
+    fn first_multi_selection_enables_shared_order_when_one_unit_can_act() {
+        let mut control_bar = ControlBar::new();
+        let mut attack_move = CommandButton::default();
+        attack_move.command_name = "Command_AttackMove".to_string();
+        attack_move.command_type = CommandType::DoAttackMoveTo;
+        assert!(control_bar.button_states.is_empty());
+
+        // First selected unit is restricted; second can execute this shared
+        // button. C++ updateContextMultiSelect enables it after both visits.
+        let first_can = control_bar.record_multi_select_button_availability(
+            &attack_move,
+            CommandAvailability::Restricted,
+        );
+        let second_can = control_bar.record_multi_select_button_availability(
+            &attack_move,
+            CommandAvailability::Available,
+        );
+        assert!(!first_can && second_can);
+        control_bar.finish_multi_select_button_state(&attack_move, u32::from(second_can));
+        let state = control_bar.button_states.get("Command_AttackMove").unwrap();
+        assert!(state.visible && state.enabled);
+        assert_eq!(state.availability, CommandAvailability::Available);
+
+        // The last object's Restricted result must not cancel an earlier
+        // capable group member in the C++ final any-object pass.
+        assert!(control_bar.record_multi_select_button_availability(
+            &attack_move,
+            CommandAvailability::Available,
+        ));
+        assert!(!control_bar.record_multi_select_button_availability(
+            &attack_move,
+            CommandAvailability::Restricted,
+        ));
+        control_bar.finish_multi_select_button_state(&attack_move, 1);
+        let state = control_bar.button_states.get("Command_AttackMove").unwrap();
+        assert!(state.enabled);
+        assert_eq!(state.availability, CommandAvailability::Available);
+
+        // A later group with no capable unit disables the same button again.
+        assert!(!control_bar.record_multi_select_button_availability(
+            &attack_move,
+            CommandAvailability::Restricted,
+        ));
+        assert!(!control_bar.record_multi_select_button_availability(
+            &attack_move,
+            CommandAvailability::Restricted,
+        ));
+        control_bar.finish_multi_select_button_state(&attack_move, 0);
+        assert!(!control_bar.button_states["Command_AttackMove"].enabled);
+    }
+
+    #[test]
     fn local_beacon_windows_show_editor_and_caption_text() {
         let text_entry = Some(named_window("ControlBar.wnd:EditBeaconText"));
         let static_text = Some(named_window("ControlBar.wnd:StaticTextBeaconLabel"));

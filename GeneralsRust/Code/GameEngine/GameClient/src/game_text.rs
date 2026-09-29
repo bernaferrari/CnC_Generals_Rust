@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{OnceLock, RwLock};
 
+use game_engine::common::global_data;
 use game_engine::common::language::{Language, LanguageId, get_current_language};
 
 const CSF_ID: u32 = u32::from_le_bytes(*b" FSC");
@@ -85,11 +86,33 @@ impl GameText {
         // virtual/BIG filesystem, then a raw ` FSC` header scan over the
         // install archives (the shipped repacked BIGs store the CSF at an
         // offset their entry table does not point at).
-        let entries = find_csf_path()
+        let loose = find_csf_path()
             .and_then(|path| fs::read(&path).ok())
-            .and_then(|bytes| parse_csf_strings(&bytes))
-            .or_else(load_csf_through_engine_filesystem)
-            .or_else(parse_csf_from_install_archives);
+            .and_then(|bytes| parse_csf_strings(&bytes));
+        // A repacked BIG can expose a valid but incomplete CSF through its
+        // directory entry. C++ resolves the complete Data/<lang>/generals.csf;
+        // recover that table from the archive image and keep the richest
+        // valid source instead of accepting the first parseable fragment.
+        // A loose file is an intentional override and keeps C++ filesystem
+        // precedence, even when a mod's string table is smaller than retail.
+        let mod_active = {
+            let data = global_data::read();
+            !data.writable.mod_big.is_empty() || !data.writable.mod_dir.is_empty()
+        };
+        let virtual_csf = if loose.is_some() {
+            None
+        } else {
+            load_csf_through_engine_filesystem()
+        };
+        let entries = if loose.is_some() {
+            loose
+        } else if mod_active && virtual_csf.is_some() {
+            // C++ -mod archives precede retail. A mod may intentionally ship
+            // fewer labels, so retain the virtual filesystem's mod table.
+            virtual_csf
+        } else {
+            prefer_richer_csf(virtual_csf, parse_csf_from_install_archives())
+        };
         let Some(entries) = entries else {
             return Ok(0);
         };
@@ -159,6 +182,17 @@ impl GameText {
             .read()
             .ok()
             .and_then(|guard| guard.map_strings.get(key).cloned())
+    }
+}
+
+fn prefer_richer_csf(
+    current: Option<HashMap<String, String>>,
+    candidate: Option<HashMap<String, String>>,
+) -> Option<HashMap<String, String>> {
+    match (current, candidate) {
+        (Some(current), Some(candidate)) if current.len() >= candidate.len() => Some(current),
+        (_, Some(candidate)) => Some(candidate),
+        (current, None) => current,
     }
 }
 
@@ -255,33 +289,54 @@ impl<'a> CsfCursor<'a> {
 }
 
 fn find_csf_path() -> Option<PathBuf> {
-    let language_relatives = match get_current_language() {
-        LanguageId::German => vec![
-            "windows_game/extracted_big_files/GermanZH/Data/German/generals.csf",
-            "windows_game/extracted_big_files_v2/GermanZH/Data/German/generals.csf",
-        ],
-        LanguageId::French => vec![
-            "windows_game/extracted_big_files/FrenchZH/Data/French/generals.csf",
-            "windows_game/extracted_big_files_v2/FrenchZH/Data/French/generals.csf",
-        ],
-        LanguageId::Spanish => vec![
-            "windows_game/extracted_big_files/SpanishZH/Data/Spanish/generals.csf",
-            "windows_game/extracted_big_files_v2/SpanishZH/Data/Spanish/generals.csf",
-        ],
-        LanguageId::Italian => vec![
-            "windows_game/extracted_big_files/ItalianZH/Data/Italian/generals.csf",
-            "windows_game/extracted_big_files_v2/ItalianZH/Data/Italian/generals.csf",
-        ],
-        _ => vec![
-            "windows_game/extracted_big_files/EnglishZH/Data/English/generals.csf",
-            "windows_game/extracted_big_files/W3DEnglishZH/Data/English/generals.csf",
-            "windows_game/extracted_big_files_v2/EnglishZH/Data/English/generals.csf",
-            "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/generals.csf",
-        ],
+    let (language_folder, language_relatives) = match get_current_language() {
+        LanguageId::German => (
+            "German",
+            vec![
+                "windows_game/extracted_big_files/GermanZH/Data/German/generals.csf",
+                "windows_game/extracted_big_files_v2/GermanZH/Data/German/generals.csf",
+            ],
+        ),
+        LanguageId::French => (
+            "French",
+            vec![
+                "windows_game/extracted_big_files/FrenchZH/Data/French/generals.csf",
+                "windows_game/extracted_big_files_v2/FrenchZH/Data/French/generals.csf",
+            ],
+        ),
+        LanguageId::Spanish => (
+            "Spanish",
+            vec![
+                "windows_game/extracted_big_files/SpanishZH/Data/Spanish/generals.csf",
+                "windows_game/extracted_big_files_v2/SpanishZH/Data/Spanish/generals.csf",
+            ],
+        ),
+        LanguageId::Italian => (
+            "Italian",
+            vec![
+                "windows_game/extracted_big_files/ItalianZH/Data/Italian/generals.csf",
+                "windows_game/extracted_big_files_v2/ItalianZH/Data/Italian/generals.csf",
+            ],
+        ),
+        _ => (
+            "English",
+            vec![
+                "windows_game/extracted_big_files/EnglishZH/Data/English/generals.csf",
+                "windows_game/extracted_big_files/W3DEnglishZH/Data/English/generals.csf",
+                "windows_game/extracted_big_files_v2/EnglishZH/Data/English/generals.csf",
+                "windows_game/extracted_big_files_v2/W3DEnglishZH/Data/English/generals.csf",
+            ],
+        ),
     };
 
     let cwd = std::env::current_dir().ok()?;
     let mut candidates = Vec::new();
+    // C++ LocalFileSystem precedes ArchiveFileSystem. Check the active game's
+    // normal loose path before extracted retail copies.
+    candidates.push(cwd.join("Data").join(language_folder).join("generals.csf"));
+    for root in game_engine::common::system::install_layout::zh_install_roots() {
+        candidates.push(root.join("Data").join(language_folder).join("generals.csf"));
+    }
     for ancestor in cwd.ancestors() {
         for relative in &language_relatives {
             candidates.push(ancestor.join(relative));
@@ -316,11 +371,26 @@ fn load_csf_through_engine_filesystem() -> Option<HashMap<String, String>> {
     parse_csf_strings(&bytes)
 }
 
+fn is_csf_archive_for_language(name: &str, language: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.ends_with(".big")
+        && name.contains(language)
+        && !name.starts_with("audio")
+        && !name.starts_with("speech")
+}
+
 /// The shipped repacked `EnglishZH.big` / `W3DEnglishZH.big` carry an intact
 /// `generals.csf` whose entry-table offsets point elsewhere; the real image
 /// still starts with the ` FSC` magic, so scan candidates and keep the
 /// richest parse.
 fn parse_csf_from_install_archives() -> Option<HashMap<String, String>> {
+    let language = match get_current_language() {
+        LanguageId::German => "german",
+        LanguageId::French => "french",
+        LanguageId::Spanish => "spanish",
+        LanguageId::Italian => "italian",
+        _ => "english",
+    };
     let mut archives: Vec<PathBuf> = Vec::new();
     for root in game_engine::common::system::install_layout::zh_install_roots() {
         let Ok(entries) = fs::read_dir(&root) else {
@@ -328,24 +398,26 @@ fn parse_csf_from_install_archives() -> Option<HashMap<String, String>> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("big"))
-            {
+            let archive_name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if is_csf_archive_for_language(&archive_name, language) {
                 archives.push(path);
             }
         }
     }
 
-    // Language/patch archives first — the audio archives are huge and never
-    // carry the string table.
+    // Search the active language's Zero Hour table first. A different
+    // language's richer table must never replace the selected locale.
     archives.sort_by_key(|path| {
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        (
-            !(name.contains("English") || name.contains("Patch")),
-            name.len(),
-        )
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        (!name.ends_with(&format!("{language}zh.big")), name.len())
     });
 
     let mut best: Option<HashMap<String, String>> = None;
@@ -436,6 +508,52 @@ fn parse_csf_strings(bytes: &[u8]) -> Option<HashMap<String, String>> {
 #[cfg(test)]
 mod csf_tests {
     use super::*;
+
+    #[test]
+    fn csf_source_selection_keeps_the_complete_table() {
+        let small = HashMap::from([("GUI:Back".to_string(), "BACK".to_string())]);
+        let full = HashMap::from([
+            ("GUI:Back".to_string(), "BACK".to_string()),
+            (
+                "GUI:LimitSuperweapons".to_string(),
+                "Limit Superweapons".to_string(),
+            ),
+        ]);
+        assert_eq!(
+            prefer_richer_csf(Some(small), Some(full.clone())),
+            Some(full)
+        );
+    }
+
+    #[test]
+    fn csf_recovery_uses_only_the_active_language_archives() {
+        assert!(is_csf_archive_for_language("EnglishZH.big", "english"));
+        assert!(is_csf_archive_for_language("W3DEnglishZH.big", "english"));
+        assert!(!is_csf_archive_for_language("GermanZH.big", "english"));
+        assert!(!is_csf_archive_for_language("EnglishZH.big", "german"));
+        assert!(!is_csf_archive_for_language(
+            "SpeechEnglishZH.big",
+            "english"
+        ));
+    }
+
+    #[test]
+    fn recovered_zero_hour_csf_contains_missing_menu_labels() {
+        // The retail archive is optional for source-only builds. When it is
+        // installed, verify the recovery source without mutating global text
+        // state shared with other tests.
+        let archive = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../Main/assets/EnglishZH.big");
+        if !archive.is_file() {
+            return;
+        }
+        let entries = parse_csf_from_install_archives().expect("recover retail CSF");
+        for key in ["GUI:Generals_Challenge", "GUI:LimitSuperweapons"] {
+            assert!(
+                entries.contains_key(key),
+                "{key} must exist in the Zero Hour CSF"
+            );
+        }
+    }
 
     #[test]
     fn csf_runtime_strings_include_shell_labels() {

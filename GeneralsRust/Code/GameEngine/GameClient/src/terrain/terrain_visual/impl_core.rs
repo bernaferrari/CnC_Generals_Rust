@@ -1,5 +1,41 @@
 // Split from `terrain/terrain_visual.rs` dump. Included by `terrain_visual/mod.rs`.
 
+/// C++ HeightMapRenderObjClass::updateCenter projects the four view corners
+/// onto the lowest height in its current draw window, then centers the draw
+/// window on that visible ground footprint (HeightMap.cpp:1709-1794).
+fn frustum_ground_footprint_center(
+    view: Mat4,
+    projection: Mat4,
+    ground_y: f32,
+) -> Option<Vec2> {
+    let eye = view.inverse().transform_point3(Vec3::ZERO);
+    let inverse_view_projection = (projection * view).inverse();
+    if !eye.is_finite() || !inverse_view_projection.is_finite() {
+        return None;
+    }
+
+    let mut min = Vec2::splat(f32::INFINITY);
+    let mut max = Vec2::splat(f32::NEG_INFINITY);
+    for x in [-1.0, 1.0] {
+        for y in [-1.0, 1.0] {
+            let far = inverse_view_projection.project_point3(Vec3::new(x, y, 1.0));
+            let direction = far - eye;
+            if !far.is_finite() || direction.y.abs() <= f32::EPSILON {
+                return None;
+            }
+            let t = (ground_y - eye.y) / direction.y;
+            if !t.is_finite() || t <= 0.0 {
+                return None;
+            }
+            let hit = eye + direction * t;
+            let ground = Vec2::new(hit.x, hit.z);
+            min = min.min(ground);
+            max = max.max(ground);
+        }
+    }
+    Some((min + max) * 0.5)
+}
+
 impl TerrainVisualImpl {
     pub fn new() -> Self {
         Self {
@@ -263,6 +299,34 @@ impl TerrainVisualImpl {
         self.draw_origin_x = sample_x - (self.draw_width / 2);
         self.draw_origin_y = sample_y - (self.draw_height / 2);
         self.clamp_draw_area_to_map();
+    }
+
+    fn recenter_draw_area_for_view(&mut self, view: Mat4, projection: Mat4) {
+        let ground_y = self.height_map.as_ref().map(|height_map| {
+            let x_end = (self.draw_origin_x + self.draw_width).min(height_map.width as i32);
+            let z_end = (self.draw_origin_y + self.draw_height).min(height_map.height as i32);
+            let mut min_height = f32::INFINITY;
+            for z in self.draw_origin_y.max(0)..z_end {
+                for x in self.draw_origin_x.max(0)..x_end {
+                    min_height = min_height.min(height_map.world_height_at_index(x as u32, z as u32));
+                }
+            }
+            if min_height.is_finite() {
+                min_height
+            } else {
+                height_map.min_height
+            }
+        });
+        let center = ground_y
+            .and_then(|height| frustum_ground_footprint_center(view, projection, height))
+            .unwrap_or_else(|| {
+                // Camera modes aimed above the horizon have no four-corner
+                // ground footprint. Keep the previous eye-centered fallback
+                // so their terrain window still follows the moving camera.
+                let eye = view.inverse().transform_point3(Vec3::ZERO);
+                Vec2::new(eye.x, eye.z)
+            });
+        self.recenter_draw_area_on_world_position(center.x, center.y);
     }
 
     fn clamp_draw_area_to_map(&mut self) {
