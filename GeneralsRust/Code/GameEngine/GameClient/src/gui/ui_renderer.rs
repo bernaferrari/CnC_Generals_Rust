@@ -53,6 +53,25 @@ pub enum UIRendererError {
 
 type Result<T> = std::result::Result<T, UIRendererError>;
 
+/// Place a rasterized glyph sample into the text texture. C++
+/// `FontCharsClass::Blit_Char` writes glyph pixels into its A4R4G4B4 surface;
+/// the wgpu surface keeps full RGBA coverage and composites overlapping glyphs.
+fn composite_glyph_pixel(dst: &mut [u8], src: [u8; 4]) {
+    let src_a = src[3] as f32 / 255.0;
+    if src_a == 0.0 {
+        return;
+    }
+    let dst_a = dst[3] as f32 / 255.0;
+    let out_a = src_a + dst_a * (1.0 - src_a);
+    for channel in 0..3 {
+        let color = (src[channel] as f32 * src_a
+            + dst[channel] as f32 * dst_a * (1.0 - src_a))
+            / out_a;
+        dst[channel] = color.round() as u8;
+    }
+    dst[3] = (out_a * 255.0).round() as u8;
+}
+
 /// Vertex data for UI rendering
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -1448,12 +1467,7 @@ impl UIRenderer {
 
             let pixel_index = (dst_y as usize * canvas_width as usize + dst_x as usize) * 4;
             let dst = &mut canvas[pixel_index..pixel_index + 4];
-            let src_a = src[3] as f32 / 255.0;
-            let dst_a = dst[3] as f32 / 255.0;
-            let out_a = src_a + dst_a * (1.0 - src_a);
-            if out_a <= f32::EPSILON {
-                continue;
-            }
+            composite_glyph_pixel(dst, src);
         }
         let texture = self.create_texture_from_rgba(canvas_width, canvas_height, &canvas);
         // Store offsets RELATIVE to layout.bounds (see hit path): position
@@ -1854,6 +1868,19 @@ impl UIRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glyph_pixels_fill_the_uploaded_text_canvas() {
+        let mut pixel = [0, 0, 0, 0];
+        composite_glyph_pixel(&mut pixel, [255, 255, 255, 128]);
+        assert_eq!(pixel, [255, 255, 255, 128]);
+
+        composite_glyph_pixel(&mut pixel, [0, 0, 0, 128]);
+        assert_eq!(pixel, [85, 85, 85, 192]);
+
+        composite_glyph_pixel(&mut pixel, [255, 0, 0, 0]);
+        assert_eq!(pixel, [85, 85, 85, 192]);
+    }
 
     fn queued_command() -> UIDrawCommand {
         UIDrawCommand {

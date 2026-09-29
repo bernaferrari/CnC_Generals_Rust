@@ -508,10 +508,11 @@ impl MainMenu {
         }
     }
 
-    /// C++ MainMenuInit 525-530 hides dropDownWindows[1..] ONLY — MapBorder
-    /// (DROPDOWN_SINGLE) stays visible (MainMenu.cpp:520-526) — plus
+    /// C++ MainMenuInit 525-530 hides dropDownWindows[1..]. Index 1 is
+    /// DROPDOWN_SINGLE, so all five dropdowns start hidden. It also runs
     /// initialHide + SHOW_NONE + MainMenuRuler (627-629).
     const CPP_INIT_HIDE_PACK_NAMES: &'static [&'static str] = &[
+        "MainMenu.wnd:MapBorder",
         "MainMenu.wnd:MapBorder1",
         "MainMenu.wnd:MapBorder2",
         "MainMenu.wnd:MapBorder3",
@@ -565,22 +566,31 @@ impl MainMenu {
         });
     }
 
-    /// True only when live WM (not the fail-closed dummy) has MapBorder2 hidden.
-    fn map_border2_hidden_on_live_wm() -> bool {
+    /// True only when the live WM has all five C++ dropdowns hidden.
+    fn all_dropdowns_hidden_on_live_wm() -> bool {
         with_window_manager(|manager| {
-            manager
-                .find_window_by_name("MainMenu.wnd:MapBorder2")
-                .map(|window| window.borrow().is_hidden())
-                .unwrap_or(false)
+            [
+                "MainMenu.wnd:MapBorder",
+                "MainMenu.wnd:MapBorder1",
+                "MainMenu.wnd:MapBorder2",
+                "MainMenu.wnd:MapBorder3",
+                "MainMenu.wnd:MapBorder4",
+            ]
+            .iter()
+            .all(|name| {
+                manager
+                    .find_window_by_name(name)
+                    .is_some_and(|window| window.borrow().is_hidden())
+            })
         })
     }
 
-    /// Apply C++ MainMenuInit hide pack. Returns true only if MapBorder2 was
-    /// found on the live WindowManager and is hidden. Never calls
+    /// Apply C++ MainMenuInit hide pack. Returns true only if all dropdowns
+    /// were found on the live WindowManager and hidden. Never calls
     /// `transition_set_group`.
     fn apply_cpp_init_hide_pack(&self) -> bool {
         Self::hide_named_windows_live_or_deferred(Self::CPP_INIT_HIDE_PACK_NAMES);
-        Self::map_border2_hidden_on_live_wm()
+        Self::all_dropdowns_hidden_on_live_wm()
     }
 
     fn set_dropdown_hidden(&self, _state: &MainMenuState, dropdown: DropdownType, hide: bool) {
@@ -610,14 +620,6 @@ impl MainMenu {
                 let Some(name) = Self::dropdown_wnd_name(candidate) else {
                     continue;
                 };
-                if candidate != dropdown && candidate == DropdownType::Single {
-                    // Never re-hide MapBorder (DROPDOWN_SINGLE): MainMenuInit
-                    // leaves it visible (MainMenu.cpp:525-526 loops from 1) and
-                    // the GBM_SELECTED branches only winHide(FALSE) the opening
-                    // dropdown. Re-hiding it here left the SP dropdown
-                    // parent-hidden after the CHAR reveal.
-                    continue;
-                }
                 if let Some(window) = manager.find_window_by_name(name) {
                     crate::gui::hide_window_rc(&window, candidate != dropdown);
                 }
