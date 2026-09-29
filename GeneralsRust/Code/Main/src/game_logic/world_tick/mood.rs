@@ -187,6 +187,10 @@ impl GameLogic {
             if oid == unit_id {
                 continue;
             }
+            // C++ AI.cpp:492 PartitionFilterLiveMapEnemies: status bit only.
+            if obj.status.effectively_dead {
+                continue;
+            }
             let is_enemy = if me.is_undetected_defector() || obj.is_undetected_defector() {
                 // C++ Object::getRelationship: self undetected → Neutral,
                 // that undetected → Allies. Neither is ENEMIES.
@@ -198,6 +202,79 @@ impl GameLogic {
             };
             if !is_enemy {
                 continue;
+            }
+            // C++ PartitionFilterStealthedAndUndetected, m_allow false.
+            // A disguiser disguised as an enemy is visible. Friendly or
+            // undisguised-as-ally is hidden. An undisguised disguiser is not.
+            if obj.status.stealthed && !obj.status.detected {
+                let disguiser = obj.is_kind_of(crate::game_logic::KindOf::Disguiser);
+                let hidden = if !disguiser {
+                    true
+                } else if obj.status.disguised {
+                    // No resolved disguise player is visible (`return !m_allow`).
+                    // Hide only when the disguise player's team is not an enemy,
+                    // including an allied other faction. Same-faction FFA stays visible.
+                    if let Some(apparent) = obj.disguise_as_team {
+                        let other = self
+                            .players
+                            .values()
+                            .find(|p| {
+                                p.team == apparent
+                                    && obj.owner_player_id.is_none_or(|id| p.id != id)
+                            })
+                            .or_else(|| self.players.values().find(|p| p.team == apparent));
+                        if let (Some(src), Some(tgt)) = (me.owner_player_id, other.map(|p| p.id))
+                        {
+                            Self::object_relationship_from_owners(
+                                &self.players,
+                                Some(src),
+                                "",
+                                Some(tgt),
+                                "",
+                            ) != gamelogic::common::Relationship::Enemies
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                if hidden {
+                    continue;
+                }
+            } else {
+                let occupants = obj.contained_units();
+                if !occupants.is_empty()
+                    && occupants.iter().all(|id| {
+                        self.objects
+                            .get(id)
+                            .is_some_and(|member| member.status.stealthed)
+                    })
+                {
+                    let hidden_garrison = occupants.first().and_then(|id| self.objects.get(id)).is_some_and(|member| {
+                        if member.status.detected {
+                            return false;
+                        }
+                        let Some(src) = me.owner_player_id else {
+                            return false;
+                        };
+                        let Some(tgt) = member.owner_player_id else {
+                            return false;
+                        };
+                        Self::object_relationship_from_owners(
+                            &self.players,
+                            Some(src),
+                            "",
+                            Some(tgt),
+                            "",
+                        ) == gamelogic::common::Relationship::Enemies
+                    });
+                    if hidden_garrison {
+                        continue;
+                    }
+                }
             }
             if me_off
                 != crate::game_logic::host_deliver_payload::is_off_map_residual(
@@ -235,9 +312,7 @@ impl GameLogic {
                 continue;
             }
             if need_los {
-                if self.attack_view_blocked(unit_id, Some(oid), opos)
-                    || self.pathfinding_system.is_attack_view_blocked(me_pos, opos)
-                {
+                if self.attack_view_blocked(unit_id, Some(oid), opos) {
                     continue;
                 }
             }
@@ -279,7 +354,27 @@ impl GameLogic {
                 if cur == 0 {
                     continue; // C++ skip zero priority
                 }
-                let modifier = (dist / ATTACK_PRIORITY_DISTANCE_MODIFIER) as i32;
+                let step = {
+                    let store = game_engine::common::ini::get_ai_data_store();
+                    let from_store = store.read().ok().and_then(|guard| {
+                        guard
+                            .get_active()
+                            .map(|d| d.attack_priority_distance_modifier)
+                    });
+                    from_store
+                        .filter(|v| *v > 0.0)
+                        .or_else(|| {
+                            gamelogic::ai::the_ai().read().ok().and_then(|ai| {
+                                ai.get_ai_data()
+                                    .read()
+                                    .ok()
+                                    .map(|d| d.attack_priority_distance_modifier)
+                            })
+                        })
+                        .filter(|v| *v > 0.0)
+                        .unwrap_or(ATTACK_PRIORITY_DISTANCE_MODIFIER)
+                };
+                let modifier = (dist / step) as i32;
                 let mut mod_pri = cur - modifier;
                 if mod_pri < 1 {
                     mod_pri = 1;
@@ -500,6 +595,7 @@ impl GameLogic {
             auto_idle,
             attitude,
             last_dmg,
+            last_dmg_healing,
             pos,
             team,
             rate,
@@ -517,6 +613,7 @@ impl GameLogic {
                 o.auto_acquire_idle_bits,
                 o.ai_attitude,
                 o.last_damage_source,
+                o.last_damage_info_type == Some(crate::game_logic::combat::DamageType::Healing),
                 o.get_position(),
                 o.team,
                 o.mood_attack_check_rate.max(1),
@@ -534,37 +631,20 @@ impl GameLogic {
             return None;
         }
         if called_during_idle && stealthed && (auto_idle & AUTO_ACQUIRE_IDLE_STEALTHED) == 0 {
-            return None;
+            let container_may_fire = self
+                .objects
+                .get(&unit_id)
+                .and_then(|o| o.contained_by)
+                .and_then(|cid| self.objects.get(&cid))
+                .is_some_and(|c| c.passengers_allowed_to_fire || (c.is_garrison_contain() && !c.is_subdued()));
+            if !container_may_fire {
+                return None;
+            }
         }
         if attacking && (auto_idle & AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING) != 0 {
             return None;
         }
-        // Sleep mood: no acquire.
-        if attitude <= -2 && !is_player_controlled {
-            return None;
-        }
 
-        // Passive mood: return last damage source if legal enemy.
-        if attitude == -1 && !is_player_controlled {
-            if let Some(src) = last_dmg {
-                if src != unit_id {
-                    let ok = matches!(
-                        self.get_able_to_attack_specific_object(
-                            unit_id,
-                            src,
-                            AbleToAttackType::NewTarget,
-                            false
-                        ),
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    );
-                    if ok {
-                        return Some(src);
-                    }
-                }
-            }
-            // Passive without recent attacker: no proactive acquire.
-            return None;
-        }
 
         // C++ AIUpdate.cpp:4520-4535 — team common victim before mood scan rate.
         if called_by_ai && attitude >= 0 {
@@ -607,18 +687,14 @@ impl GameLogic {
         if range <= 0.0 {
             return None;
         }
-        // Container radius residual omitted (fail-closed).
-
-        // Human AI residual: only within attack range.
-        if called_by_ai && is_player_controlled {
-            if let Some(o) = self.objects.get(&unit_id) {
-                let wr = o
-                    .weapon
-                    .as_ref()
-                    .map(|w| w.range)
-                    .or_else(|| o.secondary_weapon.as_ref().map(|w| w.range))
-                    .unwrap_or(0.0);
-                range = wr.min(range);
+        // C++ AIUpdate.cpp:4571-4583. Non-healing always returns findObjectByID.
+        // A null source is NULL. Only DAMAGE_HEALING continues into the scan.
+        if attitude == -1 && !is_player_controlled && !last_dmg_healing {
+            return last_dmg;
+        }
+        if let Some(container_id) = self.objects.get(&unit_id).and_then(|o| o.contained_by) {
+            if let Some(container) = self.objects.get(&container_id) {
+                range += container.selection_radius.max(0.0);
             }
         }
 

@@ -584,6 +584,7 @@ impl Player {
         arc.add_upgrade(
             template.as_ref(),
             gamelogic::upgrade::UpgradeStatus::Complete,
+            None,
         );
     }
 

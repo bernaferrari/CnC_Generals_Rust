@@ -14,6 +14,9 @@ impl GameClient {
         }
 
         let current_time = Instant::now();
+        let elapsed = current_time
+            .saturating_duration_since(self.last_update_time)
+            .as_secs_f32();
         self.last_update_time = current_time;
 
         self.frame = self.frame.wrapping_add(1);
@@ -28,19 +31,11 @@ impl GameClient {
             return Ok(());
         }
         self.ensure_shell_visible()?;
-        // C++ GameClient.cpp:560-565 — snow + Anim2D before input.
-        self.update_cpp_snow_and_anim2d(SECONDS_PER_LOGICFRAME_REAL);
-        // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
-        self.update_camera_tracking_drawable();
-
-        // C++ lines 612-619: window manager and video player update BEFORE drawables
-        self.update_pre_draw_ui()?;
-
         let freeze_time = self.should_freeze_visual_time();
         let mut visual_delta = if freeze_time {
             0.0
         } else {
-            SECONDS_PER_LOGICFRAME_REAL
+            elapsed.min(SECONDS_PER_LOGICFRAME_REAL)
         };
         let visual_speed = get_script_visual_speed_multiplier();
         visual_delta = if visual_speed <= 0 {
@@ -48,6 +43,15 @@ impl GameClient {
         } else {
             visual_delta * visual_speed as f32
         };
+        // C++ GameClient.cpp:560-565 — snow + Anim2D before input.
+        self.update_cpp_snow_and_anim2d(visual_delta);
+        // C++ GameClient.cpp:587-597 — camera follows first selected drawable.
+        self.update_camera_tracking_drawable();
+
+        // C++ lines 612-619: window manager and video player update BEFORE drawables
+        self.update_pre_draw_ui()?;
+
+
 
         // Host/presentation residual: Main owns OS WindowEvent→commands and sole
         // RenderPipeline 3D present. When OBJECT_REGISTRY is empty, skip dual-world
@@ -74,6 +78,15 @@ impl GameClient {
             self.draw_presentation_selection_residual();
             // C++ TheInGameUI->update message/superweapon drains before postDraw.
             self.drain_logic_hud_messages();
+            apply_queued_weapon_recoils();
+            for drawable in self.drawable_map.values_mut() {
+                if let Some(basic) = drawable
+                    .as_any_mut()
+                    .downcast_mut::<crate::drawable::drawable::BasicDrawable>()
+                {
+                    basic.integrate_recoil_visual();
+                }
+            }
             self.sync_superweapon_strip_from_logic();
             let _ = self.draw_live_ingame_hud();
 
@@ -272,11 +285,30 @@ impl GameClient {
         // BasicDrawable::update consumes `flash_count` from `self.current_frame`;
         // leaving it at 0 makes `0 % 15 == 0` fire every tick.
         let frame = self.frame;
-        for drawable in self.drawable_map.values_mut() {
-            drawable.set_current_frame(frame);
-            drawable.update(delta_time);
-        }
+        self.tick_mapped_drawables(frame, delta_time);
         Ok(())
+    }
+
+    /// C++ `GameClient` drawable walk: stamp the client frame, `updateDrawable`,
+    /// then `destroyDrawable` when the expiration date is reached this frame.
+    fn tick_mapped_drawables(&mut self, frame: u32, delta_time: f32) {
+        let expired: Vec<DrawableId> = self
+            .drawable_map
+            .iter_mut()
+            .filter_map(|(&id, drawable)| {
+                drawable.set_current_frame(frame);
+                drawable.update(delta_time);
+                if drawable.is_expired(frame) {
+                    Some(id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for id in expired {
+            let _ = self.destroy_drawable(id);
+        }
+
     }
 
     /// Apply presentation-owned FOW shroud to bound drawables (no OBJECT_REGISTRY).
@@ -823,7 +855,7 @@ impl GameClient {
         drawable.set_presentation_health_box(e.health_box_width, e.health_box_z_offset);
         // Wave 1115: sold residual after host overlay stamp (C++ OBJECT_STATUS_SOLD).
         drawable.set_presentation_sold(e.sold);
-        Self::tick_presentation_specialized_draw_modules(e);
+        Self::tick_presentation_specialized_draw_modules(drawable, e);
         let visual = if e.visual_template_name.is_empty() {
             e.template_name.as_str()
         } else {
@@ -1580,10 +1612,7 @@ impl GameClient {
         let frame = self.frame;
         let local_player_index = self.local_player_id;
 
-        for drawable in self.drawable_map.values_mut() {
-            drawable.set_current_frame(frame);
-            drawable.update(delta_time);
-        }
+        self.tick_mapped_drawables(frame, delta_time);
 
         // Host/presentation path: Wave 1020/1021 peels catalog shroud onto drawable_map
         // when dual-world registry is empty (PresentationFrame apply_* still primary).
@@ -1592,10 +1621,7 @@ impl GameClient {
             let _ = frame;
             return Ok(());
         }
-
-        // C++ parity: GameClient.cpp lines 660-700 iterates drawables with shroud check.
-        // For each drawable bound to an object, check shroud status and set visibility
-        // before calling updateDrawable().
+        let mut expired_logic_drawables = Vec::new();
         self.iterate_objects_with_drawables(|obj_ref| {
             let Ok(mut obj) = obj_ref.write() else {
                 return;
@@ -1614,11 +1640,20 @@ impl GameClient {
                 if let Ok(mut drawable_guard) = drawable_arc.write() {
                     drawable_guard.set_fully_obscured_by_shroud(fully_obscured);
                     let _ = drawable_guard.update(delta_time, frame);
+                    let expiration = drawable_guard.expiration_date();
+                    if expiration != 0 && frame >= expiration {
+                        expired_logic_drawables.push(drawable_guard.get_drawable_id());
+                    }
                 }
             }
 
             let _ = (object_id, is_effectively_dead);
         })?;
+        if let Some(client) = TheGameClient::get() {
+            for id in expired_logic_drawables {
+                client.destroy_drawable(id);
+            }
+        }
         Ok(())
     }
 
@@ -1995,8 +2030,9 @@ impl GameClient {
                 manager.update(self.local_player_id as i32, TheGameLogic::get_frame());
             }
         }
-        crate::effects::update_tracer_fx(self.frame);
-        crate::effects::update_ray_effects(self.frame);
+        let logic_frame = TheGameLogic::get_frame();
+        crate::effects::update_tracer_fx(logic_frame);
+        crate::effects::update_ray_effects(logic_frame);
         Ok(())
     }
 

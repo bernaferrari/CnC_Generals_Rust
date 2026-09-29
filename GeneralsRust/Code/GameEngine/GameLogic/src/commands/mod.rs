@@ -91,7 +91,6 @@ pub use command_queue::{
 pub use command_processor::{
     AIManager, CommandExecutionContext, CommandExecutionResult, CommandExecutionStats,
     CommandHandler, CommandProcessor, GameObject, ObjectManager, PlayerManager,
-    get_command_processor,
 };
 
 // Additional command system constants and types
@@ -108,12 +107,9 @@ pub const COMMAND_PRIORITY_DEFERRED: i32 = 4;
 pub type CommandParams = command::CommandArgumentDataType;
 pub type CommandStatus = CommandExecutionResult;
 
-// Global command processor instance - matches C++ THE_COMMAND_PROCESSOR
-use once_cell::sync::Lazy;
-use std::sync::{Arc, Mutex};
-
-pub static THE_COMMAND_PROCESSOR: Lazy<Arc<Mutex<CommandProcessor>>> =
-    Lazy::new(|| Arc::new(Mutex::new(CommandProcessor::new())));
+// Command execution state lives on GameLogic::command_processor.
+// THE_COMMAND_PROCESSOR had no callers; do not add another process-global.
+use std::sync::Arc;
 
 pub use selection::{
     ControlGroup, MAX_CONTROL_GROUPS, MAX_SELECTION_SIZE, ObjectInfo, ObjectKind, ObjectLookup,
@@ -123,7 +119,7 @@ pub use selection::{
 
 pub use formation::{
     Formation, FormationManager, FormationMovementOrder, FormationObjectLookup, FormationPosition,
-    FormationSettings, FormationState, FormationTemplate, FormationType, get_formation_manager,
+    FormationSettings, FormationState, FormationTemplate, FormationType,
 };
 
 /// Initialize the command system - call this at game startup
@@ -165,17 +161,16 @@ pub fn initialize_command_system(max_players: i32) -> Result<(), String> {
         }
     }
 
-    // Initialize formation manager (no per-player setup needed)
-    let _formation_manager = get_formation_manager();
-
-    // Initialize command processor (no setup needed)
-    let _command_processor = get_command_processor();
+    // Formations and the command processor are owned by GameLogic.
 
     Ok(())
 }
 
 /// Update the command system each frame - call this every game frame
-pub fn update_command_system(current_frame: u32) -> Result<(), String> {
+pub fn update_command_system(
+    current_frame: u32,
+    formations: &mut FormationManager,
+) -> Result<(), String> {
     // Update selection manager
     {
         let selection_manager = get_selection_manager();
@@ -185,14 +180,7 @@ pub fn update_command_system(current_frame: u32) -> Result<(), String> {
         manager.update(current_frame);
     }
 
-    // Update formation manager
-    {
-        let formation_manager = get_formation_manager();
-        let mut manager = formation_manager
-            .write()
-            .map_err(|_| "Failed to lock formation manager")?;
-        manager.update(current_frame);
-    }
+    formations.update(current_frame);
 
     // Command processor update is handled separately per frame in main game loop
 
@@ -200,7 +188,10 @@ pub fn update_command_system(current_frame: u32) -> Result<(), String> {
 }
 
 /// Shutdown the command system - call this at game shutdown
-pub fn shutdown_command_system() {
+pub fn shutdown_command_system(
+    formations: &mut FormationManager,
+    processor: &mut CommandProcessor,
+) {
     // Clear all command queues
     if let Ok(_queue_manager) = get_command_queue_manager().lock() {
         // Queue manager will clean up automatically when dropped
@@ -211,16 +202,15 @@ pub fn shutdown_command_system() {
         // Selection manager will clean up automatically when dropped
     }
 
-    // Clear all formations
-    if let Ok(_formation_manager) = get_formation_manager().write() {
-        // Formation manager will clean up automatically when dropped
-    }
-
-    // Command processor cleans up automatically
+    *formations = FormationManager::new();
+    *processor = CommandProcessor::new();
 }
 
 /// Get command system statistics for debugging
-pub fn get_command_system_stats() -> CommandSystemStats {
+pub fn get_command_system_stats(
+    formations: &FormationManager,
+    processor: &CommandProcessor,
+) -> CommandSystemStats {
     let mut stats = CommandSystemStats::default();
 
     // Get queue statistics
@@ -228,16 +218,10 @@ pub fn get_command_system_stats() -> CommandSystemStats {
         stats.queue_stats = queue_manager.get_all_stats();
     }
 
-    // Get processor statistics
-    if let Ok(processor) = get_command_processor().lock() {
-        stats.execution_stats = processor.get_statistics().clone();
-        stats.average_frame_time = processor.get_average_frame_time();
-    }
+    stats.execution_stats = processor.get_statistics().clone();
+    stats.average_frame_time = processor.get_average_frame_time();
 
-    // Get formation statistics
-    if let Ok(formation_manager) = get_formation_manager().read() {
-        stats.active_formations = formation_manager.get_formation_count();
-    }
+    stats.active_formations = formations.get_formation_count();
 
     stats
 }
@@ -385,13 +369,9 @@ pub mod commands {
         objects: Vec<ObjectID>,
         formation_type: &str,
         player_id: Int,
+        formations: &mut FormationManager,
     ) -> Result<Option<u32>, String> {
-        let formation_manager = get_formation_manager();
-        let mut manager = formation_manager
-            .write()
-            .map_err(|_| "Failed to lock formation manager")?;
-
-        Ok(manager.create_formation(formation_type, objects, player_id))
+        Ok(formations.create_formation(formation_type, objects, player_id))
     }
 }
 
@@ -406,7 +386,7 @@ mod tests {
 
     #[test]
     fn test_command_system_stats() {
-        let stats = get_command_system_stats();
+        let stats = get_command_system_stats(&FormationManager::new(), &CommandProcessor::new());
         assert!(stats.queue_stats.len() <= crate::common::MAX_PLAYER_COUNT);
     }
 

@@ -66,8 +66,7 @@ pub use open_contain::{
     leftover_open_contain_arm_exit_door, leftover_open_contain_door_open_time,
     leftover_open_contain_open_exit_door, leftover_open_contain_resolved_door_open_time,
     leftover_open_contain_start_exit_door, leftover_open_contain_tick_exit_door,
-    leftover_open_contain_update_exit_doors, leftover_play_container_enter_sound,
-    leftover_play_container_exit_sound,
+    leftover_play_container_enter_sound, leftover_play_container_exit_sound,
 };
 pub use overlord_contain::{OverlordContain, OverlordContainModuleData};
 pub use parachute_contain::{ParachuteContain, ParachuteContainModuleData};

@@ -376,7 +376,9 @@ impl Object {
 
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable) = drawable.write() {
-                drawable.set_transform(self.get_transform_matrix());
+                let mut matrix = crate::drawable::Drawable::get_transform(&*drawable);
+                matrix.w_axis = glam::Vec4::new(position.x, position.y, position.z, 1.0);
+                drawable.set_transform(matrix);
             }
         }
         if moved {
@@ -752,10 +754,12 @@ impl Object {
         self.geometry_info.angle = angle;
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable) = drawable.write() {
-                let pos = self.geometry_info.position;
-                let matrix =
-                    Matrix3D::from_translation(pos) * Matrix3D::from_rotation_z(angle);
-                drawable.set_transform(matrix);
+                let current = crate::drawable::Drawable::get_transform(&*drawable);
+                if current.x_axis.z.abs() < 1.0e-4 {
+                    let pos = self.geometry_info.position;
+                    let matrix = Matrix3D::from_translation(pos) * Matrix3D::from_rotation_z(angle);
+                    drawable.set_transform(matrix);
+                }
             }
         }
         if (old - angle).abs() > 0.01 {

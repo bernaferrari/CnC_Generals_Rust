@@ -106,6 +106,14 @@ pub struct Weapon {
     caller_player: Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>>,
     pending_self_damage: Option<crate::damage::DamageInfo>,
 }
+fn goal_boundary_dist_sqr(goal: &Coord3D, source_radius: f32, target: &Coord3D, target_radius: f32) -> f32 {
+    let dx = goal.x - target.x;
+    let dy = goal.y - target.y;
+    let center = (dx * dx + dy * dy).sqrt();
+    let boundary = (center - source_radius - target_radius).max(0.0);
+    boundary * boundary
+}
+
 impl Weapon {
     pub fn new(template: Arc<WeaponTemplate>, weapon_slot: WeaponSlotType) -> Self {
         let min_pitch = template.min_target_pitch;
@@ -352,7 +360,7 @@ impl Weapon {
         let reload_frame_before = self.when_last_reload_started;
         let bonus = self.bonus_from_flags(held_flags);
         let _ = source;
-        if !self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)? {
+        if !self.private_fire_weapon(source, None, Some(position), &bonus, false, true, true)? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
         }
         if self.when_last_reload_started != reload_frame_before
@@ -396,7 +404,11 @@ impl Weapon {
         bonus: &WeaponBonus,
         inflict_damage: bool,
     ) -> Result<(), WeaponError> {
-        self.private_fire_weapon(source, target, position, bonus, true, false, inflict_damage)?;
+        let current_frame = TheGameLogic::get_frame();
+        if !self.private_fire_weapon(source, target, position, bonus, true, false, inflict_damage)?
+        {
+            let _ = self.apply_post_fire_state(source, current_frame, bonus);
+        }
         Ok(())
     }
 
@@ -460,7 +472,7 @@ impl Weapon {
             self.compute_bonus(source_id, internal_flags)
         };
 
-        if !self.private_fire_weapon(
+        let fired = self.private_fire_weapon(
             source_id,
             Some(target_id),
             None,
@@ -468,7 +480,8 @@ impl Weapon {
             false,
             false,
             true,
-        )? {
+        )?;
+        if !fired {
             return Ok(self.apply_post_fire_state(source_id, current_frame, &bonus));
         }
         if self.when_last_reload_started != reload_frame_before
@@ -584,6 +597,11 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> f32 {
+        // C++ Weapon.cpp:2376-2379 — reloading is fine; out of ammo with no
+        // autoreload estimates as zero.
+        if self.get_status() == WeaponStatus::OutOfAmmo && !self.template.get_auto_reloads_clip() {
+            return 0.0;
+        }
         let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
         self.template.estimate_weapon_template_damage(
             source_obj as crate::common::ObjectID,
@@ -739,6 +757,64 @@ impl Weapon {
         dist_sqr <= attack_range * attack_range
     }
 
+    /// C++ Weapon.cpp:2241. Quarter pathfind cell so the goal is not on the
+    /// edge of the firing range. Still no `-0.5` min fudge.
+    pub fn is_goal_pos_within_attack_range(
+        &self,
+        source_obj: ObjectId,
+        goal_pos: &Coord3D,
+        target_obj: Option<ObjectId>,
+        target_pos: Option<&Coord3D>,
+    ) -> bool {
+        if dual_world_registry_unavailable() {
+            return false;
+        }
+        const CELL_FUDGE: f32 = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F * 0.25;
+        let source_radius = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj, |guard| {
+                guard.get_geometry_info().get_bounding_circle_radius()
+            })
+            .unwrap_or(0.0);
+        let attack_range = (self.get_attack_range(source_obj) - CELL_FUDGE).max(0.0);
+        let min_range = self.template.get_minimum_attack_range() + CELL_FUDGE;
+        let dist_sqr = if let Some(target_id) = target_obj {
+            let Some((pos, radius, is_bridge)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |guard| {
+                    (
+                        *guard.get_position(),
+                        guard.get_geometry_info().get_bounding_circle_radius(),
+                        guard.is_kind_of(KindOf::Bridge),
+                    )
+                })
+            else {
+                return false;
+            };
+            if is_bridge {
+                let mut info = crate::terrain::BridgeAttackInfo::new();
+                if let Ok(guard) = crate::terrain::get_terrain_logic().try_read() {
+                    guard.get_bridge_attack_points(target_id, &mut info);
+                }
+                let d1 = goal_boundary_dist_sqr(goal_pos, source_radius, &info.attack_point1, 0.0);
+                if d1 <= attack_range * attack_range {
+                    d1
+                } else {
+                    goal_boundary_dist_sqr(goal_pos, source_radius, &info.attack_point2, 0.0)
+                }
+            } else {
+                goal_boundary_dist_sqr(goal_pos, source_radius, &pos, radius)
+            }
+        } else if let Some(pos) = target_pos {
+            goal_boundary_dist_sqr(goal_pos, source_radius, pos, 0.0)
+        } else {
+            return false;
+        };
+        if dist_sqr < min_range * min_range {
+            return false;
+        }
+        dist_sqr <= attack_range * attack_range
+    }
+
+
     /// Load ammo instantly (for newly created units)
     pub fn load_ammo_now(&mut self, source: ObjectId) -> GameLogicResult<()> {
         let bonus = self.compute_bonus(source, WeaponBonusConditionFlags::new());
@@ -830,7 +906,7 @@ impl Weapon {
 
     /// Get remaining ammunition
     pub fn get_remaining_ammo(&self) -> u32 {
-        match self.load_status() {
+        match self.get_status() {
             WeaponStatus::ReloadingClip => 0,
             _ => self.ammo_in_clip,
         }
@@ -1656,7 +1732,7 @@ impl Weapon {
         target_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
         is_projectile_detonation: bool,
-        _ignore_ranges: bool,
+        ignore_ranges: bool,
         inflict_damage: bool,
     ) -> Result<bool, WeaponError> {
         if self.template.get_request_assist_range() > 0.0 {
@@ -1674,13 +1750,17 @@ impl Weapon {
                 self.begin_assault_if_present(source_obj_id, target_obj_id);
             }
             DamageType::Disarm => {
+                // Spend the round here. Return true so callers do not run
+                // apply_post_fire_state (that would spend again and set
+                // BETWEEN_FIRING_SHOTS). The wrapper turns a still-ReadyToFire
+                // weapon into a public false, and a reload into true.
                 if let Some(victim) = target_obj_id {
                     self.disarm_target(source_obj_id, victim);
                 }
+                self.max_shot_count -= 1;
                 if self.ammo_in_clip > 0 {
                     self.ammo_in_clip -= 1;
                 }
-                self.max_shot_count -= 1;
                 if self.ammo_in_clip == 0 && self.template.get_auto_reloads_clip() {
                     let _ = self.reload_with_bonus(source_obj_id, bonus, false);
                 }
@@ -1689,8 +1769,9 @@ impl Weapon {
             DamageType::Hack => {}
             _ => {}
         }
-        // C++ Weapon.cpp:2570. Disarm already returned. Not-ready must not
-        // fall through into apply_post_fire_state and spend ammo.
+        // Not ready must not reach apply_post_fire_state. Callers treat false
+        // as "account the shot". Ok(true) skips that. The wrapper then returns
+        // false while the status is still not ReadyToFire.
         if self.get_status() != WeaponStatus::ReadyToFire {
             return Ok(true);
         }
@@ -1704,6 +1785,8 @@ impl Weapon {
         } else {
             return Err(WeaponError::InvalidTarget);
         };
+
+
 
 
 
@@ -1725,9 +1808,28 @@ impl Weapon {
             }
         }
 
-        if let Some(scattered) = self.take_scatter_target_pos(&target_position) {
+        let flight_position = target_position;
+        let target_layer = victim_id
+            .and_then(|id| TheGameLogic::find_object_by_id(id))
+            .and_then(|arc| arc.try_read().ok().map(|guard| guard.get_layer()))
+            .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+        let mut used_scatter_table = false;
+        if let Some(scattered) = self.take_scatter_target_pos(&target_position, target_layer) {
             victim_id = None;
             target_position = scattered;
+            used_scatter_table = true;
+        }
+        // C++ Weapon.cpp:849-886 runs inside fireWeaponTemplate, after the
+        // scatter-table offset. A 0 return still spends the shot (2617-2618).
+        let leech = self.template.leech_range_weapon || self.has_leech_range();
+        let out_of_range = (!ignore_ranges
+            && !leech
+            && !self.is_within_attack_range(source_obj_id, victim_id, Some(&target_position)))
+            || (!ignore_ranges
+                && !is_projectile_detonation
+                && self.is_too_close(source_obj_id, victim_id, Some(&target_position)));
+        if out_of_range {
+            return Ok(false);
         }
 
         if let Some(tid) = victim_id {
@@ -1745,8 +1847,14 @@ impl Weapon {
         let target_type = victim_id
             .map(|id| self.get_object_type(id))
             .unwrap_or(ObjectType::Unknown);
-        let (scattered_pos, rolled_scatter) = self.scatter_aim_point(target_position, target_type);
-        target_position = scattered_pos;
+        let rolled_scatter = if used_scatter_table {
+            0.0
+        } else {
+            let (scattered_pos, rolled_scatter) =
+                self.scatter_aim_point(target_position, target_type, target_layer);
+            target_position = scattered_pos;
+            rolled_scatter
+        };
 
         let mut damage_victim = victim_id;
         let mut laser_victim = victim_id;
@@ -1818,7 +1926,7 @@ impl Weapon {
                         source_obj_id,
                         &source_pos,
                         damage_victim,
-                        &target_position,
+                        &flight_position,
                         speed,
                         bonus,
                         inflict_damage,

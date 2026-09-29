@@ -1366,8 +1366,7 @@ impl ModuleExitInterface for ParkingPlaceBehavior {
             .unwrap_or(false)
             || spawner
                 .map(Self::object_template_is_produced_at_helipad)
-                .unwrap_or(false)
-            || self.parking_place_template_is_produced_at_helipad();
+                .unwrap_or(false);
         if produced_at_helipad {
             return ModuleExitDoorType::None;
         }

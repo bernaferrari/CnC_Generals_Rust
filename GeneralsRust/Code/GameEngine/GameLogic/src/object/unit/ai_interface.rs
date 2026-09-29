@@ -4,10 +4,15 @@
 
 use super::ai_core::UnitAIUpdate;
 use super::imports::*;
+use super::registry::get_unit_arc;
 
 impl AIUpdateInterface for UnitAIUpdate {
     fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
         UnitAIUpdate::xfer_ai_update_state(self, xfer)
+    }
+
+    fn load_post_process_path_cells(&mut self) {
+        UnitAIUpdate::load_post_process_path_cells(self);
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -351,6 +356,34 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn get_path_last_node(&self) -> Option<Coord3D> {
         UnitAIUpdate::get_path_last_node(self)
     }
+    fn installed_path_last_layer(&self) -> Option<u8> {
+        self.installed_path_layers.last().copied()
+    }
+    fn get_retry_path(&self) -> bool {
+        self.retry_path
+    }
+    fn set_locomotor_goal_position_on_path(&mut self) {
+        self.locomotor_goal_type = 1;
+        self.locomotor_goal_data = Coord3D::ZERO;
+    }
+    fn get_adjusts_destination(&self) -> bool {
+        if !self.is_allowed_to_adjust_destination() {
+            return false;
+        }
+        let Some(unit) = get_unit_arc(self.unit_id) else {
+            return true;
+        };
+        let Ok(guard) = unit.read() else {
+            return true;
+        };
+        let Some(base) = guard.get_base_object() else {
+            return true;
+        };
+        let Ok(obj) = base.read() else {
+            return true;
+        };
+        !obj.test_status(crate::common::ObjectStatusTypes::Parachuting)
+    }
 
     fn has_nonempty_path(&self) -> bool {
         UnitAIUpdate::has_nonempty_path(self)
@@ -581,6 +614,10 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn set_locomotor_goal_none(&mut self) {
         UnitAIUpdate::set_locomotor_goal_none(self)
+    }
+
+    fn remove_pathfinder_goal(&mut self) {
+        UnitAIUpdate::remove_stored_pathfinder_goal(self);
     }
 
     fn set_locomotor_goal_orientation(&mut self, angle: Real) {

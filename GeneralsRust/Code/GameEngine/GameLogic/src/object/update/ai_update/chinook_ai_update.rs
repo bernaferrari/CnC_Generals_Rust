@@ -1016,7 +1016,7 @@ impl ChinookAIUpdate {
 
             if now >= rope.next_drop_time {
                 if let Some(rappeller) = self.get_potential_rappeller() {
-                    if let Ok(rappeller_guard) = rappeller.read() {
+                    let prepared = rappeller.read().ok().map(|rappeller_guard| {
                         let exit_interface = owner_guard.get_object_exit_interface();
                         let exit_door = exit_interface
                             .as_ref()
@@ -1029,14 +1029,13 @@ impl ChinookAIUpdate {
                                 })
                             })
                             .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE);
-
+                        (exit_interface, exit_door, rappeller_guard.get_id())
+                    });
+                    if let Some((exit_interface, exit_door, rappeller_id)) = prepared {
                         if exit_door != crate::modules::DOOR_NONE_AVAILABLE {
                             if let Some(exit) = exit_interface {
                                 let _ = exit.lock().ok().map(|mut guard| {
-                                    guard.exit_object_via_door(
-                                        rappeller.read().map(|g| g.get_id()).unwrap_or(0),
-                                        exit_door,
-                                    )
+                                    guard.exit_object_via_door(rappeller_id, exit_door)
                                 });
                             }
                         }

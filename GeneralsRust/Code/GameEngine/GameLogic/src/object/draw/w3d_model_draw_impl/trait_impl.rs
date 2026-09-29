@@ -206,12 +206,15 @@ impl ObjectDrawInterface for W3DModelDraw {
         bounding_sphere_radius: &mut Real,
         transform: &mut Matrix3D,
     ) -> bool {
-        let Some((radius, world_transform)) = self.with_owner_drawable(|drawable| {
-            (
-                drawable.get_bounding_sphere_radius(),
-                drawable.get_transform_matrix(),
-            )
-        }) else {
+        if self
+            .current_state()
+            .is_none_or(|state| state.model_name.as_str().is_empty())
+        {
+            return false;
+        }
+        let Some(world_transform) = self
+            .with_owner_drawable(|drawable| drawable.get_transform_matrix())
+        else {
             return false;
         };
 
@@ -226,21 +229,55 @@ impl ObjectDrawInterface for W3DModelDraw {
         }
         let adjusted = self.adjust_transform_mtx(&source);
         *pos = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
-        *bounding_sphere_radius = radius;
+        *bounding_sphere_radius = self
+            .current_state()
+            .and_then(|state| lookup_model_obj_bounds(state.model_name.as_str()))
+            .map(|(_, extent)| {
+                (extent[0] * extent[0] + extent[1] * extent[1] + extent[2] * extent[2]).sqrt()
+            })
+            .unwrap_or(0.0);
         *transform = adjusted;
         true
     }
 
     fn client_only_get_render_obj_bound_box(&self, boundbox: &mut BoundingBox) -> bool {
-        let Some((min, max)) = self.with_owner_drawable(|drawable| {
-            let world_box = drawable.get_bounding_box();
-            (world_box.min, world_box.max)
+        let Some(model) = self.current_state().and_then(|state| {
+            let name = state.model_name.as_str();
+            if name.is_empty() {
+                None
+            } else {
+                Some(name.to_string())
+            }
         }) else {
             return false;
         };
-        boundbox.center = (min + max) * 0.5;
-        boundbox.extents = (max - min) * 0.5;
-        boundbox.rotation = Matrix3D::IDENTITY;
+        let Some((center, extent)) = lookup_model_obj_bounds(&model) else {
+            return false;
+        };
+        let Some(world_transform) = self.with_owner_drawable(|drawable| {
+            let mut source = drawable.get_transform_matrix();
+            let scale = drawable.get_instance_scale();
+            if scale.is_finite() && scale != 1.0 {
+                source.x_axis *= scale;
+                source.y_axis *= scale;
+                source.z_axis *= scale;
+            }
+            source
+        }) else {
+            return false;
+        };
+        let adjusted = self.adjust_transform_mtx(&world_transform);
+        let local = Coord3D::new(center[0], center[1], center[2]);
+        let rotated = adjusted.transform_vector3(local);
+        boundbox.center = Coord3D::new(
+            adjusted.w_axis.x + rotated.x,
+            adjusted.w_axis.y + rotated.y,
+            adjusted.w_axis.z + rotated.z,
+        );
+        boundbox.extents = Coord3D::new(extent[0], extent[1], extent[2]);
+        let mut rotation = adjusted;
+        rotation.w_axis = glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
+        boundbox.rotation = rotation;
         true
     }
 
@@ -249,9 +286,25 @@ impl ObjectDrawInterface for W3DModelDraw {
         bone_name: &AsciiString,
         transform: &mut Matrix3D,
     ) -> bool {
+        // C++ returns false on a null render object and does not write.
+        let Some(state) = self.current_state() else {
+            return false;
+        };
+        if state.model_name.as_str().is_empty() {
+            return false;
+        }
+        let bone_index = state
+            .find_pristine_bone_by_name(bone_name.as_str())
+            .map(|(_, bone)| bone.bone_index)
+            .unwrap_or(0);
+        if bone_index == 0 {
+            *transform = Matrix3D::IDENTITY;
+            return false;
+        }
         let Some(world_bone) =
             self.with_owner_drawable(|drawable| drawable.get_bone_transform(bone_name.as_str()))
         else {
+            *transform = Matrix3D::IDENTITY;
             return false;
         };
 
@@ -273,51 +326,44 @@ impl ObjectDrawInterface for W3DModelDraw {
         transforms: &mut [Matrix3D],
         max_bones: usize,
     ) -> usize {
+        // C++ W3DModelDraw.cpp:3379-3485. Walk the prefix, or prefix01..prefix99,
+        // and stop at the first missing name. A later bone does not fill the gap.
+        // The miss writes a fallback matrix that is not counted.
+        const MAX_BONE_GET: usize = 64;
         let Some(state) = self.data.find_best_info(condition) else {
             return 0;
         };
 
-        let mut matches: Vec<(i32, &PristineBoneInfo)> = Vec::new();
-
-        for (key, info) in &state.pristine_bones {
-            let Some(name) = NameKeyGenerator::key_to_name(*key) else {
-                continue;
-            };
-
-            if start_index == 0 {
-                if name == bone_name_prefix {
-                    matches.push((0, info));
-                }
-                continue;
-            }
-
-            if !name.starts_with(bone_name_prefix) {
-                continue;
-            }
-
-            let suffix = &name[bone_name_prefix.len()..];
-            if suffix.is_empty() || !suffix.chars().all(|c| c.is_ascii_digit()) {
-                continue;
-            }
-
-            if let Ok(index) = suffix.parse::<i32>() {
-                if index >= start_index {
-                    matches.push((index, info));
-                }
-            }
+        let limit = max_bones
+            .min(positions.len())
+            .min(transforms.len())
+            .min(MAX_BONE_GET);
+        if limit == 0 {
+            return 0;
         }
 
-        matches.sort_by_key(|(index, _)| *index);
-
-        let limit = max_bones.min(positions.len()).min(transforms.len());
+        let start = start_index.max(0);
+        let end_index = if start == 0 { 0 } else { 99 };
+        let prefix = bone_name_prefix.to_ascii_lowercase();
         let mut count = 0usize;
-        for (_, info) in matches.into_iter().take(limit) {
+        for idx in start..=end_index {
+            if count >= limit {
+                break;
+            }
+            let bone_name = if idx == 0 {
+                prefix.clone()
+            } else {
+                format!("{prefix}{idx:02}")
+            };
+            let key = NameKeyGenerator::name_to_key(&bone_name);
+            let Some(info) = state.pristine_bones.get(&key) else {
+                break;
+            };
             transforms[count] = info.transform;
             let (_, _, translation) = info.transform.to_scale_rotation_translation();
             positions[count] = translation;
             count += 1;
         }
-
         count
     }
 
@@ -577,6 +623,9 @@ impl ObjectDrawInterface for W3DModelDraw {
             self.weapon_recoil_info[weapon_slot][selected_barrel].state = RecoilState::RecoilStart;
             self.weapon_recoil_info[weapon_slot][selected_barrel].recoil_rate =
                 self.data.initial_recoil;
+            if barrel_info.muzzle_flash_bone != 0 {
+                self.set_muzzle_flash_hidden(weapon_slot, selected_barrel, false);
+            }
         }
 
 

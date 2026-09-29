@@ -252,6 +252,15 @@ impl W3DTankTruckDraw {
         self.base.owner_id()
     }
 
+    pub fn tick_live_host_dust(
+        &mut self,
+        template_name: &str,
+        physics: TruckDrawLivePhysics,
+        hidden: bool,
+    ) {
+        self.base.tick_live_host(template_name, physics, hidden);
+    }
+
     pub fn set_animation_loop_duration(&mut self, num_frames: u32) {
         self.base.set_animation_loop_duration(num_frames);
     }

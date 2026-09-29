@@ -10,7 +10,7 @@ use crate::helpers::TheParticleSystemManager;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
-use glam::Vec4;
+
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -182,25 +182,9 @@ impl W3DProjectileDraw {
             return;
         }
 
-        // Orient model to face velocity direction
         let forward = self.current_velocity.normalize();
-        let mut up = Coord3D::new(0.0, 0.0, 1.0);
-        let mut right = forward.cross(up);
-        if right.length() < 0.001 {
-            up = Coord3D::new(0.0, 1.0, 0.0);
-            right = forward.cross(up);
-        }
-        let right = right.normalize();
-        let corrected_up = right.cross(forward);
-
-        // Build rotation matrix from basis vectors
-        let translation = transform.w_axis;
-        *transform = Matrix3D::from_cols(
-            Vec4::new(right.x, right.y, right.z, 0.0),
-            Vec4::new(corrected_up.x, corrected_up.y, corrected_up.z, 0.0),
-            Vec4::new(forward.x, forward.y, forward.z, 0.0),
-            Vec4::new(translation.x, translation.y, translation.z, 1.0),
-        );
+        let translation = transform.w_axis.truncate();
+        *transform = crate::common::build_transform_matrix(translation, forward);
     }
 
     fn spawn_trail_particle(&mut self, transform: &Matrix3D) {

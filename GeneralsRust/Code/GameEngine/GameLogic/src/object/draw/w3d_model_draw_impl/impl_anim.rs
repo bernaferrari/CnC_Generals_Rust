@@ -73,9 +73,66 @@ impl W3DModelDraw {
         // overrides stay in sub_object_vec and win in updateSubObjects.
         self.sub_objects_dirty = true;
         self.rebuild_weapon_recoil_info(Some(new_state_ref));
+        // nukeCurrentRender only when there is no render object, the model
+        // name changes, or turret bone names differ (W3DModelDraw.cpp:2990).
+        let replace_render = match prev_state {
+            None => true,
+            Some(prev) => {
+                let prev_info = self.resolve_state(prev);
+                let next_info = self.resolve_state(new_state_ref);
+                let model_changed = prev_info.map(|state| state.model_name.as_str())
+                    != next_info.map(|state| state.model_name.as_str());
+                let turrets_differ = match (prev_info, next_info) {
+                    (Some(a), Some(b))
+                        if a.turrets_are_valid() && b.turrets_are_valid() =>
+                    {
+                        let key = |state: &ModelConditionInfo, index: usize| {
+                            state.turrets.get(index).map(|turret| {
+                                (turret.turret_angle_name_key, turret.turret_pitch_name_key)
+                            })
+                        };
+                        (0..2).any(|index| key(a, index) != key(b, index))
+                    }
+                    _ => true,
+                };
+                model_changed || turrets_differ
+            }
+        };
+        if replace_render {
+            self.pause_animation = false;
+        }
 
         self.cur_state = Some(new_state_ref);
         self.hide_all_muzzle_flashes();
+        // setModelState only overwrites meshes named in the new HideShowVec
+        // and m_subObjectVec. An unlisted clip mesh stays hidden.
+        let mut overwritten: Vec<String> = self
+            .resolve_state(new_state_ref)
+            .map(|state| {
+                state
+                    .hide_show_list
+                    .iter()
+                    .map(|entry| entry.sub_obj_name.as_str().to_ascii_lowercase())
+                    .filter(|name| !name.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        overwritten.extend(
+            self.sub_object_vec
+                .iter()
+                .map(|entry| entry.sub_obj_name.as_str().to_ascii_lowercase())
+                .filter(|name| !name.is_empty()),
+        );
+        for hides in &mut self.projectile_clip_hides {
+            hides.retain(|entry| {
+                let name = entry.sub_obj_name.as_str().to_ascii_lowercase();
+                !overwritten.iter().any(|kept| kept == &name)
+            });
+        }
+        self.unsaved_subobject_hides.retain(|entry| {
+            let name = entry.sub_obj_name.as_str().to_ascii_lowercase();
+            !overwritten.iter().any(|kept| kept == &name)
+        });
 
         self.next_state = pending_next_state;
         self.next_state_anim_loop_duration = NO_NEXT_DURATION;
@@ -140,7 +197,9 @@ impl W3DModelDraw {
             0
         };
 
-        if test_flag_bit(cur_state.flags, ACBIT_RANDOMSTART) {
+        if test_flag_bit(cur_state.flags, ACBIT_RANDOMSTART)
+            && !cur_state.model_name.as_str().is_empty()
+        {
             start_frame = game_client_random_value(0, total_frames - 1);
         } else if test_flag_bit(cur_state.flags, ACBIT_START_FRAME_FIRST) {
             start_frame = 0;
@@ -165,15 +224,13 @@ impl W3DModelDraw {
 
         self.current_anim_num_frames = total_frames.max(1);
         self.current_anim_frame = start_frame.clamp(0, self.current_anim_num_frames - 1);
-        self.current_anim_speed_factor =
-            if cur_state.anim_min_speed_factor <= cur_state.anim_max_speed_factor {
-                game_client_random_value_real(
-                    cur_state.anim_min_speed_factor,
-                    cur_state.anim_max_speed_factor,
-                )
-            } else {
-                1.0
-            };
+        if !cur_state.model_name.as_str().is_empty() {
+            // C++ always calls GameClientRandomValueReal, including when min > max.
+            self.current_anim_speed_factor = game_client_random_value_real(
+                cur_state.anim_min_speed_factor,
+                cur_state.anim_max_speed_factor,
+            );
+        }
         self.anim_frame_accumulator = 0.0;
         self.anim_direction = 1;
         self.current_anim_complete = false;
@@ -296,9 +353,10 @@ impl W3DModelDraw {
                 let Some(recoils) = self.weapon_recoil_info.get_mut(wslot) else {
                     continue;
                 };
-                // C++ only integrates shift when the recoil bone exists. A flash-only
-                // barrel stays RECOIL_START, so the flash remains visible.
+                // C++ W3DModelDraw.cpp:2541-2544. No recoil bone forces IDLE,
+                // so a flash-only barrel hides on the next frame.
                 if barrels[i].recoil_bone == 0 {
+                    recoils[i].state = RecoilState::Idle;
                     continue;
                 }
 

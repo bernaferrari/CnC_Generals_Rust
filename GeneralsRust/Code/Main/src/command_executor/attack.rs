@@ -183,7 +183,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.is_alive() || unit.contained_by.is_some() {
+            if unit.contained_by.is_some() || unit.status.disabled_held {
                 continue;
             }
             let p = unit.get_position();
@@ -253,6 +253,12 @@ impl<'a> CommandExecutor<'a> {
             };
             if ok {
                 any_attacker = true;
+                continue;
+            }
+            let has_ai = self.game_logic.host_object(unit_id).is_some_and(|u| {
+                u.is_mobile() || u.can_attack()
+            });
+            if !has_ai {
                 continue;
             }
             if let Some(u) = self.game_logic.host_object_mut(unit_id) {
@@ -347,9 +353,6 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.is_alive() {
-                continue;
-            }
             // Collect fire-capable passengers (garrison residual).
             // C++ TransportContain::isPassengerAllowedToFire — infantry only.
             if unit.passengers_allowed_to_fire {
@@ -387,7 +390,7 @@ impl<'a> CommandExecutor<'a> {
                     loc
                 }
                 None => match self.game_logic.host_object(unit_id) {
-                    Some(u) if u.is_alive() => u.get_position(),
+                    Some(u) => u.get_position(),
                     _ => continue,
                 },
             };
@@ -407,14 +410,21 @@ impl<'a> CommandExecutor<'a> {
                 }
             }
 
-            if self
-                .game_logic
-                .unit_command_attack_ground_ex(unit_id, attack_pos, max_shots)
+            let has_ai = self.game_logic.host_object(unit_id).is_some_and(|unit| {
+                unit.is_mobile() || unit.can_attack()
+            });
+            if has_ai
+                && self
+                    .game_logic
+                    .unit_command_attack_ground_ex(unit_id, attack_pos, max_shots)
             {
                 any = true;
             }
             // Face/path residual: movable units approach the ground point if far.
-            let need_approach = self.game_logic.host_object(unit_id).and_then(|unit| {
+            let need_approach = if !has_ai {
+                None
+            } else {
+                self.game_logic.host_object(unit_id).and_then(|unit| {
                 if !unit.can_move() {
                     return None;
                 }
@@ -426,7 +436,8 @@ impl<'a> CommandExecutor<'a> {
                 } else {
                     None
                 }
-            });
+                })
+            };
             if let Some(dest) = need_approach {
                 let _ = self.path_to_goal_with_state(unit_id, dest, AIState::AttackingGround);
             }
@@ -465,8 +476,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(uid) else {
                 continue;
             };
-            let has_ai = unit.can_move()
-                && !(unit.is_kind_of(KindOf::Immobile) || unit.is_kind_of(KindOf::Structure));
+            let has_ai = unit.is_mobile() || unit.can_attack();
             if !has_ai {
                 extra_stop.extend(unit.contained_units());
             }
@@ -474,10 +484,15 @@ impl<'a> CommandExecutor<'a> {
                 hive_ids.push(uid);
             }
         }
-        self.apply_player_stealth_mood_delay(units);
         for &unit_id in units {
-            let _ = self.game_logic.unit_command_stop(unit_id);
+            let has_ai = self.game_logic.host_object(unit_id).is_some_and(|unit| {
+                unit.is_mobile() || unit.can_attack()
+            });
+            if has_ai {
+                let _ = self.game_logic.unit_command_stop(unit_id);
+            }
         }
+        self.apply_player_stealth_mood_delay(units);
         for p in extra_stop {
             let _ = self.game_logic.unit_command_stop(p);
         }

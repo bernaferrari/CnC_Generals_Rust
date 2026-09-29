@@ -18,6 +18,7 @@ pub struct W3DModelDraw {
     hex_color: i32,
 
 
+
     /// Index of currently playing animation in current state
     which_anim_in_cur_state: i32,
 
@@ -216,6 +217,10 @@ impl W3DModelDraw {
         if !self.data.ok_to_change_model_color {
             return;
         }
+        // C++ returns before the store when getRenderObject() is null.
+        if self.cur_state.is_none() {
+            return;
+        }
         let new_color = if color == 0 { 0 } else { color | 0xFF00_0000u32 as i32 };
         if new_color == self.hex_color {
             return;
@@ -252,6 +257,10 @@ impl W3DModelDraw {
 
     pub fn fully_obscured_by_shroud(&self) -> bool {
         self.fully_obscured_by_shroud
+    }
+
+    pub fn last_model_conditions(&self) -> ModelConditionFlags {
+        self.last_model_conditions
     }
 
     /// C++ `isAnimationComplete` / `W3DModelDraw` cur-anim finished.
@@ -351,6 +360,9 @@ impl W3DModelDraw {
         let Some(state) = self.current_state() else {
             return -1.0;
         };
+        if state.model_name.as_str().is_empty() {
+            return -1.0;
+        }
         if !is_any_maintain_frame_flag_set(state.flags) {
             return -1.0;
         }
@@ -510,28 +522,60 @@ impl W3DModelDraw {
         if bone_name.is_empty() {
             return None;
         }
-        if !model.is_empty() {
-            if let Some((_, mtx)) = lookup_pristine_bone(model, scale, frame, bone_name) {
-                return Some(mtx);
-            }
-            let lower = bone_name.to_ascii_lowercase();
-            if lower != bone_name {
-                if let Some((_, mtx)) = lookup_pristine_bone(model, scale, frame, &lower) {
-                    return Some(mtx);
-                }
-            }
-        }
-        self.current_state().and_then(|state| {
-            state
-                .find_pristine_bone_by_name(bone_name)
-                .map(|(_, info)| info.transform)
+        let bind = if !model.is_empty() {
+            lookup_pristine_bone(model, scale, frame, bone_name)
                 .or_else(|| {
                     let lower = bone_name.to_ascii_lowercase();
                     (lower != bone_name)
-                        .then(|| state.find_pristine_bone_by_name(&lower).map(|(_, info)| info.transform))
+                        .then(|| lookup_pristine_bone(model, scale, frame, &lower))
                         .flatten()
                 })
-        })
+                .map(|(_, mtx)| mtx)
+        } else {
+            None
+        };
+        let bind = bind.or_else(|| {
+            self.current_state().and_then(|state| {
+                state
+                    .find_pristine_bone_by_name(bone_name)
+                    .map(|(_, info)| info.transform)
+                    .or_else(|| {
+                        let lower = bone_name.to_ascii_lowercase();
+                        (lower != bone_name)
+                            .then(|| {
+                                state
+                                    .find_pristine_bone_by_name(&lower)
+                                    .map(|(_, info)| info.transform)
+                            })
+                            .flatten()
+                    })
+            })
+        })?;
+        Some(self.captured_bone_or_bind(bone_name, bind))
+    }
+
+    /// C++ `PivotClass::Capture_Update` post-multiplies the control onto the
+    /// posed bone. Turret and recoil controls are local.
+    fn captured_bone_or_bind(&self, bone_name: &str, bind: Matrix3D) -> Matrix3D {
+        let Some(index) = self.current_state().and_then(|state| {
+            state
+                .find_pristine_bone_by_name(bone_name)
+                .or_else(|| {
+                    let lower = bone_name.to_ascii_lowercase();
+                    state.find_pristine_bone_by_name(&lower)
+                })
+                .map(|(_, info)| info.bone_index)
+        }) else {
+            return bind;
+        };
+        if index == 0 {
+            return bind;
+        }
+        self.collect_bone_overrides()
+            .into_iter()
+            .find(|entry| entry.bone_index == index)
+            .map(|entry| bind * entry.transform)
+            .unwrap_or(bind)
     }
 
 
@@ -614,7 +658,8 @@ impl W3DModelDraw {
             return;
         };
 
-        self.stop_client_particle_systems();
+        // C++ does not stop here. setModelState already stopped the old systems.
+        // Recalc only creates and appends.
 
         let hidden = self.particle_hidden();
         for info in particle_sys_bones.iter() {
@@ -663,11 +708,15 @@ impl W3DModelDraw {
         let Some((_, _, drawable)) = self.owner_drawable_handles() else {
             return true;
         };
-        if self.current_state().is_none() {
+        if self.current_state().is_none()
+            || self
+                .current_state()
+                .is_some_and(|state| state.model_name.as_str().is_empty())
+        {
             return true;
         }
 
-        self.recalc_bones_for_client_particle_systems();
+
 
         let Ok(drawable_guard) = drawable.read() else {
             return true;
@@ -762,14 +811,18 @@ impl W3DModelDraw {
             return;
         }
         let hide = !show;
-        if let Some(entry) = self.sub_object_vec.iter_mut().find(|entry| {
-            entry
+        let mut found = false;
+        for entry in &mut self.sub_object_vec {
+            if entry
                 .sub_obj_name
                 .as_str()
                 .eq_ignore_ascii_case(&normalized_name)
-        }) {
-            entry.hide = hide;
-        } else {
+            {
+                entry.hide = hide;
+                found = true;
+            }
+        }
+        if !found {
             self.sub_object_vec.push(HideShowSubObjInfo {
                 sub_obj_name: AsciiString::from(normalized_name.as_str()),
                 hide,
@@ -818,7 +871,25 @@ impl W3DModelDraw {
     }
 
     fn hide_all_headlights(&mut self) {
+        // C++ scans every render sub-object for HEADLIGHT and Set_Hidden.
+        // Those names are not pushed into m_subObjectVec, so they are not saved.
         let hide = self.hide_headlights;
+        self.unsaved_subobject_hides
+            .retain(|entry| !entry.sub_obj_name.as_str().contains("HEADLIGHT"));
+        let model = self
+            .current_state()
+            .map(|state| state.model_name.as_str().to_string())
+            .unwrap_or_default();
+        if hide && !model.is_empty() {
+            for name in lookup_sub_object_names(&model) {
+                if name.contains("HEADLIGHT") {
+                    self.unsaved_subobject_hides.push(HideShowSubObjInfo {
+                        sub_obj_name: AsciiString::from(name.as_str()),
+                        hide: true,
+                    });
+                }
+            }
+        }
         for entry in &mut self.sub_object_vec {
             if entry.sub_obj_name.as_str().contains("HEADLIGHT") {
                 entry.hide = hide;

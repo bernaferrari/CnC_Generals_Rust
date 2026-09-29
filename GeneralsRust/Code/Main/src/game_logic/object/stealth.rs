@@ -776,7 +776,6 @@ impl Object {
             return false;
         }
 
-        let target_is_air = target.is_kind_of(KindOf::Aircraft) || target.status.airborne_target;
         // C++ DAMAGE_DISARM estimate residual: only mines/demo/booby are valid.
         {
             let wname = slot.and_then(|weapon_slot| self.weapon_name_for_slot(weapon_slot));
@@ -790,20 +789,11 @@ impl Object {
             }
         }
 
-        // C++ parity (Weapon::isWithinAttackRange): check both minimum
-        // and maximum attack range. Ground targets use horizontal (XZ)
-        // distance so terrain height does not permanently block fire after
-        // a successful march into range.
-        let distance = if target_is_air {
-            self.thing.get_distance_to(&target.thing)
-        } else {
-            let a = self.get_position();
-            let b = target.get_position();
-            let dx = a.x - b.x;
-            let dz = a.z - b.z;
-            (dx * dx + dz * dz).sqrt()
-        };
-        if weapon.min_range > 0.0 && distance < weapon.min_range {
+        // C++ ATTACK_RANGE_IS_2D: FROM_BOUNDINGSPHERE_2D for air and ground.
+        let distance = self.distance_to_object(target);
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let min_r = (weapon.min_range - under).max(0.0);
+        if min_r > 0.0 && distance < min_r {
             return false;
         }
         // C++ Weapon::hasLeechRange residual: once activated, max range waived
@@ -820,7 +810,7 @@ impl Object {
             return true;
         }
         // SearchAndDestroy residual: BATTLEPLAN_SEARCHANDDESTROY RANGE 120%.
-        let max_range = self.effective_weapon_range(weapon.range);
+        let max_range = (self.effective_weapon_range(weapon.range) - under).max(0.0);
         distance <= max_range
     }
 

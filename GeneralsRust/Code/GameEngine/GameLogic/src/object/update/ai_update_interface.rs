@@ -1139,7 +1139,7 @@ impl AIUpdateInterface {
                 let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
                     return false;
                 };
-                weapon.is_source_object_with_goal_position_within_attack_range(
+                weapon.is_goal_pos_within_attack_range(
                     owner_guard.get_id(),
                     &goal,
                     victim_id,
@@ -2832,6 +2832,12 @@ impl Snapshotable for AIUpdateInterfaceModule {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        if let Some(runtime_ai) = &self.runtime_ai {
+            let mut guard = runtime_ai
+                .lock()
+                .map_err(|_| "AIUpdate runtime lock poisoned during load post process".to_string())?;
+            guard.load_post_process_path_cells();
+        }
         Ok(())
     }
 }

@@ -195,6 +195,8 @@ pub struct WgpuIndexBuffer {
     index_count: u32,
     /// Index format
     index_format: wgpu::IndexFormat,
+    /// DX8 `IndexBufferClass::Type`: 0 DX8, 1 sorting, 2 dynamic DX8, 3 dynamic sorting.
+    buffer_type: u32,
     /// Reference count
     ref_count: std::sync::atomic::AtomicU32,
 }
@@ -232,6 +234,7 @@ impl WgpuIndexBuffer {
             size,
             index_count,
             index_format,
+            buffer_type: 0,
             ref_count: std::sync::atomic::AtomicU32::new(1),
         })
     }
@@ -272,6 +275,7 @@ impl WgpuIndexBuffer {
             size,
             index_count,
             index_format,
+            buffer_type: 0,
             ref_count: std::sync::atomic::AtomicU32::new(1),
         })
     }
@@ -294,6 +298,16 @@ impl WgpuIndexBuffer {
     /// Get index format
     pub fn index_format(&self) -> wgpu::IndexFormat {
         self.index_format
+    }
+
+    /// C++ `IndexBufferClass::Type`.
+    pub fn buffer_type(&self) -> u32 {
+        self.buffer_type
+    }
+
+    /// Mark this buffer sorting (1) or dynamic-sorting (3) before bind.
+    pub fn set_buffer_type(&mut self, buffer_type: u32) {
+        self.buffer_type = buffer_type;
     }
 
     /// Update buffer data
@@ -346,6 +360,7 @@ impl Clone for WgpuIndexBuffer {
             size: self.size,
             index_count: self.index_count,
             index_format: self.index_format,
+            buffer_type: self.buffer_type,
             ref_count: std::sync::atomic::AtomicU32::new(
                 self.ref_count.load(std::sync::atomic::Ordering::Relaxed),
             ),
@@ -360,6 +375,7 @@ impl PartialEq for WgpuIndexBuffer {
             && self.size == other.size
             && self.index_count == other.index_count
             && self.index_format == other.index_format
+            && self.buffer_type == other.buffer_type
     }
 }
 
@@ -455,6 +471,8 @@ pub struct DynamicIndexBufferAccess {
     buffer: Option<WgpuIndexBuffer>,
     /// Current offset in indices
     offset: u32,
+    /// C++ `DynamicIBAccessClass::Get_Type`. `4` is invalid until a buffer is set.
+    buffer_type: u32,
 }
 
 impl DynamicIndexBufferAccess {
@@ -463,13 +481,20 @@ impl DynamicIndexBufferAccess {
         Self {
             buffer: None,
             offset: 0,
+            buffer_type: 4,
         }
     }
 
     /// Set index buffer
     pub fn set_buffer(&mut self, buffer: WgpuIndexBuffer, offset: u32) {
+        self.buffer_type = buffer.buffer_type();
         self.buffer = Some(buffer);
         self.offset = offset;
+    }
+
+    /// C++ `DynamicIBAccessClass::Get_Type`.
+    pub fn get_type(&self) -> u32 {
+        self.buffer_type
     }
 
     /// Get index buffer
@@ -486,6 +511,7 @@ impl DynamicIndexBufferAccess {
     pub fn reset(&mut self) {
         self.buffer = None;
         self.offset = 0;
+        self.buffer_type = 4;
     }
 }
 

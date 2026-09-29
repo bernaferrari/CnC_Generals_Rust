@@ -353,13 +353,15 @@ impl GameLogic {
 
     /// C++ OpenContain::update door countdown → DOOR_1_CLOSING.
     pub(in crate::game_logic) fn update_open_contain_exit_doors(&mut self) {
-        let pulses =
-            gamelogic::object::contain::open_contain::leftover_open_contain_update_exit_doors();
-        for (id, pulse) in pulses {
-            if let Some(obj) = self.objects.get_mut(&ObjectId(id)) {
-                obj.door_close_countdown = pulse.countdown;
-                apply_leftover_open_contain_door_pulse(obj, pulse);
+        for obj in self.objects.values_mut() {
+            if obj.door_close_countdown == 0 {
+                continue;
             }
+            let pulse = gamelogic::object::contain::open_contain::leftover_open_contain_tick_exit_door(
+                obj.door_close_countdown,
+            );
+            obj.door_close_countdown = pulse.countdown;
+            apply_leftover_open_contain_door_pulse(obj, pulse);
         }
     }
 
@@ -877,7 +879,6 @@ impl GameLogic {
             );
             let pulse =
                 gamelogic::object::contain::open_contain::leftover_open_contain_arm_exit_door(
-                    container_id.0,
                     time,
                 );
             if let Some(container) = self.objects.get_mut(&container_id) {

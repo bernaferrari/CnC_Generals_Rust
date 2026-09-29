@@ -1152,8 +1152,100 @@ impl Object {
     }
 
     pub fn is_able_to_attack(&self) -> bool {
-        // Check if object can attack
-        self.has_any_weapon()
+        // C++ Object.cpp:3153-3307.
+        if self.test_status(ObjectStatusTypes::NoAttack) {
+            return false;
+        }
+        if let Some(container_id) = self.get_contained_by() {
+            if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id) {
+                if let Ok(guard) = container.try_read() {
+                    if let Some(contain) = guard.get_contain() {
+                        if let Ok(contain) = contain.try_lock() {
+                            if !contain.is_passenger_allowed_to_fire(Some(self.id)) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if self.test_status(ObjectStatusTypes::UnderConstruction)
+            || self.test_status(ObjectStatusTypes::Sold)
+            || self.is_disabled_by_type(DisabledType::DisabledSubdued)
+        {
+            return false;
+        }
+        if self.is_kind_of(KindOf::PortableStructure) || self.is_kind_of(KindOf::SpawnsAreTheWeapons)
+        {
+            if self.is_disabled_by_type(DisabledType::DisabledHacked)
+                || self.is_disabled_by_type(DisabledType::DisabledEmp)
+            {
+                return false;
+            }
+            if self.is_kind_of(KindOf::Infantry) {
+                let slaver_subdued = self
+                    .with_slaved_update_interface(|slaved| slaved.slaver_id())
+                    .flatten()
+                    .and_then(crate::helpers::TheGameLogic::find_object_by_id)
+                    .and_then(|slaver| {
+                        let guard = slaver.try_read().ok()?;
+                        Some(guard.is_disabled_by_type(DisabledType::DisabledSubdued))
+                    })
+                    .unwrap_or(false);
+                if slaver_subdued {
+                    return false;
+                }
+            }
+        }
+        if !self.is_kind_of(KindOf::CanAttack) {
+            if let Some(ai) = self.get_ai() {
+                if let Ok(ai) = ai.try_lock() {
+                    let mut any_weapon = false;
+                    let mut any_enabled = false;
+                    for slot in [
+                        WeaponSlotType::Primary,
+                        WeaponSlotType::Secondary,
+                        WeaponSlotType::Tertiary,
+                    ] {
+                        if self.get_weapon_in_weapon_slot(slot).is_none() {
+                            continue;
+                        }
+                        any_weapon = true;
+                        let turret = ai.get_which_turret_for_weapon_slot(slot);
+                        if turret == crate::common::types::TurretType::Invalid
+                            || ai.is_turret_enabled(turret)
+                        {
+                            any_enabled = true;
+                            break;
+                        }
+                    }
+                    if any_weapon && !any_enabled {
+                        return false;
+                    }
+                }
+            }
+        }
+        if self.is_kind_of(KindOf::CanAttack) || self.test_status(ObjectStatusTypes::CanAttack) {
+            return true;
+        }
+        if let Some(contain) = self.get_contain() {
+            if let Ok(contain) = contain.try_lock() {
+                if contain.is_passenger_allowed_to_fire(Some(self.id)) && contain.get_contain_count() > 0
+                {
+                    return true;
+                }
+            }
+        }
+        if self.get_ai().is_some() && self.has_any_weapon() {
+            return true;
+        }
+        if self
+            .with_spawn_behavior_full_interface(|spawn| spawn.can_any_slaves_attack())
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        self.get_template().is_enter_guard()
     }
 
     pub fn has_any_weapon(&self) -> bool {
@@ -1732,10 +1824,15 @@ impl Object {
             drop(body_guard);
         }
         self.apply_structure_rubble_pose();
-        // C++ onDie runs before the repulsor. FX already ran inside the body
-        // because direct body callers never reach this function.
+        // C++ ActiveBody.cpp:649-653: onDie, then doDamageFX. The body skipped
+        // FX because this caller holds the object write lock.
         if self.get_health() <= 0.0 {
             self.handle_death(Some(damage_info));
+            if let Some(body) = &self.body {
+                if let Ok(mut body_guard) = body.lock() {
+                    body_guard.do_damage_fx_after_death(damage_info);
+                }
+            }
         }
         self.apply_post_damage_object_effects(damage_info);
 

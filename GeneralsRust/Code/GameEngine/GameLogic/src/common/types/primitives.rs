@@ -73,6 +73,46 @@ impl TemplateModuleInfo {
 /// 3D transformation matrix (SAGE Matrix3D is 4x4 with translation terms)
 pub type Matrix3D = Mat4;
 
+/// C++ `Matrix3D::buildTransformMatrix` (`WWMath/matrix3d.cpp:349`).
+/// Identity, translate, `Rotate_Z(siny, cosy)`, then `Rotate_Y(-dir.z, len2)`.
+pub fn build_transform_matrix(pos: Vec3, dir: Vec3) -> Mat4 {
+    let len2 = (dir.x * dir.x + dir.y * dir.y).sqrt();
+    let sinp = dir.z;
+    let cosp = len2;
+    let (siny, cosy) = if len2 != 0.0 {
+        (dir.y / len2, dir.x / len2)
+    } else {
+        (0.0, 1.0)
+    };
+    let mut row = [[0.0f32; 4]; 3];
+    row[0][0] = 1.0;
+    row[1][1] = 1.0;
+    row[2][2] = 1.0;
+    row[0][3] = pos.x;
+    row[1][3] = pos.y;
+    row[2][3] = pos.z;
+    let (s, c) = (siny, cosy);
+    for r in 0..3 {
+        let tmp1 = row[r][0];
+        let tmp2 = row[r][1];
+        row[r][0] = c * tmp1 + s * tmp2;
+        row[r][1] = -s * tmp1 + c * tmp2;
+    }
+    let (s, c) = (-sinp, cosp);
+    for r in 0..3 {
+        let tmp1 = row[r][0];
+        let tmp2 = row[r][2];
+        row[r][0] = c * tmp1 - s * tmp2;
+        row[r][2] = s * tmp1 + c * tmp2;
+    }
+    Mat4::from_cols(
+        Vec4::new(row[0][0], row[1][0], row[2][0], 0.0),
+        Vec4::new(row[0][1], row[1][1], row[2][1], 0.0),
+        Vec4::new(row[0][2], row[1][2], row[2][2], 0.0),
+        Vec4::new(row[0][3], row[1][3], row[2][3], 1.0),
+    )
+}
+
 /// 4x4 transformation matrix
 pub type Matrix4D = Mat4;
 

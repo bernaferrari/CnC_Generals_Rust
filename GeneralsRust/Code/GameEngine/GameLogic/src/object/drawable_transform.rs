@@ -434,6 +434,16 @@ impl Drawable {
     /// Update supply crate visual status on draw modules.
     /// Matches C++ Drawable::updateDrawableSupplyStatus.
     pub fn update_supply_status(&mut self, max_supply: i32, current_supply: i32) {
+        // C++ Drawable::set/clearModelConditionState(CARRYING) before modules.
+        // Do not propagate here: this function is already the module notify,
+        // and set_model_condition_state would re-enter the draw modules.
+        if current_supply > 0 {
+            self.model_conditions.insert(ModelConditionFlags::CARRYING);
+        } else {
+            self.model_conditions.remove(ModelConditionFlags::CARRYING);
+        }
+        self.update_conditional_model();
+        self.propagate_model_condition_state_to_draw_modules();
         for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
             module_handle.with_module(|module| {
                 with_object_draw_interface_mut(module, |draw| {

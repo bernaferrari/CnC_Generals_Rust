@@ -81,13 +81,8 @@ impl GrantUpgradeCreate {
         }
     }
 
-    fn apply_upgrade(&self, record_granted: bool) {
-        let object_id = self
-            .base
-            .get_thing()
-            .as_object()
-            .map(|obj| obj.get_object_id())
-            .unwrap_or_default();
+    fn apply_upgrade(&self, obj: &mut crate::object::Object, record_granted: bool) {
+        let object_id = obj.get_id();
         if object_id == 0 {
             return;
         }
@@ -105,76 +100,72 @@ impl GrantUpgradeCreate {
         };
 
         // C++ GrantUpgradeCreate calls Player::addUpgrade(COMPLETE), whose
-        // onUpgradeCompleted fan-out locks every player object. Defer it
-        // until this object's (possibly write-locked) borrow has ended so
-        // the fan-out never re-locks the object running create hooks.
+        // onUpgradeCompleted fan-out write-locks every player object. This
+        // object is already borrowed for the create hook, so the fan-out
+        // skips it; the init tail re-checks its modules.
         let mut granted_player: Option<Arc<RwLock<Player>>> = None;
-        crate::object::create::with_create_owner_mut(object_id, |obj_guard| {
-            if upgrade.get_upgrade_type() == UpgradeType::Player {
-                granted_player = obj_guard.get_controlling_player();
-                if record_granted {
-                    if let Some(player) = granted_player.as_ref() {
-                        if let Ok(mut player_guard) = player.write() {
-                            player_guard
-                                .get_academy_stats_mut()
-                                .record_upgrade(&upgrade, true);
-                        }
-                    }
-                }
-            } else {
-                obj_guard.give_upgrade(&upgrade);
-                if record_granted {
-                    if let Some(player) = obj_guard.get_controlling_player() {
-                        if let Ok(mut player_guard) = player.write() {
-                            player_guard
-                                .get_academy_stats_mut()
-                                .record_upgrade(&upgrade, true);
-                        }
+        if upgrade.get_upgrade_type() == UpgradeType::Player {
+            granted_player = obj.get_controlling_player();
+            if record_granted {
+                if let Some(player) = granted_player.as_ref() {
+                    if let Ok(mut player_guard) = player.write() {
+                        player_guard
+                            .get_academy_stats_mut()
+                            .record_upgrade(&upgrade, true);
                     }
                 }
             }
-        });
+        } else {
+            obj.give_upgrade(&upgrade);
+            if record_granted {
+                if let Some(player) = obj.get_controlling_player() {
+                    if let Ok(mut player_guard) = player.write() {
+                        player_guard
+                            .get_academy_stats_mut()
+                            .record_upgrade(&upgrade, true);
+                    }
+                }
+            }
+        }
         if let Some(player) = granted_player {
-            player.add_upgrade(&upgrade, UpgradeStatus::Complete);
+            player.add_upgrade(&upgrade, UpgradeStatus::Complete, Some(object_id));
         }
     }
 }
 
 impl CreateInterface for GrantUpgradeCreate {
-    fn on_create(&self) {
+    fn on_create(&self) {}
+
+    fn on_create_with_owner(&self, owner: &mut dyn std::any::Any) {
         let exempt_status = self.module_data.exempt_status;
         if !exempt_status.test(ObjectStatusTypes::UnderConstruction) {
             return;
         }
 
-        let object_id = self
-            .base
-            .get_thing()
-            .as_object()
-            .map(|obj| obj.get_object_id())
-            .unwrap_or_default();
-        if object_id == 0 {
+        let Some(obj) = owner.downcast_mut::<crate::object::Object>() else {
+            return;
+        };
+        if obj.test_status(ObjectStatusTypes::UnderConstruction) {
             return;
         }
 
-        let mut under_construction = false;
-        crate::object::create::with_create_owner_mut(object_id, |object_guard| {
-            under_construction = object_guard.test_status(ObjectStatusTypes::UnderConstruction);
-        });
-        if under_construction {
-            return;
-        }
-
-        self.apply_upgrade(true);
+        self.apply_upgrade(obj, true);
     }
 
     fn on_build_complete(&self) {
+        self.base.on_build_complete();
+    }
+
+    fn on_build_complete_with_owner(&self, owner: &mut dyn std::any::Any) {
         if !self.base.should_do_on_build_complete() {
             return;
         }
 
         self.base.on_build_complete();
-        self.apply_upgrade(false);
+        let Some(obj) = owner.downcast_mut::<crate::object::Object>() else {
+            return;
+        };
+        self.apply_upgrade(obj, false);
     }
 
     fn should_do_on_build_complete(&self) -> bool {

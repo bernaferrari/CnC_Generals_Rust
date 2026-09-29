@@ -254,7 +254,7 @@ impl Encoder {
 
     /// Encode using RefPack with optimizations
     fn encode_refpack(&mut self, data: &[u8]) -> Result<Vec<u8>> {
-        crate::refpack::encode(data)
+        Ok(crate::encode_ref_decode_body(data))
     }
 
     /// Encode using BTree algorithm

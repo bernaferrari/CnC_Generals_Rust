@@ -198,15 +198,7 @@ impl Default for CommandProcessor {
     }
 }
 
-/// Global command processor instance
-use once_cell::sync::Lazy;
-static COMMAND_PROCESSOR: Lazy<Arc<Mutex<CommandProcessor>>> =
-    Lazy::new(|| Arc::new(Mutex::new(CommandProcessor::new())));
-
-/// Get global command processor
-pub fn get_command_processor() -> Arc<Mutex<CommandProcessor>> {
-    COMMAND_PROCESSOR.clone()
-}
+// Per-world instance lives on GameLogic. Do not add another process-global.
 
 // Command processor mock-based tests removed to avoid mocks in fidelity-critical code.
 

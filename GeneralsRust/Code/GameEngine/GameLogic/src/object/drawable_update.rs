@@ -61,6 +61,13 @@ impl Drawable {
             self.decal_opacity = 0.0;
         }
 
+        // C++ Drawable::updateDrawable destroys when `m_expirationDate` is reached
+        // (after fade and decal, before the rest of the frame). Callers drop the
+        // drawable write lock and then use TheGameClient::destroy_drawable.
+        if self.expiration_date != 0 && frame_number >= self.expiration_date {
+            return Ok(());
+        }
+
         // Update damage visualization
         self.update_damage_state()?;
 
@@ -715,6 +722,7 @@ impl Drawable {
         delta_time: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let attachment_keys: Vec<String> = self.attachments.keys().cloned().collect();
+        let mut expired_attachments = Vec::new();
         for key in attachment_keys {
             // Update attachment position based on bone transform
             let bone_name = if let Some(attachment) = self.attachments.get(&key) {
@@ -731,9 +739,20 @@ impl Drawable {
                     if let Ok(mut attached_drawable) = attachment.drawable.write() {
                         attached_drawable.set_transform(attachment_transform);
                         attached_drawable.update(delta_time, self.last_update_frame)?;
+                        let expiration = attached_drawable.expiration_date();
+                        if expiration != 0 && self.last_update_frame >= expiration {
+                            expired_attachments
+                                .push((key.clone(), attached_drawable.get_drawable_id()));
+                        }
                     }
                 }
             }
+        }
+        for (key, id) in expired_attachments {
+            if let Some(client) = crate::helpers::TheGameClient::get() {
+                client.destroy_drawable(id);
+            }
+            self.attachments.remove(&key);
         }
 
         Ok(())

@@ -1757,9 +1757,9 @@ fn contact_weapon_approach_reaches_target_noncontact_stands_off() {
         });
     }
     let c_app =
-        logic.approach_pos_for_attack(contact, tgt_pos, 5.0, Some("DozerMineDisarmingWeapon"));
+        logic.approach_pos_for_attack(contact, tgt_pos, 5.0, Some("DozerMineDisarmingWeapon"), None);
     assert!((c_app - tgt_pos).length() < 1e-2, "contact → target");
-    let g_app = logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"));
+    let g_app = logic.approach_pos_for_attack(gun, tgt_pos, 50.0, Some("AmericaTankCrusaderGun"), None);
     let expected = compute_approach_target_pos(glam::Vec3::new(0.0, 0.0, 20.0), tgt_pos, 50.0);
     assert!(
         (g_app - expected).length() < 1.0,

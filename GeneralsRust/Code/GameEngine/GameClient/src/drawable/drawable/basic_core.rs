@@ -715,7 +715,7 @@ impl BasicDrawable {
     /// Check if drawable has expired
     pub fn is_expired(&self, current_frame: u32) -> bool {
         self.expiration_frame
-            .is_some_and(|frame| current_frame >= frame)
+            .is_some_and(|frame| frame != 0 && current_frame >= frame)
     }
 
     /// C++ `Drawable::getShouldAnimate(considerPower)`.

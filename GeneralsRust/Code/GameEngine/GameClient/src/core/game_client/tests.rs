@@ -2434,4 +2434,43 @@ mod tests {
             "flash must consume when client frame is a DRAWABLE_FRAMES_PER_FLASH multiple"
         );
     }
+
+    #[test]
+    fn local_drawable_tick_destroys_expired_drawable_that_frame() {
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        insert_basic_drawable_for_test(
+            &mut client,
+            90_002,
+            "ExpireMe",
+            Vector3::new(0.0, 0.0, 0.0),
+        );
+        {
+            let drawable = client
+                .drawable_map
+                .get_mut(&DrawableId(90_002))
+                .expect("inserted drawable");
+            let basic = drawable
+                .downcast_mut::<BasicDrawable>()
+                .expect("BasicDrawable");
+            basic.set_expiration_frame(4);
+        }
+
+        client.set_frame(3);
+        client
+            .update_drawables_local(0.0)
+            .expect("local drawable tick");
+        assert!(
+            client.find_drawable_by_id(DrawableId(90_002)).is_some(),
+            "drawable must live until its expiration frame"
+        );
+
+        client.set_frame(4);
+        client
+            .update_drawables_local(0.0)
+            .expect("local drawable tick");
+        assert!(
+            client.find_drawable_by_id(DrawableId(90_002)).is_none(),
+            "expired drawable is destroyed on that client frame"
+        );
+    }
 }

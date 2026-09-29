@@ -120,19 +120,30 @@ impl WeaponSet {
         if let Some(weapon) = self.get_weapon_in_slot(self.current_weapon) {
             has_a_weapon = true;
             if (self.total_anti_mask & target_anti_mask) != 0 {
-                let garrison_goal = contained_by.and_then(|container_id| {
+                // None: not an enclosing garrison, use the normal range test.
+                // Some(None): enclosing garrison, but calcBestGarrisonPosition
+                // failed. C++ WeaponSet.cpp:631-647 does not fall through.
+                // Some(Some): fake-move range from that fire point.
+                match contained_by.and_then(|container_id| {
                     garrison_fire_goal(container_id, source_obj, &resolved_pos)
-                });
-                within_attack_range = if let Some(goal) = garrison_goal {
-                    weapon.is_source_object_with_goal_position_within_attack_range(
-                        source_obj,
-                        &goal,
-                        target_obj,
-                        Some(&resolved_pos),
-                    )
-                } else {
-                    weapon.is_within_attack_range(source_obj, target_obj, Some(&resolved_pos))
-                };
+                }) {
+                    Some(Some(goal)) => {
+                        within_attack_range = weapon
+                            .is_source_object_with_goal_position_within_attack_range(
+                                source_obj,
+                                &goal,
+                                target_obj,
+                                Some(&resolved_pos),
+                            );
+                    }
+                    Some(None) => {
+                        within_attack_range = false;
+                    }
+                    None => {
+                        within_attack_range =
+                            weapon.is_within_attack_range(source_obj, target_obj, Some(&resolved_pos));
+                    }
+                }
                 if within_attack_range {
                     has_a_weapon_in_range = true;
                 }
@@ -464,7 +475,7 @@ fn garrison_fire_goal(
     container_id: ObjectID,
     source_id: ObjectID,
     target_pos: &Coord3D,
-) -> Option<Coord3D> {
+) -> Option<Option<Coord3D>> {
     crate::object::registry::OBJECT_REGISTRY
         .with_object(container_id, |container| {
             let Some(contain) = container.get_contain() else {
@@ -488,9 +499,9 @@ fn garrison_fire_goal(
             // not the container origin.
             let mut goal = *container.get_position();
             if contain_guard.calc_best_garrison_position(&mut goal, target_pos) {
-                Some(goal)
+                Some(Some(goal))
             } else {
-                None
+                Some(None)
             }
         })
         .flatten()

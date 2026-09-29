@@ -72,15 +72,20 @@ impl GameMessageHandler {
     }
 
     fn push_message(&self, message_type: GameMessageType) {
-        // Use the actual game message stream from game_engine
-        use game_engine::common::message_stream::game_message::GameMessage as EngineGameMessage;
-        use game_engine::common::message_stream::get_message_stream;
+        use game_engine::common::message_stream::{
+            append_message_to_stream, GameMessageType as EngineMessage,
+        };
 
-        if let Some(_stream) = get_message_stream().write().ok().as_mut() {
-            // Convert our GameMessageType to the engine's GameMessageType
-            // For now, just log the message since the full type mapping requires more work
-            debug!("Queued message {:?}", message_type);
-        } else {
+        // C++ WinMain.cpp:361 and :373 append MSG_META_DEMO_INSTANT_QUIT.
+        // The platform enum is not the engine stream enum.
+        let engine_type = match &message_type {
+            GameMessageType::MetaInstantQuit => EngineMessage::MetaDemoInstantQuit,
+            _ => {
+                debug!("No engine message for {:?}", message_type);
+                return;
+            }
+        };
+        if append_message_to_stream(engine_type).is_err() {
             debug!(
                 "Message stream subsystem unavailable for {:?}",
                 message_type

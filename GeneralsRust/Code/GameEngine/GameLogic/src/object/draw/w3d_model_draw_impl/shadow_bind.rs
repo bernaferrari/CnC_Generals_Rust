@@ -61,9 +61,14 @@ impl W3DModelDraw {
         let Some(owner_id) = self.owner_id else {
             return;
         };
-        if !game_engine::common::game_lod::use_shadow_decals() {
+        // C++ allocateShadows requires m_renderObject. Empty model name is null.
+        if self
+            .current_state()
+            .is_none_or(|state| state.model_name.as_str().is_empty())
+        {
             return;
         }
+
         let Some(client) = terrain_decal_client() else {
             return;
         };

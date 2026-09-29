@@ -5,12 +5,7 @@ use crate::common::ObjectID;
 use crate::helpers::TheGameLogic;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::BaseModuleData;
 use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
-use std::any::Any;
-use std::cell::RefCell;
-use std::collections::HashMap;
-
 use std::sync::Arc;
 
 pub struct AnimatedParticleSysBoneClientUpdateModule {
@@ -108,34 +103,43 @@ impl Snapshotable for AnimatedParticleSysBoneClientUpdateModule {
     }
 }
 
-thread_local! {
-    static LIVE_ANIMATED_BONE: RefCell<HashMap<ObjectID, AnimatedParticleSysBoneClientUpdateModule>> =
-        RefCell::new(HashMap::new());
-}
-
 /// Leftover-tick C++ `AnimatedParticleSysBoneClientUpdate::clientUpdate`.
+///
+/// Uses the module the client update already constructed on the object.
+/// `m_life` lives on that instance; there is no process-wide map of modules.
 pub fn tick_live_host_animated_particle_sys_bones(owner_id: ObjectID) {
-    LIVE_ANIMATED_BONE.with(|map| {
-        let mut map = map.borrow_mut();
-        let module = map.entry(owner_id).or_insert_with(|| {
-            AnimatedParticleSysBoneClientUpdateModule::new(
-                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
-                    "AnimatedParticleSysBoneClientUpdate",
-                ),
-                Arc::new(BaseModuleData::new()),
-                owner_id,
-            )
-        });
-        module.bind_owner_id(owner_id);
-        module.client_update();
-    });
+    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+        return;
+    };
+    let (modules, drawable) = {
+        let Ok(guard) = object.read() else {
+            return;
+        };
+        (guard.client_update_modules(), guard.get_drawable())
+    };
+    let mut ticked = false;
+    for handle in modules {
+        if handle
+            .with_module_downcast::<AnimatedParticleSysBoneClientUpdateModule, _, _>(|module| {
+                module.bind_owner_id(owner_id);
+                module.client_update();
+            })
+            .is_some()
+        {
+            ticked = true;
+        }
+    }
+    // C++ `W3DModelDraw::doDrawModule` repositions bones when the template sets
+    // `ParticlesAttachedToAnimatedBones` and this client update is not installed.
+    if !ticked {
+        if let Some(drawable) = drawable {
+            let _ = drawable.update_bones_for_client_particle_systems();
+        }
+    }
 }
 
-pub fn prune_live_host_animated_particle_sys_bones(owner_id: ObjectID) {
-    LIVE_ANIMATED_BONE.with(|map| {
-        map.borrow_mut().remove(&owner_id);
-    });
-}
+/// The module is owned by the drawable, so dropping the object drops it.
+pub fn prune_live_host_animated_particle_sys_bones(_owner_id: ObjectID) {}
 
 /// Template authored `AnimatedParticleSysBoneClientUpdate` or
 /// `ParticlesAttachedToAnimatedBones`.

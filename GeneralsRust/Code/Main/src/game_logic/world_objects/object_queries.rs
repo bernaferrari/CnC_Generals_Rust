@@ -1255,6 +1255,7 @@ impl GameLogic {
     /// Clear all objects (for snapshot restoration)
     pub fn clear_all_objects(&mut self) {
         self.objects.clear();
+        self.host_move_attack_machines.clear();
         self.host_view_dirty.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;

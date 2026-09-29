@@ -1869,6 +1869,23 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                 object.locomotor_surfaces = entry.valid_locomotor_surfaces;
                 object.downhill_only = entry.downhill_only;
             }
+            let locomotor_body_saved = entry.has_locomotor_template
+                || entry.has_locomotor_motion
+                || entry.has_locomotor_pose
+                || entry.has_locomotor_arrival;
+            if !locomotor_body_saved {
+                if let Some(token) = object.jet_ai.cur_locomotor_set.clone() {
+                    if let Some(kind) = crate::game_logic::host_upgrade_module_residuals::locomotor_set_kind_from_token(&token)
+                    {
+                        object.jet_ai.cur_locomotor_set = None;
+                        crate::game_logic::host_upgrade_module_residuals::apply_locomotor_set_kind(
+                            object,
+                            kind,
+                        );
+                        object.jet_ai.cur_locomotor_set = Some(token);
+                    }
+                }
+            }
         }
         if let Some(next) = entry.guard_next_enemy_scan {
             game_logic.guard_next_enemy_scan.insert(id, next);

@@ -14,6 +14,8 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn xfer_ai_update_state(&mut self, _xfer: &mut dyn Xfer) -> Result<bool, String> {
         Ok(false)
     }
+    /// C++ `AIUpdateInterface::loadPostProcess` path-cell rebuild.
+    fn load_post_process_path_cells(&mut self) {}
     /// Check if the object is moving
     fn is_moving(&self) -> bool;
     /// Check if the object is idle
@@ -48,6 +50,13 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// C++ `getPath()->getLastNode()->getPosition()`. None when there is no path.
     fn get_path_last_node(&self) -> Option<Coord3D> {
         None
+    }
+    /// Last astar ordinal stored with the installed path. None means no layer record.
+    fn installed_path_last_layer(&self) -> Option<u8> {
+        None
+    }
+    fn get_retry_path(&self) -> bool {
+        false
     }
     /// True only when a waypoint path exists. A destination alone is not a path.
     fn has_nonempty_path(&self) -> bool {
@@ -90,6 +99,10 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         self.destroy_path();
     }
 
+    /// C++ `Pathfinder::removeGoal` using the unit's stored goal cell and layer.
+    /// Default is a no-op. Not `set_locomotor_goal_none`.
+    fn remove_pathfinder_goal(&mut self) {}
+
     /// Set locomotor goal orientation (matches C++ AIUpdateInterface::setLocomotorGoalOrientation).
     fn set_locomotor_goal_orientation(&mut self, angle: Real) {
         let _ = angle;
@@ -99,6 +112,9 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
         let _ = pos;
     }
+    /// C++ `AIUpdateInterface::setLocomotorGoalPositionOnPath`.
+    /// Sets the goal type only. Does not copy a path point.
+    fn set_locomotor_goal_position_on_path(&mut self) {}
 
     /// Notify AI that a move is ending (matches C++ friend_endingMove).
     fn friend_ending_move(&mut self) {
@@ -127,6 +143,10 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Whether the AI is allowed to adjust destination on the fly.
     fn is_allowed_to_adjust_destination(&self) -> bool {
         true
+    }
+    /// C++ `AIUpdateInterface::getAdjustsDestination`.
+    fn get_adjusts_destination(&self) -> bool {
+        self.is_allowed_to_adjust_destination()
     }
 
     /// Whether this aircraft should adjust destination (matches isAircraftThatAdjustsDestination).

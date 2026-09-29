@@ -248,11 +248,7 @@ impl GameLogic {
             // Path blocked until pack completes; re-issue move after ReadyToMove.
             return false;
         }
-        if let Some(unit) = self.objects.get_mut(&unit_id) {
-            unit.is_blocked = false;
-            unit.num_frames_blocked = 0;
-            unit.is_blocked_and_stuck = false;
-        }
+        
         let delayed = if waypoints.is_empty() {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 let keep_final = unit.is_final_goal;
@@ -268,6 +264,8 @@ impl GameLogic {
         if delayed {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.is_blocked = false;
+                unit.num_frames_blocked = 0;
+                unit.is_blocked_and_stuck = false;
                 unit.try_one_more_repath = true;
                 unit.set_status_moving(true);
                 unit.start_move();
@@ -287,16 +285,23 @@ impl GameLogic {
             self.start_move_sound(unit_id);
             return true;
         }
-        let (start, can_move, is_aircraft, surfaces, is_crusher) = match self.objects.get(&unit_id)
+        let (start, can_move, quick_aircraft, surfaces, is_crusher) = match self.objects.get(&unit_id)
         {
-            Some(unit) => (
-                unit.get_position(),
-                unit.can_move(),
-                unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                    || unit.object_type == crate::game_logic::ObjectType::Aircraft,
-                unit.locomotor_surfaces,
-                unit.crusher_level > 0,
-            ),
+            Some(unit) => {
+                let surfaces = unit.locomotor_surfaces;
+                let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
+                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit);
+                (
+                    unit.get_position(),
+                    unit.can_move(),
+                    quick
+                        && (unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                            || unit.object_type == crate::game_logic::ObjectType::Aircraft)
+                        && !unit.is_kind_of(crate::game_logic::KindOf::Projectile),
+                    surfaces,
+                    unit.crusher_level > 0,
+                )
+            }
             None => return false,
         };
         if !can_move {
@@ -317,7 +322,7 @@ impl GameLogic {
                     start,
                     destination,
                     waypoints: waypoints.to_vec(),
-                    aircraft: is_aircraft,
+                    aircraft: quick_aircraft,
                     surfaces,
                     is_crusher,
                     ignore_obstacle: self.pathfinding_system.ignore_obstacle(),
@@ -374,7 +379,7 @@ impl GameLogic {
             start,
             destination,
             waypoints,
-            is_aircraft,
+            quick_aircraft,
             surfaces,
             is_crusher,
             None,
@@ -437,6 +442,9 @@ impl GameLogic {
                 drop(unit);
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
                     unit.path_goal_position = Some(destination);
+                    unit.waiting_for_path = false;
+                    unit.queue_for_path_frames = 0;
+                    unit.set_status_moving(true);
                 }
                 return true;
             }
@@ -469,7 +477,9 @@ impl GameLogic {
             let Some(unit) = self.objects.get_mut(&unit_id) else {
                 return false;
             };
+            unit.can_path_through_units = false;
             unit.is_attack_path = false;
+            unit.is_exact_path = false;
             unit.set_locomotor_goal_position_on_path();
             unit.movement.path = path;
             if unit.movement.path.len() >= 2 {
@@ -479,11 +489,13 @@ impl GameLogic {
                 unit.movement.current_path_index = 0;
                 unit.movement.target_position = Some(destination);
             }
+            unit.refresh_follow_path_extra_distance();
             unit.path_goal_position = Some(destination);
             unit.path_timestamp = self.frame;
+            unit.waiting_for_path = false;
+            unit.queue_for_path_frames = 0;
             unit.num_frames_blocked = 0;
             unit.is_blocked_and_stuck = false;
-            unit.waiting_for_path = false;
             unit.set_status_moving(true);
             return true;
         }
@@ -492,16 +504,20 @@ impl GameLogic {
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
+        unit.can_path_through_units = false;
         unit.is_attack_path = false;
+        unit.is_exact_path = false;
         unit.set_locomotor_goal_position_on_path();
         unit.movement.path = vec![start, destination];
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(destination);
+        unit.refresh_follow_path_extra_distance();
         unit.path_goal_position = Some(destination);
         unit.path_timestamp = self.frame;
+        unit.waiting_for_path = false;
+        unit.queue_for_path_frames = 0;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
-        unit.waiting_for_path = false;
         unit.set_status_moving(true);
         true
     }
@@ -545,9 +561,7 @@ impl GameLogic {
         let mut full_path: Vec<Vec3> = Vec::new();
         let mut ground_search = false;
         let mut segment_start = start;
-        let loco = if is_aircraft {
-            gamelogic::ai::pathfind_complete::SURFACE_AIR
-        } else if surfaces != 0 {
+        let loco = if surfaces != 0 {
             surfaces
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
@@ -578,8 +592,10 @@ impl GameLogic {
 
             // C++ computePath leftover-install: dest-off+start-off or
             // !isFinalGoal && isLinePassable → computeQuickPath two-node.
+            let flying = is_aircraft
+                && (loco & gamelogic::ai::pathfind_complete::SURFACE_AIR) != 0;
             let hop_is_final = request_is_final && hop_i + 1 == goal_count;
-            let leftover_quick = !is_aircraft
+            let leftover_quick = !flying
                 && (self
                     .pathfinding_system
                     .leftover_should_force_direct_path_for_off_map_start(segment_start, goal)
@@ -606,7 +622,7 @@ impl GameLogic {
             let adjusts = adjust_snapshot.unwrap_or(live_adjust);
             self.pathfinding_system
                 .set_adjust_goal(hop_is_final && adjusts && !projectile);
-            let stuck_path = if is_aircraft {
+            let stuck_path = if flying {
                 None
             } else {
                 self.objects.get(&unit_id).and_then(|unit| {
@@ -624,7 +640,8 @@ impl GameLogic {
                 .ignore_obstacle()
                 .map(|id| id.0)
                 .unwrap_or(0);
-            let dest_ok = is_aircraft
+            
+            let dest_ok = flying
                 || self.pathfinding_system.grid.valid_movement_position(
                     dest_cell,
                     dest_layer,
@@ -655,7 +672,7 @@ impl GameLogic {
                     segment_start,
                     goal,
                     &self.objects,
-                    is_aircraft,
+                    flying,
                     loco,
                     is_crusher,
                     Some(unit_id),
@@ -664,7 +681,7 @@ impl GameLogic {
 
             match segment.filter(|path| !path.is_empty()) {
                 Some(mut segment_path) => {
-                    ground_search |= !leftover_quick && !is_aircraft;
+                    ground_search |= !leftover_quick && !flying;
                     let path_len: f32 = segment_path.windows(2).map(|w| horiz(w[0], w[1])).sum();
                     if straight > 1.0 && path_len > straight * 3.5 {
                         log::debug!(
@@ -848,20 +865,66 @@ impl GameLogic {
         if goals.is_empty() {
             return false;
         }
+        for &(id, _) in goals {
+            let Some(unit) = self.objects.get(&id) else {
+                continue;
+            };
+            let old = unit.pathfind_goal_cell;
+            if old.0 < 0 || old.1 < 0 {
+                continue;
+            }
+            let radius = unit.selection_radius;
+            let uid = unit.id.0;
+            let player = unit.owner_player_id.unwrap_or(unit.team as u32);
+            self.pathfinding_system
+                .grid
+                .clear_ground_goal_square(uid, player, radius, old);
+            if let Some(unit) = self.objects.get_mut(&id) {
+                unit.pathfind_goal_cell = (-1, -1);
+            }
+        }
+        let mut cx = 0.0f32;
+        let mut cz = 0.0f32;
+        let mut count = 0.0f32;
+        for &(id, _) in goals {
+            if let Some(o) = self.objects.get(&id) {
+                if o.status.disabled_held || !(o.is_mobile() || o.can_attack()) {
+                    continue;
+                }
+                let p = o.get_position();
+                cx += p.x;
+                cz += p.z;
+                count += 1.0;
+            }
+        }
+        if count <= 0.0 {
+            return false;
+        }
+        cx /= count;
+        cz /= count;
         let leader = goals
             .iter()
             .filter_map(|(id, _)| {
-                self.objects.get(id).map(|o| {
+                self.objects.get(id).and_then(|o| {
+                    let aircraft = o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                        || o.object_type == crate::game_logic::ObjectType::Aircraft;
+                    let infantry = o.is_kind_of(crate::game_logic::KindOf::Infantry);
+                    let vehicle = o.is_kind_of(crate::game_logic::KindOf::Vehicle);
+                    if o.status.disabled_held || !(o.is_mobile() || o.can_attack()) {
+                        return None;
+                    }
+                    if !(infantry || (vehicle && !aircraft)) {
+                        return None;
+                    }
                     let p = o.get_position();
-                    let d = (p.x - destination.x).hypot(p.z - destination.z);
-                    (
+                    let d = (p.x - cx).hypot(p.z - cz);
+                    Some((
                         *id,
                         p,
                         d,
                         o.locomotor_surfaces,
-                        o.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                            || o.object_type == crate::game_logic::ObjectType::Aircraft,
-                    )
+                        aircraft,
+                    ))
                 })
             })
             .min_by(|a, b| a.2.total_cmp(&b.2));
@@ -912,8 +975,48 @@ impl GameLogic {
         } else {
             Self::group_march_lanes(&self.objects, goals, destination, (dir.x, dir.z))
         };
+        let mob_column_blocked = goals.iter().any(|(id, _)| {
+            self.objects
+                .get(id)
+                .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::MobNexus))
+        });
         let mut any = false;
         for &(unit_id, goal) in goals {
+            if mob_column_blocked
+                && self
+                    .objects
+                    .get(&unit_id)
+                    .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
+            {
+                continue;
+            }
+            if self.objects.get(&unit_id).is_some_and(|o| {
+                o.status.disabled_held
+                    || !(o.is_mobile() || o.can_attack())
+                    || o.is_kind_of(crate::game_logic::KindOf::MobNexus)
+            }) {
+                continue;
+            }
+            let airborne_aircraft = self.objects.get(&unit_id).is_some_and(|o| {
+                let aircraft = o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                    || o.object_type == crate::game_logic::ObjectType::Aircraft;
+                o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                    && aircraft
+                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
+            });
+            if airborne_aircraft {
+                if self.unit_command_move_free(unit_id, goal, destination) {
+                    any = true;
+                }
+                continue;
+            }
+            let ground_member = self.objects.get(&unit_id).is_some_and(|o| {
+                o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                    || o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+            });
+            if !ground_member {
+                continue;
+            }
             let Some(unit_start) = self.objects.get(&unit_id).map(|o| o.get_position()) else {
                 continue;
             };
@@ -973,15 +1076,29 @@ impl GameLogic {
         let mut infantry: Vec<(ObjectId, f32)> = Vec::new();
         let mut vehicles: Vec<(ObjectId, f32)> = Vec::new();
         for &(id, goal) in goals {
+            let Some(o) = objects.get(&id) else {
+                continue;
+            };
+            if o.status.disabled_held || !(o.is_mobile() || o.can_attack()) {
+                continue;
+            }
             let lateral = (goal.x - destination.x) * nx + (goal.z - destination.z) * nz;
-            if objects
-                .get(&id)
-                .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::Infantry))
+            if o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                && !o.is_kind_of(crate::game_logic::KindOf::MobNexus)
             {
                 infantry.push((id, lateral));
-            } else {
+            } else if o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
+            {
                 vehicles.push((id, lateral));
             }
+        }
+        if goals.iter().any(|(id, _)| {
+            objects
+                .get(id)
+                .is_some_and(|o| o.is_kind_of(crate::game_logic::KindOf::MobNexus))
+        }) {
+            infantry.clear();
         }
         let mut out = std::collections::HashMap::new();
         for (list, num_columns, min_count) in [
@@ -1232,9 +1349,7 @@ impl GameLogic {
                     Some(unit) if unit.is_alive() => (
                         unit.get_position(),
                         unit.can_move(),
-                        req.aircraft
-                            || unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                            || unit.object_type == crate::game_logic::ObjectType::Aircraft,
+                        req.aircraft,
                         if req.surfaces != 0 {
                             req.surfaces
                         } else {
@@ -1359,9 +1474,6 @@ impl GameLogic {
                     req.destination,
                     false,
                 ) {
-                    if let Some(unit) = self.objects.get_mut(&req.unit_id) {
-                        unit.is_attack_path = true;
-                    }
                     self.pathfinding_system.set_ignore_obstacle(None);
                     continue;
                 }
@@ -1481,14 +1593,20 @@ impl GameLogic {
             if !unit.waiting_for_path {
                 continue;
             }
+            let surfaces = unit.locomotor_surfaces;
+            let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
+                && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(unit);
+            let aircraft = quick
+                && (unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                    || unit.object_type == crate::game_logic::ObjectType::Aircraft)
+                && !unit.is_kind_of(crate::game_logic::KindOf::Projectile);
             let req = crate::game_logic::pathfinding::PendingHostPath {
                 unit_id: id,
                 start: unit.get_position(),
                 destination: dest,
                 waypoints: Vec::new(),
-                aircraft: unit.is_kind_of(crate::game_logic::KindOf::Aircraft)
-                    || unit.object_type == crate::game_logic::ObjectType::Aircraft,
-                surfaces: unit.locomotor_surfaces,
+                aircraft,
+                surfaces,
                 is_crusher: unit.crusher_level > 0,
                 ignore_obstacle: unit.ignored_obstacle_id,
                 adjust_destinations: unit.adjust_destinations,
@@ -1580,7 +1698,7 @@ impl GameLogic {
     }
 
     /// C++ `computePath` when `findPath` returns null (AIUpdate.cpp:1731-1754).
-    fn note_compute_path_failed(&mut self, unit_id: ObjectId) {
+    pub(in super::super) fn note_compute_path_failed(&mut self, unit_id: ObjectId) {
         let Some(unit) = self.objects.get(&unit_id) else {
             return;
         };
@@ -1738,22 +1856,20 @@ impl GameLogic {
     ) -> bool {
         let (from, range, can_move, contact, is_crusher) = match self.objects.get(&unit_id) {
             Some(u) => {
-                let range = u
-                    .weapon
-                    .as_ref()
-                    .map(|w| w.range)
-                    .or_else(|| u.secondary_weapon.as_ref().map(|w| w.range))
-                    .unwrap_or(50.0)
-                    * u.battle_plan_range_multiplier();
-                let wname = u.thing.template.primary_weapon_name.as_deref().or(u
-                    .thing
-                    .template
-                    .secondary_weapon_name
-                    .as_deref());
+                let slot = u.selected_weapon_slot();
+                let weapon = slot.and_then(|s| u.weapon_slot(s));
+                let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                let range = weapon
+                    .map(|w| (u.effective_weapon_range(w.range) - under).max(0.0))
+                    .unwrap_or(50.0);
+                let raw_range = weapon.map(|w| w.range).unwrap_or(0.0);
+                let wname = slot.and_then(|s| u.weapon_name_for_slot(s));
                 let contact = wname
                     .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
                     .unwrap_or(false)
-                    || crate::game_logic::weapon_bootstrap::is_contact_effective_range(range);
+                    || crate::game_logic::weapon_bootstrap::is_contact_effective_range(
+                        raw_range - under,
+                    );
                 (
                     u.get_position(),
                     range,
@@ -1785,42 +1901,93 @@ impl GameLogic {
             // A leftover contact ignore would open that object for this scan.
             self.pathfinding_system.set_ignore_obstacle(None);
         }
-        let mut path = self.pathfinding_system.find_attack_firing_position(
-            from,
-            target_pos,
-            path_range,
-            &self.objects,
-            is_crusher,
-            Some(unit_id),
-        );
+        let owner = self.objects.get(&unit_id).and_then(|unit| unit.owner_player_id);
+        let surfaces = self
+            .objects
+            .get(&unit_id)
+            .map(|unit| unit.locomotor_surfaces)
+            .unwrap_or(0);
+        let is_human = owner
+            .and_then(|pid| self.players.get(&pid))
+            .map(|player| player.is_local)
+            .unwrap_or(true);
+        let mut path = if contact {
+            self.pathfinding_system.find_closest_path(
+                from,
+                target_pos,
+                surfaces,
+                is_crusher,
+                is_human,
+                0.2,
+            )
+        } else {
+            self.pathfinding_system.find_attack_firing_position(
+                from,
+                target_pos,
+                path_range,
+                &self.objects,
+                is_crusher,
+                Some(unit_id),
+            )
+        };
         if contact {
             self.pathfinding_system.set_ignore_obstacle(None);
         }
         // LOS_TERRAIN residual: reject firing cell if terrain occludes eye-line.
-        if let Some(ref full_path) = path {
-            if let Some(&goal) = full_path.last() {
-                let eye_r = self
-                    .objects
-                    .get(&unit_id)
-                    .map(|o| o.selection_radius.max(5.0) * 0.5)
-                    .unwrap_or(5.0);
-                let eye_to = target_id
-                    .and_then(|tid| self.objects.get(&tid))
-                    .map(|o| o.selection_radius.max(5.0) * 0.5)
-                    .unwrap_or(5.0);
-                let a_eye = Vec3::new(goal.x, goal.y + eye_r, goal.z);
-                let b_eye = Vec3::new(target_pos.x, target_pos.y + eye_to, target_pos.z);
-                if !self.is_clear_line_of_sight_terrain(a_eye, b_eye) {
-                    path = None;
+        // Contact paths go to the victim, not a firing cell.
+        if !contact {
+            if let Some(ref full_path) = path {
+                if let Some(&goal) = full_path.last() {
+                    let eye_r = self
+                        .objects
+                        .get(&unit_id)
+                        .map(|o| o.selection_radius.max(5.0) * 0.5)
+                        .unwrap_or(5.0);
+                    let eye_to = target_id
+                        .and_then(|tid| self.objects.get(&tid))
+                        .map(|o| o.selection_radius.max(5.0) * 0.5)
+                        .unwrap_or(5.0);
+                    let a_eye = Vec3::new(goal.x, goal.y + eye_r, goal.z);
+                    let b_eye = Vec3::new(target_pos.x, target_pos.y + eye_to, target_pos.z);
+                    if !self.is_clear_line_of_sight_terrain(a_eye, b_eye) {
+                        path = None;
+                    }
                 }
             }
         }
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
-        if let Some(full_path) = path {
+        if let Some(mut full_path) = path {
             if full_path.len() >= 2 {
+                if contact {
+                    let cell = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
+                    let three = (cell * 3.0) * (cell * 3.0);
+                    let jam = full_path.last().is_some_and(|last| {
+                        let dx = last.x - target_pos.x;
+                        let dz = last.z - target_pos.z;
+                        dx * dx + dz * dz < three
+                    });
+                    if jam {
+                        if let Some(last) = full_path.last_mut() {
+                            *last = target_pos;
+                        }
+                    }
+                    let too_short = full_path.last().is_some_and(|last| {
+                        let dx = last.x - from.x;
+                        let dz = last.z - from.z;
+                        dx * dx + dz * dz < cell * cell
+                    });
+                    if too_short {
+                        if let Some(unit) = self.objects.get_mut(&unit_id) {
+                            unit.movement.path.clear();
+                            unit.movement.target_position = None;
+                            unit.movement.current_path_index = 0;
+                            unit.set_status_moving(false);
+                        }
+                        return false;
+                    }
+                }
                 let last_node = full_path.last().copied();
                 if let Some(unit) = self.objects.get_mut(&unit_id) {
-                    // Path integrate stays host (movement authority peels separately).
                     unit.movement.path = full_path;
                     unit.record_host_movement();
                     unit.movement.current_path_index = 1;
@@ -1865,7 +2032,9 @@ impl GameLogic {
             }
         }
         let mut dest = target_pos;
-        self.adjust_to_possible_destination(unit_id, &mut dest);
+        if !contact {
+            self.adjust_to_possible_destination(unit_id, &mut dest);
+        }
         if let Some(tid) = target_id {
             if let Some(unit) = self.objects.get_mut(&unit_id) {
                 unit.ignored_obstacle_id = Some(tid);
@@ -1973,10 +2142,11 @@ impl GameLogic {
         if !needs_los {
             return false;
         }
-        // Flying victim residual: significantly above terrain → not blocked.
+        // C++ computeAttackPath: no obstacle LOS when the victim is
+        // significantly above terrain. KindOf::Aircraft alone is not that.
         if let Some(tid) = target_id {
             if let Some(t) = self.objects.get(&tid) {
-                if t.is_kind_of(KindOf::Aircraft) || t.status.airborne_target {
+                if t.is_significantly_above_terrain() {
                     return false;
                 }
             }
@@ -2018,8 +2188,8 @@ impl GameLogic {
         object_id: ObjectId,
         goal: Vec3,
         state: AIState,
-    ) {
-        self.path_approach_with_state_ignoring(object_id, goal, state, None);
+    ) -> bool {
+        self.path_approach_with_state_ignoring(object_id, goal, state, None)
     }
 
     pub(crate) fn path_approach_with_state_ignoring(
@@ -2028,7 +2198,7 @@ impl GameLogic {
         goal: Vec3,
         state: AIState,
         ignore_obstacle: Option<ObjectId>,
-    ) {
+    ) -> bool {
         let state = self.mood_adjusted_move_state(object_id, state);
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
@@ -2037,6 +2207,7 @@ impl GameLogic {
             .objects
             .get(&object_id)
             .is_some_and(|obj| obj.ai_state == state);
+        let mut assigned = false;
         if self.assign_unit_path_ignoring(object_id, goal, &[], ignore_obstacle) {
             let already = self
                 .objects
@@ -2056,6 +2227,7 @@ impl GameLogic {
                     obj.ignored_obstacle_id = Some(id);
                 }
             }
+            assigned = true;
         } else if decision_auth {
             if let Some(obj) = self.objects.get_mut(&object_id) {
                 if !already {
@@ -2085,6 +2257,7 @@ impl GameLogic {
                 obj.requested_destination = Some(goal);
             }
         }
+        assigned
     }
 
     #[cfg(test)]

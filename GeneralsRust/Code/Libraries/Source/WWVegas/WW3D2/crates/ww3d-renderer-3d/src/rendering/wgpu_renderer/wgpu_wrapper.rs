@@ -465,7 +465,38 @@ impl WgpuWrapper {
     /// End rendering for the current frame. Equivalent to DX8 EndScene.
     pub fn end_scene(&mut self, flip_frame: bool) -> Result<()> {
         if let Some(mut frame) = self.active_frame.take() {
+            if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
+                let depth_attachment = self.depth.as_ref().map(|depth| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }
+                });
+                let mut pass = frame.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("WW3D Sorting Flush"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.color_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: depth_attachment,
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: None,
+                });
+                ww3d_gpu::flush_sorting_renderer(&mut pass);
+                drop(pass);
+            }
             let command_buffer = frame.encoder.finish();
+
             ww3d_engine::submit_recorded(
                 &self.queue,
                 ww3d_engine::FrameCommandPhase::Overlay,
@@ -552,11 +583,41 @@ impl WgpuWrapper {
 
     /// Bind an index buffer for upcoming draw calls.
     pub fn set_index_buffer(&mut self, ib: &WgpuIndexBuffer, index_base_offset: u16) {
+        self.render_state.index_buffer_type = ib.buffer_type();
         self.render_state.index_buffer = Some(Arc::new(ib.clone()));
         self.render_state.index_base_offset = index_base_offset;
         self.render_state_changed
             .insert(ChangedStates::INDEX_BUFFER_CHANGED);
         self.index_buffer_changes += 1;
+    }
+
+    pub fn set_vertex_buffer_type(&mut self, stream: usize, buffer_type: BufferType) {
+        if stream < self.render_state.vertex_buffer_types.len() {
+            self.render_state.vertex_buffer_types[stream] = buffer_type as u32;
+        }
+    }
+
+    pub fn set_index_buffer_type(&mut self, buffer_type: BufferType) {
+        self.render_state.index_buffer_type = buffer_type as u32;
+    }
+
+    fn stored_draw_buffer_type(&self) -> BufferType {
+        let raw = if self.render_state.index_buffer.is_some() {
+            self.render_state.index_buffer_type
+        } else {
+            self.render_state
+                .vertex_buffer_types
+                .first()
+                .copied()
+                .unwrap_or(0)
+        };
+        match raw {
+            1 => BufferType::Sorting,
+            2 => BufferType::DynamicDx8,
+            3 => BufferType::DynamicSorting,
+            4 => BufferType::Invalid,
+            _ => BufferType::Dx8,
+        }
     }
 
     /// Bind a texture to the specified texture stage.
@@ -697,13 +758,74 @@ impl WgpuWrapper {
     /// Draw indexed triangles.
     pub fn draw_triangles(
         &mut self,
-        _buffer_type: BufferType,
+        buffer_type: BufferType,
         start_index: u16,
         polygon_count: u16,
         min_vertex_index: u16,
         vertex_count: u16,
     ) -> Result<()> {
         if !self.enable_triangle_draw {
+            return Ok(());
+        }
+        if matches!(buffer_type, BufferType::Sorting | BufferType::DynamicSorting) {
+            let vertex = self
+                .render_state
+                .vertex_buffers
+                .first()
+                .and_then(|vb| vb.clone())
+                .ok_or_else(|| Error::NotInitialized("Sorting draw has no vertex buffer".into()))?;
+            let index = self
+                .render_state
+                .index_buffer
+                .clone()
+                .ok_or_else(|| Error::NotInitialized("Sorting draw has no index buffer".into()))?;
+            let shader = self
+                .render_state
+                .shader
+                .clone()
+                .ok_or_else(|| Error::NotInitialized("Shader not bound".into()))?;
+            let resources = shader.apply(
+                &self.device,
+                &self.surface_config,
+                &self.render_state.view,
+                &self.render_state.world,
+                None,
+                None,
+                None,
+            );
+            let distance = (self.render_state.view * self.render_state.world).w_axis.z;
+            let vertex_buffer = ww3d_gpu::GpuBuffer::from_existing(
+                vertex.buffer().as_ref().clone(),
+                vertex.size(),
+                wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            );
+            let index_buffer = ww3d_gpu::GpuBuffer::from_existing(
+                index.buffer().as_ref().clone(),
+                index.size(),
+                wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+            );
+            let group2 = resources
+                .bone_bind_group
+                .clone()
+                .unwrap_or_else(|| resources.uv_transform_bind_group.clone());
+            let mut bind_groups = vec![
+                resources.camera_bind_group,
+                resources.model_bind_group,
+                group2,
+            ];
+            bind_groups.extend(resources.texture_bind_groups);
+            ww3d_gpu::add_sorted_triangles_with_state(
+                vertex_buffer,
+                index_buffer,
+                start_index as u32,
+                polygon_count as u32,
+                min_vertex_index as u32,
+                vertex_count as u32,
+                distance,
+                resources.pipeline,
+                bind_groups,
+                wgpu::IndexFormat::Uint16,
+            );
             return Ok(());
         }
 
@@ -847,7 +969,7 @@ impl WgpuWrapper {
         vertex_count: u16,
     ) -> Result<()> {
         self.draw_triangles(
-            BufferType::Dx8,
+            self.stored_draw_buffer_type(),
             start_index,
             polygon_count,
             min_vertex_index,
@@ -865,7 +987,7 @@ impl WgpuWrapper {
     ) -> Result<()> {
         let polygon_count = index_count.saturating_sub(2);
         self.draw_triangles(
-            BufferType::Dx8,
+            self.stored_draw_buffer_type(),
             start_index,
             polygon_count,
             min_vertex_index,

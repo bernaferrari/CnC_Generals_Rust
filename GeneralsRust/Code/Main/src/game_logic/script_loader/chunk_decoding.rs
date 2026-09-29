@@ -14,239 +14,30 @@ fn decompress_map_bytes(raw_bytes: &[u8]) -> LoaderResult<Vec<u8>> {
     // The repo also contains a newer synthetic header handled by `generals_compression`;
     // keep a fallback path for that format.
     if raw_bytes.len() >= 8 && &raw_bytes[..4] == b"EAR\0" {
-        let expected_size =
-            u32::from_le_bytes(raw_bytes[4..8].try_into().unwrap_or([0; 4])) as usize;
-        return decompress_refpack_stream(&raw_bytes[8..], expected_size).map_err(|err| {
+        return game_engine::common::system::compression::decompress_data(raw_bytes).map_err(|err| {
             configuration_error(format!("Failed to decompress RefPack payload: {err}"))
         });
+    }
+    // A bare RefPack stream has no EAR wrapper. generals_compression treats
+    // its RefPack type as LZ4, so recognize the retail type id and reuse
+    // REF_decode through the EAR entry point.
+    if raw_bytes.len() >= 2 {
+        let type_id = ((raw_bytes[0] as u16) << 8) | raw_bytes[1] as u16;
+        if matches!(type_id, 0x10FB | 0x11FB | 0x90FB | 0x91FB) {
+            let mut wrapped = Vec::with_capacity(8 + raw_bytes.len());
+            wrapped.extend_from_slice(b"EAR\0");
+            wrapped.extend_from_slice(&[0, 0, 0, 0]);
+            wrapped.extend_from_slice(raw_bytes);
+            return game_engine::common::system::compression::decompress_data(&wrapped).map_err(
+                |err| configuration_error(format!("Failed to decompress RefPack payload: {err}")),
+            );
+        }
     }
 
     generals_compression::decompress(raw_bytes)
         .map_err(|err| configuration_error(format!("Fallback decompression failed: {err}")))
 }
 
-fn decompress_refpack_stream(data: &[u8], expected_size: usize) -> Result<Vec<u8>, String> {
-    // Ported from `GeneralsMD/Code/Libraries/Source/Compression/EAC/refdecode.cpp` (REF_decode).
-    if data.len() < 2 {
-        return Err("RefPack stream too small".to_string());
-    }
-
-    let mut pos: usize = 0;
-    let type_word: u16 = ((data[pos] as u16) << 8) | data[pos + 1] as u16;
-    pos += 2;
-
-    let ulen: usize;
-    if (type_word & 0x8000) != 0 {
-        // 4 byte size field
-        if (type_word & 0x0100) != 0 {
-            // skip ulen
-            if data.len() < pos + 4 {
-                return Err("RefPack header truncated (skip ulen)".to_string());
-            }
-            pos += 4;
-        }
-        if data.len() < pos + 4 {
-            return Err("RefPack header truncated (ulen32)".to_string());
-        }
-        ulen = ((data[pos] as usize) << 24)
-            | ((data[pos + 1] as usize) << 16)
-            | ((data[pos + 2] as usize) << 8)
-            | (data[pos + 3] as usize);
-        pos += 4;
-    } else {
-        // 3 byte size field
-        if (type_word & 0x0100) != 0 {
-            if data.len() < pos + 3 {
-                return Err("RefPack header truncated (skip ulen)".to_string());
-            }
-            pos += 3;
-        }
-        if data.len() < pos + 3 {
-            return Err("RefPack header truncated (ulen24)".to_string());
-        }
-        ulen =
-            ((data[pos] as usize) << 16) | ((data[pos + 1] as usize) << 8) | data[pos + 2] as usize;
-        pos += 3;
-    }
-
-    if expected_size != 0 && ulen != expected_size {
-        // Keep going (the inner size is authoritative for this stream), but surface the mismatch.
-        trace!(
-            "RefPack size mismatch: outer={}, inner={}",
-            expected_size, ulen
-        );
-    }
-
-    let mut out: Vec<u8> = Vec::with_capacity(ulen);
-    loop {
-        if pos >= data.len() {
-            return Err("RefPack stream ended before EOF marker".to_string());
-        }
-        let first = data[pos];
-        pos += 1;
-
-        if (first & 0x80) == 0 {
-            // short form
-            if pos >= data.len() {
-                return Err("RefPack short form truncated".to_string());
-            }
-            let second = data[pos];
-            pos += 1;
-            let literal_count = (first & 3) as usize;
-            if data.len() < pos + literal_count {
-                return Err("RefPack literals truncated".to_string());
-            }
-            out.extend_from_slice(&data[pos..pos + literal_count]);
-            pos += literal_count;
-
-            let back = (((first & 0x60) as usize) << 3) + second as usize;
-            if out.is_empty() {
-                return Err("RefPack invalid backref: empty output".to_string());
-            }
-            let mut ref_pos = out
-                .len()
-                .checked_sub(1 + back)
-                .ok_or_else(|| "RefPack invalid backref (short)".to_string())?;
-
-            let mut run = (((first & 0x1c) >> 2) as usize) + 3;
-            while run > 0 {
-                if ref_pos >= out.len() {
-                    return Err("RefPack backref out of bounds (short)".to_string());
-                }
-                let byte = out[ref_pos];
-                out.push(byte);
-                ref_pos += 1;
-                run -= 1;
-                if out.len() >= ulen {
-                    break;
-                }
-            }
-            if out.len() >= ulen {
-                break;
-            }
-            continue;
-        }
-
-        if (first & 0x40) == 0 {
-            // int form
-            if data.len() < pos + 2 {
-                return Err("RefPack int form truncated".to_string());
-            }
-            let second = data[pos];
-            let third = data[pos + 1];
-            pos += 2;
-
-            let literal_count = (second >> 6) as usize;
-            if data.len() < pos + literal_count {
-                return Err("RefPack literals truncated".to_string());
-            }
-            out.extend_from_slice(&data[pos..pos + literal_count]);
-            pos += literal_count;
-
-            let back = (((second & 0x3f) as usize) << 8) + third as usize;
-            if out.is_empty() {
-                return Err("RefPack invalid backref: empty output".to_string());
-            }
-            let mut ref_pos = out
-                .len()
-                .checked_sub(1 + back)
-                .ok_or_else(|| "RefPack invalid backref (int)".to_string())?;
-
-            let mut run = ((first & 0x3f) as usize) + 4;
-            while run > 0 {
-                if ref_pos >= out.len() {
-                    return Err("RefPack backref out of bounds (int)".to_string());
-                }
-                let byte = out[ref_pos];
-                out.push(byte);
-                ref_pos += 1;
-                run -= 1;
-                if out.len() >= ulen {
-                    break;
-                }
-            }
-            if out.len() >= ulen {
-                break;
-            }
-            continue;
-        }
-
-        if (first & 0x20) == 0 {
-            // very int form
-            if data.len() < pos + 3 {
-                return Err("RefPack very-int form truncated".to_string());
-            }
-            let second = data[pos];
-            let third = data[pos + 1];
-            let forth = data[pos + 2];
-            pos += 3;
-
-            let literal_count = (first & 3) as usize;
-            if data.len() < pos + literal_count {
-                return Err("RefPack literals truncated".to_string());
-            }
-            out.extend_from_slice(&data[pos..pos + literal_count]);
-            pos += literal_count;
-
-            let back = ((((first & 0x10) as usize) >> 4) << 16)
-                + ((second as usize) << 8)
-                + third as usize;
-            if out.is_empty() {
-                return Err("RefPack invalid backref: empty output".to_string());
-            }
-            let mut ref_pos = out
-                .len()
-                .checked_sub(1 + back)
-                .ok_or_else(|| "RefPack invalid backref (very-int)".to_string())?;
-
-            let run = ((((first & 0x0c) as usize) >> 2) << 8) + forth as usize + 5;
-            let mut remaining = run;
-            while remaining > 0 {
-                if ref_pos >= out.len() {
-                    return Err("RefPack backref out of bounds (very-int)".to_string());
-                }
-                let byte = out[ref_pos];
-                out.push(byte);
-                ref_pos += 1;
-                remaining -= 1;
-                if out.len() >= ulen {
-                    break;
-                }
-            }
-            if out.len() >= ulen {
-                break;
-            }
-            continue;
-        }
-
-        let literal_run = (((first & 0x1f) as usize) << 2) + 4;
-        if literal_run <= 112 {
-            if data.len() < pos + literal_run {
-                return Err("RefPack literal run truncated".to_string());
-            }
-            out.extend_from_slice(&data[pos..pos + literal_run]);
-            pos += literal_run;
-            if out.len() >= ulen {
-                break;
-            }
-            continue;
-        }
-
-        // EOF (+0..3 literal)
-        let tail = (first & 3) as usize;
-        if data.len() < pos + tail {
-            return Err("RefPack EOF tail truncated".to_string());
-        }
-        out.extend_from_slice(&data[pos..pos + tail]);
-        let _pos = pos + tail;
-        break;
-    }
-
-    if out.len() != ulen {
-        return Err(format!("Size mismatch: expected {ulen}, got {}", out.len()));
-    }
-    Ok(out)
-}
 
 /// Raw chunky map data for further decoding (terrain, objects, etc.).
 #[derive(Clone)]

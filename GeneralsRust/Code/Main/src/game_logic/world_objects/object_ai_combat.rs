@@ -27,7 +27,8 @@ impl GameLogic {
                         self.stop_attack_decision_aware(object_id);
                     } else if ai_state == AIState::Attacking {
                         if let Some(attacker) = self.objects.get(&object_id) {
-                            if attacker.can_target(target) {
+                            let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                            if attacker.chosen_fire_slot_in_range(target, current_time) {
                                 let current_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
                                 let (tgt_inf, tgt_faerie) = self
                                     .objects
@@ -68,22 +69,121 @@ impl GameLogic {
 
         // Handle AttackingGround: fire at target_location.
         if ai_state == AIState::AttackingGround {
+            if let Some(loc) = self
+                .objects
+                .get(&object_id)
+                .and_then(|attacker| attacker.target_location)
+            {
+                self.set_turret_target_position(object_id, Some(loc));
+            }
             let can_fire_ground = self
                 .objects
                 .get(&object_id)
                 .map(|attacker| {
                     attacker.can_attack()
-                        && attacker.can_fire(self.frame as f32 * LOGIC_FRAME_TIMESTEP)
+                        && attacker.can_fire_slot(
+                            attacker.active_weapon_slot,
+                            self.frame as f32 * LOGIC_FRAME_TIMESTEP,
+                        )
                         && attacker.target_location.is_some()
+                        && attacker.has_max_shots_remaining()
                 })
                 .unwrap_or(false);
 
-            if can_fire_ground {
-                if let Some(attacker) = self.objects.get(&object_id) {
+            let out_of_range = self.objects.get(&object_id).is_some_and(|attacker| {
+                attacker.target_location.is_some_and(|loc| {
+                    !attacker.is_within_attack_range_pos_for_slot(attacker.active_weapon_slot, loc)
+                })
+            });
+            if out_of_range {
+                    let can_close = self.objects.get(&object_id).is_some_and(|attacker| {
+                        attacker.can_attack()
+                            && attacker.can_move()
+                            && attacker.has_max_shots_remaining()
+                            && attacker.movement.path.is_empty()
+                            && !attacker.waiting_for_path
+                    });
+                    if can_close {
+                        let planned = self.objects.get(&object_id).and_then(|attacker| {
+                            let loc = attacker.target_location?;
+                            let under =
+                                crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                            let weapon = attacker
+                                .weapon_slot(attacker.active_weapon_slot)
+                                .or(attacker.weapon.as_ref());
+                            let (min_range, max_range) = weapon
+                                .map(|w| {
+                                    (
+                                        (w.min_range - under).max(0.0),
+                                        (attacker.effective_weapon_range(w.range) - under).max(0.0),
+                                    )
+                                })
+                                .unwrap_or((0.0, 0.0));
+                            let wname = attacker
+                                .weapon_name_for_slot(attacker.active_weapon_slot)
+                                .map(|n| n.to_owned());
+                            let dist = attacker.distance_to_pos(loc);
+                            let backup = if min_range
+                                > crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                                && dist + 1e-4 < min_range
+                            {
+                                let away = attacker.get_position() - loc;
+                                let len = away.length().max(0.01);
+                                let src_r = attacker
+                                    .thing
+                                    .template
+                                    .geometry_info
+                                    .bounding_circle_radius();
+                                let stand = (min_range + max_range) * 0.5 + src_r;
+                                Some(loc + away / len * stand)
+                            } else {
+                                None
+                            };
+                            Some((backup, max_range, wname, loc))
+                        });
+                        if let Some((backup, max_range, wname, loc)) = planned {
+                            let goal = if let Some(backup) = backup {
+                                backup
+                            } else {
+                                self.approach_pos_for_attack(
+                                    object_id,
+                                    loc,
+                                    max_range,
+                                    wname.as_deref(),
+                                    None,
+                                )
+                            };
+                            if self.path_approach_with_state(
+                                object_id,
+                                goal,
+                                AIState::AttackingGround,
+                            ) {
+                                if let Some(attacker) = self.objects.get_mut(&object_id) {
+                                    attacker.ignored_obstacle_id = None;
+                                }
+                            }
+                        }
+                    }
+            } else if can_fire_ground {
+                    if let Some(attacker) = self.objects.get_mut(&object_id) {
+                        if !attacker.movement.path.is_empty() {
+                            attacker.movement.path.clear();
+                            attacker.movement.target_position = None;
+                            attacker.set_status_moving(false);
+                        }
+                    }
+                    if let Some(attacker) = self.objects.get(&object_id) {
                     let shooter_pos = attacker.get_position();
-                    let weapon_damage = attacker.weapon.as_ref().map(|w| w.damage).unwrap_or(25.0);
+                    let slot = attacker.active_weapon_slot;
+                    let weapon_damage = attacker
+                        .weapon_slot(slot)
+                        .or(attacker.weapon.as_ref())
+                        .map(|w| w.damage)
+                        .unwrap_or(25.0);
                     if let Some(target_loc) = attacker.target_location {
-                        let wname = attacker.thing.template.primary_weapon_name.as_deref();
+                        let wname = attacker
+                            .weapon_name_for_slot(slot)
+                            .or(attacker.thing.template.primary_weapon_name.as_deref());
                         let scatter = wname
                             .map(|n| {
                                 crate::game_logic::weapon_bootstrap::host_effective_scatter_radius(
@@ -91,17 +191,27 @@ impl GameLogic {
                                 )
                             })
                             .unwrap_or(0.0);
-                        let proj_speed = attacker
-                            .weapon
-                            .as_ref()
+                        let fired = attacker.weapon_slot(slot).or(attacker.weapon.as_ref());
+                        let proj_speed = fired
                             .map(|w| {
                                 if w.projectile_speed > 0.0 {
                                     w.projectile_speed
                                 } else {
-                                    200.0
+                                    999_000.0
                                 }
                             })
-                            .unwrap_or(200.0);
+                            .unwrap_or(999_000.0);
+                        let damage_type = fired
+                            .map(|w| {
+                                if w.projectile_speed <= 0.0 {
+                                    crate::game_logic::combat::DamageType::Laser
+                                } else if w.splash_radius > 0.0 {
+                                    crate::game_logic::combat::DamageType::Explosive
+                                } else {
+                                    crate::game_logic::combat::DamageType::Bullet
+                                }
+                            })
+                            .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
                         super::super::combat::queue_projectile(super::super::combat::PendingProjectile {
                             shooter_id: object_id,
                             shooter_pos,
@@ -116,13 +226,11 @@ impl GameLogic {
                             target_pos: Some(target_loc),
                             damage: weapon_damage,
                             speed: proj_speed,
-                            splash_radius: attacker
-                                .weapon
-                                .as_ref()
+                            splash_radius: fired
                                 .map(|w| w.splash_radius)
                                 .unwrap_or(0.0),
                             is_homing: false,
-                            damage_type: crate::game_logic::combat::DamageType::Bullet,
+                            damage_type,
                             death_type: crate::game_logic::host_usa_pilot::HostDeathType::Normal,
                             projectile_object_name: wname
                                 .map(crate::game_logic::weapon_bootstrap::host_projectile_name_for_weapon_name)
@@ -193,13 +301,75 @@ impl GameLogic {
 
         });
                     }
-                }
-                if let Some(attacker) = self.objects.get_mut(&object_id) {
-                    if let Some(w) = attacker.weapon.as_mut() {
-                        w.last_fire_time = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                    }
+                    let impact = self
+                        .objects
+                        .get(&object_id)
+                        .and_then(|attacker| attacker.target_location);
+                    let fired_slot = self
+                        .objects
+                        .get(&object_id)
+                        .map(|attacker| attacker.active_weapon_slot)
+                        .unwrap_or(0);
+                    if let Some(attacker) = self.objects.get_mut(&object_id) {
+                        let slot = attacker.active_weapon_slot;
+                        let _ = attacker.capture_pending_weapon_visual_dispatch(
+                            slot,
+                            self.frame,
+                            None,
+                            impact,
+                        );
+                        let now = self.frame as f32 * LOGIC_FRAME_TIMESTEP;
+                        let name = attacker.weapon_name_for_slot(slot).map(str::to_owned);
+                        let auto_reloaded_clip = if let Some(w) = attacker.weapon_slot_mut(slot) {
+                            crate::game_logic::Object::consume_ammo_on_fire_named(
+                                w,
+                                now,
+                                name.as_deref(),
+                            );
+                            crate::game_logic::Object::auto_reloaded_clip_after_firing(
+                                w,
+                                name.as_deref(),
+                            )
+                        } else {
+                            false
+                        };
+                        if auto_reloaded_clip
+                            && attacker.weapon_lock_type
+                                == crate::game_logic::WeaponLockType::LockedTemporarily
+                            && attacker.weapon_lock_slot == slot
+                        {
+                            attacker.release_weapon_lock(
+                                crate::game_logic::WeaponLockType::LockedTemporarily,
+                            );
+                        }
+                        if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                            attacker.break_stealth();
+                        }
+                        attacker.consume_max_shot_count();
+                        if attacker.max_shots_to_fire == 0 {
+                            attacker.target_location = None;
+                            attacker.set_force_attack(false);
+                            attacker.set_ai_state(AIState::Idle);
+                            crate::game_logic::host_attack_log::record(object_id, None);
+                        }
+                    }
+                    if self
+                        .objects
+                        .get(&object_id)
+                        .is_some_and(|attacker| attacker.max_shots_to_fire == 0)
+                    {
+                        self.set_turret_target_position(object_id, None);
+                    }
+                    if self
+                        .record_accepted_weapon_discharge(object_id, fired_slot)
+                        .is_none()
+                    {
+                        if let Some(attacker) = self.objects.get_mut(&object_id) {
+                            attacker.advance_weapon_barrel_after_shot(fired_slot);
+                        }
                     }
                 }
-            }
         }
     }
 

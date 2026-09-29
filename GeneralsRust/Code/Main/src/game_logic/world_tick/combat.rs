@@ -317,6 +317,30 @@ impl GameLogic {
                 };
 
                 if let Some(slot) = selected_slot {
+                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                        let flying = attacker.is_above_terrain()
+                            && (attacker.locomotor_surfaces
+                                & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                != 0;
+                        if attacker.has_max_shots_remaining()
+                            && attacker.ai_state != AIState::AttackMoving
+                            && (!attacker.movement.path.is_empty()
+                                || attacker.movement.velocity.x != 0.0
+                                || attacker.movement.velocity.z != 0.0)
+                        {
+                            attacker.movement.path.clear();
+                            attacker.movement.target_position = None;
+                            attacker.movement.velocity.x = 0.0;
+                            attacker.movement.velocity.z = 0.0;
+                            attacker.set_status_moving(false);
+                        }
+                        if flying
+                            && attacker.has_max_shots_remaining()
+                            && attacker.ai_state != AIState::AttackMoving
+                        {
+                            attacker.requested_destination = None;
+                        }
+                    }
                     // C++ DeployStyleAIUpdate::update only enters DEPLOY once
                     // its current victim is within the current weapon's attack
                     // range.  Do this after slot/range selection, rather than
@@ -326,16 +350,22 @@ impl GameLogic {
                         continue;
                     }
 
-                    // C++ isAttackViewBlockedByObstacle residual: do not fire through
-                    // buildings; chase instead (falls through to OOR chase when we
-                    // clear selected fire by treating as out-of-LOS).
-                    if self.attack_view_blocked(attacker_id, Some(target_id), target_position) {
+                    // Same predicate AIAttackState uses. In-range was already
+                    // required to reach here, so a true result is the obstacle check.
+                    if self.out_of_weapon_range_object(attacker_id, target_id) {
                         // Ready but LOS blocked → findAttackPath residual (firing cell).
                         let combat_chase_ok = self
                             .objects
                             .get(&attacker_id)
                             .map(|attacker| {
                                 attacker.can_move()
+                                    && !(attacker.is_above_terrain()
+                                        && (attacker.locomotor_surfaces
+                                            & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                            != 0)
+                                    && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                                        attacker,
+                                    )
                                     && matches!(
                                         attacker.ai_state,
                                         AIState::Idle
@@ -348,11 +378,82 @@ impl GameLogic {
                             })
                             .unwrap_or(false);
                         if combat_chase_ok {
+                            let wname = self.objects.get(&attacker_id).and_then(|a| {
+                                a.selected_weapon_slot().and_then(|slot| {
+                                    a.weapon_name_for_slot(slot).map(|name| name.to_owned())
+                                })
+                            });
+                            let wrange = self
+                                .objects
+                                .get(&attacker_id)
+                                .and_then(|a| {
+                                    let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                                        * 0.25;
+                                    a.selected_weapon_slot().and_then(|slot| {
+                                        a.weapon_slot(slot).map(|w| {
+                                            (a.effective_weapon_range(w.range) - under).max(0.0)
+                                        })
+                                    })
+                                })
+                                .unwrap_or(50.0);
+                            let approach = self.approach_pos_for_attack(
+                                attacker_id,
+                                target_position,
+                                wrange,
+                                wname.as_deref(),
+                                Some(target_id),
+                            );
                             let _ = self.assign_unit_attack_path(
                                 attacker_id,
                                 Some(target_id),
-                                target_position,
+                                approach,
                             );
+                        } else if self.objects.get(&attacker_id).is_some_and(|attacker| {
+                            attacker.can_move()
+                                && attacker.is_above_terrain()
+                                && (attacker.locomotor_surfaces
+                                    & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                    != 0
+                        }) {
+                            let wname = self.objects.get(&attacker_id).and_then(|a| {
+                                a.selected_weapon_slot().and_then(|slot| {
+                                    a.weapon_name_for_slot(slot).map(|name| name.to_owned())
+                                })
+                            });
+                            let wrange = self
+                                .objects
+                                .get(&attacker_id)
+                                .and_then(|a| {
+                                    let under =
+                                        crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                                            * 0.25;
+                                    a.selected_weapon_slot().and_then(|slot| {
+                                        a.weapon_slot(slot).map(|w| {
+                                            (a.effective_weapon_range(w.range) - under).max(0.0)
+                                        })
+                                    })
+                                })
+                                .unwrap_or(50.0);
+                            let goal = self.approach_pos_for_attack(
+                                attacker_id,
+                                target_position,
+                                wrange,
+                                wname.as_deref(),
+                                Some(target_id),
+                            );
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                attacker.requested_destination = Some(goal);
+                                let stale = attacker.movement.path.last().is_some_and(|point| {
+                                    let dx = point.x - goal.x;
+                                    let dz = point.z - goal.z;
+                                    dx * dx + dz * dz > 0.25
+                                });
+                                if stale {
+                                    attacker.movement.path.clear();
+                                    attacker.movement.target_position = None;
+                                }
+                                attacker.set_status_moving(true);
+                            }
                         }
                         continue;
                     }
@@ -694,9 +795,7 @@ impl GameLogic {
                                         Some(attacker_team),
                                     );
                                     let wname = self.objects.get(&attacker_id).and_then(|a| {
-                                        a.thing.template.primary_weapon_name.clone().or_else(|| {
-                                            a.thing.template.secondary_weapon_name.clone()
-                                        })
+                                        a.weapon_name_for_slot(slot).map(str::to_owned)
                                     });
                                     self.continue_or_stop_after_kill(
                                         attacker_id,
@@ -2346,10 +2445,22 @@ impl GameLogic {
                         .map(|attacker| {
                             let slot = attacker.selected_weapon_slot();
                             let w = slot.and_then(|s| attacker.weapon_slot(s));
-                            let min_r = w.map(|w| w.min_range).unwrap_or(0.0);
-                            let max_r = w.map(|w| w.range).unwrap_or(0.0)
-                                * attacker.battle_plan_range_multiplier();
+                            let under =
+                                crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                            let min_r = w
+                                .map(|w| (w.min_range - under).max(0.0))
+                                .unwrap_or(0.0);
+                            let max_r = w
+                                .map(|w| (attacker.effective_weapon_range(w.range) - under).max(0.0))
+                                .unwrap_or(0.0);
                             let can = attacker.can_move()
+                                && !(attacker.is_above_terrain()
+                                    && (attacker.locomotor_surfaces
+                                        & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                        != 0)
+                                && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                                    attacker,
+                                )
                                 && matches!(
                                     attacker.ai_state,
                                     AIState::Idle
@@ -2363,27 +2474,115 @@ impl GameLogic {
                         })
                         .unwrap_or((0.0, 0.0, false));
                     let too_close = {
-                        let src = self
+                        let (src, src_r) = self
                             .objects
                             .get(&attacker_id)
-                            .map(|a| a.get_position())
-                            .unwrap_or(target_position);
+                            .map(|a| {
+                                (
+                                    a.get_position(),
+                                    a.thing.template.geometry_info.bounding_circle_radius(),
+                                )
+                            })
+                            .unwrap_or((target_position, 0.0));
+                        let tgt_r = self
+                            .objects
+                            .get(&target_id)
+                            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+                            .unwrap_or(0.0);
                         let dx = src.x - target_position.x;
                         let dz = src.z - target_position.z;
-                        let dist = (dx * dx + dz * dz).sqrt();
+                        let center = (dx * dx + dz * dz).sqrt();
+                        let dist = (center - src_r - tgt_r).max(0.0);
                         crate::game_logic::weapon_bootstrap::is_inside_minimum_attack_range(
                             dist, min_r,
                         )
                     };
-                    if too_close && can_chase {
-                        let _ = self.try_min_range_backup(attacker_id, target_position, min_r);
+                    let air = self.objects.get(&attacker_id).is_some_and(|attacker| {
+                        attacker.is_above_terrain()
+                            && (attacker.locomotor_surfaces
+                                & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                != 0
+                    });
+                    if air {
+                        if too_close
+                            && min_r > crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                        {
+                            let _ = self.try_min_range_backup_between(
+                                attacker_id,
+                                target_position,
+                                min_r,
+                                max_r,
+                                Some(target_id),
+                            );
+                            continue;
+                        } else {
+                            let wname = self.objects.get(&attacker_id).and_then(|a| {
+                                a.selected_weapon_slot().and_then(|slot| {
+                                    a.weapon_name_for_slot(slot).map(|name| name.to_owned())
+                                })
+                            });
+                            let goal = self.approach_pos_for_attack(
+                                attacker_id,
+                                target_position,
+                                max_r,
+                                wname.as_deref(),
+                                Some(target_id),
+                            );
+                            if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                                if attacker.can_move() {
+                                    attacker.requested_destination = Some(goal);
+                                    // C++ keeps the one-node path when squared distance < 0.25.
+                                    let stale = attacker.movement.path.last().is_some_and(|point| {
+                                        let dx = point.x - goal.x;
+                                        let dz = point.z - goal.z;
+                                        dx * dx + dz * dz > 0.25
+                                    });
+                                    if stale {
+                                        attacker.movement.path.clear();
+                                        attacker.movement.target_position = None;
+                                    }
+                                    attacker.set_status_moving(true);
+                                }
+                            }
+                        }
+                    } else if too_close
+                        && can_chase
+                        && min_r > crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                    {
+                        let _ = self.try_min_range_backup_between(
+                            attacker_id,
+                            target_position,
+                            min_r,
+                            max_r,
+                            Some(target_id),
+                        );
                         continue;
                     }
                     // Pathfind toward target (not straight-line through buildings).
                     // Do not clobber interaction orders that also set `target`
                     // (CaptureBuilding, SpecialAbility, Repair, Enter, etc.).
-                    let combat_chase_ok = can_chase;
-                    let _ = max_r;
+                    let chase_dist = {
+                        let (src, src_r) = self
+                            .objects
+                            .get(&attacker_id)
+                            .map(|a| {
+                                (
+                                    a.get_position(),
+                                    a.thing.template.geometry_info.bounding_circle_radius(),
+                                )
+                            })
+                            .unwrap_or((target_position, 0.0));
+                        let tgt_r = self
+                            .objects
+                            .get(&target_id)
+                            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+                            .unwrap_or(0.0);
+                        let dx = src.x - target_position.x;
+                        let dz = src.z - target_position.z;
+                        let center = (dx * dx + dz * dz).sqrt();
+                        (center - src_r - tgt_r).max(0.0)
+                    };
+                    let combat_chase_ok = can_chase && chase_dist > max_r;
                     if combat_chase_ok {
                         // findAttackPath residual: path to in-range LOS cell, not target cell.
                         // Contact weapons path to the target; others stand off at range*0.9.
@@ -2401,15 +2600,30 @@ impl GameLogic {
                             .unwrap_or(false);
                         // ~0.5s at 30 Hz when already marching; always plan when idle/stuck.
                         let repath_due = !has_active_path || (self.frame % 15 == 0);
-                        if repath_due {
+                        if repath_due
+                            && self.objects.get(&attacker_id).is_some_and(|attacker| {
+                                !(attacker.is_above_terrain()
+                                    && (attacker.locomotor_surfaces
+                                        & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                        != 0)
+                                    && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                                        attacker,
+                                    )
+                            })
+                        {
                             let (wrange, wname) = self
                                 .objects
                                 .get(&attacker_id)
                                 .map(|a| {
                                     let slot = a.selected_weapon_slot();
+                                    let under =
+                                        crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                                            * 0.25;
                                     let r = slot
                                         .and_then(|s| a.weapon_slot(s))
-                                        .map(|w| w.range)
+                                        .map(|w| {
+                                            (a.effective_weapon_range(w.range) - under).max(0.0)
+                                        })
                                         .unwrap_or(50.0);
                                     let n = slot
                                         .and_then(|s| a.weapon_name_for_slot(s).map(str::to_owned));
@@ -2421,6 +2635,7 @@ impl GameLogic {
                                 target_position,
                                 wrange,
                                 wname.as_deref(),
+                                Some(target_id),
                             );
                             let _ = self.assign_unit_attack_path(
                                 attacker_id,
@@ -2469,19 +2684,75 @@ impl GameLogic {
                     .and_then(|slot| {
                         self.objects.get(&attacker_id).and_then(|attacker| {
                             attacker.weapon_slot(slot).map(|weapon| {
-                                Object::weapon_ready(weapon, current_time)
+                                attacker.can_fire_slot(slot, current_time)
+                                    && attacker.has_max_shots_remaining()
                                     && attacker.weapon_allows_target_anti_mask(
                                         weapon,
                                         Some(slot),
                                         gamelogic::weapon::WeaponAntiMask::GROUND,
                                     )
-                                    && attacker.position.distance(target_location) <= weapon.range
+                                    && attacker.is_within_attack_range_pos_for_slot(
+                                        slot,
+                                        target_location,
+                                    )
                             })
                         })
                     })
                     .unwrap_or(false);
-
+                let can_fire_at_location = if can_fire_at_location {
+                    let (immobile, contained_by, spawns_weapons) = self
+                        .objects
+                        .get(&attacker_id)
+                        .map(|attacker| {
+                            let name = attacker.template_name.to_ascii_lowercase();
+                            let spawns = name.contains("spawnsaretheweapons")
+                                || name.contains("stinger");
+                            (
+                                attacker.is_kind_of(crate::game_logic::KindOf::Immobile),
+                                attacker.contained_by,
+                                spawns,
+                            )
+                        })
+                        .unwrap_or((false, None, false));
+                    let container_ground = contained_by.is_some_and(|id| {
+                        self.objects.get(&id).is_some_and(|container| {
+                            container.is_kind_of(crate::game_logic::KindOf::Structure)
+                                || !container.status.airborne_target
+                        })
+                    });
+                    let on_ground = immobile
+                        || spawns_weapons
+                        || container_ground
+                        || self.objects.get(&attacker_id).is_some_and(|attacker| {
+                            crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                                attacker,
+                            )
+                        });
+                    !(on_ground
+                        && self.attack_view_blocked(attacker_id, None, target_location))
+                } else {
+                    false
+                };
                 if can_fire_at_location {
+                    if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                        let flying = attacker.is_above_terrain()
+                            && (attacker.locomotor_surfaces
+                                & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                != 0;
+                        if (!attacker.movement.path.is_empty()
+                            || attacker.movement.velocity.x != 0.0
+                            || attacker.movement.velocity.z != 0.0)
+                        {
+                            attacker.movement.path.clear();
+                            attacker.movement.target_position = None;
+                            attacker.movement.velocity.x = 0.0;
+                            attacker.movement.velocity.z = 0.0;
+                            attacker.set_status_moving(false);
+                        }
+                        if flying && attacker.ai_state != AIState::AttackMoving {
+                            attacker.requested_destination = None;
+                        }
+                    }
                     // AcceptableAimDelta residual for force-attack-ground.
                     let Some(ground_slot) = ground_slot else {
                         continue;
@@ -2737,7 +3008,11 @@ impl GameLogic {
                             };
                             let _ = weapon_damage;
                         } else if let Some(ground_target_id) =
-                            self.find_ground_attack_victim(attacker_id, target_location)
+                            self.find_ground_attack_victim(
+                                attacker_id,
+                                target_location,
+                                ground_slot,
+                            )
                         {
                             let ground_wname =
                                 self.objects.get(&attacker_id).and_then(|attacker| {
@@ -2803,6 +3078,185 @@ impl GameLogic {
                                     upgraded,
                                 );
                             }
+                        }
+                        }
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            let slot = ground_slot;
+                            let name = attacker.weapon_name_for_slot(slot).map(str::to_owned);
+                            let auto_reloaded = if let Some(w) = attacker.weapon_slot_mut(slot) {
+                                Object::consume_ammo_on_fire_named(w, current_time, name.as_deref());
+                                Object::auto_reloaded_clip_after_firing(w, name.as_deref())
+                            } else {
+                                false
+                            };
+                            if auto_reloaded
+                                && attacker.weapon_lock_type == WeaponLockType::LockedTemporarily
+                                && attacker.weapon_lock_slot == slot
+                            {
+                                attacker.release_weapon_lock(WeaponLockType::LockedTemporarily);
+                            }
+                            if attacker.stealth_breaks_on_attack && attacker.status.stealthed {
+                                attacker.break_stealth();
+                            }
+                            attacker.consume_max_shot_count();
+                            if attacker.max_shots_to_fire == 0 {
+                                attacker.target_location = None;
+                                attacker.set_force_attack(false);
+                                attacker.set_ai_state(AIState::Idle);
+                                crate::game_logic::host_attack_log::record(attacker_id, None);
+                            }
+                        }
+                        if self
+                            .objects
+                            .get(&attacker_id)
+                            .is_some_and(|attacker| attacker.max_shots_to_fire == 0)
+                        {
+                            self.set_turret_target_position(attacker_id, None);
+                        }
+                        let _ = self.record_accepted_weapon_discharge(
+                            attacker_id,
+                            ground_slot,
+                        );
+                } else if self.objects.get(&attacker_id).is_some_and(|attacker| {
+                    attacker.can_attack()
+                        && attacker.can_move()
+                        && !(attacker.is_above_terrain()
+                            && (attacker.locomotor_surfaces
+                                & crate::game_logic::object::LOCO_SURFACE_AIR)
+                                != 0)
+                        && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                            attacker,
+                        )
+                        && attacker.has_max_shots_remaining()
+                        && attacker.movement.path.is_empty()
+                        && !attacker.waiting_for_path
+                }) {
+                    let planned = self.objects.get(&attacker_id).map(|attacker| {
+                        let slot = ground_slot.unwrap_or(0);
+                        let under =
+                            crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                        let (min_range, max_range) = attacker
+                            .weapon_slot(slot)
+                            .map(|w| {
+                                (
+                                    (w.min_range - under).max(0.0),
+                                    (attacker.effective_weapon_range(w.range) - under).max(0.0),
+                                )
+                            })
+                            .unwrap_or((0.0, 0.0));
+                        let dist = attacker.distance_to_pos(target_location);
+                        let wname = attacker
+                            .selected_weapon_slot()
+                            .and_then(|s| attacker.weapon_name_for_slot(s).map(|n| n.to_owned()));
+                        let backup = if min_range
+                            > crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                            && dist + 1e-4 < min_range
+                        {
+                            let away = attacker.get_position() - target_location;
+                            let len = away.length().max(0.01);
+                            let src_r = attacker
+                                .thing
+                                .template
+                                .geometry_info
+                                .bounding_circle_radius();
+                            let stand = (min_range + max_range) * 0.5 + src_r;
+                            Some(target_location + away / len * stand)
+                        } else {
+                            None
+                        };
+                        (backup, max_range, wname)
+                    });
+                    let goal = if let Some((Some(backup), _, _)) = &planned {
+                        *backup
+                    } else {
+                        let (max_range, wname) = planned
+                            .map(|(_, max_range, wname)| (max_range, wname))
+                            .unwrap_or((0.0, None));
+                        self.approach_pos_for_attack(
+                            attacker_id,
+                            target_location,
+                            max_range,
+                            wname.as_deref(),
+                            None,
+                        )
+                    };
+                    if self.assign_unit_path(attacker_id, goal, &[]) {
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            attacker.set_ai_state(AIState::AttackingGround);
+                            attacker.ignored_obstacle_id = None;
+                        }
+                        self.set_turret_target_position(attacker_id, Some(target_location));
+                    }
+                } else if self.objects.get(&attacker_id).is_some_and(|attacker| {
+                    attacker.can_move()
+                        && attacker.has_max_shots_remaining()
+                        && attacker.is_above_terrain()
+                        && (attacker.locomotor_surfaces
+                            & crate::game_logic::object::LOCO_SURFACE_AIR)
+                            != 0
+                }) {
+                    let planned = self.objects.get(&attacker_id).map(|attacker| {
+                        let slot = ground_slot.unwrap_or(0);
+                        let under =
+                            crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                        let (min_range, max_range) = attacker
+                            .weapon_slot(slot)
+                            .map(|w| {
+                                (
+                                    (w.min_range - under).max(0.0),
+                                    (attacker.effective_weapon_range(w.range) - under).max(0.0),
+                                )
+                            })
+                            .unwrap_or((0.0, 0.0));
+                        let dist = attacker.distance_to_pos(target_location);
+                        let flight_y = attacker.get_position().y;
+                        let wname = attacker
+                            .selected_weapon_slot()
+                            .and_then(|s| attacker.weapon_name_for_slot(s).map(|n| n.to_owned()));
+                        let backup = if min_range
+                            > crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE
+                            && dist + 1e-4 < min_range
+                        {
+                            let away = attacker.get_position() - target_location;
+                            let len = away.length().max(0.01);
+                            let src_r = attacker
+                                .thing
+                                .template
+                                .geometry_info
+                                .bounding_circle_radius();
+                            let stand = (min_range + max_range) * 0.5 + src_r;
+                            Some(target_location + away / len * stand)
+                        } else {
+                            None
+                        };
+                        (backup, flight_y, max_range, wname)
+                    });
+                    if let Some((backup, flight_y, max_range, wname)) = planned {
+                        let mut goal = if let Some(backup) = backup {
+                            backup
+                        } else {
+                            self.approach_pos_for_attack(
+                                attacker_id,
+                                target_location,
+                                max_range,
+                                wname.as_deref(),
+                                None,
+                            )
+                        };
+                        goal.y = flight_y;
+                        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+                            attacker.requested_destination = Some(goal);
+                            let stale = attacker.movement.path.last().is_some_and(|point| {
+                                let dx = point.x - goal.x;
+                                let dz = point.z - goal.z;
+                                dx * dx + dz * dz > 0.25
+                            });
+                            if stale {
+                                attacker.movement.path.clear();
+                                attacker.movement.target_position = None;
+                            }
+                            attacker.set_status_moving(true);
+                            attacker.set_ai_state(AIState::AttackingGround);
                         }
                     }
                 }
@@ -3170,12 +3624,13 @@ impl GameLogic {
         &self,
         attacker_id: ObjectId,
         target_location: Vec3,
+        firing_slot: u8,
     ) -> Option<ObjectId> {
-        const GROUND_IMPACT_RADIUS: f32 = 12.0;
 
         let attacker = self.objects.get(&attacker_id)?;
         let force_attack = attacker.force_attack;
         let attacker_team = attacker.team;
+        const GROUND_IMPACT_RADIUS: f32 = 12.0;
 
         // Pure residual acquire: nearest attackable victim near ground impact (3D).
         let candidate_ids: Vec<ObjectId> = self
@@ -3185,6 +3640,7 @@ impl GameLogic {
                 if candidate_id == attacker_id
                     || !candidate.is_alive()
                     || (!candidate.is_attackable() && !candidate.is_disarmable_mine())
+                    || candidate.contained_by.is_some()
                 {
                     return None;
                 }
@@ -3195,12 +3651,37 @@ impl GameLogic {
             })
             .collect();
 
-        let attacker = self.objects.get(&attacker_id)?;
         let candidates: Vec<_> = candidate_ids
             .into_iter()
             .filter_map(|id| {
                 let candidate = self.objects.get(&id)?;
-                if !attacker.can_target(candidate) {
+                let air = candidate.is_kind_of(KindOf::Aircraft) || candidate.status.airborne_target;
+                if air {
+                    let can_air = attacker
+                        .weapon_slot(firing_slot)
+                        .map(|w| w.can_target_air)
+                        .unwrap_or(false);
+                    if !can_air {
+                        return None;
+                    }
+                }
+                if candidate.is_eject_invulnerable() {
+                    return None;
+                }
+                if candidate.status.under_construction && !attacker.force_attack {
+                    return None;
+                }
+                if candidate.status.sold {
+                    return None;
+                }
+                if attacker.producer_id == Some(id) {
+                    return None;
+                }
+                let mask = candidate.weapon_target_anti_mask();
+                let Some(weapon) = attacker.weapon_slot(firing_slot).cloned() else {
+                    return None;
+                };
+                if !attacker.weapon_allows_target_anti_mask(&weapon, Some(firing_slot), mask) {
                     return None;
                 }
                 Some(
@@ -3216,7 +3697,9 @@ impl GameLogic {
                         // mine must not be skipped by residual acquire either.
                         effectively_stealthed: candidate.is_effectively_stealthed()
                             && !(crate::game_logic::weapon_bootstrap::host_weapon_is_disarm_damage(
-                                attacker.weapon_name_for_slot(0).unwrap_or(""),
+                                attacker
+                                    .weapon_name_for_slot(firing_slot)
+                                    .unwrap_or(""),
                             ) && candidate.is_disarmable_mine()),
                         is_air: candidate.is_kind_of(KindOf::Aircraft)
                             || candidate.status.airborne_target,

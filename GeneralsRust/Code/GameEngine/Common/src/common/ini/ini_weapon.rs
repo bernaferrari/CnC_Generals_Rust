@@ -266,6 +266,62 @@ pub struct WeaponTemplate {
     pub reload_time: f32,
     pub accuracy: f32,
     pub projectile_speed: f32,
+    pub acceptable_aim_delta: f32,
+    pub min_weapon_speed: f32,
+    pub scale_weapon_speed: bool,
+    pub weapon_recoil: f32,
+    pub min_target_pitch: f32,
+    pub max_target_pitch: f32,
+    pub radius_damage_angle: f32,
+    pub fire_sound_loop_time: u32,
+    pub continuous_fire_coast: u32,
+    pub clip_reload_time: u32,
+    pub auto_reload_when_idle: u32,
+    /// C++ `m_antiMask`. Starts as `WEAPON_ANTI_GROUND` (0x02).
+    pub anti_mask: u32,
+    pub fire_fx: [Option<String>; 4],
+    pub projectile_detonate_fx: [Option<String>; 4],
+    pub fire_ocl: [Option<String>; 4],
+    pub projectile_detonate_ocl: [Option<String>; 4],
+    pub projectile_exhaust: [Option<String>; 4],
+    pub clip_size: i32,
+    pub continuous_fire_one: i32,
+    pub continuous_fire_two: i32,
+    pub shots_per_barrel: i32,
+    pub historic_bonus_time: u32,
+    pub historic_bonus_radius: f32,
+    pub historic_bonus_count: i32,
+    pub pre_attack_delay: u32,
+    pub continue_attack_range: f32,
+    pub suspend_fx_delay: u32,
+    pub min_delay_between_shots: i32,
+    pub max_delay_between_shots: i32,
+    pub damage_dealt_at_self_position: bool,
+    pub leech_range_weapon: bool,
+    pub play_fx_when_stealthed: bool,
+    pub die_on_detonate: bool,
+    pub capable_of_following_waypoints: bool,
+    pub shows_ammo_pips: bool,
+    pub allow_attack_garrisoned_bldgs: bool,
+    pub reload_type: i32,
+    pub prefire_type: i32,
+    pub damage_type_index: i32,
+    pub damage_status_type: i32,
+    pub death_type_index: i32,
+    pub affects_mask: u32,
+    pub collide_mask: u32,
+    pub shockwave_amount: f32,
+    pub shockwave_radius: f32,
+    pub shockwave_taper_off: f32,
+    pub projectile_stream_name: String,
+    pub laser_name: String,
+    pub laser_bone_name: String,
+    pub historic_bonus_weapon: Option<String>,
+    pub secondary_damage_radius: f32,
+    pub request_assist_range: f32,
+    pub scatter_radius: f32,
+    pub scatter_target_scalar: f32,
+    pub infantry_inaccuracy_dist: f32,
     pub projectile_count: u32,
     pub ammo_capacity: u32,
     pub penetration: f32,
@@ -281,10 +337,10 @@ pub struct WeaponTemplate {
     pub damage_fx_template: AsciiString,
     pub prerequisites: Vec<AsciiString>,
     pub properties: HashMap<String, String>,
-    /// Repeated `WeaponBonus = CONDITION FIELD percent` lines (C++ appends).
-    pub weapon_bonuses: Vec<String>,
+    /// C++ `m_bonus[condition][field]`. Unset cells are `1.0`.
+    pub weapon_bonus: [[f32; 5]; 27],
     /// Repeated `ScatterTarget = x y` lines (C++ appends).
-    pub scatter_targets: Vec<String>,
+    pub scatter_targets: Vec<(f32, f32)>,
 }
 
 impl WeaponTemplate {
@@ -304,6 +360,61 @@ impl WeaponTemplate {
             reload_time: 0.0,
             accuracy: 1.0,
             projectile_speed: 999999.0,
+            acceptable_aim_delta: 0.0,
+            min_weapon_speed: 999999.0,
+            scale_weapon_speed: false,
+            weapon_recoil: 0.0,
+            min_target_pitch: -std::f32::consts::PI,
+            max_target_pitch: std::f32::consts::PI,
+            radius_damage_angle: std::f32::consts::PI,
+            fire_sound_loop_time: 0,
+            continuous_fire_coast: 0,
+            clip_reload_time: 0,
+            anti_mask: 0x02,
+            fire_fx: [None, None, None, None],
+            projectile_detonate_fx: [None, None, None, None],
+            fire_ocl: [None, None, None, None],
+            projectile_detonate_ocl: [None, None, None, None],
+            projectile_exhaust: [None, None, None, None],
+            clip_size: 0,
+            continuous_fire_one: i32::MAX,
+            continuous_fire_two: i32::MAX,
+            shots_per_barrel: 1,
+            historic_bonus_time: 0,
+            historic_bonus_radius: 0.0,
+            historic_bonus_count: 0,
+            damage_type_index: 0,
+            damage_status_type: 0,
+            death_type_index: 0,
+            pre_attack_delay: 0,
+            continue_attack_range: 0.0,
+            suspend_fx_delay: 0,
+            min_delay_between_shots: 0,
+            max_delay_between_shots: 0,
+            damage_dealt_at_self_position: false,
+            leech_range_weapon: false,
+            play_fx_when_stealthed: false,
+            die_on_detonate: false,
+            capable_of_following_waypoints: false,
+            shows_ammo_pips: false,
+            allow_attack_garrisoned_bldgs: false,
+            reload_type: 0,
+            prefire_type: 0,
+            affects_mask: 0x0E,
+            collide_mask: 0x04,
+            shockwave_amount: 0.0,
+            shockwave_radius: 0.0,
+            shockwave_taper_off: 0.0,
+            projectile_stream_name: String::new(),
+            laser_name: String::new(),
+            laser_bone_name: String::new(),
+            historic_bonus_weapon: None,
+            secondary_damage_radius: 0.0,
+            request_assist_range: 0.0,
+            scatter_radius: 0.0,
+            scatter_target_scalar: 0.0,
+            infantry_inaccuracy_dist: 0.0,
+            auto_reload_when_idle: 0,
             projectile_count: 1,
             ammo_capacity: 0,
             penetration: 0.0,
@@ -319,7 +430,7 @@ impl WeaponTemplate {
             damage_fx_template: AsciiString::from(""),
             prerequisites: Vec::new(),
             properties: HashMap::new(),
-            weapon_bonuses: Vec::new(),
+            weapon_bonus: [[1.0; 5]; 27],
             scatter_targets: Vec::new(),
         }
     }
@@ -349,7 +460,7 @@ impl WeaponTemplate {
         properties: &HashMap<String, String>,
     ) -> WeaponResult<()> {
         let mut entries: Vec<(&String, &String)> = properties.iter().collect();
-        entries.sort_by(|a, b| a.0.cmp(b.0));
+        entries.sort_by(|a, b| weapon_property_order(a.0).cmp(&weapon_property_order(b.0)));
         for (key, value) in entries {
             let base_key = if let Some((base, repeat)) = key.rsplit_once('#') {
                 if repeat.parse::<usize>().is_ok() {
@@ -362,7 +473,14 @@ impl WeaponTemplate {
             };
             match base_key {
                 "DamageType" => {
-                    self.damage_type = DamageType::from_string(value);
+                    self.damage_type_index = scan_index(value, DAMAGE_TYPE_NAMES, "DamageType")?;
+                }
+                "DamageStatusType" => {
+                    self.damage_status_type =
+                        scan_index(value, OBJECT_STATUS_NAMES, "DamageStatusType")?;
+                }
+                "DeathType" => {
+                    self.death_type_index = scan_index(value, DEATH_TYPE_NAMES, "DeathType")?;
                 }
                 "PrimaryDamage" => {
                     self.primary_damage = parse_f32_field(base_key, value)?;
@@ -380,7 +498,298 @@ impl WeaponTemplate {
                     self.min_range = parse_f32_field(base_key, value)?;
                 }
                 "WeaponSpeed" => {
-                    self.projectile_speed = parse_f32_field(base_key, value)?;
+                    // C++ Weapon.cpp:163 `INI::parseVelocityReal` stores dist/frame
+                    // (`ConvertVelocityInSecsToFrames`, divide by 30). The ctor
+                    // default 999999 is already in that unit and is not scaled.
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.projectile_speed = super::INI::parse_velocity_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!(
+                            "Invalid {} value '{}': expected distance per second",
+                            base_key, value
+                        ))
+                    })?;
+                }
+                "AcceptableAimDelta" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.acceptable_aim_delta = super::INI::parse_angle_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid AcceptableAimDelta '{}'", value))
+                    })?;
+                }
+                "AntiAirborneVehicle"
+                | "AntiGround"
+                | "AntiProjectile"
+                | "AntiSmallMissile"
+                | "AntiMine"
+                | "AntiAirborneInfantry"
+                | "AntiBallisticMissile"
+                | "AntiParachute" => {
+                    apply_anti_mask_bit(&mut self.anti_mask, base_key, value)?;
+                }
+                "MinWeaponSpeed" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.min_weapon_speed = super::INI::parse_velocity_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid MinWeaponSpeed '{}'", value))
+                    })?;
+                }
+                "ScaleWeaponSpeed" => {
+                    self.scale_weapon_speed = parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "WeaponRecoil" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.weapon_recoil = super::INI::parse_angle_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid WeaponRecoil '{}'", value))
+                    })?;
+                }
+                "MinTargetPitch" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.min_target_pitch = super::INI::parse_angle_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid MinTargetPitch '{}'", value))
+                    })?;
+                }
+                "MaxTargetPitch" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.max_target_pitch = super::INI::parse_angle_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid MaxTargetPitch '{}'", value))
+                    })?;
+                }
+                "RadiusDamageAngle" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.radius_damage_angle = super::INI::parse_angle_real(token).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid RadiusDamageAngle '{}'", value))
+                    })?;
+                }
+                "FireSoundLoopTime" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.fire_sound_loop_time = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!("Invalid FireSoundLoopTime '{}'", value))
+                        })?;
+                }
+                "ContinuousFireCoast" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.continuous_fire_coast = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!(
+                                "Invalid ContinuousFireCoast '{}'",
+                                value
+                            ))
+                        })?;
+                }
+                "AutoReloadWhenIdle" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.auto_reload_when_idle = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!(
+                                "Invalid AutoReloadWhenIdle '{}'",
+                                value
+                            ))
+                        })?;
+                }
+                "ClipReloadTime" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.clip_reload_time = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!("Invalid ClipReloadTime '{}'", value))
+                        })?;
+                }
+                "FireFX" => {
+                    let name = fx_list_name(value)?;
+                    for slot in &mut self.fire_fx {
+                        *slot = Some(name.clone());
+                    }
+                }
+                "ProjectileDetonationFX" => {
+                    let name = fx_list_name(value)?;
+                    for slot in &mut self.projectile_detonate_fx {
+                        *slot = Some(name.clone());
+                    }
+                }
+                "VeterancyFireFX" => {
+                    let (level, name) = vet_fx_list(value)?;
+                    self.fire_fx[level] = Some(name);
+                }
+                "VeterancyProjectileDetonationFX" => {
+                    let (level, name) = vet_fx_list(value)?;
+                    self.projectile_detonate_fx[level] = Some(name);
+                }
+                "FireOCL" => fill_all_names(&mut self.fire_ocl, value)?,
+                "ProjectileDetonationOCL" => {
+                    fill_all_names(&mut self.projectile_detonate_ocl, value)?
+                }
+                "ProjectileExhaust" => fill_all_names(&mut self.projectile_exhaust, value)?,
+                "VeterancyFireOCL" => {
+                    let (level, name) = vet_fx_list(value)?;
+                    self.fire_ocl[level] = Some(name);
+                }
+                "VeterancyProjectileDetonationOCL" => {
+                    let (level, name) = vet_fx_list(value)?;
+                    self.projectile_detonate_ocl[level] = Some(name);
+                }
+                "VeterancyProjectileExhaust" => {
+                    let (level, name) = vet_fx_list(value)?;
+                    self.projectile_exhaust[level] = Some(name);
+                }
+                "ClipSize" => {
+                    self.clip_size = parse_i32_field(base_key, value)?;
+                }
+                "ContinuousFireOne" => {
+                    self.continuous_fire_one = parse_i32_field(base_key, value)?;
+                }
+                "ContinuousFireTwo" => {
+                    self.continuous_fire_two = parse_i32_field(base_key, value)?;
+                }
+                "ShotsPerBarrel" => {
+                    self.shots_per_barrel = parse_i32_field(base_key, value)?;
+                }
+                "HistoricBonusTime" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.historic_bonus_time = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!("Invalid HistoricBonusTime '{}'", value))
+                        })?;
+                }
+                "HistoricBonusRadius" => {
+                    self.historic_bonus_radius = parse_f32_field(base_key, value)?;
+                }
+                "HistoricBonusCount" => {
+                    self.historic_bonus_count = parse_i32_field(base_key, value)?;
+                }
+                "PreAttackDelay" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.pre_attack_delay = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!("Invalid PreAttackDelay '{}'", value))
+                        })?;
+                }
+                "ContinueAttackRange" => {
+                    self.continue_attack_range = parse_f32_field(base_key, value)?;
+                }
+                "SuspendFXDelay" => {
+                    let token = value.split_whitespace().next().unwrap_or(value);
+                    self.suspend_fx_delay = super::INI::parse_duration_unsigned_int(token)
+                        .map_err(|_| {
+                            WeaponError::ParseError(format!("Invalid SuspendFXDelay '{}'", value))
+                        })?;
+                }
+                "DelayBetweenShots" => {
+                    let (min_delay, max_delay) = parse_shot_delay(value)?;
+                    self.min_delay_between_shots = min_delay;
+                    self.max_delay_between_shots = max_delay;
+                }
+                "DamageDealtAtSelfPosition" => {
+                    self.damage_dealt_at_self_position =
+                        parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "LeechRangeWeapon" => {
+                    self.leech_range_weapon = parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "PlayFXWhenStealthed" => {
+                    self.play_fx_when_stealthed =
+                        parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "MissileCallsOnDie" => {
+                    self.die_on_detonate = parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "CapableOfFollowingWaypoints" => {
+                    self.capable_of_following_waypoints =
+                        parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "ShowsAmmoPips" => {
+                    self.shows_ammo_pips = parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "AllowAttackGarrisonedBldgs" => {
+                    self.allow_attack_garrisoned_bldgs =
+                        parse_bool(value).map_err(WeaponError::ParseError)?;
+                }
+                "AutoReloadsClip" => {
+                    self.reload_type = scan_index(
+                        value,
+                        &["YES", "NO", "RETURN_TO_BASE"],
+                        "AutoReloadsClip",
+                    )?;
+                }
+                "RadiusDamageAffects" => {
+                    self.affects_mask = parse_bit_string(
+                        value,
+                        &[
+                            "SELF",
+                            "ALLIES",
+                            "ENEMIES",
+                            "NEUTRALS",
+                            "SUICIDE",
+                            "NOT_SIMILAR",
+                            "NOT_AIRBORNE",
+                        ],
+                        self.affects_mask,
+                        "RadiusDamageAffects",
+                    )?;
+                }
+                "ProjectileCollidesWith" => {
+                    self.collide_mask = parse_bit_string(
+                        value,
+                        &[
+                            "ALLIES",
+                            "ENEMIES",
+                            "STRUCTURES",
+                            "SHRUBBERY",
+                            "PROJECTILES",
+                            "WALLS",
+                            "SMALL_MISSILES",
+                            "BALLISTIC_MISSILES",
+                            "CONTROLLED_STRUCTURES",
+                        ],
+                        self.collide_mask,
+                        "ProjectileCollidesWith",
+                    )?;
+                }
+                "PreAttackType" => {
+                    self.prefire_type = scan_index(
+                        value,
+                        &["PER_SHOT", "PER_ATTACK", "PER_CLIP"],
+                        "PreAttackType",
+                    )?;
+                }
+                "ShockWaveAmount" => {
+                    self.shockwave_amount = parse_f32_field(base_key, value)?;
+                }
+                "ShockWaveRadius" => {
+                    self.shockwave_radius = parse_f32_field(base_key, value)?;
+                }
+                "ShockWaveTaperOff" => {
+                    self.shockwave_taper_off = parse_f32_field(base_key, value)?;
+                }
+                "ProjectileStreamName" => {
+                    self.projectile_stream_name = value.split_whitespace().next().unwrap_or("").to_string();
+                }
+                "LaserName" => {
+                    self.laser_name = value.split_whitespace().next().unwrap_or("").to_string();
+                }
+                "LaserBoneName" => {
+                    self.laser_bone_name = value.split_whitespace().next().unwrap_or("").to_string();
+                }
+                "HistoricBonusWeapon" => {
+                    let name = value.split_whitespace().next().unwrap_or("");
+                    if name.is_empty() {
+                        return Err(WeaponError::ParseError(
+                            "Invalid HistoricBonusWeapon: missing token".to_string(),
+                        ));
+                    }
+                    self.historic_bonus_weapon = Some(name.to_string());
+                }
+                "SecondaryDamageRadius" => {
+                    self.secondary_damage_radius = parse_f32_field(base_key, value)?;
+                }
+                "RequestAssistRange" => {
+                    self.request_assist_range = parse_f32_field(base_key, value)?;
+                }
+                "ScatterRadius" => {
+                    self.scatter_radius = parse_f32_field(base_key, value)?;
+                }
+                "ScatterTargetScalar" => {
+                    self.scatter_target_scalar = parse_f32_field(base_key, value)?;
+                }
+                "ScatterRadiusVsInfantry" => {
+                    self.infantry_inaccuracy_dist = parse_f32_field(base_key, value)?;
                 }
                 "ProjectileObject" => {
                     self.effects.projectile_object = AsciiString::from(value);
@@ -389,12 +798,24 @@ impl WeaponTemplate {
                     self.effects.sound_effect = AsciiString::from(value);
                 }
                 "WeaponBonus" => {
-                    validate_unmodeled_cpp_weapon_field(base_key, value)?;
-                    self.weapon_bonuses.push(value.clone());
+                    let mut tokens = value.split_whitespace();
+                    let condition = tokens.next().unwrap_or("");
+                    let field = tokens.next().unwrap_or("");
+                    let percent = tokens.next().unwrap_or("");
+                    let condition = if condition.eq_ignore_ascii_case("DEMORALIZED") {
+                        "DEMORALIZED_OBSOLETE"
+                    } else {
+                        condition
+                    };
+                    let condition = scan_index(condition, WEAPON_BONUS_CONDITIONS, "WeaponBonus")?;
+                    let field = scan_index(field, WEAPON_BONUS_FIELDS, "WeaponBonus")?;
+                    let percent = super::INI::parse_percent_to_real(percent).map_err(|_| {
+                        WeaponError::ParseError(format!("Invalid WeaponBonus percent '{}'", value))
+                    })?;
+                    self.weapon_bonus[condition as usize][field as usize] = percent;
                 }
                 "ScatterTarget" => {
-                    validate_unmodeled_cpp_weapon_field(base_key, value)?;
-                    self.scatter_targets.push(value.clone());
+                    self.scatter_targets.push(parse_scatter_coord(value)?);
                 }
                 _ => {
                     if is_cpp_weapon_template_field(base_key) {
@@ -483,6 +904,10 @@ impl WeaponStore {
     /// Find a template by name
     pub fn find_template(&self, name: &AsciiString) -> Option<&WeaponTemplate> {
         self.templates.get(name.as_str())
+    }
+
+    pub fn iter_templates(&self) -> impl Iterator<Item = &WeaponTemplate> {
+        self.templates.values()
     }
 
     /// Find a mutable template by name
@@ -641,10 +1066,198 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
     // accidentally lacks a leading semicolon.
     let value = value.split_whitespace().next().unwrap_or(value);
     match value.trim().to_lowercase().as_str() {
-        "true" | "yes" | "1" => Ok(true),
-        "false" | "no" | "0" => Ok(false),
+        "yes" => Ok(true),
+        "no" => Ok(false),
         _ => Err(format!("Invalid boolean value: {}", value)),
     }
+}
+
+fn scan_index(value: &str, names: &[&str], field: &str) -> WeaponResult<i32> {
+    let token = value.split_whitespace().next().unwrap_or(value);
+    let upper = token.to_ascii_uppercase();
+    for (index, name) in names.iter().enumerate() {
+        if upper == *name {
+            return Ok(index as i32);
+        }
+    }
+    Err(WeaponError::ParseError(format!(
+        "Invalid {} value '{}'",
+        field, token
+    )))
+}
+
+fn delay_frames(token: &str) -> WeaponResult<i32> {
+    let msecs: i32 = token.parse().map_err(|_| {
+        WeaponError::ParseError(format!("Invalid DelayBetweenShots '{}'", token))
+    })?;
+    Ok(super::INI::convert_duration_msecs_to_frames(msecs as f32).ceil() as i32)
+}
+
+fn parse_shot_delay(value: &str) -> WeaponResult<(i32, i32)> {
+    let tokens: Vec<&str> = value
+        .split(|c: char| c.is_whitespace() || c == ':')
+        .filter(|token| !token.is_empty())
+        .collect();
+    let Some(first) = tokens.first().copied() else {
+        return Err(WeaponError::ParseError(
+            "Invalid DelayBetweenShots: missing token".to_string(),
+        ));
+    };
+    if first.eq_ignore_ascii_case("Min") {
+        let Some(min_token) = tokens.get(1) else {
+            return Err(WeaponError::ParseError(
+                "Invalid DelayBetweenShots: missing Min".to_string(),
+            ));
+        };
+        let min_delay = delay_frames(min_token)?;
+        if tokens.get(2).is_some_and(|token| token.eq_ignore_ascii_case("Max")) {
+            let Some(max_token) = tokens.get(3) else {
+                return Err(WeaponError::ParseError(
+                    "Invalid DelayBetweenShots: missing Max".to_string(),
+                ));
+            };
+            Ok((min_delay, delay_frames(max_token)?))
+        } else {
+            Ok((min_delay, min_delay))
+        }
+    } else {
+        let frames = delay_frames(first)?;
+        Ok((frames, frames))
+    }
+}
+
+const WEAPON_BONUS_CONDITIONS: &[&str] = &[
+    "GARRISONED", "HORDE", "CONTINUOUS_FIRE_MEAN", "CONTINUOUS_FIRE_FAST", "NATIONALISM",
+    "PLAYER_UPGRADE", "DRONE_SPOTTING", "DEMORALIZED_OBSOLETE", "ENTHUSIASTIC", "VETERAN",
+    "ELITE", "HERO", "BATTLEPLAN_BOMBARDMENT", "BATTLEPLAN_HOLDTHELINE",
+    "BATTLEPLAN_SEARCHANDDESTROY", "SUBLIMINAL", "SOLO_HUMAN_EASY", "SOLO_HUMAN_NORMAL",
+    "SOLO_HUMAN_HARD", "SOLO_AI_EASY", "SOLO_AI_NORMAL", "SOLO_AI_HARD", "TARGET_FAERIE_FIRE",
+    "FANATICISM", "FRENZY_ONE", "FRENZY_TWO", "FRENZY_THREE",
+];
+const WEAPON_BONUS_FIELDS: &[&str] = &["DAMAGE", "RADIUS", "RANGE", "RATE_OF_FIRE", "PRE_ATTACK"];
+
+fn parse_scatter_coord(value: &str) -> WeaponResult<(f32, f32)> {
+    let mut x = None;
+    let mut y = None;
+    for token in value.split_whitespace() {
+        let Some((label, number)) = token.split_once(':') else {
+            return Err(WeaponError::ParseError(format!(
+                "Invalid ScatterTarget '{}'",
+                value
+            )));
+        };
+        let number = number.parse::<f32>().map_err(|_| {
+            WeaponError::ParseError(format!("Invalid ScatterTarget '{}'", value))
+        })?;
+        match label.to_ascii_uppercase().as_str() {
+            "X" => x = Some(number),
+            "Y" => y = Some(number),
+            _ => {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid ScatterTarget '{}'",
+                    value
+                )))
+            }
+        }
+    }
+    match (x, y) {
+        (Some(x), Some(y)) => Ok((x, y)),
+        _ => Err(WeaponError::ParseError(format!(
+            "Invalid ScatterTarget '{}': expected X: and Y:",
+            value
+        ))),
+    }
+}
+
+const DAMAGE_TYPE_NAMES: &[&str] = &[
+    "EXPLOSION", "CRUSH", "ARMOR_PIERCING", "SMALL_ARMS", "GATTLING", "RADIATION", "FLAME",
+    "LASER", "SNIPER", "POISON", "HEALING", "UNRESISTABLE", "WATER", "DEPLOY", "SURRENDER",
+    "HACK", "KILL_PILOT", "PENALTY", "FALLING", "MELEE", "DISARM", "HAZARD_CLEANUP",
+    "PARTICLE_BEAM", "TOPPLING", "INFANTRY_MISSILE", "AURORA_BOMB", "LAND_MINE", "JET_MISSILES",
+    "STEALTHJET_MISSILES", "MOLOTOV_COCKTAIL", "COMANCHE_VULCAN", "SUBDUAL_MISSILE",
+    "SUBDUAL_VEHICLE", "SUBDUAL_BUILDING", "SUBDUAL_UNRESISTABLE", "MICROWAVE", "KILL_GARRISONED",
+    "STATUS",
+];
+const DEATH_TYPE_NAMES: &[&str] = &[
+    "NORMAL", "NONE", "CRUSHED", "BURNED", "EXPLODED", "POISONED", "TOPPLED", "FLOODED",
+    "SUICIDED", "LASERED", "DETONATED", "SPLATTED", "POISONED_BETA", "EXTRA_2", "EXTRA_3",
+    "EXTRA_4", "EXTRA_5", "EXTRA_6", "EXTRA_7", "EXTRA_8", "POISONED_GAMMA",
+];
+const OBJECT_STATUS_NAMES: &[&str] = &[
+    "NONE", "DESTROYED", "CAN_ATTACK", "UNDER_CONSTRUCTION", "UNSELECTABLE", "NO_COLLISIONS",
+    "NO_ATTACK", "AIRBORNE_TARGET", "PARACHUTING", "REPULSOR", "HIJACKED", "AFLAME", "BURNED",
+    "WET", "IS_FIRING_WEAPON", "IS_BRAKING", "STEALTHED", "DETECTED", "CAN_STEALTH", "SOLD",
+    "UNDERGOING_REPAIR", "RECONSTRUCTING", "MASKED", "IS_ATTACKING", "USING_ABILITY",
+    "IS_AIMING_WEAPON", "NO_ATTACK_FROM_AI", "IGNORING_STEALTH", "IS_CARBOMB", "DECK_HEIGHT_OFFSET",
+    "STATUS_RIDER1", "STATUS_RIDER2", "STATUS_RIDER3", "STATUS_RIDER4", "STATUS_RIDER5",
+    "STATUS_RIDER6", "STATUS_RIDER7", "STATUS_RIDER8", "FAERIE_FIRE", "KILLING_SELF",
+    "REASSIGN_PARKING", "BOOBY_TRAPPED", "IMMOBILE", "DISGUISED", "DEPLOYED",
+];
+
+fn parse_bit_string(
+    value: &str,
+    names: &[&str],
+    mut bits: u32,
+    field: &str,
+) -> WeaponResult<u32> {
+    let mut found_normal = false;
+    let mut found_add_or_sub = false;
+    for token in value.split_whitespace() {
+        if token.eq_ignore_ascii_case("NONE") {
+            if found_normal || found_add_or_sub {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid {} value: mixed NONE",
+                    field
+                )));
+            }
+            return Ok(0);
+        }
+        let (op, name) = if let Some(rest) = token.strip_prefix('+') {
+            if found_normal {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid {} value: mixed +/-",
+                    field
+                )));
+            }
+            found_add_or_sub = true;
+            (1i32, rest)
+        } else if let Some(rest) = token.strip_prefix('-') {
+            if found_normal {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid {} value: mixed +/-",
+                    field
+                )));
+            }
+            found_add_or_sub = true;
+            (-1, rest)
+        } else {
+            if found_add_or_sub {
+                return Err(WeaponError::ParseError(format!(
+                    "Invalid {} value: mixed +/-",
+                    field
+                )));
+            }
+            if !found_normal {
+                bits = 0;
+                found_normal = true;
+            }
+            (1, token)
+        };
+        let upper = name.to_ascii_uppercase();
+        let Some(index) = names.iter().position(|candidate| *candidate == upper) else {
+            return Err(WeaponError::ParseError(format!(
+                "Invalid {} value '{}'",
+                field, token
+            )));
+        };
+        let bit = 1u32 << index;
+        if op < 0 {
+            bits &= !bit;
+        } else {
+            bits |= bit;
+        }
+    }
+    Ok(bits)
 }
 
 fn parse_f32_field(field_name: &str, value: &str) -> WeaponResult<f32> {
@@ -669,77 +1282,118 @@ fn parse_i32_field(field_name: &str, value: &str) -> WeaponResult<i32> {
 }
 
 fn validate_unmodeled_cpp_weapon_field(field_name: &str, value: &str) -> WeaponResult<()> {
-    match field_name {
-        "SecondaryDamageRadius"
-        | "ShockWaveAmount"
-        | "ShockWaveRadius"
-        | "ShockWaveTaperOff"
-        | "RequestAssistRange"
-        | "AcceptableAimDelta"
-        | "ScatterRadius"
-        | "ScatterTargetScalar"
-        | "ScatterRadiusVsInfantry"
-        | "MinWeaponSpeed"
-        | "WeaponRecoil"
-        | "MinTargetPitch"
-        | "MaxTargetPitch"
-        | "RadiusDamageAngle"
-        | "HistoricBonusRadius"
-        | "ContinueAttackRange" => {
-            parse_f32_field(field_name, value)?;
-        }
-        "ClipSize" | "ContinuousFireOne" | "ContinuousFireTwo" | "ShotsPerBarrel"
-        | "HistoricBonusCount" => {
-            parse_i32_field(field_name, value)?;
-        }
-        "FireSoundLoopTime"
-        | "ContinuousFireCoast"
-        | "AutoReloadWhenIdle"
-        | "ClipReloadTime"
-        | "HistoricBonusTime"
-        | "PreAttackDelay"
-        | "SuspendFXDelay" => {
-            parse_u32_field(field_name, value)?;
-        }
-        "ScaleWeaponSpeed"
-        | "DamageDealtAtSelfPosition"
-        | "AntiAirborneVehicle"
-        | "AntiGround"
-        | "AntiProjectile"
-        | "AntiSmallMissile"
-        | "AntiMine"
-        | "AntiParachute"
-        | "AntiAirborneInfantry"
-        | "AntiBallisticMissile"
-        | "LeechRangeWeapon"
-        | "CapableOfFollowingWaypoints"
-        | "ShowsAmmoPips"
-        | "AllowAttackGarrisonedBldgs"
-        | "PlayFXWhenStealthed"
-        | "MissileCallsOnDie" => {
-            parse_bool(value).map_err(WeaponError::ParseError)?;
-        }
-        "WeaponBonus" => {
-            let tokens = value.split_whitespace().count();
-            if tokens < 3 {
-                return Err(WeaponError::ParseError(format!(
-                    "Invalid WeaponBonus value '{}': expected condition field percent",
-                    value
-                )));
-            }
-        }
-        _ => {
-            if value.trim().is_empty() {
-                return Err(WeaponError::ParseError(format!(
-                    "Invalid {} value: missing token",
-                    field_name
-                )));
-            }
-        }
+    if value.trim().is_empty() {
+        return Err(WeaponError::ParseError(format!(
+            "Invalid {} value: missing token",
+            field_name
+        )));
     }
-
     Ok(())
 }
+
+fn apply_anti_mask_bit(mask: &mut u32, field: &str, value: &str) -> WeaponResult<()> {
+    let bit = match field {
+        "AntiAirborneVehicle" => 0x01,
+        "AntiGround" => 0x02,
+        "AntiProjectile" => 0x04,
+        "AntiSmallMissile" => 0x08,
+        "AntiMine" => 0x10,
+        "AntiAirborneInfantry" => 0x20,
+        "AntiBallisticMissile" => 0x40,
+        "AntiParachute" => 0x80,
+        _ => {
+            return Err(WeaponError::ParseError(format!(
+                "Unknown anti mask '{}'",
+                field
+            )))
+        }
+    };
+    let token = value.split_whitespace().next().unwrap_or(value);
+    match token {
+        "Yes" | "yes" | "YES" => *mask |= bit,
+        "No" | "no" | "NO" => *mask &= !bit,
+        _ => {
+            return Err(WeaponError::ParseError(format!(
+                "Invalid {} value '{}': expected Yes or No",
+                field, value
+            )))
+        }
+    }
+    Ok(())
+}
+
+fn fx_list_name(value: &str) -> WeaponResult<String> {
+    let name = value.split_whitespace().next().unwrap_or("").to_string();
+    if name.is_empty() {
+        return Err(WeaponError::ParseError(
+            "Invalid FX list: missing token".to_string(),
+        ));
+    }
+    Ok(name)
+}
+
+fn fill_all_names(slots: &mut [Option<String>; 4], value: &str) -> WeaponResult<()> {
+    let name = fx_list_name(value)?;
+    for slot in slots {
+        *slot = Some(name.clone());
+    }
+    Ok(())
+}
+
+fn vet_fx_list(value: &str) -> WeaponResult<(usize, String)> {
+    let mut tokens = value.split_whitespace();
+    let level = tokens.next().unwrap_or("");
+    let name = tokens.next().unwrap_or("").to_string();
+    let index = match level.to_ascii_uppercase().as_str() {
+        "REGULAR" => 0,
+        "VETERAN" => 1,
+        "ELITE" => 2,
+        "HEROIC" => 3,
+        _ => {
+            return Err(WeaponError::ParseError(format!(
+                "Invalid veterancy '{}'",
+                level
+            )))
+        }
+    };
+    if name.is_empty() {
+        return Err(WeaponError::ParseError(
+            "Invalid veterancy FX list: missing name".to_string(),
+        ));
+    }
+    Ok((index, name))
+}
+
+fn weapon_property_order(key: &str) -> (u32, &str) {
+    let (base, index) = if let Some((base, repeat)) = key.rsplit_once('#') {
+        if let Ok(index) = repeat.parse::<u32>() {
+            (base, index)
+        } else {
+            (key, 0)
+        }
+    } else {
+        (key, 0)
+    };
+    let slot = matches!(
+        base,
+        "FireFX"
+            | "ProjectileDetonationFX"
+            | "FireOCL"
+            | "ProjectileDetonationOCL"
+            | "ProjectileExhaust"
+            | "VeterancyFireFX"
+            | "VeterancyProjectileDetonationFX"
+            | "VeterancyFireOCL"
+            | "VeterancyProjectileDetonationOCL"
+            | "VeterancyProjectileExhaust"
+    );
+    if slot {
+        (index, "")
+    } else {
+        (index, key)
+    }
+}
+
 
 /// INI parsing functions for weapons
 pub struct IniWeapon;
@@ -1033,18 +1687,18 @@ mod tests {
             "WeaponBonus#2".to_string(),
             "DRONE_SPOTTING DAMAGE 200%".to_string(),
         );
-        properties.insert("ScatterTarget".to_string(), "0.0 0.0".to_string());
-        properties.insert("ScatterTarget#1".to_string(), "1.0 0.5".to_string());
+        properties.insert("ScatterTarget".to_string(), "X:0.0 Y:0.0".to_string());
+        properties.insert("ScatterTarget#1".to_string(), "X:1.0 Y:0.5".to_string());
 
         let mut template = WeaponTemplate::new(AsciiString::from("RangerACR"));
         template
             .update_from_properties(&properties)
             .expect("weapon fields");
-        assert_eq!(template.weapon_bonuses.len(), 3);
-        assert!(template.weapon_bonuses[0].contains("RATE_OF_FIRE"));
-        assert!(template.weapon_bonuses[1].contains("RANGE"));
-        assert!(template.weapon_bonuses[2].contains("DAMAGE"));
-        assert_eq!(template.scatter_targets.len(), 2);
+        assert_eq!(template.weapon_bonus[6][3], 2.0);
+        assert_eq!(template.weapon_bonus[6][2], 2.0);
+        assert_eq!(template.weapon_bonus[6][0], 2.0);
+        assert_eq!(template.weapon_bonus[0][0], 1.0);
+        assert_eq!(template.scatter_targets, vec![(0.0, 0.0), (1.0, 0.5)]);
     }
 
     #[test]
@@ -1066,7 +1720,7 @@ mod tests {
     fn test_template_properties_update() {
         let mut template = WeaponTemplate::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
-        properties.insert("DamageType".to_string(), "Fire".to_string());
+        properties.insert("DamageType".to_string(), "FLAME".to_string());
         properties.insert("PrimaryDamage".to_string(), "75.0".to_string());
         properties.insert("AttackRange".to_string(), "200.0".to_string());
         properties.insert("WeaponSpeed".to_string(), "400.0".to_string());
@@ -1075,10 +1729,10 @@ mod tests {
 
         template.update_from_properties(&properties).unwrap();
 
-        assert!(matches!(template.damage_type, DamageType::Fire));
+        assert_eq!(template.damage_type_index, 6);
         assert_eq!(template.primary_damage, 75.0);
         assert_eq!(template.range, 200.0);
-        assert_eq!(template.projectile_speed, 400.0);
+        assert_eq!(template.projectile_speed, 400.0 / 30.0);
         assert_eq!(
             template.effects.projectile_object.as_str(),
             "TestProjectile"
@@ -1107,7 +1761,7 @@ mod tests {
         assert_eq!(template.damage_radius, 20.5);
         assert_eq!(template.range, 260.0);
         assert_eq!(template.min_range, 35.0);
-        assert_eq!(template.projectile_speed, 999.0);
+        assert_eq!(template.projectile_speed, 999.0 / 30.0);
         assert_eq!(
             template.effects.projectile_object.as_str(),
             "TestProjectile"
@@ -1117,14 +1771,10 @@ mod tests {
         assert!(!template.properties.contains_key("AttackRange"));
         assert!(!template.properties.contains_key("MinimumAttackRange"));
         assert!(!template.properties.contains_key("WeaponSpeed"));
-        assert_eq!(
-            template.properties.get("RequestAssistRange").unwrap(),
-            "300.0"
-        );
-        assert_eq!(
-            template.properties.get("SecondaryDamageRadius").unwrap(),
-            "12.0"
-        );
+        assert_eq!(template.request_assist_range, 300.0);
+        assert_eq!(template.secondary_damage_radius, 12.0);
+        assert!(!template.properties.contains_key("RequestAssistRange"));
+        assert!(!template.properties.contains_key("SecondaryDamageRadius"));
     }
 
     #[test]

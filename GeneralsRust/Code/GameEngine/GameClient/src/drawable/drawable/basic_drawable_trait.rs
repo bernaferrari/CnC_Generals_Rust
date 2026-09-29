@@ -65,7 +65,10 @@ impl Drawable for BasicDrawable {
         // Combine position, scale, and instance transform
         let translation = Matrix4::translation(self.position);
         let scale = Matrix4::scale(self.instance_scale);
-        translation.mul(&self.instance_transform).mul(&scale)
+        translation
+            .mul(&self.instance_transform)
+            .mul(&self.recoil_visual)
+            .mul(&scale)
     }
 
     fn set_instance_transform(&mut self, transform: Matrix4) {
@@ -225,6 +228,22 @@ impl Drawable for BasicDrawable {
     }
 
     fn update(&mut self, _delta_time: f32) {
+        // C++ Drawable::updateDrawable runs client updates before fade, decal,
+        // flash, and tint so modules observe the pre-fade drawable.
+        if let Some(object_id) = self.object_id {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
+                if let Ok(obj_guard) = obj_arc.read() {
+                    for module_handle in obj_guard.client_update_modules() {
+                        module_handle.with_module(|module| {
+                            if let Some(client_update) = module.get_client_update_interface() {
+                                let _ = client_update.client_update();
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
         self.update_fade();
         self.flush_dirty_model_condition();
 
@@ -254,6 +273,13 @@ impl Drawable for BasicDrawable {
             }
         } else {
             self.decal_opacity = 0.0;
+        }
+
+        // C++ Drawable.cpp:1209-1213 — `m_expirationDate != 0 && now >= m_expirationDate`
+        // returns before flash and tint. The client walk destroys the drawable
+        // after this update so the map is not mutated mid-iteration.
+        if self.is_expired(self.current_frame) {
+            return;
         }
 
         if !self.test_tint_status(TintStatus::FRENZY) {
@@ -295,20 +321,6 @@ impl Drawable for BasicDrawable {
             icon_info.update(self.current_frame);
         }
 
-        // C++ parity: Drawable::updateDrawable() dispatches to all ClientUpdateModules.
-        if let Some(object_id) = self.object_id {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    for module_handle in obj_guard.client_update_modules() {
-                        module_handle.with_module(|module| {
-                            if let Some(client_update) = module.get_client_update_interface() {
-                                let _ = client_update.client_update();
-                            }
-                        });
-                    }
-                }
-            }
-        }
         self.publish_wheel_info_to_logic();
         self.apply_pending_time_of_day();
         self.restart_ambient_if_dropped();
@@ -678,7 +690,7 @@ impl Drawable for BasicDrawable {
 
     fn is_expired(&self, current_frame: u32) -> bool {
         self.expiration_frame
-            .is_some_and(|frame| current_frame >= frame)
+            .is_some_and(|frame| frame != 0 && current_frame >= frame)
     }
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {

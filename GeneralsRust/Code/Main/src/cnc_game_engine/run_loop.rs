@@ -529,6 +529,14 @@ pub async fn run_cnc_game(
                                 }
                             }
 
+                            // C++ BitBlts Install_Final.bmp inside initializeAppWindows,
+                            // before GameMain. This host has no GDI DC. The first engine
+                            // frame is after CnCGameEngine::new and is not that hold.
+                            #[cfg(not(target_os = "windows"))]
+                            info!(
+                                "Install_Final splash omitted: no GDI surface before engine init"
+                            );
+
                             engine_init_started_at = Some(Instant::now());
                             engine_init_last_log_at = None;
                             created_window

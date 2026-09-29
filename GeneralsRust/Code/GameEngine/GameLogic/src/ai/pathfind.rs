@@ -421,11 +421,7 @@ impl Path {
 
         let opt_layers: Vec<OptLayer> = raw_layers
             .iter()
-            .map(|layer| match layer {
-                PathfindLayerEnum::Ground => OptLayer::Ground,
-                PathfindLayerEnum::Invalid => OptLayer::Invalid,
-                _ => OptLayer::Top,
-            })
+            .map(|layer| OptLayer::from_u32(*layer as u32))
             .collect();
 
         let optimizer = PathOptimizer::new();
@@ -479,14 +475,9 @@ impl Path {
         let mut optimized_indices: Vec<usize> = Vec::new();
         let mut search_start = 0;
         for (idx, opt_point) in opt_points.iter().enumerate() {
-            let desired_layer = match opt_layers.get(idx).copied().unwrap_or(OptLayer::Ground) {
-                OptLayer::Ground => PathfindLayerEnum::Ground,
-                OptLayer::Top => PathfindLayerEnum::Top,
-                OptLayer::Invalid => PathfindLayerEnum::Invalid,
-                OptLayer::Wall => PathfindLayerEnum::Wall,
-                // Layer3–14 are unnamed C++ bridge slots (`LAYER_GROUND+1`…); map like Bridge*.
-                _ => PathfindLayerEnum::Top,
-            };
+            let desired_layer = PathfindLayerEnum::from_u32(
+                opt_layers.get(idx).copied().unwrap_or(OptLayer::Ground) as u32,
+            );
             let mut found = None;
             for raw_idx in search_start..raw_points.len() {
                 let raw_point = raw_points[raw_idx];
@@ -906,11 +897,7 @@ impl Snapshotable for Path {
 }
 
 fn path_layer_from_u32(value: u32) -> PathfindLayerEnum {
-    match value {
-        1 => PathfindLayerEnum::Ground,
-        2..=15 => PathfindLayerEnum::Top,
-        _ => PathfindLayerEnum::Invalid,
-    }
+    PathfindLayerEnum::from_u32(value)
 }
 
 impl PathfindCell {
@@ -1094,19 +1081,48 @@ pub enum PathfindLayerEnum {
     Invalid = 0,
     Ground = 1,
     Top = 2,
+    Bridge1 = 3,
+    Bridge2 = 4,
+    Bridge3 = 5,
+    Bridge4 = 6,
+    Bridge5 = 7,
+    Bridge6 = 8,
+    Bridge7 = 9,
+    Bridge8 = 10,
+    Bridge9 = 11,
+    Bridge10 = 12,
+    Bridge11 = 13,
+    Bridge12 = 14,
     Wall = 15,
+}
+
+impl PathfindLayerEnum {
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => Self::Invalid,
+            1 => Self::Ground,
+            2 => Self::Top,
+            3 => Self::Bridge1,
+            4 => Self::Bridge2,
+            5 => Self::Bridge3,
+            6 => Self::Bridge4,
+            7 => Self::Bridge5,
+            8 => Self::Bridge6,
+            9 => Self::Bridge7,
+            10 => Self::Bridge8,
+            11 => Self::Bridge9,
+            12 => Self::Bridge10,
+            13 => Self::Bridge11,
+            14 => Self::Bridge12,
+            15 => Self::Wall,
+            _ => Self::Invalid,
+        }
+    }
 }
 
 impl From<crate::path::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::path::PathfindLayerEnum) -> Self {
-        match layer {
-            crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
-            crate::path::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
-            crate::path::PathfindLayerEnum::Invalid | crate::path::PathfindLayerEnum::Last => {
-                PathfindLayerEnum::Invalid
-            }
-            _ => PathfindLayerEnum::Top,
-        }
+        Self::from_u32(layer as u32)
     }
 }
 
@@ -1737,8 +1753,7 @@ pub fn update_goal_for_object(
     } else {
         match layer {
             PathfindLayerEnum::Ground => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-            PathfindLayerEnum::Wall => crate::ai::pathfind_astar::PathfindLayerEnum::Wall,
-            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
+            other => crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(other as u32),
         }
     };
     drop(obj_guard);

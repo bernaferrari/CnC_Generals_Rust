@@ -471,6 +471,51 @@ impl Object {
         false
     }
 
+    /// Ground attack fires one slot. Another slot being ready must not
+    /// discharge this one while it is still reloading.
+    pub fn can_fire_slot(&self, slot: u8, current_time: f32) -> bool {
+        if self.status.weapons_jammed
+            || self.is_disabled()
+            || self.is_shock_stunned()
+            || self.status.under_construction
+            || self.status.sold
+        {
+            return false;
+        }
+        let Some(weapon) = self.weapon_slot(slot) else {
+            return false;
+        };
+        let name = self.weapon_name_for_slot(slot).map(str::to_owned);
+        let rof = self.weapon_bonus_fields().2;
+        let reload = self.live_reload_interval(weapon, name.as_deref(), rof);
+        Self::weapon_ready_named(weapon, current_time, name.as_deref(), reload)
+    }
+
+    /// The slot `fire_at_ex` will discharge, and only if that slot is in range.
+    /// A ready primary that is out of range must not fire just because the
+    /// secondary can reach.
+    pub fn chosen_fire_slot_in_range(&self, target: &Object, current_time: f32) -> bool {
+        let hit = |slot: u8| {
+            self.weapon_slot(slot).is_some_and(|w| {
+                self.can_target_with_slot(target, w, Some(slot))
+            })
+        };
+        let ready = |slot: u8| self.can_fire_slot(slot, current_time);
+        if self.weapon_lock_type != WeaponLockType::NotLocked {
+            return ready(self.weapon_lock_slot) && hit(self.weapon_lock_slot);
+        }
+        if self.active_weapon_slot == 2 {
+            return ready(2) && hit(2);
+        }
+        if self.active_weapon_slot == 1 && ready(1) {
+            return hit(1);
+        }
+        if ready(0) {
+            return hit(0);
+        }
+        ready(1) && self.thing.template.slot_allows_auto_choose(1) && hit(1)
+    }
+
     /// Combat weapon choice.
     ///
     /// Slot: `0` = primary, `1` = secondary, `2` = tertiary.

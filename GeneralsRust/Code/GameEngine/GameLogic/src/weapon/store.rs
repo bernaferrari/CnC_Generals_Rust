@@ -39,6 +39,7 @@ pub struct WeaponStore {
     pub(crate) weapon_templates: HashMap<String, Arc<WeaponTemplate>>,
     pub(crate) weapon_templates_by_key: HashMap<u32, Arc<WeaponTemplate>>,
     pub(crate) delayed_damage_info: Vec<WeaponDelayedDamageInfo>,
+    last_imported_common_count: usize,
 }
 
 /// Delayed damage information
@@ -111,13 +112,173 @@ impl WeaponStore {
             weapon_templates: HashMap::new(),
             weapon_templates_by_key: HashMap::new(),
             delayed_damage_info: Vec::new(),
+            last_imported_common_count: 0,
         }
     }
 
     /// Initialize the weapon store
     pub fn init(&mut self) -> GameLogicResult<()> {
-        // Initialization logic would go here
+        self.import_common_weapon_templates();
         Ok(())
+    }
+
+    fn import_common_weapon_templates(&mut self) {
+        game_engine::common::ini::ini_weapon::initialize_weapon_store();
+        let Some(common) = game_engine::common::ini::ini_weapon::get_weapon_store() else {
+            return;
+        };
+        let common_count = common.iter_templates().count();
+        if common_count == self.last_imported_common_count {
+            return;
+        }
+        self.last_imported_common_count = common_count;
+        for source in common.iter_templates() {
+            let name = source.name.as_str();
+            if name.is_empty() || self.weapon_templates.contains_key(name) {
+                continue;
+            }
+            let mut template = WeaponTemplate::new(name.to_string());
+            template.primary_damage = source.primary_damage;
+            template.primary_damage_radius = source.damage_radius;
+            template.secondary_damage = source.secondary_damage;
+            template.secondary_damage_radius = source.secondary_damage_radius;
+            template.attack_range = source.range;
+            template.minimum_attack_range = source.min_range;
+            template.weapon_speed = source.projectile_speed;
+            template.min_weapon_speed = source.min_weapon_speed;
+            template.is_scale_weapon_speed = source.scale_weapon_speed;
+            template.aim_delta = source.acceptable_aim_delta;
+            template.weapon_recoil = source.weapon_recoil;
+            template.min_target_pitch = source.min_target_pitch;
+            template.max_target_pitch = source.max_target_pitch;
+            template.radius_damage_angle = source.radius_damage_angle;
+            template.min_delay_between_shots = source.min_delay_between_shots;
+            template.max_delay_between_shots = source.max_delay_between_shots;
+            template.clip_size = source.clip_size;
+            template.clip_reload_time = source.clip_reload_time as i32;
+            template.pre_attack_delay = source.pre_attack_delay as i32;
+            template.auto_reload_when_idle_frames = source.auto_reload_when_idle;
+            template.suspend_fx_delay = source.suspend_fx_delay;
+            template.fire_sound_loop_time = source.fire_sound_loop_time;
+            template.continuous_fire_coast_frames = source.continuous_fire_coast;
+            template.continuous_fire_one_shots_needed = source.continuous_fire_one;
+            template.continuous_fire_two_shots_needed = source.continuous_fire_two;
+            template.shots_per_barrel = source.shots_per_barrel;
+            template.historic_bonus_time = source.historic_bonus_time;
+            template.historic_bonus_radius = source.historic_bonus_radius;
+            template.historic_bonus_count = source.historic_bonus_count;
+            template.scatter_radius = source.scatter_radius;
+            template.scatter_target_scalar = source.scatter_target_scalar;
+            template.infantry_inaccuracy_dist = source.infantry_inaccuracy_dist;
+            template.scatter_targets = source
+                .scatter_targets
+                .iter()
+                .copied()
+                .map(|(x, y)| Coord2D::new(x, y))
+                .collect();
+            template.anti_mask = WeaponAntiMask::new(source.anti_mask);
+            template.projectile_name = source.projectile_template.as_str().to_string();
+            template.projectile_stream_name = source.projectile_stream_name.clone();
+            template.laser_name = source.laser_name.clone();
+            template.laser_bone_name = source.laser_bone_name.clone();
+            template.shock_wave_amount = source.shockwave_amount;
+            template.shock_wave_radius = source.shockwave_radius;
+            template.shock_wave_taper_off = source.shockwave_taper_off;
+            template.request_assist_range = source.request_assist_range;
+            template.continue_attack_range = source.continue_attack_range;
+            template.damage_dealt_at_self_position = source.damage_dealt_at_self_position;
+            template.leech_range_weapon = source.leech_range_weapon;
+            template.capable_of_following_waypoint = source.capable_of_following_waypoints;
+            template.is_shows_ammo_pips = source.shows_ammo_pips;
+            template.allow_attack_garrisoned_bldgs = source.allow_attack_garrisoned_bldgs;
+            template.play_fx_when_stealthed = source.play_fx_when_stealthed;
+            template.die_on_detonate = source.die_on_detonate;
+            template.affects_mask = WeaponAffectsMask::new(source.affects_mask);
+            template.collide_mask = WeaponCollideMask::new(source.collide_mask);
+            template.damage_type = DamageType::from_u32(source.damage_type_index as u32);
+            template.death_type = DeathType::from_u32(source.death_type_index as u32);
+            template.damage_status_type = ObjectStatusTypes::new(
+                source.damage_status_type.max(0) as u32,
+            );
+            let sound = source.effects.sound_effect.as_str().trim();
+            if !sound.is_empty() {
+                template.fire_sound = crate::weapon::AudioEventRts::new(sound.to_string());
+            }
+            template.reload_type = match source.reload_type {
+                1 => WeaponReloadType::NoReload,
+                2 => WeaponReloadType::ReturnToBaseToReload,
+                _ => WeaponReloadType::AutoReload,
+            };
+            template.prefire_type = match source.prefire_type {
+                1 => WeaponPrefireType::PrefirePerAttack,
+                2 => WeaponPrefireType::PrefirePerClip,
+                _ => WeaponPrefireType::PrefirePerShot,
+            };
+            if let Some(name) = source.historic_bonus_weapon.as_deref() {
+                template.set_historic_bonus_weapon_name(name);
+            }
+            template.fire_fx = source.fire_fx.clone().map(|name| name.map(|name| FXList::new(&name)));
+            template.projectile_detonate_fx = source
+                .projectile_detonate_fx
+                .clone()
+                .map(|name| name.map(|name| FXList::new(&name)));
+            template.fire_ocl_names = source.fire_ocl.clone();
+            template.projectile_detonation_ocl_names = source.projectile_detonate_ocl.clone();
+            template.projectile_exhaust_names = source.projectile_exhaust.clone();
+            let mut bonus_set = WeaponBonusSet::new();
+            for (condition, row) in source.weapon_bonus.iter().enumerate() {
+                let mut bonus = WeaponBonus::new();
+                let mut used = false;
+                for (field, value) in row.iter().copied().enumerate() {
+                    if (value - 1.0).abs() > f32::EPSILON {
+                        if let Some(field) = bonus_field_from_index(field) {
+                            bonus.set_field(field, value);
+                            used = true;
+                        }
+                    }
+                }
+                if used {
+                    if let Some(condition) = bonus_condition_from_index(condition) {
+                        bonus_set.set_bonus(condition, bonus);
+                    }
+                }
+            }
+            if bonus_set.get_bonus(WeaponBonusConditionType::Garrisoned).is_some()
+                || source.weapon_bonus.iter().flatten().any(|value| (*value - 1.0).abs() > f32::EPSILON)
+            {
+                template.extra_bonus = Some(bonus_set);
+            }
+            self.add_weapon_template(template);
+        }
+        let pending: Vec<(String, String)> = self
+            .weapon_templates
+            .iter()
+            .filter_map(|(name, template)| {
+                if template.historic_bonus_weapon.is_none()
+                    && !template.historic_bonus_weapon_name.is_empty()
+                {
+                    Some((name.clone(), template.historic_bonus_weapon_name.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (owner, bonus_name) in pending {
+            let Some(bonus) = self.find_weapon_template_ci(&bonus_name).cloned() else {
+                continue;
+            };
+            let Some(existing) = self.weapon_templates.get(&owner).cloned() else {
+                continue;
+            };
+            let mut updated = (*existing).clone();
+            updated.historic_bonus_weapon = Some(Arc::downgrade(&bonus));
+            let key = updated.name_key;
+            let arc = Arc::new(updated);
+            self.weapon_templates.insert(owner, Arc::clone(&arc));
+            if key != 0 {
+                self.weapon_templates_by_key.insert(key, arc);
+            }
+        }
     }
 
     /// Reset the weapon store
@@ -125,32 +286,36 @@ impl WeaponStore {
         self.weapon_templates.clear();
         self.weapon_templates_by_key.clear();
         self.delayed_damage_info.clear();
+        self.last_imported_common_count = 0;
         Ok(())
     }
 
-    /// Update the weapon store (process delayed damage)
-    pub fn update(&mut self) -> GameLogicResult<()> {
+    /// Pull hits that are due. Callers must fire them after releasing the store lock.
+    /// `private_fire_weapon` queues projectileless damage through `with_weapon_store_mut`.
+    pub fn take_due_delayed_damage(&mut self) -> Vec<WeaponDelayedDamageInfo> {
         let current_frame = TheGameLogic::get_frame();
-
-        // Process delayed damage
+        let mut due = Vec::new();
         let mut i = 0;
         while i < self.delayed_damage_info.len() {
             if self.delayed_damage_info[i].delay_damage_frame <= current_frame {
-                let damage_info = self.delayed_damage_info.remove(i);
-                // Process the delayed damage here
-                self.process_delayed_damage(damage_info)?;
+                due.push(self.delayed_damage_info.remove(i));
             } else {
                 i += 1;
             }
         }
+        due
+    }
 
-        Ok(())
+    /// Update the weapon store (process delayed damage).
+    /// Firing happens outside the store lock. This only drains due entries.
+    pub fn update(&mut self) -> GameLogicResult<Vec<WeaponDelayedDamageInfo>> {
+        Ok(self.take_due_delayed_damage())
     }
 
     /// Find weapon template by name.
     ///
-    /// C++ WeaponStore::findWeaponTemplate treats the token `"None"` as missing
-    /// (Weapon.cpp lookup). Case-insensitive so INI `NONE`/`none` match.
+    /// C++ `WeaponStore::findWeaponTemplate` uses `nameToKey`, which is
+    /// case-sensitive. `"None"` in any case is missing.
     pub fn find_weapon_template(&self, name: &str) -> Option<&Arc<WeaponTemplate>> {
         if name.eq_ignore_ascii_case("None") {
             return None;
@@ -158,7 +323,7 @@ impl WeaponStore {
         self.weapon_templates.get(name)
     }
 
-    /// Name lookup that also matches INI case variants (C++ NameKey is case-insensitive).
+    /// Case-insensitive fallback for callers that do not have the original key.
     pub fn find_weapon_template_ci(&self, name: &str) -> Option<&Arc<WeaponTemplate>> {
         if let Some(found) = self.find_weapon_template(name) {
             return Some(found);
@@ -426,39 +591,22 @@ impl WeaponStore {
     }
 
     /// Process delayed damage
-    fn process_delayed_damage(&self, damage_info: WeaponDelayedDamageInfo) -> GameLogicResult<()> {
-        let mut temp_weapon =
-            self.allocate_new_weapon(&damage_info.delayed_weapon, WeaponSlotType::Primary);
-        temp_weapon.load_ammo_now(damage_info.delay_source_id)?;
-
-        if damage_info.delay_intended_victim_id != INVALID_OBJECT_ID {
-            temp_weapon
-                .private_fire_weapon(
-                    damage_info.delay_source_id,
-                    Some(damage_info.delay_intended_victim_id),
-                    None,
-                    &damage_info.bonus,
-                    false,
-                    false,
-                    true,
-                )
-                .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
-        } else {
-            temp_weapon
-                .private_fire_weapon(
-                    damage_info.delay_source_id,
-                    None,
-                    Some(&damage_info.delay_damage_pos),
-                    &damage_info.bonus,
-                    false,
-                    false,
-                    true,
-                )
-                .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
-        }
-
+    pub fn apply_delayed_damage(damage_info: WeaponDelayedDamageInfo) -> GameLogicResult<()> {
+        let mut temp_weapon = Weapon::new(damage_info.delayed_weapon, WeaponSlotType::Primary);
+        let victim = (damage_info.delay_intended_victim_id != INVALID_OBJECT_ID)
+            .then_some(damage_info.delay_intended_victim_id);
+        temp_weapon
+            .deal_damage_internal(
+                damage_info.delay_source_id,
+                victim,
+                &damage_info.delay_damage_pos,
+                &damage_info.bonus,
+                false,
+            )
+            .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
         Ok(())
     }
+
 }
 
 impl Default for WeaponStore {
@@ -480,6 +628,8 @@ pub fn initialize_weapon_store() -> GameLogicResult<()> {
         let mut weapon_store = WeaponStore::new();
         weapon_store.init()?;
         *store = Some(weapon_store);
+    } else if let Some(weapon_store) = store.as_mut() {
+        weapon_store.import_common_weapon_templates();
     }
 
     Ok(())
@@ -490,6 +640,14 @@ pub fn with_weapon_store<F, R>(f: F) -> GameLogicResult<R>
 where
     F: FnOnce(&WeaponStore) -> R,
 {
+    {
+        let mut store = WEAPON_STORE.write().map_err(|e| {
+            GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
+        })?;
+        if let Some(weapon_store) = store.as_mut() {
+            weapon_store.import_common_weapon_templates();
+        }
+    }
     let store = WEAPON_STORE.read().map_err(|e| {
         GameLogicError::Threading(format!("Failed to acquire weapon store lock: {}", e))
     })?;
@@ -512,7 +670,10 @@ where
     })?;
 
     match store.as_mut() {
-        Some(weapon_store) => Ok(f(weapon_store)),
+        Some(weapon_store) => {
+            weapon_store.import_common_weapon_templates();
+            Ok(f(weapon_store))
+        }
         None => Err(GameLogicError::SystemNotInitialized(
             "Weapon store not initialized".to_string(),
         )),
@@ -526,4 +687,49 @@ pub fn shutdown_weapon_store() -> GameLogicResult<()> {
     })?;
     *store = None;
     Ok(())
+}
+
+fn bonus_field_from_index(index: usize) -> Option<WeaponBonusField> {
+    Some(match index {
+        0 => WeaponBonusField::Damage,
+        1 => WeaponBonusField::Radius,
+        2 => WeaponBonusField::Range,
+        3 => WeaponBonusField::RateOfFire,
+        4 => WeaponBonusField::PreAttack,
+        _ => return None,
+    })
+}
+
+fn bonus_condition_from_index(index: usize) -> Option<WeaponBonusConditionType> {
+    use WeaponBonusConditionType::*;
+    Some(match index {
+        0 => Garrisoned,
+        1 => Horde,
+        2 => ContinuousFireMean,
+        3 => ContinuousFireFast,
+        4 => Nationalism,
+        5 => PlayerUpgrade,
+        6 => DroneSpotting,
+        7 => Demoralized,
+        8 => Enthusiastic,
+        9 => Veteran,
+        10 => Elite,
+        11 => Hero,
+        12 => BattleplanBombardment,
+        13 => BattleplanHoldtheLine,
+        14 => BattleplanSearchAndDestroy,
+        15 => Subliminal,
+        16 => SoloHumanEasy,
+        17 => SoloHumanNormal,
+        18 => SoloHumanHard,
+        19 => SoloAiEasy,
+        20 => SoloAiNormal,
+        21 => SoloAiHard,
+        22 => TargetFaerieFire,
+        23 => Fanaticism,
+        24 => FrenzyOne,
+        25 => FrenzyTwo,
+        26 => FrenzyThree,
+        _ => return None,
+    })
 }

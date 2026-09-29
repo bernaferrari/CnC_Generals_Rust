@@ -1327,13 +1327,27 @@ impl DozerAIUpdate {
                         } else {
                             target_body_max
                         };
-                        let _ = manager.start_construction(
-                            task.target_id,
-                            self.object_id,
-                            max_health,
-                            frames,
-                            task.is_rebuild,
-                        );
+                        let (existing_percent, existing_health) = target
+                            .read()
+                            .ok()
+                            .map(|guard| (guard.get_construction_percent(), guard.get_health()))
+                            .unwrap_or((0.0, 1.0));
+                        if manager
+                            .start_construction(
+                                task.target_id,
+                                self.object_id,
+                                max_health,
+                                frames,
+                                task.is_rebuild,
+                            )
+                            .is_ok()
+                        {
+                            manager.seed_from_structure(
+                                task.target_id,
+                                existing_percent,
+                                existing_health,
+                            );
+                        }
                         task.started_construction = true;
                         if let Some(sound) = target.read().ok().and_then(|guard| {
                             guard.get_template().get_per_unit_sound("UnderConstruction")
@@ -1346,15 +1360,16 @@ impl DozerAIUpdate {
                     }
                     manager.set_build_frames(task.target_id, frames);
                     let completed = manager.update_for_dozer(self.object_id);
-                    let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
-                    let current_health = manager.get_current_health(task.target_id);
-                    if let Ok(mut target_write) = target.write() {
-                        target_write.set_construction_percent(progress);
-                        if let Some(health) = current_health {
-                            let _ = target_write.set_health(health);
+                    if let Some(progress) = manager.get_progress(task.target_id) {
+                        let current_health = manager.get_current_health(task.target_id);
+                        if let Ok(mut target_write) = target.write() {
+                            target_write.set_construction_percent(progress);
+                            if let Some(health) = current_health {
+                                let _ = target_write.set_health(health);
+                            }
+                            target_write.set_producer_id(self.object_id);
+                            target_write.set_builder_id(self.object_id);
                         }
-                        target_write.set_producer_id(self.object_id);
-                        target_write.set_builder_id(self.object_id);
                     }
                     if completed.contains(&task.target_id) {
                         self.handle_build_completion(&owner, &target, task.is_rebuild);

@@ -209,7 +209,7 @@ pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool 
 /// `expire_frame == 0` is drawable-owned (no FXList auto-expire).
 pub fn update_ray_effects(current_frame: u32) {
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
-    if store.frame == 0 && current_frame > 1 {
+    if store.frame == 0 && current_frame > 0 {
         for slot in &mut store.slots {
             if let Some(ray) = slot.as_mut() {
                 if ray.created_frame == 0 && ray.expire_frame != 0 {

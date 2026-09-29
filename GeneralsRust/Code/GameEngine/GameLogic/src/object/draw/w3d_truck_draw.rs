@@ -10,8 +10,6 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// C++ `W3DTruckDraw.cpp:380-614` emitter/audio inputs.
 #[derive(Debug, Clone, Copy, Default)]
@@ -27,75 +25,6 @@ pub struct TruckDrawLivePhysics {
     pub turning: Real,
 }
 
-thread_local! {
-    static LIVE_TRUCK_DUST: RefCell<HashMap<ObjectID, W3DTruckDraw>> =
-        RefCell::new(HashMap::new());
-}
-
-fn leftover_truck_module_data(template_name: &str) -> W3DTruckDrawModuleData {
-    if template_name.is_empty() {
-        return W3DTruckDrawModuleData::new();
-    }
-    let Ok(guard) = game_engine::common::thing::get_thing_factory() else {
-        return W3DTruckDrawModuleData::new();
-    };
-    let Some(factory) = guard.as_ref() else {
-        return W3DTruckDrawModuleData::new();
-    };
-    let Some(template) = factory.find_template(template_name, false) else {
-        return W3DTruckDrawModuleData::new();
-    };
-    for entry in template.get_draw_module_info().iter() {
-        if let Some(data) = entry.data.as_any().downcast_ref::<W3DTruckDrawModuleData>() {
-            return data.clone();
-        }
-    }
-    W3DTruckDrawModuleData::new()
-}
-/// C++ `W3DTruckDraw::doDrawModule` dust/dirt/powerslide + landing/slide audio.
-pub fn tick_live_host_truck_dust(
-    owner_id: ObjectID,
-    template_name: &str,
-    module_data: Option<W3DTruckDrawModuleData>,
-    mut physics: TruckDrawLivePhysics,
-    hidden: bool,
-) {
-    LIVE_TRUCK_DUST.with(|map| {
-        let mut map = map.borrow_mut();
-        let draw = map.entry(owner_id).or_insert_with(|| {
-            let data = module_data
-                .clone()
-                .unwrap_or_else(|| leftover_truck_module_data(template_name));
-            let mut draw = W3DTruckDraw::new(data);
-            draw.bind_owner_id(owner_id);
-            draw.bind_sounds_from_template(template_name);
-            draw
-        });
-        if hidden {
-            draw.enable_emitters(false);
-            return;
-        }
-        draw.bind_sounds_from_template(template_name);
-        let delta = physics.speed - draw.last_live_speed();
-        if physics.speed > 0.0001 {
-            physics.accel_x = physics.vel_x / physics.speed * delta;
-            physics.accel_y = physics.vel_y / physics.speed * delta;
-        } else {
-            physics.accel_x = delta;
-            physics.accel_y = 0.0;
-        }
-        draw.tick_live(physics);
-    });
-}
-
-/// Toss leftover Dust/DirtSpray/PowerslideSpray when the live drawable is pruned.
-pub fn prune_live_host_truck_dust(owner_id: ObjectID) {
-    LIVE_TRUCK_DUST.with(|map| {
-        if let Some(mut draw) = map.borrow_mut().remove(&owner_id) {
-            draw.toss_emitters();
-        }
-    });
-}
 
 #[derive(Debug, Clone)]
 pub struct W3DTruckDrawModuleData {
@@ -540,6 +469,28 @@ impl W3DTruckDraw {
         }
     }
 
+    /// Live host pose. Dust/dirt/powerslide ids and speed stay on this module.
+    pub fn tick_live_host(
+        &mut self,
+        template_name: &str,
+        mut physics: TruckDrawLivePhysics,
+        hidden: bool,
+    ) {
+        if hidden {
+            self.enable_emitters(false);
+            return;
+        }
+        self.bind_sounds_from_template(template_name);
+        let delta = physics.speed - self.last_live_speed;
+        if physics.speed > 0.0001 {
+            physics.accel_x = physics.vel_x / physics.speed * delta;
+            physics.accel_y = physics.vel_y / physics.speed * delta;
+        } else {
+            physics.accel_x = delta;
+            physics.accel_y = 0.0;
+        }
+        self.tick_live(physics);
+    }
     /// C++ `W3DTruckDraw::doDrawModule` dust/dirt/powerslide + landing/slide audio.
     pub fn tick_live(&mut self, physics: TruckDrawLivePhysics) {
         const ACCEL_THRESHOLD: Real = 0.01;
@@ -797,6 +748,12 @@ impl W3DTruckDraw {
     }
 }
 
+impl Drop for W3DTruckDraw {
+    fn drop(&mut self) {
+        self.toss_emitters();
+    }
+}
+
 impl Module for W3DTruckDraw {
     fn on_object_created(&mut self) {
         self.base.on_object_created();
@@ -1033,46 +990,4 @@ mod tests {
         assert_eq!(draw.owner_id(), Some(313));
     }
 
-    #[test]
-    fn tick_live_host_truck_dust_does_not_panic() {
-        let mut data = W3DTruckDrawModuleData::new();
-        data.dust_effect_name = AsciiString::from("Dust");
-        data.dirt_effect_name = AsciiString::from("DirtSpray");
-        data.powerslide_effect_name = AsciiString::from("PowerslideSpray");
-        tick_live_host_truck_dust(
-            42,
-            "AmericaVehicleHumvee",
-            Some(data),
-            TruckDrawLivePhysics {
-                speed: 1.5,
-                vel_x: 1.5,
-                vel_y: 0.0,
-                accel_x: 0.2,
-                accel_y: 0.0,
-                is_motive: true,
-                airborne: false,
-                frames_airborne: 0,
-                turning: 0.1,
-            },
-            false,
-        );
-        tick_live_host_truck_dust(
-            42,
-            "AmericaVehicleHumvee",
-            None,
-            TruckDrawLivePhysics {
-                speed: 0.0,
-                vel_x: 0.0,
-                vel_y: 0.0,
-                accel_x: -1.5,
-                accel_y: 0.0,
-                is_motive: false,
-                airborne: false,
-                frames_airborne: 5,
-                turning: 0.0,
-            },
-            false,
-        );
-        prune_live_host_truck_dust(42);
-    }
 }

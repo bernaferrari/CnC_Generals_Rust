@@ -155,6 +155,7 @@ pub trait PlayerArcExt {
         &self,
         upgrade_template: &UpgradeTemplate,
         status: crate::upgrade::UpgradeStatus,
+        skip_object_id: Option<ObjectID>,
     );
     fn remove_upgrade(&self, upgrade_template: &UpgradeTemplate);
     fn iterate_objects<F>(&self, func: F) -> Result<(), GameError>
@@ -199,6 +200,7 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
         &self,
         upgrade_template: &UpgradeTemplate,
         status: crate::upgrade::UpgradeStatus,
+        skip_object_id: Option<ObjectID>,
     ) {
         // Owned-object roster snapshot taken on completion, for the
         // C++ onUpgradeCompleted fan-out after the lock is released.
@@ -254,7 +256,7 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
         // player owns. Runs after the player write guard is dropped because
         // the per-object re-check reads this player again.
         if !completed_roster.is_empty() {
-            on_upgrade_completed_fanout(completed_roster);
+            on_upgrade_completed_fanout(completed_roster, skip_object_id);
         }
     }
 
@@ -339,12 +341,12 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
 /// C++ Player::onUpgradeCompleted (Player.cpp:3054-3081): an upgrade just
 /// finished, tell all of the player's objects to re-check their
 /// UpgradeModules (StatusBits/ReplaceObject/WeaponSet and friends).
-fn on_upgrade_completed_fanout(object_ids: Vec<ObjectID>) {
-    // The create-hook owner already holds its object's write lock; its init
-    // tail re-checks modules (C++ Object::initObject → updateUpgradeModules).
-    let skip_id = crate::object::create::create_owner_id();
+///
+/// `skip_object_id` is the object already mutably borrowed by a create hook.
+/// Its init tail re-checks modules, and locking it again would deadlock.
+fn on_upgrade_completed_fanout(object_ids: Vec<ObjectID>, skip_object_id: Option<ObjectID>) {
     for object_id in object_ids {
-        if Some(object_id) == skip_id {
+        if Some(object_id) == skip_object_id {
             continue;
         }
         let _ = crate::object::registry::OBJECT_REGISTRY

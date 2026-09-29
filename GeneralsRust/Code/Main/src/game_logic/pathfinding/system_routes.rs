@@ -10,16 +10,21 @@ impl PathfindingSystem {
         aircraft: bool,
         mover: Option<ObjectId>,
     ) -> Option<Vec<Vec3>> {
+        let surfaces = mover
+            .and_then(|id| objects.get(&id))
+            .map(|obj| obj.locomotor_surfaces)
+            .filter(|mask| *mask != 0)
+            .unwrap_or(if aircraft {
+                SURFACE_AIR
+            } else {
+                SURFACE_GROUND
+            });
         self.find_path_ex_surfaces(
             start,
             goal,
             objects,
             aircraft,
-            if aircraft {
-                SURFACE_AIR
-            } else {
-                SURFACE_GROUND
-            },
+            surfaces,
             false,
             mover,
         )
@@ -1021,9 +1026,14 @@ impl PathfindingSystem {
         crusher_level: u8,
         seeker_id: u32,
     ) -> Vec3 {
+        let mut dest = dest;
+        let layer = self.grid.layer_for_destination(group_dest);
+        if let Some(terrain) = gamelogic::helpers::TheTerrainLogic::get() {
+            let common = gamelogic::common::PathfindLayerEnum::from_u32(layer as u32);
+            dest.y = terrain.get_layer_height(dest.x, dest.z, common);
+        }
         let dest_cell = self.grid.world_to_grid(dest);
         let group_cell = self.grid.world_to_grid(group_dest);
-        let layer = self.grid.layer_for_destination(group_dest);
         self.grid.query_from = Some(self.grid.world_to_grid(from));
         self.grid.query_orig_dest = Some(dest_cell);
         self.grid.query_seeker_id = seeker_id;
@@ -1226,7 +1236,15 @@ impl PathfindingSystem {
                 remaining += seg;
             }
         }
-        remaining
+        // C++ computePointOnPath: if the unit is farther from posOnPath than
+        // the remainder, and the remainder is past PATHFIND_CLOSE_ENOUGH,
+        // the reported distance is the off-path gap.
+        let off = best_d2.sqrt();
+        if off > remaining && remaining > 1.0 {
+            off
+        } else {
+            remaining
+        }
     }
 
     /// C++ `Path::computeFlightDistToGoal` (AIPathfind.cpp:1022-1074).

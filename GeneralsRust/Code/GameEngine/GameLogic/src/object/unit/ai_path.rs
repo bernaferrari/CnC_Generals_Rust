@@ -67,15 +67,47 @@ pub fn leftover_compute_quick_path_coords(start: &Coord3D, destination: &Coord3D
 
 impl UnitAIUpdate {
     pub(super) fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
+        self.installed_path_layers.clear();
         let mut snapshot = AiPath::new();
         for pos in path {
             snapshot.append_node(pos, AiPathLayer::Ground);
         }
         self.current_path_snapshot = Some(snapshot);
     }
+    pub(super) fn remember_result_layers(&mut self, waypoints: &[Coord3D], layers: &[u8]) {
+        if layers.len() != waypoints.len() {
+            self.installed_path_layers.clear();
+            return;
+        }
+        self.installed_path_layers = layers.to_vec();
+    }
+    pub(super) fn apply_final_ground_path_layer(
+        &mut self,
+        waypoints: &[Coord3D],
+    ) -> Result<(), String> {
+        if !(self.is_final_goal && self.is_doing_ground_movement()) {
+            return Ok(());
+        }
+        let Some(ordinal) = self.installed_path_layers.last().copied() else {
+            return Ok(());
+        };
+        let installed = self.path_with_cpp_final_node(waypoints)?;
+        let Some(last) = installed.last().copied() else {
+            return Ok(());
+        };
+        self.update_goal_position(
+            &last,
+            crate::common::PathfindLayerEnum::from_u32(u32::from(ordinal)),
+        )
+    }
     pub(super) fn append_current_path_snapshot_goal(&mut self, goal: &Coord3D) {
         match self.current_path_snapshot.as_mut() {
-            Some(path) => path.append_node(goal, AiPathLayer::Ground),
+            Some(path) => {
+                path.append_node(goal, AiPathLayer::Ground);
+                if !self.installed_path_layers.is_empty() {
+                    self.installed_path_layers.push(1);
+                }
+            }
             None => self.set_current_path_snapshot_from_coords(&[*goal]),
         }
     }
@@ -207,6 +239,11 @@ impl UnitAIUpdate {
         let result = pf_guard.find_closest_path_result(request);
         if result.success && !result.waypoints.is_empty() {
             self.set_path_from_coords(&result.waypoints)?;
+            self.remember_result_layers(
+                &result.waypoints,
+                &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+            );
+            self.apply_final_ground_path_layer(&result.waypoints)?;
             Ok(true)
         } else {
             self.path_timestamp = TheGameLogic::get_frame();
@@ -303,6 +340,11 @@ impl UnitAIUpdate {
         if let Some(result) = path_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
+                self.remember_result_layers(
+                    &result.waypoints,
+                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                );
+                self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
             }
         }
@@ -333,6 +375,11 @@ impl UnitAIUpdate {
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
+                self.remember_result_layers(
+                    &result.waypoints,
+                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                );
+                self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
             }
         }
@@ -474,6 +521,11 @@ impl UnitAIUpdate {
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
+                self.remember_result_layers(
+                    &result.waypoints,
+                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                );
+                self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
             }
         }
@@ -548,6 +600,11 @@ impl UnitAIUpdate {
         if let Some(result) = safe_result {
             if result.success && !result.waypoints.is_empty() {
                 self.set_path_from_coords(&result.waypoints)?;
+                self.remember_result_layers(
+                    &result.waypoints,
+                    &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                );
+                self.apply_final_ground_path_layer(&result.waypoints)?;
                 return Ok(true);
             }
         }
@@ -759,6 +816,35 @@ impl UnitAIUpdate {
         self.pathfind_goal_cell = ICoord2D::new(-1, -1);
         self.pathfind_goal_layer = ClassicPathLayer::Invalid;
     }
+    pub(super) fn remove_stored_pathfinder_goal(&mut self) {
+        let Some(unit) = get_unit_arc(self.unit_id) else {
+            return;
+        };
+        let Ok(guard) = unit.read() else {
+            return;
+        };
+        let Some(base) = guard.get_base_object() else {
+            return;
+        };
+        let owner_id = base
+            .read()
+            .ok()
+            .map(|obj| obj.get_id())
+            .unwrap_or(INVALID_ID);
+        let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
+        drop(guard);
+        let ai_store = the_ai();
+        let Ok(ai_lock) = ai_store.read() else {
+            return;
+        };
+        let Some(pathfinder) = ai_lock.pathfinder() else {
+            return;
+        };
+        let Ok(mut pf_guard) = pathfinder.write() else {
+            return;
+        };
+        self.remove_goal_cells(&mut pf_guard, owner_id, radius, center_in_cell);
+    }
     pub(super) fn update_ground_goal_cells(
         &mut self,
         pathfinder: &mut crate::ai::Pathfinder,
@@ -849,6 +935,43 @@ impl UnitAIUpdate {
                 if let Ok(mut object) = guard.base_arc().write() {
                     object.clear_model_condition_state(ModelConditionFlags::MOVING);
                 }
+            }
+        }
+
+        if let Some((pos, radius, layer, id)) = get_unit_arc(self.unit_id).and_then(|unit| {
+            let guard = unit.read().ok()?;
+            let base = guard.base_arc();
+            let object = base.read().ok()?;
+            Some((
+                *object.get_position(),
+                object.get_geometry_info().get_bounding_circle_radius(),
+                object.get_layer(),
+                object.get_id(),
+            ))
+        }) {
+            let mut goal = Coord3D::new(0.0, 0.0, 0.0);
+            let found = the_ai().read().ok().and_then(|ai| {
+                let pf = ai.pathfinder()?;
+                let pf = pf.read().ok()?;
+                if !pf.goal_position_for_unit(id, radius, &mut goal) {
+                    return None;
+                }
+                let dx = goal.x - pos.x;
+                let dy = goal.y - pos.y;
+                let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+                if dx * dx + dy * dy >= cell * cell {
+                    goal = pf.snap_position_for_radius(&pos, radius);
+                }
+                Some(goal)
+            });
+            if let Some(goal) = found {
+                self.final_position = goal;
+                self.do_final_position = false;
+                let _ = crate::ai::pathfind::update_goal_for_object(
+                    id,
+                    &goal,
+                    crate::ai::pathfind::PathfindLayerEnum::from_u32(layer as u32),
+                );
             }
         }
 

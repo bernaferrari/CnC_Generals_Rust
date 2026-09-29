@@ -287,6 +287,8 @@ impl CnCGameEngine {
         self.host_match_total_play_time = None;
         self.host_match_logic_frame = None;
         self.host_match_logic_steps = None;
+        self.host_visual_logic_frame_applied = None;
+        self.host_snow_logic_frame_applied = None;
         self.host_match_in_replay = None;
         self.host_match_in_shell = None;
         self.host_match_local_team = None;

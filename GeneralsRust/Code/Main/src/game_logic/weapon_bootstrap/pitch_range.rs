@@ -166,39 +166,39 @@ pub fn compute_approach_target_pos(
     target_pos: glam::Vec3,
     attack_range: f32,
 ) -> glam::Vec3 {
-    if is_contact_effective_range(attack_range) {
+    compute_approach_target_pos_at(source_pos, target_pos, attack_range, true)
+}
+
+/// `classify_contact` is for direct callers that pass a raw range (`5.0` is contact).
+/// The chase already classified from the raw slot range and passes the bonused
+/// standoff distance, so it sets this false.
+pub fn compute_approach_target_pos_at(
+    source_pos: glam::Vec3,
+    target_pos: glam::Vec3,
+    attack_range: f32,
+    classify_contact: bool,
+) -> glam::Vec3 {
+    if classify_contact && is_contact_effective_range(attack_range) {
         return target_pos;
     }
     let dx = target_pos.x - source_pos.x;
-    let dy = target_pos.y - source_pos.y;
     let dz = target_pos.z - source_pos.z;
-    let dist = (dx * dx + dy * dy + dz * dz).sqrt();
-    if dist < 1e-3 {
-        return target_pos;
+    let dist = (dx * dx + dz * dz).sqrt();
+    if dist < 0.001 {
+        // C++ FUDGE: already on the target, approach is the source position.
+        return source_pos;
     }
-    let stand = (attack_range.max(0.0) * ATTACK_RANGE_APPROACH_FUDGE).min(dist);
-    // Approach point is `stand` short of the target from the source direction.
-    // C++ places approach at attackRange along dir from target toward... wait:
-    // C++: approach = attackRange * dir + targetPos where dir = normalize(source-target)?
-    // From Weapon.cpp: dir from source to target, then approach = attackRange * dir + targetPos
-    // That would be BEYOND the target. Re-read...
-    // dir.x = (target - source)/dist ... approach = attackRange * dir + targetPos
-    // That's target + attackRange * toward_target = past the target.
-    // Actually looking again at the C++ snippet:
-    // approachTargetPos.x = attackRange * dir.x + targetPos->x
-    // with dir from Cos(angle) of direction...
-    // Wait the earlier code has:
-    // dir from source to target normalized, then approach = attackRange * dir + targetPos
-    // That puts point past target from source. That seems wrong for approach.
-    // Looking at 2090-2115 again from earlier read:
-    // approachTargetPos.x = attackRange * dir.x + targetPos->x
-    // with dir = (target - source)/dist ... yes that's target + range * dir = beyond target.
-    // Hmm maybe dir is inverted in full code. Safer host residual: stand off from target
-    // toward source at min(range*0.9, dist).
+    // Do not clamp to dist. A unit inside the standoff but outside minimum
+    // range must move back out to range * 0.9. The 2D vector's height is 0,
+    // so the point sits at the target's altitude.
+    let stand = attack_range.max(0.0) * ATTACK_RANGE_APPROACH_FUDGE;
+    // C++ getVectorTo(target, source) points from the target back toward the
+    // source. approach = target + attackRange * dir. dx/dz are target - source
+    // on the ground plane, so subtracting them walks back toward the source.
     let back = stand / dist;
     glam::Vec3::new(
         target_pos.x - dx * back,
-        target_pos.y - dy * back,
+        target_pos.y,
         target_pos.z - dz * back,
     )
 }
@@ -218,15 +218,16 @@ pub fn is_goal_pos_within_attack_range(
     let center = (dx * dx + dz * dz).sqrt();
     let dist = (center - source_radius - target_radius).max(0.0);
     let fudge = PATHFIND_CELL_SIZE * 0.25;
-    let max_r = attack_range - fudge;
-    if max_r <= 0.0 {
-        return false;
-    }
-    let min_r = min_range + fudge;
+    // `attack_range` is already getAttackRange (one undersize). C++ subtracts
+    // another quarter cell and squares it, so a negative remainder stays in range.
+    let max_delta = attack_range - fudge;
+    // `min_range` is the raw template minimum. getMinimumAttackRange is
+    // max(0, raw - fudge); the goal check adds fudge back.
+    let min_r = (min_range - fudge).max(0.0) + fudge;
     if dist * dist < min_r * min_r {
         return false;
     }
-    dist * dist <= max_r * max_r
+    dist * dist <= max_delta * max_delta
 }
 
 pub fn host_continue_attack_range_for_weapon_name(name: &str) -> f32 {

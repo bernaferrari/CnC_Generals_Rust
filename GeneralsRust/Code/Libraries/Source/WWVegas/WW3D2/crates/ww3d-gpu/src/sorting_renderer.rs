@@ -12,9 +12,8 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct RenderBatch {
     /// Vertex buffer
-    pub vertex_buffer: Arc<GpuBuffer>,
-    /// Index buffer
-    pub index_buffer: Arc<GpuBuffer>,
+    pub vertex_buffer: GpuBuffer,
+    pub index_buffer: GpuBuffer,
     /// Start index in index buffer
     pub start_index: u32,
     /// Number of indices to draw
@@ -29,15 +28,18 @@ pub struct RenderBatch {
     pub material_id: u64,
     /// Render pipeline
     pub pipeline: Option<Arc<pipeline::RenderPipeline>>,
+    pub wgpu_pipeline: Option<Arc<wgpu::RenderPipeline>>,
     /// Bind groups
     pub bind_groups: Vec<Arc<wgpu::BindGroup>>,
+    /// Index width. C++ sorting buffers are 16-bit unless a caller overrides this.
+    pub index_format: wgpu::IndexFormat,
 }
 
 impl RenderBatch {
     /// Create a new render batch
     pub fn new(
-        vertex_buffer: Arc<GpuBuffer>,
-        index_buffer: Arc<GpuBuffer>,
+        vertex_buffer: GpuBuffer,
+        index_buffer: GpuBuffer,
         start_index: u32,
         index_count: u32,
         base_vertex: i32,
@@ -54,7 +56,9 @@ impl RenderBatch {
             distance,
             material_id: 0,
             pipeline: None,
+            wgpu_pipeline: None,
             bind_groups: Vec::new(),
+            index_format: wgpu::IndexFormat::Uint16,
         }
     }
 
@@ -114,8 +118,8 @@ impl SortingRenderer {
     #[allow(clippy::too_many_arguments)]
     pub fn add_triangles(
         &mut self,
-        vertex_buffer: Arc<GpuBuffer>,
-        index_buffer: Arc<GpuBuffer>,
+        vertex_buffer: GpuBuffer,
+        index_buffer: GpuBuffer,
         start_index: u32,
         polygon_count: u32,
         min_vertex_index: u32,
@@ -138,8 +142,8 @@ impl SortingRenderer {
     #[allow(clippy::too_many_arguments)]
     pub fn add_volume_particle(
         &mut self,
-        vertex_buffer: Arc<GpuBuffer>,
-        index_buffer: Arc<GpuBuffer>,
+        vertex_buffer: GpuBuffer,
+        index_buffer: GpuBuffer,
         start_index: u32,
         polygon_count: u32,
         min_vertex_index: u32,
@@ -173,7 +177,7 @@ impl SortingRenderer {
     }
 
     /// Render all batches
-    pub fn render<'a>(&'a mut self, render_pass: &mut wgpu::RenderPass<'a>) {
+    pub fn render(&mut self, render_pass: &mut wgpu::RenderPass<'_>) {
         if !self.enable_triangle_draw || self.batches.is_empty() {
             return;
         }
@@ -186,28 +190,35 @@ impl SortingRenderer {
         let mut current_index_buffer: Option<u64> = None;
 
         for batch in &self.batches {
-            // Set pipeline if changed
-            if let Some(pipeline) = &batch.pipeline {
+            if let Some(pipeline) = &batch.wgpu_pipeline {
+                let pipeline_id = Arc::as_ptr(pipeline) as u64;
+                if current_pipeline != Some(pipeline_id) {
+                    render_pass.set_pipeline(pipeline);
+                    current_pipeline = Some(pipeline_id);
+                }
+            } else if let Some(pipeline) = &batch.pipeline {
                 let pipeline_id = Arc::as_ptr(pipeline) as u64;
                 if current_pipeline != Some(pipeline_id) {
                     render_pass.set_pipeline(pipeline.pipeline());
                     current_pipeline = Some(pipeline_id);
                 }
+            } else {
+                continue;
             }
 
             // Set vertex buffer if changed
-            let vb_ptr = Arc::as_ptr(&batch.vertex_buffer) as u64;
+            let vb_ptr = batch.vertex_buffer.wgpu_buffer() as *const wgpu::Buffer as u64;
             if current_vertex_buffer != Some(vb_ptr) {
                 render_pass.set_vertex_buffer(0, batch.vertex_buffer.wgpu_buffer().slice(..));
                 current_vertex_buffer = Some(vb_ptr);
             }
 
             // Set index buffer if changed
-            let ib_ptr = Arc::as_ptr(&batch.index_buffer) as u64;
+            let ib_ptr = batch.index_buffer.wgpu_buffer() as *const wgpu::Buffer as u64;
             if current_index_buffer != Some(ib_ptr) {
                 render_pass.set_index_buffer(
                     batch.index_buffer.wgpu_buffer().slice(..),
-                    wgpu::IndexFormat::Uint16, // Assume u16, could be dynamic
+                    batch.index_format,
                 );
                 current_index_buffer = Some(ib_ptr);
             }
@@ -226,8 +237,14 @@ impl SortingRenderer {
         }
     }
 
-    /// Flush all batches (render and clear)
-    pub fn flush(&mut self) {
+    /// Draw queued batches into the active pass, then clear them.
+    pub fn flush(&mut self, render_pass: &mut wgpu::RenderPass<'_>) {
+        self.render(render_pass);
+        self.clear();
+    }
+
+    /// Drop queued batches without drawing. `flush` calls this after `render`.
+    pub fn clear(&mut self) {
         self.batches.clear();
         self.vertex_count = 0;
         self.triangle_count = 0;
@@ -294,8 +311,8 @@ lazy_static::lazy_static! {
 
 /// Add triangles to global sorting renderer
 pub fn add_sorted_triangles(
-    vertex_buffer: Arc<GpuBuffer>,
-    index_buffer: Arc<GpuBuffer>,
+    vertex_buffer: GpuBuffer,
+    index_buffer: GpuBuffer,
     start_index: u32,
     polygon_count: u32,
     min_vertex_index: u32,
@@ -313,11 +330,38 @@ pub fn add_sorted_triangles(
     );
 }
 
+pub fn add_sorted_triangles_with_state(
+    vertex_buffer: GpuBuffer,
+    index_buffer: GpuBuffer,
+    start_index: u32,
+    polygon_count: u32,
+    min_vertex_index: u32,
+    vertex_count: u32,
+    distance: f32,
+    pipeline: Arc<wgpu::RenderPipeline>,
+    bind_groups: Vec<Arc<wgpu::BindGroup>>,
+    index_format: wgpu::IndexFormat,
+) {
+    let mut batch = RenderBatch::new(
+        vertex_buffer,
+        index_buffer,
+        start_index,
+        polygon_count * 3,
+        min_vertex_index as i32,
+        vertex_count,
+        distance,
+    );
+    batch.wgpu_pipeline = Some(pipeline);
+    batch.bind_groups = bind_groups;
+    batch.index_format = index_format;
+    SORTING_RENDERER.lock().add_batch(batch);
+}
+
 /// Add volume particle to global sorting renderer
 #[allow(clippy::too_many_arguments)]
 pub fn add_sorted_volume_particle(
-    vertex_buffer: Arc<GpuBuffer>,
-    index_buffer: Arc<GpuBuffer>,
+    vertex_buffer: GpuBuffer,
+    index_buffer: GpuBuffer,
     start_index: u32,
     polygon_count: u32,
     min_vertex_index: u32,
@@ -337,17 +381,17 @@ pub fn add_sorted_volume_particle(
     );
 }
 
-/// Render global sorting renderer
-/// Note: Use the SortingRenderer directly via SORTING_RENDERER.lock() for more control
-pub fn render_sorted<'a>(render_pass: &mut wgpu::RenderPass<'a>) {
-    // This requires careful lifetime management
-    // User code should call: SORTING_RENDERER.lock().render(render_pass) directly
-    let _ = render_pass; // Prevent lifetime issues
+/// Draw the global sorter into `render_pass`.
+///
+/// The lock is only held for this call. Batches stay in the sorter until
+/// `flush_sorting_renderer`, so their `Arc` buffers remain alive through submit.
+pub fn render_sorted(render_pass: &mut wgpu::RenderPass<'_>) {
+    SORTING_RENDERER.lock().render(render_pass);
 }
 
-/// Flush global sorting renderer
-pub fn flush_sorting_renderer() {
-    SORTING_RENDERER.lock().flush();
+/// Draw queued sorting batches into `render_pass`, then clear them.
+pub fn flush_sorting_renderer(render_pass: &mut wgpu::RenderPass<'_>) {
+    SORTING_RENDERER.lock().flush(render_pass);
 }
 
 /// Get sorting renderer statistics
@@ -386,8 +430,12 @@ mod tests {
         renderer.set_triangle_draw_enabled(false);
         assert!(!renderer.is_triangle_draw_enabled());
 
-        renderer.flush();
+        renderer.vertex_count = 4;
+        renderer.triangle_count = 2;
+        renderer.clear();
         assert_eq!(renderer.batch_count(), 0);
+        assert_eq!(renderer.vertex_count(), 0);
+        assert_eq!(renderer.triangle_count(), 0);
     }
 
     #[test]

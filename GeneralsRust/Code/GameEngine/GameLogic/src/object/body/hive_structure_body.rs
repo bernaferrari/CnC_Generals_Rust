@@ -341,6 +341,10 @@ impl BodyModuleInterface for HiveStructureBody {
         self.structure_body.attempt_damage(damage_info)
     }
 
+    fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {
+        self.structure_body.do_damage_fx_after_death(damage_info);
+    }
+
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()> {
         self.structure_body.attempt_healing(healing_info)
     }

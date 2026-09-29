@@ -1132,6 +1132,10 @@ pub struct CnCGameEngine {
     pub(crate) host_match_total_play_time: Option<f32>,
     pub(crate) host_match_logic_frame: Option<u32>,
     pub(crate) host_match_logic_steps: Option<(u32, bool, f32)>,
+    /// Last logic frame whose step count was applied to client visuals.
+    pub(crate) host_visual_logic_frame_applied: Option<u32>,
+    /// Last logic frame applied to snow and Anim2D.
+    pub(crate) host_snow_logic_frame_applied: Option<u32>,
     pub(crate) host_match_in_replay: Option<bool>,
     /// Wave 845: host-owned shell/team residuals for presentation_or_boot peels.
     pub(crate) host_match_in_shell: Option<bool>,

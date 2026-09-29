@@ -605,7 +605,6 @@ impl GameLogic {
 
         self.objects_changed_trigger_areas.push_back(object_id);
         self.frame_objects_changed_trigger_areas = self.frame;
-        crate::ai::set_frame_objects_changed_trigger_areas(self.frame);
     }
 
     pub fn get_frame_objects_changed_trigger_areas(&self) -> UnsignedInt {
@@ -731,6 +730,8 @@ impl GameLogic {
         // Clear event and command queues
         self.event_queue.clear();
         self.command_queue.clear();
+        self.formation_manager = crate::commands::FormationManager::new();
+        self.command_processor = crate::commands::CommandProcessor::new();
         self.radar_updates.clear();
         self.objects_changed_trigger_areas.clear();
 
@@ -826,6 +827,8 @@ impl GameLogic {
             // C++: (*it)->friend_setIndexInLogic(-1)
         }
         self.sleepy_updates.clear();
+        self.formation_manager = crate::commands::FormationManager::new();
+        self.command_processor = crate::commands::CommandProcessor::new();
         if !loading_save_game {
             self.next_object_id = 1;
         }

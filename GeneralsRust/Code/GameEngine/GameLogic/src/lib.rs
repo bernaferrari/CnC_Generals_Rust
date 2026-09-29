@@ -332,8 +332,11 @@ pub fn update() -> GameLogicResult<()> {
         .update(frame)
         .map_err(GameLogicError::Ai)?;
 
-    // Update weapon system
-    with_weapon_store_mut(|store| store.update())??;
+    // Update weapon system. Fire after the store lock drops.
+    let due = with_weapon_store_mut(|store| store.take_due_delayed_damage())?;
+    for info in due {
+        crate::weapon::WeaponStore::apply_delayed_damage(info)?;
+    }
 
     Ok(())
 }

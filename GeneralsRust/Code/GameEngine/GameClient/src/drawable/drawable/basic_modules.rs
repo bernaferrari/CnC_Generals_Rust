@@ -166,6 +166,66 @@ impl BasicDrawable {
         Ok(())
     }
 
+    /// Recoil impulse only. Does not walk draw modules or play muzzle FX.
+    pub fn apply_recoil_impulse(&mut self, recoil_amount: f32, recoil_angle: f32) {
+        if recoil_amount == 0.0 {
+            return;
+        }
+        let mut adjusted_angle = recoil_angle;
+        if dual_world_registry_unavailable() {
+            adjusted_angle -= self.presentation_orientation;
+        } else if let Some(obj_id) = self.object_id {
+            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                if let Ok(obj_guard) = obj_arc.read() {
+                    adjusted_angle -= obj_guard.get_orientation();
+                }
+            }
+        }
+        adjusted_angle += std::f32::consts::PI;
+        let loco = self.loco_info.get_or_insert_with(Default::default);
+        loco.acceleration_pitch_rate += recoil_amount * adjusted_angle.cos();
+        loco.acceleration_roll_rate += recoil_amount * adjusted_angle.sin();
+    }
+
+    /// One recoil spring step. Does not run wheels, treads, or hover.
+    pub fn integrate_recoil_visual(&mut self) {
+        let Some(loco) = self.loco_info.as_mut() else {
+            self.recoil_visual = Matrix4::identity();
+            return;
+        };
+        // Settle the impulse without locomotor velocity. Stiffness and damping
+        // are the hover-test pair, not a guessed vehicle appearance.
+        const STIFFNESS: f32 = 0.2;
+        const DAMPING: f32 = 0.5;
+        crate::physics_visual::integrate_accel_axis(
+            &mut loco.acceleration_pitch,
+            &mut loco.acceleration_pitch_rate,
+            STIFFNESS,
+            DAMPING,
+        );
+        crate::physics_visual::integrate_accel_axis(
+            &mut loco.acceleration_roll,
+            &mut loco.acceleration_roll_rate,
+            STIFFNESS,
+            DAMPING,
+        );
+        let xform = crate::physics_visual::PhysicsVisualXform {
+            total_pitch: loco.acceleration_pitch,
+            total_roll: loco.acceleration_roll,
+            ..Default::default()
+        };
+        self.recoil_visual = crate::physics_visual::post_multiply_physics_visual_xform(
+            Matrix4::identity(),
+            xform,
+        );
+    }
+
+
+    pub fn recoil_visual(&self) -> Matrix4 {
+        self.recoil_visual
+    }
+
+
     /// Handle weapon fire FX: apply recoil, then dispatch FX to draw modules.
     /// C++ parity: `Drawable::handleWeaponFireFX` (Drawable.cpp:4216-4239).
     /// Applies recoil impulse to loco info, then iterates draw modules to
@@ -219,25 +279,7 @@ impl BasicDrawable {
         // Orientation residual comes from presentation pose when registry is empty.
 
         // C++ applies recoil impulse if recoil_amount != 0
-        if recoil_amount != 0.0 {
-            let mut adjusted_angle = recoil_angle;
-            if dual_world_registry_unavailable() {
-                adjusted_angle -= self.presentation_orientation;
-            } else if let Some(obj_id) = self.object_id {
-                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                    if let Ok(obj_guard) = obj_arc.read() {
-                        adjusted_angle -= obj_guard.get_orientation();
-                    }
-                }
-            }
-            // C++ flips direction 180 degrees
-            adjusted_angle += std::f32::consts::PI;
-
-            if let Some(ref mut loco) = self.loco_info {
-                loco.acceleration_pitch_rate += recoil_amount * adjusted_angle.cos();
-                loco.acceleration_roll_rate += recoil_amount * adjusted_angle.sin();
-            }
-        }
+        self.apply_recoil_impulse(recoil_amount, recoil_angle);
 
         // C++ iterates draw modules and dispatches FX
         for (module_index, dm) in self.draw_modules.iter_mut().enumerate() {

@@ -26,29 +26,25 @@ impl PreorderCreate {
 impl CreateInterface for PreorderCreate {
     fn on_create(&self) {}
 
-    fn on_build_complete(&self) {
-        let object_id = self
-            .base
-            .get_thing()
-            .as_object()
-            .map(|obj| obj.get_object_id())
-            .unwrap_or_default();
-        if object_id == 0 {
+    fn on_build_complete(&self) {}
+
+    fn on_build_complete_with_owner(&self, owner: &mut dyn std::any::Any) {
+        let Some(obj) = owner.downcast_mut::<crate::object::Object>() else {
+            return;
+        };
+        if obj.get_id() == 0 {
             return;
         }
 
-        crate::object::create::with_create_owner_mut(object_id, |object_guard| {
-            if let Some(player) = object_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    if player_guard.did_player_preorder() {
-                        object_guard.set_model_condition_state(ModelConditionFlags::PREORDER);
-                    } else {
-                        let _ =
-                            object_guard.clear_model_condition_flags(ModelConditionFlags::PREORDER);
-                    }
+        if let Some(player) = obj.get_controlling_player() {
+            if let Ok(player_guard) = player.read() {
+                if player_guard.did_player_preorder() {
+                    obj.set_model_condition_state(ModelConditionFlags::PREORDER);
+                } else {
+                    let _ = obj.clear_model_condition_flags(ModelConditionFlags::PREORDER);
                 }
             }
-        });
+        }
     }
 
     fn should_do_on_build_complete(&self) -> bool {

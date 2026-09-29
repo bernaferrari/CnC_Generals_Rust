@@ -799,6 +799,20 @@ impl PathfindingSystem {
             .leftover_is_line_passable_for_surfaces(from, to, surfaces, true)
     }
 
+    /// C++ group infantry `isLinePassable` (`AIGroup.cpp:603-605`).
+    /// Surfaces come from that unit. Pinched cells are allowed. This does
+    /// not apply `getLayer()`.
+    pub fn line_passable_for_surfaces(&self, from: Vec3, to: Vec3, surfaces: u32) -> bool {
+        let mask = if surfaces != 0 {
+            surfaces
+        } else {
+            gamelogic::ai::pathfind_complete::SURFACE_GROUND
+        };
+        let a = self.grid.world_to_grid(from);
+        let b = self.grid.world_to_grid(to);
+        self.grid
+            .leftover_is_line_passable_for_surfaces(a, b, mask, true)
+    }
     /// C++ `computeQuickPath` two-node start+dest leftover-installed on host Y-up.
     pub fn leftover_compute_quick_path_nodes(start: Vec3, dest: Vec3) -> Vec<Vec3> {
         let [a, b] = gamelogic::object::unit::leftover_compute_quick_path_coords(

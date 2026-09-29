@@ -30,7 +30,7 @@ use crate::terrain::get_terrain_logic;
 use crate::waypoint::WaypointId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 fn is_cliff_at(pos: &Coord3D) -> bool {
@@ -167,6 +167,16 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
+fn common_layer(layer: Option<u8>) -> crate::common::PathfindLayerEnum {
+    crate::common::PathfindLayerEnum::from_u32(
+        u32::from(layer.unwrap_or(crate::common::PathfindLayerEnum::Ground as u8)),
+    )
+}
+
+fn to_common_layer(layer: PathfindLayerEnum) -> crate::common::PathfindLayerEnum {
+    crate::common::PathfindLayerEnum::from_u32(layer as u32)
+}
+
 /// AI State data - contains the actual state information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiStateData {
@@ -232,6 +242,9 @@ struct AiStateScratch {
     path_timestamp: u32,
     #[serde(default)]
     face_can_turn_in_place: bool,
+    /// Last path layer computed for this move. `None` means ground.
+    #[serde(default)]
+    path_layer: Option<u8>,
 }
 
 /// Generic state value for compatibility with legacy callers.
@@ -925,7 +938,6 @@ impl AiStateMachine {
                 }
 
                 if obj_guard.is_kind_of(KindOf::Aircraft) {
-                    layer = PathfindLayerEnum::Top;
                     acceptable_surfaces |= SURFACE_WATER | SURFACE_CLIFF | SURFACE_RUBBLE;
                 }
             });
@@ -954,8 +966,8 @@ impl AiStateMachine {
             } else if acceptable_surfaces == 0 {
                 acceptable_surfaces = SURFACE_GROUND;
             }
-
-            let _ = (acceptable_surfaces, is_crusher, layer);
+            let _ = (acceptable_surfaces, is_crusher);
+            state.scratch.path_layer = Some(to_common_layer(layer) as u8);
             state.goal_path = vec![goal];
             state.path_index = 0;
 
@@ -964,7 +976,6 @@ impl AiStateMachine {
 
         if state.goal_path.is_empty() {
             state.goal_path = vec![goal];
-            state.path_index = 0;
         }
 
         // Follow the path if we have one
@@ -1765,6 +1776,7 @@ impl AiStateMachine {
         {
             if let Ok(mut ai_guard) = ai.lock() {
                 let _ = ai_guard.set_movement_target(&target);
+                let _ = ai_guard.update_goal_position(&target, common_layer(state.scratch.path_layer));
             }
         }
 
@@ -2568,26 +2580,20 @@ impl HostMoveAttackKind {
     }
 }
 
-static HOST_MOVE_ATTACK_MACHINES: LazyLock<Mutex<HashMap<ObjectID, AiStateMachine>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn host_move_attack_machines() -> &'static Mutex<HashMap<ObjectID, AiStateMachine>> {
-    &HOST_MOVE_ATTACK_MACHINES
-}
-
 /// Record a live-host move/attack transition on the crate `AiStateMachine`.
+///
+/// `machines` belongs to one game. ObjectIDs collide across games, so this
+/// map is not process-global.
 ///
 /// Only `set_state` + goal fields are applied. `AiStateMachine::update` is not
 /// called: without `OBJECT_REGISTRY` it returns `StateFailed` (Wave 267).
 pub fn dispatch_host_move_attack(
+    machines: &mut HashMap<ObjectID, AiStateMachine>,
     owner_id: ObjectID,
     kind: HostMoveAttackKind,
     goal_position: Option<Coord3D>,
     goal_object: Option<ObjectID>,
 ) -> Result<AiStateType, AiError> {
-    let mut machines = host_move_attack_machines()
-        .lock()
-        .map_err(|_| AiError::LockFailed)?;
     let machine = machines
         .entry(owner_id)
         .or_insert_with(|| AiStateMachine::new(owner_id, format!("host-move-attack-{owner_id}")));
@@ -2602,18 +2608,13 @@ pub fn dispatch_host_move_attack(
 }
 
 /// Inspect the last crate state recorded by [`dispatch_host_move_attack`].
-pub fn host_move_attack_state(owner_id: ObjectID) -> Option<AiStateType> {
-    let machines = host_move_attack_machines().lock().ok()?;
+pub fn host_move_attack_state(
+    machines: &HashMap<ObjectID, AiStateMachine>,
+    owner_id: ObjectID,
+) -> Option<AiStateType> {
     machines
         .get(&owner_id)
         .map(|machine| machine.get_current_state())
-}
-
-#[cfg(test)]
-fn reset_host_move_attack_machines_for_test() {
-    if let Ok(mut machines) = host_move_attack_machines().lock() {
-        machines.clear();
-    }
 }
 
 impl AiCommandInterface for AiStateMachine {
@@ -2759,6 +2760,7 @@ mod tests {
     use crate::modules::AIUpdateInterface;
     use crate::object::Object;
     use crate::object::registry::OBJECT_REGISTRY;
+    use std::cell::RefCell;
     use std::sync::{Arc, Mutex, RwLock};
 
     #[derive(Debug, Default, Clone)]
@@ -2771,9 +2773,18 @@ mod tests {
 
     #[derive(Debug)]
     struct FaceTestAI {
-        locomotor: Arc<Mutex<Locomotor>>,
+        /// Sole owner. `with_cur_locomotor` is `&self`, so interior mutability
+        /// is a `RefCell`, not a lock (std `Mutex` is not reentrant).
+        locomotor: RefCell<Locomotor>,
         capture: Arc<Mutex<FaceAiCapture>>,
     }
+
+    // SAFETY: `AIUpdateInterface: Sync`, but this double is only installed as
+    // `Arc<Mutex<dyn AIUpdateInterface>>` and the sim is single-threaded.
+    // The outer mutex is the only share path; `borrow_mut` never runs on two
+    // threads at once. `RefCell` stays the non-reentrant stand-in for the
+    // C++ locomotor pointer.
+    unsafe impl Sync for FaceTestAI {}
 
     impl AIUpdateInterface for FaceTestAI {
         fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -2793,23 +2804,19 @@ mod tests {
         }
 
         fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
-            if let Ok(mut guard) = self.locomotor.lock() {
-                f(&mut guard);
-            }
+            f(&mut self.locomotor.borrow_mut());
         }
 
         fn set_locomotor_goal_orientation(&mut self, angle: Real) {
-            if let Ok(mut cap) = self.capture.lock() {
-                cap.orientation_calls = cap.orientation_calls.saturating_add(1);
-                cap.last_orientation_goal = Some(angle);
-            }
+            let mut cap = self.capture.lock().unwrap_or_else(|err| err.into_inner());
+            cap.orientation_calls = cap.orientation_calls.saturating_add(1);
+            cap.last_orientation_goal = Some(angle);
         }
 
         fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
-            if let Ok(mut cap) = self.capture.lock() {
-                cap.position_calls = cap.position_calls.saturating_add(1);
-                cap.last_position_goal = Some(pos);
-            }
+            let mut cap = self.capture.lock().unwrap_or_else(|err| err.into_inner());
+            cap.position_calls = cap.position_calls.saturating_add(1);
+            cap.last_position_goal = Some(pos);
         }
     }
 
@@ -2828,7 +2835,7 @@ mod tests {
 
         let mut template = LocomotorTemplate::new(format!("face_test_{id}"));
         template.min_speed = min_speed;
-        let locomotor = Arc::new(Mutex::new(Locomotor::new(Arc::new(template))));
+        let locomotor = RefCell::new(Locomotor::new(Arc::new(template)));
 
         let capture = Arc::new(Mutex::new(FaceAiCapture::default()));
         let ai: Arc<Mutex<dyn AIUpdateInterface>> = Arc::new(Mutex::new(FaceTestAI {
@@ -2962,7 +2969,7 @@ mod tests {
         let result = machine.update().unwrap();
         assert_eq!(result, StateReturnType::Continue);
 
-        let snapshot = capture.lock().expect("capture lock poisoned").clone();
+        let snapshot = capture.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert_eq!(snapshot.orientation_calls, 1);
         assert_eq!(snapshot.position_calls, 0);
         assert!(snapshot.last_orientation_goal.is_some());
@@ -2984,7 +2991,7 @@ mod tests {
         let result = machine.update().unwrap();
         assert_eq!(result, StateReturnType::Continue);
 
-        let snapshot = capture.lock().expect("capture lock poisoned").clone();
+        let snapshot = capture.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert_eq!(snapshot.orientation_calls, 0);
         assert_eq!(snapshot.position_calls, 1);
         assert_eq!(snapshot.last_position_goal, Some(target));
@@ -3005,7 +3012,7 @@ mod tests {
         let result = machine.update().unwrap();
         assert_eq!(result, StateReturnType::StateComplete);
 
-        let snapshot = capture.lock().expect("capture lock poisoned").clone();
+        let snapshot = capture.lock().unwrap_or_else(|err| err.into_inner()).clone();
         assert_eq!(snapshot.orientation_calls, 0);
         assert_eq!(snapshot.position_calls, 0);
 
@@ -3043,20 +3050,35 @@ mod tests {
         // C++ AIStateMachine.h:36-101 / AIStates.cpp AIInternalMoveToState::onEnter
         // and AIAttackState::onEnter. Live host is a flat enum; this adapter
         // records only MoveTo / AttackObject / AttackMoveTo via set_state.
-        reset_host_move_attack_machines_for_test();
+        let mut machines = HashMap::new();
         let owner = 9_001;
         let dest = Coord3D::new(12.0, 0.0, 34.0);
-        let state = dispatch_host_move_attack(owner, HostMoveAttackKind::MoveTo, Some(dest), None)
-            .expect("move");
+        let state = dispatch_host_move_attack(
+            &mut machines,
+            owner,
+            HostMoveAttackKind::MoveTo,
+            Some(dest),
+            None,
+        )
+        .expect("move");
         assert_eq!(state, AiStateType::MoveTo);
-        assert_eq!(host_move_attack_state(owner), Some(AiStateType::MoveTo));
+        assert_eq!(
+            host_move_attack_state(&machines, owner),
+            Some(AiStateType::MoveTo)
+        );
 
-        let state =
-            dispatch_host_move_attack(owner, HostMoveAttackKind::AttackObject, None, Some(77))
-                .expect("attack");
+        let state = dispatch_host_move_attack(
+            &mut machines,
+            owner,
+            HostMoveAttackKind::AttackObject,
+            None,
+            Some(77),
+        )
+        .expect("attack");
         assert_eq!(state, AiStateType::AttackObject);
 
         let state = dispatch_host_move_attack(
+            &mut machines,
             owner,
             HostMoveAttackKind::AttackMoveTo,
             Some(dest),
@@ -3065,7 +3087,7 @@ mod tests {
         .expect("attack-move");
         assert_eq!(state, AiStateType::AttackMoveTo);
         assert_eq!(
-            host_move_attack_state(owner),
+            host_move_attack_state(&machines, owner),
             Some(AiStateType::AttackMoveTo)
         );
 
@@ -3076,6 +3098,5 @@ mod tests {
         assert!(window.contains("kind.to_crate_state()"));
         assert!(!window.contains("AiStateType::Guard"));
         assert!(!window.contains("AiStateType::Hunt"));
-        reset_host_move_attack_machines_for_test();
     }
 }

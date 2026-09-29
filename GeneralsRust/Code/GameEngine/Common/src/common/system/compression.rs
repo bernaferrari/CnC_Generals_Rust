@@ -18,7 +18,6 @@ use generals_compression::compression_manager::{
     CompressionManager as LegacyCompressionManager, CompressionType as LegacyCompressionType,
 };
 
-const REFPACK_MOCK_MAGIC: &[u8; 8] = b"RefPack\0";
 
 /// Compression types supported by the engine
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,7 +73,9 @@ pub fn get_preferred_compression() -> CompressionType {
 }
 
 pub fn is_data_compressed(data: &[u8]) -> bool {
-    LegacyCompressionManager::is_data_compressed(data) || CompressedHeader::decode(data).is_some()
+    data.starts_with(b"EAR\0")
+        || LegacyCompressionManager::is_data_compressed(data)
+        || CompressedHeader::decode(data).is_some()
 }
 
 pub fn get_uncompressed_size(data: &[u8]) -> Option<usize> {
@@ -117,6 +118,15 @@ pub fn compress_data(
 }
 
 pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>, io::Error> {
+    if data.starts_with(b"EAR\0") {
+        if data.len() < 8 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "short EAR refpack header",
+            ));
+        }
+        return ref_decode(&data[8..]);
+    }
     if LegacyCompressionManager::is_data_compressed(data) {
         let size = LegacyCompressionManager::get_uncompressed_size(data);
         if size < 0 {
@@ -153,6 +163,11 @@ pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>, io::Error> {
         header.compression_type,
         Some(header.original_size as usize),
     )
+}
+/// C++ `REF_decode` (`refdecode.cpp`). `data` is the payload after `EAR\0` and the 4-byte pad.
+fn ref_decode(data: &[u8]) -> Result<Vec<u8>, io::Error> {
+    eac_compression::ref_decode(data)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err.to_string()))
 }
 
 fn legacy_compression_type(
@@ -240,31 +255,13 @@ impl CompressionEngine {
         Ok(result)
     }
 
-    /// RefPack decompression via `eac_compression::refpack` (C++ `REF_decode`).
+    /// RefPack decompression via `eac_compression::ref_decode` (C++ `REF_decode`).
     fn decompress_refpack(
         &self,
         compressed_data: &[u8],
-        expected_size: Option<usize>,
+        _expected_size: Option<usize>,
     ) -> Result<Vec<u8>, io::Error> {
-        let (payload, size) =
-            if compressed_data.len() >= 12 && compressed_data.starts_with(REFPACK_MOCK_MAGIC) {
-                let size = u32::from_le_bytes([
-                    compressed_data[8],
-                    compressed_data[9],
-                    compressed_data[10],
-                    compressed_data[11],
-                ]) as usize;
-                (&compressed_data[12..], Some(size))
-            } else {
-                (compressed_data, expected_size)
-            };
-        let size = size.unwrap_or(payload.len());
-        eac_compression::refpack::decode(payload, size).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("RefPack decode failed: {err}"),
-            )
-        })
+        ref_decode(compressed_data)
     }
 }
 
@@ -336,7 +333,7 @@ impl CompressionInterface for CompressionEngine {
             CompressionType::None => input_size,
             CompressionType::Zlib => input_size + (input_size / 1000) + 12, // zlib overhead
             CompressionType::LZ4 => 0,
-            CompressionType::RefPack => input_size + 32, // RefPack overhead
+            CompressionType::RefPack => input_size + 16 + input_size / 4,
         }
     }
 
@@ -440,11 +437,12 @@ mod tests {
         assert_eq!(decompressed, data);
         assert_eq!(&result.compressed_data[0..4], b"EAR\0");
 
-        let encoded = eac_compression::refpack::encode(data).expect("eac refpack encode");
-        let via_mock = engine
-            .decompress_refpack(&encoded, Some(data.len()))
-            .expect("engine mock must call eac_compression::refpack::decode");
-        assert_eq!(via_mock, data);
+        // 0x10FB, 3-byte ulen = 4, one 4-byte literal, then the end opcode.
+        let encoded = [0x10, 0xFB, 0x00, 0x00, 0x04, 0xE0, b'H', b'i', b'!', b'!', 0xFC];
+        let via_ref = engine
+            .decompress_refpack(&encoded, Some(4))
+            .expect("engine must call REF_decode");
+        assert_eq!(via_ref, b"Hi!!");
     }
 
     #[test]

@@ -1098,6 +1098,24 @@ mod tests {
     }
 
     #[test]
+    fn test_map_loader_loads_retail_lone_eagle_map() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+        );
+        let bytes = std::fs::read(&path).unwrap_or_else(|err| {
+            panic!("read {}: {err}", path.display());
+        });
+        assert!(bytes.starts_with(b"EAR\0"), "retail map must carry the EAR header");
+        let mut loader = MapLoader::new();
+        loader
+            .load_map_from_bytes(&bytes)
+            .expect("load retail Lone Eagle.map");
+        assert!(loader.heightmap.width > 0);
+        assert!(loader.heightmap.height > 0);
+        assert!(!loader.heightmap.data.is_empty());
+    }
+
+    #[test]
     fn test_map_cache() {
         let mut cache = MapCache::new();
 

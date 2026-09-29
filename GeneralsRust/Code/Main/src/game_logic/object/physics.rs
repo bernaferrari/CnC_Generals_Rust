@@ -1254,7 +1254,6 @@ impl Object {
         self.requested_victim_id = victim_id;
         self.record_host_ai_request();
         self.is_attack_path = true;
-        self.is_exact_path = false;
         self.is_approach_path = false;
         self.record_host_locomotor();
         self.is_safe_path = false;
@@ -1295,7 +1294,6 @@ impl Object {
         self.requested_victim_id = None;
         self.record_host_ai_request();
         self.is_attack_path = false;
-        self.is_exact_path = false;
         self.is_approach_path = false;
         self.record_host_locomotor();
         self.is_safe_path = false;
@@ -1332,11 +1330,13 @@ impl Object {
         let mut start = self.get_position();
         start.y = destination.y;
         self.is_attack_path = false;
-        self.set_locomotor_goal_none();
-        self.waiting_for_path = false;
+        self.is_exact_path = false;
+        self.can_path_through_units = false;
+        self.set_locomotor_goal_position_on_path();
         self.movement.path = vec![start, destination];
         self.movement.current_path_index = 1;
         self.movement.target_position = Some(destination);
+        self.refresh_follow_path_extra_distance();
         self.path_timestamp = current_frame;
         self.num_frames_blocked = 0;
         self.is_blocked_and_stuck = false;

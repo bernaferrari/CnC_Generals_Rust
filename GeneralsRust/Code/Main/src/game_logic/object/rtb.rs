@@ -443,13 +443,16 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
-        if weapon.min_range > 0.0 && dist + 1e-4 < weapon.min_range {
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let min_r = (weapon.min_range - under).max(0.0);
+        let max_r = (self.effective_weapon_range(weapon.range) - under).max(0.0);
+        if min_r > 0.0 && dist + 1e-4 < min_r {
             return false;
         }
         if self.leech_range_active_for_slot(slot) {
             return true;
         }
-        dist <= self.effective_weapon_range(weapon.range) + 1e-3
+        dist <= max_r + 1e-3
     }
 
     /// C++ Weapon::isWithinAttackRange for a world position (no victim radius).
@@ -514,14 +517,15 @@ impl Object {
 
     fn slot_is_contact_weapon(&self, slot: u8) -> bool {
         use crate::game_logic::weapon_bootstrap::{
-            host_is_contact_weapon_name, is_contact_effective_range,
+            host_is_contact_weapon_name, is_contact_effective_range, PATHFIND_CELL_SIZE,
         };
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
+        let under = PATHFIND_CELL_SIZE * 0.25;
         self.weapon_name_for_slot(slot)
             .is_some_and(host_is_contact_weapon_name)
-            || is_contact_effective_range(weapon.range)
+            || is_contact_effective_range(weapon.range - under)
     }
 
     /// C++ Weapon.cpp:2161-2171 — try abutment 1, then 2 if out of max range.
@@ -529,10 +533,11 @@ impl Object {
         let Some(weapon) = self.weapon_slot(slot) else {
             return false;
         };
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
         let max_range = if self.leech_range_active_for_slot(slot) {
             f32::MAX
         } else {
-            self.effective_weapon_range(weapon.range) + 1e-3
+            (self.effective_weapon_range(weapon.range) - under).max(0.0) + 1e-3
         };
         let pos = other.get_position();
         let half = other.selection_radius.max(20.0);
@@ -544,7 +549,8 @@ impl Object {
         } else {
             self.distance_to_pos(b)
         };
-        if weapon.min_range > 0.0 && dist + 1e-4 < weapon.min_range {
+        let min_r = (weapon.min_range - under).max(0.0);
+        if min_r > 0.0 && dist + 1e-4 < min_r {
             return false;
         }
         dist <= max_range

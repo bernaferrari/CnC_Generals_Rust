@@ -363,11 +363,11 @@ mod tests {
 
     #[test]
     fn test_parse_kind_of_mask_name() {
-        assert_eq!(parse_kind_of_mask("INFANTRY"), 1u64 << 8);
-        assert_eq!(parse_kind_of_mask("VEHICLE"), 1u64 << 9);
-        assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u64 << 7);
-        assert_eq!(parse_kind_of_mask("DOZER"), 1u64 << 12);
-        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u64 << 55);
+        assert_eq!(parse_kind_of_mask("INFANTRY"), 1u128 << 8);
+        assert_eq!(parse_kind_of_mask("VEHICLE"), 1u128 << 9);
+        assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u128 << 7);
+        assert_eq!(parse_kind_of_mask("DOZER"), 1u128 << 12);
+        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u128 << 55);
         assert_eq!(parse_kind_of_mask("UNKNOWN_TYPE"), 0);
     }
 
@@ -375,7 +375,7 @@ mod tests {
     fn test_parse_kind_of_mask_multiple_names() {
         assert_eq!(
             parse_kind_of_mask("INFANTRY VEHICLE|STRUCTURE"),
-            (1u64 << 8) | (1u64 << 9) | (1u64 << 7)
+            (1u128 << 8) | (1u128 << 9) | (1u128 << 7)
         );
     }
 

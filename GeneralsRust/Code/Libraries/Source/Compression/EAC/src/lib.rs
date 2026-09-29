@@ -49,7 +49,7 @@ pub mod decoder;
 pub mod encoder;
 pub mod gimex;
 pub mod huffman;
-pub mod refpack;
+
 pub mod streaming;
 
 // SIMD module not yet implemented
@@ -215,22 +215,159 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
     }
 }
 
-/// Compress data using RefPack algorithm
+/// Compress with a literal `0x10FB` body. `REF_decode` can read it.
+/// The EAC header is added by the caller of `compress`; this body is what
+/// `decompress` passes to `decompress_refpack` after stripping that header.
 pub fn compress_refpack(data: &[u8]) -> Result<Vec<u8>> {
-    let compressed = refpack::encode(data)?;
+    let body = encode_ref_decode_body(data);
     let header = EacHeader::new(CompressionType::RefPack, data.len() as u32);
-
-    let mut result = Vec::with_capacity(EacHeader::SIZE + compressed.len());
+    let mut result = Vec::with_capacity(EacHeader::SIZE + body.len());
     result.extend_from_slice(&header.to_bytes());
-    result.extend_from_slice(&compressed);
-
+    result.extend_from_slice(&body);
     Ok(result)
 }
 
-/// Decompress RefPack data
+
 pub fn decompress_refpack(data: &[u8], uncompressed_size: usize) -> Result<Vec<u8>> {
-    refpack::decode(data, uncompressed_size)
+    let mut out = ref_decode(data)?;
+    if uncompressed_size > 0 && out.len() > uncompressed_size {
+        out.truncate(uncompressed_size);
+    }
+    Ok(out)
 }
+
+pub fn encode_ref_decode_body(src: &[u8]) -> Vec<u8> {
+    let mut body = Vec::with_capacity(5 + src.len() + src.len() / 112 + 1);
+    body.extend_from_slice(&[0x10, 0xFB]);
+    let len = src.len();
+    if len > 0x00FF_FFFF {
+        body[0] = 0x90;
+        body.push((len >> 24) as u8);
+    }
+    body.push((len >> 16) as u8);
+    body.push((len >> 8) as u8);
+    body.push(len as u8);
+    let mut index = 0;
+    while src.len() - index >= 4 {
+        let run = ((src.len() - index).min(112) / 4) * 4;
+        let code = ((run - 4) / 4) as u8;
+        body.push(0xE0 | code);
+        body.extend_from_slice(&src[index..index + run]);
+        index += run;
+    }
+    let tail = src.len() - index;
+    body.push(0xFC | (tail as u8));
+    body.extend_from_slice(&src[index..]);
+    body
+}
+
+pub fn ref_decode(data: &[u8]) -> Result<Vec<u8>> {
+    if data.len() < 5 {
+        return Err(EacError::DecompressionFailed("short refpack header".into()));
+    }
+    let type_id = ((data[0] as u32) << 8) | data[1] as u32;
+    let mut s = 2usize;
+    let size_bytes = if type_id & 0x8000 != 0 { 4 } else { 3 };
+    if type_id & 0x100 != 0 {
+        s += size_bytes;
+    }
+    if s + size_bytes > data.len() {
+        return Err(EacError::DecompressionFailed("short refpack size".into()));
+    }
+    let mut ulen = 0usize;
+    for _ in 0..size_bytes {
+        ulen = (ulen << 8) | data[s] as usize;
+        s += 1;
+    }
+    let mut out = Vec::with_capacity(ulen);
+    loop {
+        if s >= data.len() {
+            return Err(EacError::DecompressionFailed("truncated refpack".into()));
+        }
+        let first = data[s];
+        s += 1;
+        if first & 0x80 == 0 {
+            let second = *data.get(s).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            s += 1;
+            let run = (first & 3) as usize;
+            let literal = data.get(s..s + run).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            out.extend_from_slice(literal);
+            s += run;
+            let back = (((first & 0x60) as usize) << 3) + second as usize;
+            let mut copy = ((first & 0x1c) >> 2) as usize + 3;
+            if out.len() < back + 1 {
+                return Err(EacError::DecompressionFailed("refpack backref".into()));
+            }
+            let mut at = out.len() - 1 - back;
+            while copy > 0 {
+                out.push(out[at]);
+                at += 1;
+                copy -= 1;
+            }
+            continue;
+        }
+        if first & 0x40 == 0 {
+            let pair = data.get(s..s + 2).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            let second = pair[0];
+            let third = pair[1];
+            s += 2;
+            let run = (second >> 6) as usize;
+            let literal = data.get(s..s + run).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            out.extend_from_slice(literal);
+            s += run;
+            let back = (((second & 0x3f) as usize) << 8) + third as usize;
+            let mut copy = (first & 0x3f) as usize + 4;
+            if out.len() < back + 1 {
+                return Err(EacError::DecompressionFailed("refpack backref".into()));
+            }
+            let mut at = out.len() - 1 - back;
+            while copy > 0 {
+                out.push(out[at]);
+                at += 1;
+                copy -= 1;
+            }
+            continue;
+        }
+        if first & 0x20 == 0 {
+            let bytes = data.get(s..s + 3).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            s += 3;
+            let run = (first & 3) as usize;
+            let literal = data.get(s..s + run).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            out.extend_from_slice(literal);
+            s += run;
+            let back = (((first & 0x10) as usize) >> 4 << 16)
+                + ((bytes[0] as usize) << 8)
+                + bytes[1] as usize;
+            let mut copy = (((first & 0x0c) as usize) >> 2 << 8) + bytes[2] as usize + 5;
+            if out.len() < back + 1 {
+                return Err(EacError::DecompressionFailed("refpack backref".into()));
+            }
+            let mut at = out.len() - 1 - back;
+            while copy > 0 {
+                out.push(out[at]);
+                at += 1;
+                copy -= 1;
+            }
+            continue;
+        }
+        let mut run = (((first & 0x1f) as usize) << 2) + 4;
+        if run <= 112 {
+            let literal = data.get(s..s + run).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+            out.extend_from_slice(literal);
+            s += run;
+            continue;
+        }
+        run = (first & 3) as usize;
+        let literal = data.get(s..s + run).ok_or_else(|| EacError::DecompressionFailed("truncated refpack".into()))?;
+        out.extend_from_slice(literal);
+        break;
+    }
+    if ulen != 0 && out.len() > ulen {
+        out.truncate(ulen);
+    }
+    Ok(out)
+}
+
 
 /// Compress data using BTree algorithm
 pub fn compress_btree(data: &[u8]) -> Result<Vec<u8>> {

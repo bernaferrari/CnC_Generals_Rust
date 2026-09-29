@@ -6,7 +6,7 @@
 use crate::*;
 use std::sync::Arc;
 
-/// Memory type enumeration (local copy for buffer.rs)
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MemoryType {
     /// Device local memory (fast GPU access)
@@ -18,7 +18,7 @@ pub enum MemoryType {
 }
 
 /// GPU buffer abstraction
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GpuBuffer {
     /// Underlying WGPU buffer
     buffer: wgpu::Buffer,
@@ -211,6 +211,18 @@ impl GpuBuffer {
     /// Get the underlying WGPU buffer
     pub fn wgpu_buffer(&self) -> &wgpu::Buffer {
         &self.buffer
+    }
+
+    /// Wrap a buffer that already exists. Does not allocate a second GPU buffer.
+    pub fn from_existing(buffer: wgpu::Buffer, size: u64, usage: wgpu::BufferUsages) -> Self {
+        Self {
+            buffer,
+            size,
+            usage,
+            memory_type: Self::infer_memory_type(usage),
+            label: None,
+            last_update: std::time::Instant::now(),
+        }
     }
 
     /// Get buffer size

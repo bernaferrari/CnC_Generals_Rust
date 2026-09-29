@@ -609,16 +609,18 @@ fn build_from_ini_special_power(
         .and_then(|value| parse_duration_frames(value))
     {
         template.reload_time = reload;
+    } else {
+        template.reload_time = ini_template.recharge_time.round().max(0.0) as u32;
     }
 
-    if let Some(science_value) = props.get("RequiredScience") {
+    if ini_template.required_science != crate::common::science::SCIENCE_INVALID {
+        template.required_science = ini_template.required_science;
+    } else if let Some(science_value) = props.get("RequiredScience") {
         let sciences: Vec<AsciiString> = science_value
             .split_whitespace()
             .map(AsciiString::from)
             .collect();
         template.required_science = map_science_from_names(&sciences);
-    } else if !ini_template.required_science.is_empty() {
-        template.required_science = map_science_from_names(&ini_template.required_science);
     }
 
     if let Some(sound) = props.get("InitiateSound") {
@@ -633,40 +635,54 @@ fn build_from_ini_special_power(
 
     if let Some(value) = props.get("PublicTimer") {
         template.public_timer = parse_bool_property(value);
+    } else {
+        template.public_timer = ini_template.public_timer;
     }
 
     if let Some(value) = props.get("SharedSyncedTimer") {
         template.shared_n_sync = parse_bool_property(value);
+    } else if ini_template.shared_synced_timer {
+        template.shared_n_sync = true;
     } else if !ini_template.shared_sync_group.is_empty() {
         template.shared_n_sync = true;
     }
 
     if let Some(value) = props.get("ShortcutPower") {
         template.shortcut_power = parse_bool_property(value);
+    } else {
+        template.shortcut_power = ini_template.shortcut_power;
     }
 
     if let Some(value) = props.get("DetectionTime") {
         if let Some(frames) = parse_duration_frames(value) {
             template.detection_time = frames;
         }
+    } else {
+        template.detection_time = ini_template.detection_time;
     }
 
     if let Some(value) = props.get("ViewObjectDuration") {
         if let Some(frames) = parse_duration_frames(value) {
             template.view_object_duration = frames;
         }
+    } else {
+        template.view_object_duration = ini_template.view_object_duration.round().max(0.0) as u32;
     }
 
     if let Some(value) = props.get("ViewObjectRange") {
         if let Ok(range) = value.parse::<f32>() {
             template.view_object_range = range;
         }
+    } else {
+        template.view_object_range = ini_template.range;
     }
 
     if let Some(value) = props.get("RadiusCursorRadius") {
         if let Ok(radius) = value.parse::<f32>() {
             template.radius_cursor_radius = radius;
         }
+    } else {
+        template.radius_cursor_radius = ini_template.radius;
     }
 
     if let Some(value) = props.get("AcademyClassify") {
@@ -806,9 +822,9 @@ mod tests {
         let template =
             build_from_ini_special_power(&AsciiString::from("GenericOnly"), 3, &ini_template);
 
-        assert_eq!(template.get_reload_time(), 0);
-        assert_eq!(template.get_view_object_duration(), 0);
-        assert_eq!(template.get_view_object_range(), 0.0);
+        assert_eq!(template.get_reload_time(), 30);
+        assert_eq!(template.get_view_object_duration(), 10);
+        assert_eq!(template.get_view_object_range(), 100.0);
     }
 
     #[test]

@@ -1503,6 +1503,9 @@ impl CnCGameEngine {
                                         );
                                     }
                                 }
+                                if loaded_any_armor {
+                                    break;
+                                }
                             }
                         }
                         if !loaded_any_armor {

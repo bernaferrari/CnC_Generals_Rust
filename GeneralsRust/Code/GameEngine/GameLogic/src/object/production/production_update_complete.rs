@@ -1444,6 +1444,7 @@ impl ProductionUpdateComplete {
                                 &player,
                                 upgrade.as_ref(),
                                 UpgradeStatus::Complete,
+                                None,
                             );
                         }
                         UpgradeType::Object => {

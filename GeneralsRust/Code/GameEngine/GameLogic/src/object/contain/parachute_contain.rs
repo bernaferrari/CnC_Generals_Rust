@@ -555,10 +555,19 @@ impl ParachuteContain {
                                             {
                                                 if let Ok(mut exit_guard) = exit.lock() {
                                                     if exit_guard.use_spawn_rally_point() {
+                                                        let rider_id = rider.get_id();
+                                                        drop(rider);
                                                         exit_guard.exit_object_via_door(
-                                                            rider.get_id(),
+                                                            rider_id,
                                                             crate::modules::ExitDoorType::Primary,
                                                         );
+                                                        let Ok(guard) = obj.write() else {
+                                                            return Err(
+                                                                "Parachute passenger lock poisoned"
+                                                                    .into(),
+                                                            );
+                                                        };
+                                                        rider = guard;
                                                         has_rally = true;
                                                     }
                                                 }

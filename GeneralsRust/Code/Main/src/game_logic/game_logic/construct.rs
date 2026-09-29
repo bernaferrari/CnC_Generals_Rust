@@ -52,6 +52,7 @@ impl GameLogic {
             hunt_next_enemy_scan: HashMap::new(),
             guard_guardee_pos: HashMap::new(),
             quick_exit_until: HashMap::new(),
+            host_move_attack_machines: HashMap::new(),
 
             enable_repulsors: false,
             retaliate_friends_radius: 120.0,
@@ -69,6 +70,7 @@ impl GameLogic {
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
             frame: 0,
+            frame_objects_changed_trigger_areas: std::sync::atomic::AtomicU32::new(0),
             next_weapon_discharge_sequence: 1,
             weapon_discharge_log:
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
@@ -752,6 +754,7 @@ impl GameLogic {
             .unwrap_or_else(|e| e.into_inner())
             .reset_for_new_game();
         self.objects.clear();
+        self.host_move_attack_machines.clear();
         self.hunt_next_enemy_scan.clear();
         self.host_view_dirty.clear();
         self.vision_last_looks.clear();

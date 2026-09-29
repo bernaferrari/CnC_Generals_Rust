@@ -81,23 +81,22 @@ impl CreateInterface for LockWeaponCreate {
 
     fn on_build_complete(&self) {
         self.base.on_build_complete();
+    }
 
-        let object_id = self
-            .base
-            .get_thing()
-            .as_object()
-            .map(|obj| obj.get_object_id())
-            .unwrap_or_default();
-        if object_id == 0 {
+    fn on_build_complete_with_owner(&self, owner: &mut dyn std::any::Any) {
+        self.base.on_build_complete();
+
+        let Some(obj) = owner.downcast_mut::<crate::object::Object>() else {
+            return;
+        };
+        if obj.get_id() == 0 {
             return;
         }
 
-        crate::object::create::with_create_owner_mut(object_id, |obj_guard| {
-            obj_guard.set_weapon_lock(
-                self.module_data.slot_to_lock,
-                WeaponLockType::LockedPermanently,
-            );
-        });
+        obj.set_weapon_lock(
+            self.module_data.slot_to_lock,
+            WeaponLockType::LockedPermanently,
+        );
     }
 
     fn should_do_on_build_complete(&self) -> bool {

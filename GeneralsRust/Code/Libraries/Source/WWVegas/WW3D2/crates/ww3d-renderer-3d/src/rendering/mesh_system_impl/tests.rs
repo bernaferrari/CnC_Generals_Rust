@@ -360,3 +360,40 @@ fn frustum_culling_accepts_mesh_in_front_of_right_handed_camera() {
 
     assert!(mesh.should_render_with_frustum_culling(&render_info));
 }
+
+#[test]
+fn dest_blend_sets_sort_flag_without_using_header_attrs_as_sort_level() {
+    use ww3d_core::w3d_format::{W3dMeshHeader3Struct, W3dShaderStruct};
+
+    let mut prototype = source_mesh_prototype("blend-sort");
+    let mut header = W3dMeshHeader3Struct::default();
+    header.attrs = 0xFFFF;
+    header.sort_level = 0;
+    prototype.header = Some(header);
+    prototype.shaders.push(W3dShaderStruct {
+        depth_compare: 0,
+        depth_mask: 0,
+        color_mask: 0,
+        dest_blend: 1,
+        fog_func: 0,
+        pri_gradient: 0,
+        sec_gradient: 0,
+        src_blend: 0,
+        texturing: 0,
+        detail_color_func: 0,
+        detail_alpha_func: 0,
+        shader_preset: 0,
+        alpha_test: 0,
+        post_detail_color_func: 0,
+        post_detail_alpha_func: 0,
+    });
+
+    let model = MeshModelClass::from_mesh_prototype(&prototype, None).unwrap();
+    assert_eq!(model.sort_level, SORT_LEVEL_NONE);
+    assert_eq!(model.w3d_attributes, 0xFFFF);
+    assert!(model.get_flag(MeshGeometryClass::SORT));
+    assert!(DX8FVFCategoryContainer::sorting_for_mesh(
+        model.flags,
+        model.sort_level
+    ));
+}

@@ -1250,7 +1250,6 @@ impl PresentationFrame {
             .iter()
             .find(|o| {
                 o.team == player_team
-                    && !o.destroyed
                     && o.is_mobile
                     && UnitControlSystem::presentation_is_selectable(o)
             })

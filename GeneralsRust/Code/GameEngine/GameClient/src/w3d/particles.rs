@@ -83,6 +83,7 @@ impl W3DParticleSystemBridge {
         // `W3DSmudgeManager::render`. Live `render_particles` does the same
         // SMUD*/SMUDGE `addSmudgeToSet` feed; draw the set afterwards.
         renderer.render_particles(encoder, view, depth_view, &systems, uniforms);
+
         let smudges = collect_manager_smudge_render_items();
         if !smudges.is_empty() {
             renderer.render_decals(encoder, view, depth_view, &smudges, uniforms);

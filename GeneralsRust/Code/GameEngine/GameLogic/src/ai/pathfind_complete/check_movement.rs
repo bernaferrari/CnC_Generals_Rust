@@ -683,8 +683,8 @@ impl PathfindingSystem {
         cell_y: i32,
         radius: i32,
         center_in_cell: bool,
-        surfaces: LocomotorSurfaceTypeMask,
-        is_crusher: bool,
+        _surfaces: LocomotorSurfaceTypeMask,
+        _is_crusher: bool,
         ignore_obstacle_id: Option<ObjectID>,
         in_range: impl Fn(&Coord3D) -> bool,
         dest: &mut Coord3D,
@@ -693,25 +693,26 @@ impl PathfindingSystem {
         if !self.is_valid_coord(coord) {
             return false;
         }
-        if !self.is_destination_valid(
-            coord,
-            PathfindLayerEnum::Ground,
-            surfaces,
-            is_crusher,
-            radius,
-            center_in_cell,
-            ignore_obstacle_id,
-        ) {
-            return false;
-        }
-        // C++ checkDestination aircraft branch: refuse another unit's goalAircraft.
+        // C++ checkDestination aircraft branch (AIPathfind.cpp:4918-4921).
+        // adjustTargetDestination is only used for isAircraftThatAdjustsDestination,
+        // and that branch skips obstacle and impassable cells. It only refuses
+        // another unit's goalAircraft. Ground blocking here rejects a hover
+        // locomotor that adjusts but is not SURFACE_AIR.
         let mut num_above = radius;
         if center_in_cell {
             num_above += 1;
         }
         for x in (cell_x - radius)..(cell_x + num_above) {
             for y in (cell_y - radius)..(cell_y + num_above) {
-                let goal_ac = self.get_goal_aircraft(GridCoord::new(x, y));
+                let neighbor = GridCoord::new(x, y);
+                // C++ getCell null (AIPathfind.cpp:4957-4958) fails the whole check.
+                if !self.is_valid_coord(neighbor) {
+                    return false;
+                }
+                if !self.has_aircraft_goal(neighbor) {
+                    continue;
+                }
+                let goal_ac = self.get_goal_aircraft(neighbor);
                 if goal_ac != INVALID_ID && ignore_obstacle_id != Some(goal_ac) {
                     return false;
                 }

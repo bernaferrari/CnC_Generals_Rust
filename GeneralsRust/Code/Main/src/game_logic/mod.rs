@@ -69,7 +69,7 @@ use host_mods_combat::host_status_damage;
 use host_mods_combat::host_transition_damage_fx;
 use host_mods_combat::host_upgrade_die;
 use host_mods_combat::host_wave_guide;
-use host_mods_residuals_on::host_upgrade_module_residuals;
+pub(crate) use host_mods_residuals_on::host_upgrade_module_residuals;
 use host_mods_special_powers::host_baikonur_launch;
 use host_mods_special_powers::host_defector_special_power;
 use host_mods_special_powers::host_special_power_completion_die;

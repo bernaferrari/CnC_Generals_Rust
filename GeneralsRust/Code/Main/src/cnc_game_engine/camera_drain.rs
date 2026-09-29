@@ -1440,17 +1440,18 @@ impl CnCGameEngine {
         }
     }
 
-    fn snow_anim2d_dt_for_present(&self) -> f32 {
-        let logic_steps = self
-            .host_match_logic_steps
-            .map(|(steps, _, _)| steps)
-            .unwrap_or(0);
-        if logic_steps > 0 {
-            return game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
-                * logic_steps as f32;
-        }
-        if matches!(self.current_state, GameState::InGame) {
-            return 0.0;
+    fn snow_anim2d_dt_for_present(&mut self) -> f32 {
+        if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            let now = self.host_match_logic_frame;
+            let steps = match (now, self.host_snow_logic_frame_applied) {
+                (Some(now), Some(prev)) if now > prev => now - prev,
+                (Some(_), None) => 1,
+                _ => 0,
+            };
+            if now.is_some() && now != self.host_snow_logic_frame_applied {
+                self.host_snow_logic_frame_applied = now;
+            }
+            return steps as f32 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
         }
         snow_anim2d_client_only_dt()
     }
@@ -2509,10 +2510,23 @@ impl CnCGameEngine {
         // installed presentation frame owns the former; `game_paused` is a
         // host shell state and must remain part of this client-facing gate.
         let presentation_time_frozen = self.presentation_or_boot_time_frozen() || self.game_paused;
+        let logic_frame = self.host_match_logic_frame;
+        let new_logic_frame =
+            logic_frame.is_some() && logic_frame != self.host_visual_logic_frame_applied;
         let visual_delta = if presentation_time_frozen {
             0.0
+        } else if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+            let steps = match (logic_frame, self.host_visual_logic_frame_applied) {
+                (Some(now), Some(prev)) if now > prev => now - prev,
+                (Some(_), None) => 1,
+                _ => 0,
+            };
+            if new_logic_frame {
+                self.host_visual_logic_frame_applied = logic_frame;
+            }
+            steps as f32 * game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
         } else {
-            game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL
+            self.snow_anim2d_dt_for_present()
         };
         self.host_sync_presentation_direct_drawables(presentation_time_frozen);
         if let Some(pres) = self.last_presentation_frame.as_ref() {

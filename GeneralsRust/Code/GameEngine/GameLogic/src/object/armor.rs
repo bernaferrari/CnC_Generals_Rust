@@ -51,15 +51,22 @@ impl ArmorTemplate {
     /// C++ ArmorTemplate::parseArmorCoefficients (Armor.cpp:75-76) stores pct
     /// unclamped. Only adjustDamage clamps the RESULT at 0 (Armor.cpp:50-53).
     pub fn set_coefficient(&mut self, damage_type: DamageType, coefficient: Real) {
-        self.coefficients[damage_type as usize] = coefficient;
+        let index = damage_type as usize;
+        if index < DAMAGE_TYPE_COUNT {
+            self.coefficients[index] = coefficient;
+        }
     }
 
     /// Apply the armor adjustment for a given damage payload.
     pub fn adjust_damage(&self, damage_type: DamageType, amount: Real) -> Real {
+        let index = damage_type as usize;
+        if index >= DAMAGE_TYPE_COUNT {
+            return if amount < 0.0 { 0.0 } else { amount };
+        }
         match damage_type {
             DamageType::Unresistable | DamageType::SubdualUnresistable => amount,
             _ => {
-                let scaled = amount * self.coefficients[damage_type as usize];
+                let scaled = amount * self.coefficients[index];
                 if scaled < 0.0 { 0.0 } else { scaled }
             }
         }
@@ -305,9 +312,9 @@ fn parse_percentage(token: &str, line: usize) -> Result<Real, ArmorLoadError> {
 
 fn default_armor_paths() -> [PathBuf; 3] {
     [
-        PathBuf::from("Data/INI/Armor.ini"),
-        PathBuf::from("windows_game/extracted_big_files_v2/INI/Armor.ini"),
         PathBuf::from("windows_game/extracted_big_files/INIZH/Data/INI/Armor.ini"),
+        PathBuf::from("windows_game/extracted_big_files_v2/INI/Armor.ini"),
+        PathBuf::from("Data/INI/Armor.ini"),
     ]
 }
 
@@ -326,6 +333,44 @@ fn load_default_templates_internal() -> Result<(), ArmorLoadError> {
         }
     }
 
+    load_armor_from_retail_archive()
+}
+
+fn load_armor_from_retail_archive() -> Result<(), ArmorLoadError> {
+    for root in game_engine::common::system::install_layout::zh_install_roots() {
+        for name in ["INIZH.big", "inizh.big"] {
+            let Some(big_path) =
+                game_engine::common::system::install_layout::find_file_case_insensitive(&root, name)
+            else {
+                continue;
+            };
+        let mut big = game_engine::common::system::big_file_system::BigFile::new();
+        if big.open(&big_path).is_err() {
+            continue;
+        }
+        let entry = big
+            .entries()
+            .iter()
+            .find(|entry| {
+                entry
+                    .filename
+                    .replace('\\', "/")
+                    .eq_ignore_ascii_case("data/ini/armor.ini")
+            })
+            .cloned();
+        let Some(entry) = entry else {
+            continue;
+        };
+        let Ok(bytes) = big.extract_file_data(&entry) else {
+            continue;
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            continue;
+        };
+        load_armor_templates_from_str(&text, Some(big_path.as_path()))?;
+        return Ok(());
+        }
+    }
     Err(ArmorLoadError::FileNotFound)
 }
 

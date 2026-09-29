@@ -86,6 +86,25 @@ impl W3DModelDraw {
         self.sub_objects_dirty = true;
     }
 
+    pub fn merge_unsaved_subobject_hides(&mut self, entries: Vec<(String, bool)>) {
+        for (name, hide) in entries {
+            if name.is_empty() {
+                continue;
+            }
+            if let Some(entry) = self.unsaved_subobject_hides.iter_mut().find(|entry| {
+                entry.sub_obj_name.as_str().eq_ignore_ascii_case(&name)
+            }) {
+                entry.hide = hide;
+            } else {
+                self.unsaved_subobject_hides.push(HideShowSubObjInfo {
+                    sub_obj_name: AsciiString::from(name.as_str()),
+                    hide,
+                });
+            }
+        }
+        self.sub_objects_dirty = true;
+    }
+
     fn note_muzzle_flash(&mut self, name: &str, show: bool) {
         let key = name.to_ascii_lowercase();
         if key.is_empty() {

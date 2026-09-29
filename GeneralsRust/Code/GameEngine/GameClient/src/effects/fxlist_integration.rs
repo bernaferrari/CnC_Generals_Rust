@@ -212,7 +212,7 @@ impl FXNugget for TracerFXNugget {
                 self.width,
                 self.color,
                 self.decay_at,
-                context.current_frame,
+                gamelogic::helpers::TheGameLogic::get_frame(),
             );
         }
     }

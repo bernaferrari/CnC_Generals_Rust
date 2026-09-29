@@ -956,43 +956,46 @@ impl StateImplementation for AITNGuardIdleState {
         if let Some(target_id) = find_tunnel_network_inner_target(owner_id) {
             self.base.set_nemesis_to_attack(target_id);
 
-            if let Some(target) = get_legacy_object(target_id) {
-                if let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) {
-                    if owner_guard.get_contained_by().is_some() {
-                        if let Some(player_arc) = owner_guard.get_controlling_player() {
-                            if let Ok(player_guard) = player_arc.read() {
-                                if let Some(best_tunnel_id) =
-                                    find_best_tunnel(&player_guard, target_guard.get_position())
-                                {
-                                    let Some(best_tunnel) = get_legacy_object(best_tunnel_id)
-                                    else {
-                                        return StateReturnType::Sleep(0);
-                                    };
-                                    let Ok(tunnel_guard) = best_tunnel.read() else {
-                                        return StateReturnType::Sleep(0);
-                                    };
-                                    let Some(exit_interface) =
-                                        tunnel_guard.get_object_exit_interface()
-                                    else {
-                                        return StateReturnType::Failure;
-                                    };
-                                    let Ok(mut exit_guard) = exit_interface.lock() else {
-                                        return StateReturnType::Sleep(0);
-                                    };
-                                    // C++ AITNGuardIdleState::update (AITNGuard.cpp:697-700).
-                                    if exit_guard.is_exit_busy() {
-                                        return StateReturnType::Sleep(0);
-                                    }
-                                    let owner_id = owner_guard.get_id();
-                                    let _ = exit_guard.exit_object_in_a_hurry(owner_id);
-                                    return StateReturnType::Sleep(0);
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
+            let Some(target) = get_legacy_object(target_id) else {
                 return StateReturnType::Sleep(0);
+            };
+            let hurry = (|| {
+                let owner_guard = owner.read().ok()?;
+                let target_guard = target.read().ok()?;
+                if owner_guard.get_contained_by().is_none() {
+                    return None;
+                }
+                let player_arc = owner_guard.get_controlling_player()?;
+                let player_guard = player_arc.read().ok()?;
+                let best_tunnel_id =
+                    find_best_tunnel(&player_guard, target_guard.get_position())?;
+                let hurry_owner_id = owner_guard.get_id();
+                let Some(best_tunnel) = get_legacy_object(best_tunnel_id) else {
+                    return Some(Err(StateReturnType::Sleep(0)));
+                };
+                let Ok(tunnel_guard) = best_tunnel.read() else {
+                    return Some(Err(StateReturnType::Sleep(0)));
+                };
+                let Some(exit_interface) = tunnel_guard.get_object_exit_interface() else {
+                    return Some(Err(StateReturnType::Failure));
+                };
+                Some(Ok((exit_interface, hurry_owner_id)))
+            })();
+            // Owner read ends with the closure. Hurry queues on that object when its
+            // AI mutex is already held, and try_write cannot run under the read guard.
+            match hurry {
+                Some(Err(status)) => return status,
+                Some(Ok((exit_interface, hurry_owner_id))) => {
+                    let Ok(mut exit_guard) = exit_interface.lock() else {
+                        return StateReturnType::Sleep(0);
+                    };
+                    if exit_guard.is_exit_busy() {
+                        return StateReturnType::Sleep(0);
+                    }
+                    let _ = exit_guard.exit_object_in_a_hurry(hurry_owner_id);
+                    return StateReturnType::Sleep(0);
+                }
+                None => {}
             }
 
             return StateReturnType::Success;

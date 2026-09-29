@@ -1198,6 +1198,8 @@ impl Object {
             which_exit_path: 0,
             pathfind_layer: 1,
             door_close_countdown: 0,
+            last_load_sound_frame: 0,
+            last_unload_sound_frame: 0,
 
             applied_upgrades: HashSet::new(),
             special_power_ready: true,
@@ -2120,6 +2122,8 @@ impl Object {
             which_exit_path: 0,
             pathfind_layer: 1,
             door_close_countdown: 0,
+            last_load_sound_frame: 0,
+            last_unload_sound_frame: 0,
 
             applied_upgrades: HashSet::new(),
             special_power_ready: true,

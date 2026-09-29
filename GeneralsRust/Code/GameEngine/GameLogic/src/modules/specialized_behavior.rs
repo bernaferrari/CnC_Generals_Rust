@@ -303,6 +303,13 @@ impl ExitInterfaceExt for Arc<Mutex<dyn ExitInterface>> {
         spawner: Option<&str>,
         spawn: Option<ObjectID>,
     ) -> ExitDoorType {
+        if let Some(name) = spawner {
+            if crate::helpers::TheThingFactory::find_template(name).is_some_and(|template| {
+                template.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
+            }) {
+                return ExitDoorType::None;
+            }
+        }
         let _ = spawner;
         let spawn_obj = match spawn {
             Some(id) => {

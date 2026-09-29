@@ -281,6 +281,9 @@ pub enum KindOf {
     /// C++ `KINDOF_HUGE_VEHICLE` (KindOf.h:35). Overlord / Helix class.
     /// Gameplay-only: the compact presentation KindOf bank is full.
     HugeVehicle,
+    /// C++ `KINDOF_CLIFF_JUMPER`. Combat bikes still get an individual move
+    /// after a vehicle column (`AIGroup.cpp:1640-1649`).
+    CliffJumper,
     /// C++ `KINDOF_CLEANUP_HAZARD` (KindOf.h, bit 51). Ambulance
     /// CleanupHazardUpdate partition targets; retail hazard fields
     /// (NukeRadiationFieldWeapon / PoisonField*) carry it.
@@ -379,6 +382,7 @@ impl KindOf {
         KindOf::Inert,
         KindOf::BlastCrater,
         KindOf::HugeVehicle,
+        KindOf::CliffJumper,
         KindOf::CleanupHazard,
     ];
 
@@ -467,6 +471,7 @@ impl KindOf {
             Self::Inert => "Inert",
             Self::BlastCrater => "BlastCrater",
             Self::HugeVehicle => "HugeVehicle",
+            Self::CliffJumper => "CliffJumper",
             Self::CleanupHazard => "CleanupHazard",
         }
     }
@@ -503,6 +508,7 @@ impl KindOf {
             "BLAST_CRATER" | "BLASTCRATER" => Some(Self::BlastCrater),
             "CLEANUP_HAZARD" | "CLEANUPHAZARD" => Some(Self::CleanupHazard),
             "HUGE_VEHICLE" | "HUGEVEHICLE" => Some(Self::HugeVehicle),
+            "CLIFF_JUMPER" | "CLIFFJUMPER" => Some(Self::CliffJumper),
 
             "DRONE" => Some(Self::Drone),
             _ => None,

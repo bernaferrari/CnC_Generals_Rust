@@ -1182,7 +1182,26 @@ fn sample_resolved_hierarchy_bind_pose_palette(
                     })
                 })?
         }
-        _ => return None,
+        _ => {
+            let first_name = w3d_model.hlods.first()?.hierarchy_name.as_str();
+            if first_name.is_empty()
+                || w3d_model.hlods.iter().any(|hlod| {
+                    hlod.has_invalid_trailing_records
+                        || !hlod.hierarchy_name.eq_ignore_ascii_case(first_name)
+                })
+            {
+                return None;
+            }
+            w3d_model
+                .hierarchies
+                .iter()
+                .find(|hierarchy| hierarchy.name.eq_ignore_ascii_case(first_name))
+                .or_else(|| {
+                    w3d_model.hierarchy.as_ref().filter(|hierarchy| {
+                        hierarchy.name.eq_ignore_ascii_case(first_name)
+                    })
+                })?
+        }
     };
     if hierarchy.pivots.is_empty() || hierarchy.pivots[0].parent_idx != u32::MAX {
         return None;
