@@ -1473,11 +1473,19 @@ impl GameLogic {
             self.frame,
             Some(&self.players),
         );
-        if let Err(e) = with_weapon_store_mut(|store| store.update()) {
-            // "not initialized" is expected before map load; skip silently
-            let err_str = e.to_string();
-            if !err_str.contains("not initialized") {
-                log::warn!("Weapon store update failed: {}", e);
+        match with_weapon_store_mut(|store| store.take_due_delayed_damage()) {
+            Ok(due) => {
+                for info in due {
+                    if let Err(e) = gamelogic::weapon::WeaponStore::apply_delayed_damage(info) {
+                        log::warn!("Delayed weapon damage failed: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                let err_str = e.to_string();
+                if !err_str.contains("not initialized") {
+                    log::warn!("Weapon store update failed: {}", e);
+                }
             }
         }
 

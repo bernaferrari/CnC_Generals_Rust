@@ -125,7 +125,7 @@ pub struct SpecialPowerTemplate {
     pub id: u32,
     pub power_type: SpecialPowerType,
     pub prerequisite_science: Vec<AsciiString>,
-    pub required_science: Vec<AsciiString>,
+    pub required_science: i32,
     pub recharge_time: f32,
     pub init_charge_time: f32,
     pub cost: u32,
@@ -140,6 +140,10 @@ pub struct SpecialPowerTemplate {
     pub description: AsciiString,
     pub sound_effect: AsciiString,
     pub flags: u32,
+    pub detection_time: u32,
+    pub public_timer: bool,
+    pub shared_synced_timer: bool,
+    pub shortcut_power: bool,
     pub properties: HashMap<String, String>,
 }
 
@@ -150,12 +154,12 @@ impl SpecialPowerTemplate {
             id: 0,
             power_type: SpecialPowerType::Custom("Unknown".to_string()),
             prerequisite_science: Vec::new(),
-            required_science: Vec::new(),
-            recharge_time: 30.0,
+            required_science: -1,
+            recharge_time: 0.0,
             init_charge_time: 0.0,
             cost: 0,
-            range: 100.0,
-            radius: 50.0,
+            range: 0.0,
+            radius: 0.0,
             damage: 0.0,
             shared_sync_group: AsciiString::from(""),
             view_object_name: AsciiString::from(""),
@@ -165,6 +169,10 @@ impl SpecialPowerTemplate {
             description: AsciiString::from(""),
             sound_effect: AsciiString::from(""),
             flags: 0,
+            detection_time: 30 * 10,
+            public_timer: false,
+            shared_synced_timer: false,
+            shortcut_power: false,
             properties: HashMap::new(),
         }
     }
@@ -199,19 +207,32 @@ impl SpecialPowerTemplate {
                     self.power_type = SpecialPowerType::from_string(value);
                 }
                 "RequiredScience" => {
-                    self.required_science = value
-                        .split_whitespace()
-                        .map(|s| AsciiString::from(s))
-                        .collect();
+                    let science = value.split_whitespace().next().unwrap_or("");
+                    let Some(store) = crate::common::rts::get_science_store() else {
+                        return Err(SpecialPowerError::ParseError(
+                            "Science store is not initialized".to_string(),
+                        ));
+                    };
+                    let id = store.get_science_from_internal_name(science);
+                    if id == crate::common::rts::SCIENCE_INVALID {
+                        return Err(SpecialPowerError::ParseError(format!(
+                            "Unknown RequiredScience '{}'",
+                            science
+                        )));
+                    }
+                    self.required_science = id;
                 }
                 "ReloadTime" => {
-                    self.recharge_time = parse_u32_field(key, value)? as f32;
+                    self.recharge_time = duration_frames(value)? as f32;
+                }
+                "DetectionTime" => {
+                    self.detection_time = duration_frames(value)?;
                 }
                 "InitiateSound" => {
                     self.sound_effect = AsciiString::from(value);
                 }
                 "ViewObjectDuration" => {
-                    self.view_object_duration = parse_u32_field(key, value)? as f32;
+                    self.view_object_duration = duration_frames(value)? as f32;
                 }
                 "ViewObjectRange" => {
                     self.range = parse_f32_field(key, value)?;
@@ -219,9 +240,16 @@ impl SpecialPowerTemplate {
                 "RadiusCursorRadius" => {
                     self.radius = parse_f32_field(key, value)?;
                 }
-                "PublicTimer" | "SharedSyncedTimer" | "ShortcutPower" => {
-                    parse_bool(value).map_err(SpecialPowerError::ParseError)?;
-                    self.properties.insert(key.clone(), value.clone());
+                "PublicTimer" => {
+                    self.public_timer = parse_bool(value).map_err(SpecialPowerError::ParseError)?;
+                }
+                "SharedSyncedTimer" => {
+                    self.shared_synced_timer =
+                        parse_bool(value).map_err(SpecialPowerError::ParseError)?;
+                }
+                "ShortcutPower" => {
+                    self.shortcut_power =
+                        parse_bool(value).map_err(SpecialPowerError::ParseError)?;
                 }
                 _ => {
                     if is_cpp_special_power_field(key) {
@@ -259,9 +287,8 @@ impl SpecialPowerTemplate {
             SpecialPowerType::Superweapon | SpecialPowerType::Nuke
         )
     }
-
     pub fn has_prerequisite_science(&self, science: &AsciiString) -> bool {
-        self.prerequisite_science.contains(science) || self.required_science.contains(science)
+        self.prerequisite_science.contains(science)
     }
 }
 
@@ -480,6 +507,11 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
         _ => Err(format!("Invalid boolean value: {}", value)),
     }
 }
+fn duration_frames(value: &str) -> SpecialPowerResult<u32> {
+    crate::common::ini::ini::INI::parse_duration_unsigned_int(value).map_err(|_| {
+        SpecialPowerError::ParseError(format!("Invalid duration '{}'", value))
+    })
+}
 
 fn parse_f32_field(field_name: &str, value: &str) -> SpecialPowerResult<f32> {
     value.parse::<f32>().map_err(|e| {
@@ -605,7 +637,7 @@ mod tests {
         let template = SpecialPowerTemplate::new(name.clone());
 
         assert_eq!(template.name, name);
-        assert_eq!(template.recharge_time, 30.0);
+        assert_eq!(template.recharge_time, 0.0);
         assert_eq!(template.cost, 0);
         assert!(template.is_valid());
     }
@@ -769,6 +801,20 @@ mod tests {
 
     #[test]
     fn test_template_properties_update() {
+        if crate::common::rts::get_science_store().is_none() {
+            crate::common::rts::init_science_store();
+        }
+        if let Some(mut store) = crate::common::rts::get_science_store_mut() {
+            store.add_science(crate::common::rts::ScienceInfo::new(
+                crate::common::rts::SCIENCE_INVALID,
+                "SCIENCE_Nuke",
+            ));
+        }
+        let expected = crate::common::rts::get_science_store()
+            .map(|store| store.get_science_from_internal_name("SCIENCE_Nuke"))
+            .unwrap_or(crate::common::rts::SCIENCE_INVALID);
+        assert_ne!(expected, crate::common::rts::SCIENCE_INVALID);
+
         let mut template = SpecialPowerTemplate::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
         properties.insert("Enum".to_string(), "SPECIAL_NEUTRON_MISSILE".to_string());
@@ -789,16 +835,14 @@ mod tests {
             template.power_type,
             SpecialPowerType::Custom(ref name) if name == "SPECIAL_NEUTRON_MISSILE"
         ));
-        assert_eq!(template.recharge_time, 120.0);
-        assert_eq!(
-            template.required_science,
-            vec![AsciiString::from("SCIENCE_Nuke")]
-        );
+        assert_eq!(template.recharge_time, 4.0);
+        assert_eq!(template.required_science, expected);
         assert_eq!(template.sound_effect.as_str(), "NeutronMissileLaunch");
-        assert_eq!(template.view_object_duration, 90.0);
+        assert_eq!(template.view_object_duration, 3.0);
         assert_eq!(template.range, 250.5);
         assert_eq!(template.radius, 1000.0);
-        assert_eq!(template.properties.get("PublicTimer").unwrap(), "Yes");
+        assert!(template.public_timer);
+        assert_eq!(template.detection_time, 300);
     }
 
     #[test]
@@ -870,13 +914,10 @@ mod tests {
         template
             .prerequisite_science
             .push(AsciiString::from("SCIENCE_NuclearReactor"));
-        template
-            .required_science
-            .push(AsciiString::from("SCIENCE_AdvancedWeapons"));
 
         assert!(template.has_prerequisite_science(&AsciiString::from("SCIENCE_NuclearReactor")));
-        assert!(template.has_prerequisite_science(&AsciiString::from("SCIENCE_AdvancedWeapons")));
         assert!(!template.has_prerequisite_science(&AsciiString::from("SCIENCE_BasicWeapons")));
+        assert_eq!(template.required_science, crate::common::rts::SCIENCE_INVALID);
     }
 
     #[test]

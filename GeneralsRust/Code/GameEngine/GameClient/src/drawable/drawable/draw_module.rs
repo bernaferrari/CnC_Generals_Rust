@@ -171,6 +171,11 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     ) -> bool {
         false
     }
+
+    /// Concrete GameLogic module when this client slot adapts one.
+    fn logic_module_mut(&mut self) -> Option<&mut dyn Module> {
+        None
+    }
 }
 
 /// Adapts concrete GameLogic/GameEngine modules into GameClient drawable save buckets.
@@ -237,6 +242,10 @@ impl DrawModule for LogicDrawModuleSnapshotAdapter {
 
     fn drawable_module_type_index(&self) -> usize {
         self.module_type_index
+    }
+
+    fn logic_module_mut(&mut self) -> Option<&mut dyn Module> {
+        Some(self.module.as_mut())
     }
 }
 
@@ -306,7 +315,13 @@ impl BoneData {
             Some(b) => b,
             None => return 0,
         };
-        let start = start_index.max(0) as usize;
+        // C++ W3DModelDraw.cpp:3425-3457. startIndex 0 is only the bare
+        // prefix name, which is not in this numbered-suffix vector.
+        // startIndex 1 is prefix01, stored at index 0.
+        if start_index <= 0 {
+            return 0;
+        }
+        let start = (start_index as usize) - 1;
         if start >= bones.len() {
             return 0;
         }
@@ -333,7 +348,10 @@ impl BoneData {
             Some(b) => b,
             None => return 0,
         };
-        let start = start_index.max(0) as usize;
+        if start_index <= 0 {
+            return 0;
+        }
+        let start = (start_index as usize) - 1;
         if start >= bones.len() {
             return 0;
         }

@@ -11,7 +11,7 @@ fn unit_or_x(v: Coord3D) -> Coord3D {
     }
 }
 
-fn try_to_rotate_vector3d(max_angle: Real, start: Coord3D, end: Coord3D) -> (Coord3D, Real) {
+pub(crate) fn try_to_rotate_vector3d(max_angle: Real, start: Coord3D, end: Coord3D) -> (Coord3D, Real) {
     let start_len = start.length();
     let end_len = end.length();
     if start_len < 1.0e-6 || end_len < 1.0e-6 {
@@ -173,6 +173,7 @@ impl Locomotor {
                 orient = thrust_dir;
             }
             desired_angle = orient.y.atan2(orient.x);
+
         }
 
         let mut max_forward_speed = max_speed;

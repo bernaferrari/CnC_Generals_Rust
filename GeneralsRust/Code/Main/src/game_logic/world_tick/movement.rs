@@ -15,20 +15,24 @@ impl GameLogic {
         target_position: Vec3,
         ai_state_override: Option<AIState>,
     ) -> bool {
-        let (start_pos, is_aircraft, surfaces, is_crusher) = match self.objects.get(&object_id) {
+        let (start_pos, is_aircraft, quick, surfaces, is_crusher) = match self.objects.get(&object_id) {
             Some(obj) => {
                 let surfaces = if obj.locomotor_surfaces != 0 {
                     obj.locomotor_surfaces
                 } else {
                     Object::default_locomotor_surfaces_for_template(&obj.thing.template)
                 };
+                let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
+                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
+                let aircraft = quick
+                    && (obj.is_kind_of(KindOf::Aircraft)
+                        || obj.object_type == crate::game_logic::ObjectType::Aircraft)
+                    && !obj.is_kind_of(KindOf::Projectile);
                 (
                     obj.get_position(),
-                    obj.is_kind_of(KindOf::Aircraft)
-                        || obj.object_type == crate::game_logic::ObjectType::Aircraft,
+                    aircraft,
+                    quick,
                     surfaces,
-                    // C++ Pathfinder: `isCrusher = obj ? obj->getCrusherLevel() > 0 : false`
-                    // (AIPathfind.cpp:8170). Hardcoding false made tanks halt at fences/rubble.
                     obj.crusher_level > 0,
                 )
             }
@@ -54,11 +58,11 @@ impl GameLogic {
             }
         };
 
-        // C++ Pathfinder uses the mover's legal surfaces (AIPathfind.cpp:4779-4782).
-        // Aircraft use getAircraftPath (AIPathfind.cpp:5781-5782), not the ground grid.
-        let loco = if is_aircraft {
-            gamelogic::ai::pathfind_complete::SURFACE_AIR
-        } else if surfaces != 0 {
+        if quick && self.try_install_flying_quick_path(object_id, target_position) {
+            apply_state(self, ai_state_override.unwrap_or(AIState::Moving));
+            return true;
+        }
+        let loco = if surfaces != 0 {
             surfaces
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND
@@ -80,6 +84,7 @@ impl GameLogic {
             Some(object_id),
         );
         self.pathfinding_system.set_adjust_goal(saved_adjust);
+        
 
         let mut need_closest = path.is_none();
         let mut state_to_apply: Option<AIState> = None;
@@ -99,6 +104,10 @@ impl GameLogic {
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
+                    obj.waiting_for_path = false;
+                    obj.num_frames_blocked = 0;
+                    obj.is_blocked_and_stuck = false;
+                    obj.path_timestamp = self.frame;
                     obj.refresh_follow_path_extra_distance();
                     obj.start_move();
                     obj.set_status_moving(true);
@@ -118,6 +127,10 @@ impl GameLogic {
                     obj.movement.target_position = Some(dest);
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
+                    obj.waiting_for_path = false;
+                    obj.num_frames_blocked = 0;
+                    obj.is_blocked_and_stuck = false;
+                    obj.path_timestamp = self.frame;
                     obj.refresh_follow_path_extra_distance();
                     obj.start_move();
                     obj.set_status_moving(true);
@@ -142,6 +155,7 @@ impl GameLogic {
         if closest_installed {
             state_to_apply = Some(fallback_state);
         } else if need_closest {
+            self.note_compute_path_failed(object_id);
             log::debug!(
                 "No path found for {:?} to {:?}; refuse fail-open march",
                 object_id,
@@ -652,7 +666,10 @@ impl GameLogic {
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(obj.movement.path[1]);
                     obj.is_attack_path = false;
+                    obj.is_exact_path = false;
+                    obj.can_path_through_units = false;
                     obj.waiting_for_path = false;
+                    obj.queue_for_path_frames = 0;
                     obj.refresh_follow_path_extra_distance();
                     obj.is_blocked_and_stuck = false;
                     // C++ computePath always clears these after patchPath
@@ -679,7 +696,11 @@ impl GameLogic {
                     }
                 }
             }
-            if path.len() >= 2 {
+            if path.len() >= 2
+                && self.objects.get(&id).is_some_and(|obj| {
+                    crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj)
+                })
+            {
                 self.scoot_allies_off_mover_path(id);
             }
         }
@@ -2099,9 +2120,7 @@ impl GameLogic {
         if obj.holds_air_position_when_idle() {
             return;
         }
-        if obj.is_kind_of(KindOf::Aircraft)
-            || obj.object_type == crate::game_logic::ObjectType::Aircraft
-        {
+        if !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj) {
             return;
         }
         // C++ goalPosition reads m_pathfindGoalCell. No registered cell skips

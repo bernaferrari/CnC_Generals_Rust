@@ -244,24 +244,86 @@ impl<'a> CommandExecutor<'a> {
                 .assign_shared_group_paths(&goals, destination)
             {
                 let moved: Vec<ObjectId> = goals.iter().map(|(id, _)| *id).collect();
+                let inf_columned = {
+                    let n = goals.iter().filter(|(id, _)| {
+                        self.game_logic.host_object(*id).is_some_and(|o| {
+                            o.is_kind_of(crate::game_logic::KindOf::Infantry)
+                                && !o.is_kind_of(crate::game_logic::KindOf::MobNexus)
+                                && !o.status.disabled_held
+                                && (o.is_mobile() || o.can_attack())
+                        })
+                    }).count() as i32;
+                    let mob = goals.iter().any(|(id, _)| {
+                        self.game_logic.host_object(*id).is_some_and(|o| {
+                            o.is_kind_of(crate::game_logic::KindOf::MobNexus)
+                        })
+                    });
+                    !mob && n >= crate::game_logic::host_ai_path_combat_residual_wave105::MIN_INFANTRY_FOR_GROUP_RESIDUAL
+                };
+                let veh_columned = {
+                    let n = goals.iter().filter(|(id, _)| {
+                        self.game_logic.host_object(*id).is_some_and(|o| {
+                            o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                                && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
+                                && !o.status.disabled_held
+                                && (o.is_mobile() || o.can_attack())
+                        })
+                    }).count() as i32;
+                    n >= crate::game_logic::host_ai_path_combat_residual_wave105::MIN_VEHICLES_FOR_GROUP_RESIDUAL
+                };
+                for (unit_id, goal) in &goals {
+                    let skip = self.game_logic.host_object(*unit_id).is_some_and(|o| {
+                        o.is_kind_of(crate::game_logic::KindOf::Immobile)
+                            || o.status.disabled_held
+                            || !(o.is_mobile() || o.can_attack())
+                            || (inf_columned && o.is_kind_of(crate::game_logic::KindOf::Infantry))
+                            || (veh_columned
+                                && o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                                && crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
+                                && !o.is_kind_of(crate::game_logic::KindOf::CliffJumper))
+                            || {
+                                let aircraft = o.is_kind_of(crate::game_logic::KindOf::Aircraft)
+                                    || o.object_type == crate::game_logic::ObjectType::Aircraft;
+                                o.is_kind_of(crate::game_logic::KindOf::Vehicle)
+                                    && aircraft
+                                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
+                            }
+                    });
+                    if skip {
+                        continue;
+                    }
+                    let _ = self.game_logic.unit_command_move_free(*unit_id, *goal, destination);
+                }
                 self.apply_player_stealth_mood_delay(&moved);
                 self.play_context_move_voice(units);
                 return CommandResult::Success;
             }
         }
         let mut moved: Vec<ObjectId> = Vec::new();
-        for (unit_id, goal) in goals {
+        let mut missing = false;
+        for &(unit_id, goal) in &goals {
+            if self.game_logic.host_object(unit_id).is_some_and(|o| {
+                !Self::group_ai_member_receives_move(o)
+            }) {
+                continue;
+            }
             if !self
                 .game_logic
                 .unit_command_move_free(unit_id, goal, destination)
             {
                 if self.game_logic.host_object(unit_id).is_none() {
-                    return CommandResult::InvalidTarget;
+                    missing = true;
                 }
-                return CommandResult::InvalidCommand;
+                continue;
             }
             moved.push(unit_id);
             debug!("Unit {} moving to {:?}", unit_id.0, goal);
+        }
+        if moved.is_empty() && missing {
+            return CommandResult::InvalidTarget;
+        }
+        if moved.is_empty() && !goals.is_empty() {
+            return CommandResult::InvalidCommand;
         }
         self.apply_player_stealth_mood_delay(&moved);
         self.play_context_move_voice(units);
@@ -319,14 +381,15 @@ impl<'a> CommandExecutor<'a> {
             let goal = self
                 .game_logic
                 .adjust_group_member_goal(unit_id, goal, destination);
-            if !self
+            if self
                 .game_logic
                 .unit_command_move_to_waypoints(unit_id, goal, waypoints)
             {
-                return CommandResult::InvalidCommand;
+                moved.push(unit_id);
             }
-            moved.push(unit_id);
-            debug!("Unit {} moving via waypoints to {:?}", unit_id.0, goal);
+        }
+        if moved.is_empty() {
+            return CommandResult::InvalidCommand;
         }
         self.apply_player_stealth_mood_delay(&moved);
         if play_voice {
@@ -399,23 +462,18 @@ impl<'a> CommandExecutor<'a> {
         if units.is_empty() {
             return Vec::new();
         }
-        if units.len() == 1 {
-            return vec![(units[0], destination)];
-        }
 
-        // Gather movable members with positions (skip dead / immobile).
+        // C++ individual iterator: held, immobile, or no AI. Not alive / can_move.
         let mut movers: Vec<(ObjectId, Vec3, f32, u32, glam::Vec2, bool, bool)> =
             Vec::with_capacity(units.len());
         for &unit_id in units {
             let Some(obj) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !obj.is_alive() {
+            if obj.status.disabled_held || obj.contained_by.is_some() {
                 continue;
             }
-            if obj.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || obj.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !(obj.is_mobile() || obj.can_attack()) {
                 continue;
             }
             let radius = Self::bounding_circle_radius(obj);
@@ -431,15 +489,22 @@ impl<'a> CommandExecutor<'a> {
             ));
         }
         if movers.is_empty() {
-            return units.iter().map(|&id| (id, destination)).collect();
+            return Vec::new();
         }
         if movers.len() == 1 {
+            let immobile = self.game_logic.host_object(movers[0].0).is_some_and(|o| {
+                o.is_kind_of(crate::game_logic::KindOf::Immobile)
+            });
+            if immobile {
+                return Vec::new();
+            }
             return vec![(movers[0].0, destination)];
         }
 
-        // Shared non-zero formation id → C++ formation move offsets.
-        let fid0 = movers[0].3;
-        let is_formation = fid0 != 0 && movers.iter().all(|m| m.3 == fid0);
+        // Helipad and airborne aircraft cancel the formation
+        // (AIGroup.cpp:1575-1586). The id is the first counted member
+        // in that test, not movers[0].
+        let is_formation = self.group_is_stamped_formation(units);
         if is_formation {
             return movers
                 .into_iter()
@@ -450,6 +515,17 @@ impl<'a> CommandExecutor<'a> {
                     )
                 })
                 .collect();
+        }
+        movers.retain(|m| {
+            self.game_logic.host_object(m.0).is_some_and(|o| {
+                !o.is_kind_of(crate::game_logic::KindOf::Immobile)
+            })
+        });
+        if movers.is_empty() {
+            return Vec::new();
+        }
+        if movers.len() == 1 {
+            return vec![(movers[0].0, destination)];
         }
 
         // C++ friend_moveInfantryToPos / friend_moveVehicleToPos residual:
@@ -483,12 +559,10 @@ impl<'a> CommandExecutor<'a> {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if !o.is_alive() || o.contained_by.is_some() {
+            if o.status.disabled_held || o.contained_by.is_some() {
                 continue;
             }
-            if o.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || o.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !(o.is_mobile() || o.can_attack()) {
                 continue;
             }
             let name = o.template_name.to_ascii_lowercase();
@@ -502,10 +576,8 @@ impl<'a> CommandExecutor<'a> {
             if o.is_kind_of(crate::game_logic::KindOf::Aircraft) && o.status.airborne_target {
                 return false;
             }
-            match fid0 {
-                None => fid0 = Some(o.formation_id),
-                Some(fid) if fid != o.formation_id => return false,
-                _ => {}
+            if fid0.is_none() {
+                fid0 = Some(o.formation_id);
             }
             count += 1;
         }
@@ -545,9 +617,8 @@ impl<'a> CommandExecutor<'a> {
                     dx = (dx / nlen) * length;
                     dz = (dz / nlen) * length;
                 } else {
-                    let angle = (i as f32) * 1.7;
-                    dx = angle.cos() * radius * 0.5;
-                    dz = angle.sin() * radius * 0.5;
+                    dx = 0.0;
+                    dz = 0.0;
                 }
                 Vec3::new(destination.x + dx, destination.y, destination.z + dz)
             };
@@ -596,16 +667,13 @@ impl<'a> CommandExecutor<'a> {
             let Some(obj) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !obj.is_alive()
-                || !obj.can_move()
-                || obj.status.disabled_held
-                || obj.contained_by.is_some()
-            {
+            if obj.status.disabled_held || obj.contained_by.is_some() {
                 continue;
             }
-            if obj.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || obj.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !(obj.is_mobile() || obj.can_attack()) {
+                continue;
+            }
+            if obj.is_kind_of(crate::game_logic::KindOf::Immobile) {
                 continue;
             }
             movers.push((
@@ -662,7 +730,10 @@ impl<'a> CommandExecutor<'a> {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if !Self::group_ai_member_receives_move(o) {
+            if o.status.disabled_held || o.contained_by.is_some() {
+                continue;
+            }
+            if !(o.is_mobile() || o.can_attack()) {
                 continue;
             }
             // Airborne fixed-wing: C++ disables tighten.
@@ -671,6 +742,7 @@ impl<'a> CommandExecutor<'a> {
                 && !o.template_name.to_ascii_lowercase().contains("heli")
                 && !o.template_name.to_ascii_lowercase().contains("chinook")
                 && !o.template_name.to_ascii_lowercase().contains("comanche")
+                && !o.template_name.to_ascii_lowercase().contains("helix")
             {
                 return false;
             }
@@ -783,12 +855,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !unit.is_alive() || !unit.can_move() {
-                continue;
-            }
-            if unit.is_kind_of(crate::game_logic::KindOf::Immobile)
-                || unit.is_kind_of(crate::game_logic::KindOf::Structure)
-            {
+            if !unit.is_alive() || !(unit.is_mobile() || unit.can_attack()) {
                 continue;
             }
             movers.push((unit_id, unit.get_position(), unit.formation_offset));
@@ -1219,11 +1286,11 @@ impl<'a> CommandExecutor<'a> {
 
             // C++ groupAttackMoveToPosition: any AI member. No can_move gate —
             // deployed artillery / turret structures still get attack-move.
-            let (alive, can_attack) = match self.game_logic.host_object(unit_id) {
-                Some(unit) => (unit.is_alive(), unit.can_attack() || unit.weapon.is_some()),
-                None => continue,
+            let Some(unit) = self.game_logic.host_object(unit_id) else {
+                continue;
             };
-            if !alive {
+            let can_attack = unit.can_attack() || unit.weapon.is_some();
+            if !(unit.is_mobile() || unit.can_attack() || can_attack) {
                 continue;
             }
             if can_attack {
@@ -1263,10 +1330,12 @@ impl<'a> CommandExecutor<'a> {
         }
         let mut moved: Vec<ObjectId> = Vec::new();
         for (unit_id, goal) in goals {
-            if !self.game_logic.unit_command_force_move_to(unit_id, goal) {
-                return CommandResult::InvalidCommand;
+            if self.game_logic.unit_command_force_move_to(unit_id, goal) {
+                moved.push(unit_id);
             }
-            moved.push(unit_id);
+        }
+        if moved.is_empty() {
+            return CommandResult::InvalidCommand;
         }
         self.apply_player_stealth_mood_delay(&moved);
         let crush = self.force_move_has_crush_target(&moved, destination);
@@ -1356,6 +1425,11 @@ impl<'a> CommandExecutor<'a> {
         let goals = self.group_move_destinations(units, destination);
         let mut any = false;
         for (unit_id, goal) in goals {
+            if self.game_logic.host_object(unit_id).is_some_and(|o| {
+                o.status.disabled_held || !(o.is_mobile() || o.can_attack())
+            }) {
+                continue;
+            }
             // C++ aiMoveToPosition to the unit's own position succeeds as a
             // no-op: a stamped offset that reconstructs the current spot
             // (group already in formation at the click) must count as
@@ -1425,30 +1499,32 @@ impl<'a> CommandExecutor<'a> {
     pub(crate) fn execute_scatter(&mut self, units: &[ObjectId]) -> CommandResult {
         // Wave 232: scatter last-writes via GameLogic unit_command_move_to_moving,
         // which runs assign_unit_path (path_to_goal_with_state machinery) per
-        // member — never a bare set_destination.
-        // C++ AIGroup::groupScatter — far-to-near from group center, push out by
-        // 4 * bounding radius along the unit→center vector (host XZ plane).
         let mut movers: Vec<(ObjectId, Vec3, f32)> = Vec::new();
+        let mut center = Vec3::ZERO;
+        let mut center_count = 0i32;
         for &unit_id in units {
             let Some(unit) = self.game_logic.host_object(unit_id) else {
                 continue;
             };
-            if !Self::group_ai_member_receives_move(unit) {
+            if !unit.is_alive() || unit.status.disabled_held || unit.contained_by.is_some() {
+                continue;
+            }
+            if !(unit.is_mobile() || unit.can_attack()) {
                 continue;
             }
             let pos = unit.get_position();
+            center += pos;
+            center_count += 1;
+            if !Self::group_ai_member_receives_move(unit) {
+                continue;
+            }
             let radius = Self::bounding_circle_radius(unit);
             movers.push((unit_id, pos, radius));
         }
-        if movers.is_empty() {
+        if movers.is_empty() || center_count == 0 {
             return CommandResult::InvalidCommand;
         }
-
-        let mut center = Vec3::ZERO;
-        for (_, pos, _) in &movers {
-            center += *pos;
-        }
-        center /= movers.len() as f32;
+        center /= center_count as f32;
 
         movers.sort_by(|a, b| {
             let da = (a.1.x - center.x).hypot(a.1.z - center.z);

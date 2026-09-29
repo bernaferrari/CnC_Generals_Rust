@@ -723,6 +723,26 @@ impl ConstructionManager {
             .map(|t| t.progress.current_health)
     }
 
+    /// A resume already has percent and body health. C++ only zeros those at the
+    /// start of a new `construct`. Do not overwrite them with the fresh 0% / 1 HP.
+    pub fn seed_from_structure(&mut self, building_id: ObjectID, percent: f32, health: f32) {
+        let Some(task) = self
+            .active_tasks
+            .iter_mut()
+            .find(|task| task.building_id == building_id)
+        else {
+            return;
+        };
+        if percent > 0.0 && percent < 100.0 {
+            task.progress.percent_complete = percent;
+            let frames = task.total_build_frames.max(1) as f32;
+            task.progress.frames_under_construction = ((percent / 100.0) * frames) as u32;
+            if health > 1.0 {
+                task.progress.current_health = health.min(task.progress.max_health);
+            }
+        }
+    }
+
     /// Check if a building is under construction
     pub fn is_under_construction(&self, building_id: ObjectID) -> bool {
         self.buildings_under_construction.contains(&building_id)

@@ -14,7 +14,7 @@ impl Locomotor {
         condition: BodyDamageType,
         delta_time: Real,
         blocked: bool,
-        mut physics: Option<&mut dyn crate::modules::PhysicsBehavior>,
+        mut physics: Option<&mut (dyn crate::modules::PhysicsBehavior + '_)>,
         mut object: Option<&mut crate::object::Object>,
     ) -> (Coord3D, Real, Real) {
         self.set_flag(FLAG_MAINTAIN_POS_VALID, false);
@@ -163,6 +163,7 @@ impl Locomotor {
             .as_ref()
             .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
             .unwrap_or(0.0);
+
         let (mut pos, mut angle, mut speed) = if allow_2d {
             self.dispatch_appearance_move(
                 current,
@@ -179,6 +180,42 @@ impl Locomotor {
         } else {
             (current, current_angle, current_speed)
         };
+        if self.template.appearance == LocomotorAppearance::Thrust {
+            if let Some(obj) = object.as_mut() {
+                let vel = physics
+                    .as_ref()
+                    .map(|p| p.get_velocity())
+                    .unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
+                if vel.length_squared() > 1.0e-8 {
+                    let mut turn = self.template.max_turn_rate;
+                    let mut desired = vel;
+                    if obj.test_status(crate::common::ObjectStatusTypes::Braking) {
+                        desired = target - *obj.get_position();
+                        turn *= 3.0;
+                    }
+                    if desired.length_squared() > 1.0e-8 {
+                        let x_axis = obj.get_drawable().and_then(|drawable| {
+                            drawable.read().ok().map(|draw| {
+                                crate::drawable::Drawable::get_transform(&*draw)
+                                    .x_axis
+                                    .truncate()
+                            })
+                        });
+                        if let Some(x_axis) = x_axis {
+                            let (dir, rel) =
+                                try_to_rotate_vector3d(turn, x_axis, desired);
+                            if rel != 0.0 && dir.length_squared() > 1.0e-8 {
+                                let at = *obj.get_position();
+                                obj.set_transform_matrix(&crate::common::build_transform_matrix(
+                                    at,
+                                    dir.normalize(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         let vel_z = physics
             .as_ref()

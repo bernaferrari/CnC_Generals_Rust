@@ -171,8 +171,8 @@ impl Object {
         }
     }
 
-    /// C++ load copies `m_upgradedLocomotors` and `m_curLocomotorSet`.
-    /// It does not call `chooseLocomotorSet`.
+    /// C++ xfer only copies the set name and sets the post-process flag.
+    /// `chooseLocomotorSet` runs after `xferSelfAndCurLocoPtr`, not here.
     pub fn restore_saved_locomotor(&mut self, upgrade: bool, set: Option<String>) {
         self.locomotor_upgrade = upgrade;
         self.jet_ai.cur_locomotor_set = set;

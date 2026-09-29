@@ -256,6 +256,51 @@ pub fn restore_live_drawable_xfer_visuals(
     .unwrap_or(false)
 }
 
+/// Apply queued logic-fire recoil on the presentation drawable.
+pub fn apply_queued_weapon_recoils() {
+    let Some(client_bridge) = gamelogic::helpers::TheGameClient::get() else {
+        return;
+    };
+    let queued = client_bridge.take_weapon_recoils();
+    if queued.is_empty() {
+        return;
+    }
+    let _ = with_live_game_client_mut(|client| {
+        for (object_id, amount, aim_angle) in queued {
+            let Some(drawable_id) = client.get_drawable_for_object(object_id) else {
+                continue;
+            };
+            let Some(drawable) = client.find_drawable_by_id_mut(drawable_id) else {
+                continue;
+            };
+            if let Some(basic) = drawable
+                .as_any_mut()
+                .downcast_mut::<crate::drawable::BasicDrawable>()
+            {
+                basic.apply_recoil_impulse(amount, aim_angle);
+            }
+        }
+    });
+}
+
+/// Recoil matrix for the presentation drawable, if it is not identity.
+pub fn recoil_glam_for_object(object_id: u32) -> Option<glam::Mat4> {
+    with_live_game_client_mut(|client| {
+        let drawable_id = client.get_drawable_for_object(object_id)?;
+        let drawable = client.find_drawable_by_id(drawable_id)?;
+        let basic = drawable
+            .as_any()
+            .downcast_ref::<crate::drawable::BasicDrawable>()?;
+        let matrix = basic.recoil_visual();
+        if matrix == crate::drawable::Matrix4::identity() {
+            None
+        } else {
+            Some(matrix.to_glam())
+        }
+    })
+    .flatten()
+}
+
 
 /// Apply a texture-reduction target immediately, mirroring C++ `W3DGameClient::adjustLOD`.
 ///
@@ -264,6 +309,7 @@ pub fn restore_live_drawable_xfer_visuals(
 ///   `TheTerrainRenderObject->setTextureLOD`)
 pub fn apply_lod_texture_reduction(target_factor: i32) -> Option<i32> {
     let global_data = get_global_data()?;
+
     let clamped = target_factor.clamp(TEXTURE_REDUCTION_MIN, TEXTURE_REDUCTION_MAX);
     let previous = {
         let mut global = global_data.write();

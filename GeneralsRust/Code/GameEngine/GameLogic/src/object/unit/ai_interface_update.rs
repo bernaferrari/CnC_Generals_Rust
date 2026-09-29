@@ -317,6 +317,7 @@ impl UnitAIUpdate {
             Snapshotable::xfer(jet_ai, xfer)?;
         }
 
+
         Ok(true)
     }
     pub(super) fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -915,43 +916,58 @@ impl UnitAIUpdate {
                 }
             }
         }
-        for (quick, path, ignore_id, end) in crate::ai::states::follow_path::take_pending_ai_exits()
-        {
-            if quick {
-                self.do_quick_exit(&path);
-            } else {
-                let mut path = path;
-                let mut adjusted = end;
-                let _ = self.adjust_destination(&mut adjusted);
-                for point in &mut path {
-                    if point.x == end.x && point.y == end.y && point.z == end.z {
-                        *point = adjusted;
+        if let Some(owner_id) = self.owner_object_id() {
+            let produced = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                std::mem::take(&mut owner.ai_pending_produced_exits)
+            });
+            if let Some(produced) = produced {
+                for exit in produced {
+                    match exit {
+                        crate::object::PendingProducedExit::Quick(path) => {
+                            self.do_quick_exit(&path);
+                        }
+                        crate::object::PendingProducedExit::Follow {
+                            mut path,
+                            ignore_id,
+                            end,
+                        } => {
+                            let mut adjusted = end;
+                            let _ = self.adjust_destination(&mut adjusted);
+                            for point in &mut path {
+                                if point.x == end.x && point.y == end.y && point.z == end.z {
+                                    *point = adjusted;
+                                }
+                            }
+                            let layer = crate::helpers::TheTerrainLogic::get()
+                                .map(|terrain| terrain.get_layer_for_destination(&adjusted))
+                                .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+                            let mut params = crate::ai::AiCommandParams::new(
+                                crate::ai::AiCommandType::FollowPath,
+                                crate::common::CommandSourceType::FromAi,
+                            );
+                            params.coords = path;
+                            params.obj = Some(ignore_id);
+                            let _ = self.execute_command(&params);
+                            let _ = self.update_goal_position(&adjusted, layer);
+                        }
                     }
                 }
-                let layer = crate::helpers::TheTerrainLogic::get()
-                    .map(|terrain| terrain.get_layer_for_destination(&adjusted))
-                    .unwrap_or(crate::common::PathfindLayerEnum::Ground);
-                let mut params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::FollowPath,
-                    crate::common::CommandSourceType::FromAi,
-                );
-                params.coords = path;
-                params.obj = Some(ignore_id);
-                let _ = self.execute_command(&params);
-                let _ = self.update_goal_position(&adjusted, layer);
             }
         }
 
+        self.apply_stored_locomotor_goal();
         self.finish_completed_movement_like_cpp();
 
         let now = TheGameLogic::get_frame();
-        if self.waiting_for_path
-            && (self.queue_for_path_frame == 0 || now >= self.queue_for_path_frame)
-        {
-            let _ = self.do_queued_pathfind_now();
-        } else if self.queue_for_path_frame != 0 && now >= self.queue_for_path_frame {
-            self.queue_for_path_frame = 0;
-            let _ = self.queue_path_request_now(self.requested_destination);
+        if self.queue_for_path_frame != 0 && now >= self.queue_for_path_frame {
+            if let Ok(ai) = the_ai().read() {
+                if let Some(pathfinder) = ai.pathfinder() {
+                    if let Ok(pf) = pathfinder.read() {
+                        let _ = pf.queue_for_path(self.unit_id);
+                    }
+                }
+            }
+            self.set_queue_for_path_time(0);
         }
 
         let update_turrets = get_unit_arc(self.unit_id)
@@ -1488,24 +1504,114 @@ impl UnitAIUpdate {
         }
         false
     }
+    pub(crate) fn load_post_process_path_cells(&mut self) {
+        let Some((pos, layer, id, radius, bridge_end)) =
+            get_unit_arc(self.unit_id).and_then(|unit| {
+                let guard = unit.read().ok()?;
+                let base = guard.base_arc();
+                let object = base.read().ok()?;
+                let layer = object.get_layer();
+                let bridge_end = crate::terrain::get_terrain_logic()
+                    .read()
+                    .ok()
+                    .map(|terrain| {
+                        terrain.object_interacts_with_bridge_end(
+                            &object,
+                            crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                        )
+                    })
+                    .unwrap_or(false);
+                Some((
+                    *object.get_position(),
+                    layer,
+                    object.get_id(),
+                    object.get_geometry_info().get_bounding_circle_radius(),
+                    bridge_end,
+                ))
+        }) else {
+            return;
+        };
+        if !self.is_moving() {
+            self.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            let _ = crate::ai::pathfind::update_goal_for_object(
+                id,
+                &pos,
+                crate::ai::pathfind::PathfindLayerEnum::from_u32(layer as u32),
+            );
+            self.pathfind_cur_cell = ICoord2D::new(-1, -1);
+            let immobile = get_unit_arc(self.unit_id)
+                .and_then(|unit| {
+                    let guard = unit.read().ok()?;
+                    let base = guard.base_arc();
+                    let object = base.read().ok()?;
+                    Some(object.is_kind_of(crate::common::KindOf::Immobile))
+                })
+                .unwrap_or(false);
+            if immobile || !self.is_doing_ground_movement() {
+                return;
+            }
+            if let Ok(ai) = the_ai().read() {
+                if let Some(pathfinder) = ai.pathfinder() {
+                    if let Ok(pf) = pathfinder.read() {
+                        let (cell_radius, center_in_cell) =
+                            crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(
+                                radius,
+                            );
+                        let cell_size = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+                        let (nx, ny) = if center_in_cell {
+                            (
+                                (pos.x / cell_size).floor() as i32,
+                                (pos.y / cell_size).floor() as i32,
+                            )
+                        } else {
+                            (
+                                (0.5 + pos.x / cell_size).floor() as i32,
+                                (0.5 + pos.y / cell_size).floor() as i32,
+                            )
+                        };
+                        let cell = crate::ai::pathfind_astar::GridCoord::new(nx, ny);
+                        let pf_layer =
+                            crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32);
+                        pf.update_pos_cells(
+                            cell,
+                            id,
+                            pf_layer,
+                            cell_radius,
+                            center_in_cell,
+                            bridge_end,
+                        );
+                        if pf.is_map_ready() {
+                            self.pathfind_cur_cell = ICoord2D::new(nx, ny);
+                        }
+                    }
+                }
+            }
+        } else if self.pathfind_goal_cell.x >= 0 && self.pathfind_goal_cell.y >= 0 {
+            let cell = crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F;
+            let goal = Coord3D::new(
+                self.pathfind_goal_cell.x as f32 * cell + cell * 0.5,
+                self.pathfind_goal_cell.y as f32 * cell + cell * 0.5,
+                pos.z,
+            );
+            self.pathfind_goal_cell = ICoord2D::new(-1, -1);
+            let _ = crate::ai::pathfind::update_goal_for_object(
+                id,
+                &goal,
+                crate::ai::pathfind::PathfindLayerEnum::from_u32(layer as u32),
+            );
+        }
+    }
+
     pub(super) fn is_moving(&self) -> bool {
+        // C++ AIUpdate.cpp:3169-3180. Idle is false. A locomotor goal or
+        // m_isMoving is true. The path existing is not enough.
         if self.is_idle() {
             return false;
         }
-        get_unit_arc(self.unit_id)
-            .and_then(|unit| {
-                unit.read().ok().map(|guard| {
-                    guard.is_movement_active()
-                        || guard
-                            .path_following_state
-                            .as_ref()
-                            .map(|state| state.waiting_for_path)
-                            .unwrap_or(false)
-                        || guard.current_path.is_some()
-                        || guard.target_position.is_some()
-                })
-            })
-            .unwrap_or(false)
+        if self.locomotor_goal_type != 0 || self.cpp_is_moving {
+            return true;
+        }
+        false
     }
     pub(super) fn is_idle(&self) -> bool {
         if let Some(jet_ai) = self.jet_ai.as_ref() {
@@ -1662,6 +1768,7 @@ impl UnitAIUpdate {
     }
     pub(super) fn destroy_path(&mut self) {
         self.current_path_snapshot = None;
+        self.installed_path_layers.clear();
         self.waiting_for_path = false;
         self.is_attack_path = false;
         if let Some(unit) = get_unit_arc(self.unit_id) {

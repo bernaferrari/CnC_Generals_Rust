@@ -225,10 +225,10 @@ impl CommandLineArgs {
                     "quickstart" => parsed.quick_start = true,
                     "autoreplay" => parsed.auto_replay = true,
                     "benchmark" => parsed.benchmark_mode = true,
-                    "seed" | "netminplayers" | "playstats" | "forcebenchmark" | "nomusic"
-                    | "nosizzle" | "noshaders" | "particleedit" | "scriptdebug" | "noshellanim"
+                    "seed" | "netminplayers" | "playstats" | "forcebenchmark"
+                    | "nosizzle" | "noshaders" | "particleedit" | "scriptdebug"
                     | "wincursors" | "constantdebug" | "showteamdot" | "nomovecamera"
-                    | "nodraw" | "jumptoframe" => {}
+                    | "nodraw" | "jumptoframe" | "nomusic" | "noshellanim" | "noshellmap" => {}
                     "server" => parsed.server_mode = true,
                     "client" => parsed.client_mode = true,
                     "port" => {

@@ -666,6 +666,35 @@ impl Renderer {
             )
         };
         render_result?;
+        if ww3d_gpu::sorting_renderer_stats().batch_count > 0 {
+            let mut sort_pass = targets.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("WW3D Sorting Flush"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: targets.color_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: targets.depth_view.map(|view| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }
+                }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            ww3d_gpu::flush_sorting_renderer(&mut sort_pass);
+        }
+
         for render_obj in non_mesh_static.drain(..) {
             render_obj.render(info)?;
         }
@@ -715,7 +744,13 @@ impl Renderer {
         }
 
         self.mesh_render_manager.ensure_model(&mesh_model)?;
+        let sorting = rendering::mesh_system::DX8FVFCategoryContainer::sorting_for_mesh(
+            mesh_model.flags,
+            mesh_model.sort_level,
+        );
+        self.mesh_render_manager.ensure_sorting_container(sorting);
         self.registered_mesh_models.insert(key, mesh_model);
+
         Ok(())
     }
 

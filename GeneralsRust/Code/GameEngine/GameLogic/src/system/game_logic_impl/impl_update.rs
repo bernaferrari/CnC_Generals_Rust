@@ -245,7 +245,7 @@ impl GameLogic {
         }
 
         // Update the command system's frame counter
-        if let Err(e) = crate::commands::update_command_system(frame) {
+        if let Err(e) = crate::commands::update_command_system(frame, &mut self.formation_manager) {
             warn!("Command system update failed: {}", e);
         }
 
@@ -575,20 +575,20 @@ impl GameLogic {
 
         // C++ parity: consume routed command-list messages before object updates.
         // Route target is the shared CommandQueueManager fed by GameClient translators.
-        if let Ok(mut processor) = crate::commands::get_command_processor().lock() {
-            let mut context = crate::commands::CommandExecutionContext {
-                current_frame: self.frame,
-                player_id: 0,
-                object_manager: None,
-                player_manager: None,
-                ai_manager: None,
-                execution_start_time: Instant::now(),
-                is_network_command: false,
-                is_replay_command: false,
-            };
-            if let Err(err) = processor.process_frame(self.frame, &mut context) {
-                warn!("Command processor frame execution failed: {}", err);
-            }
+        // Processor state is per GameLogic so two worlds do not share frame stats.
+        let frame = self.frame;
+        let mut context = crate::commands::CommandExecutionContext {
+            current_frame: frame,
+            player_id: 0,
+            object_manager: None,
+            player_manager: None,
+            ai_manager: None,
+            execution_start_time: Instant::now(),
+            is_network_command: false,
+            is_replay_command: false,
+        };
+        if let Err(err) = self.command_processor.process_frame(frame, &mut context) {
+            warn!("Command processor frame execution failed: {}", err);
         }
 
         // Process all pending commands
@@ -599,14 +599,6 @@ impl GameLogic {
             }
         }
 
-        // Also process commands through dispatch system
-        if let Some(dispatch_mutex) = get_dispatch() {
-            if let Ok(mut dispatch) = dispatch_mutex.lock() {
-                if let Err(e) = dispatch.update(self.frame) {
-                    warn!("Dispatch update failed: {}", e);
-                }
-            }
-        }
 
         Ok(())
     }
@@ -1388,7 +1380,13 @@ impl GameLogic {
     fn update_weapon_store(&self) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_weapon_store()");
 
-        if let Err(e) = crate::weapon::with_weapon_store_mut(|store| store.update()) {
+        if let Err(e) = (|| {
+            let due = crate::weapon::with_weapon_store_mut(|store| store.take_due_delayed_damage())?;
+            for info in due {
+                crate::weapon::WeaponStore::apply_delayed_damage(info)?;
+            }
+            Ok::<(), crate::GameLogicError>(())
+        })() {
             // "System not initialized" means the weapon store hasn't been loaded
             // yet (e.g. before map load). Silently skip in that case.
             let err_str = e.to_string();

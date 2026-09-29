@@ -8,8 +8,6 @@ use crate::helpers::{
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default)]
 pub struct W3DPoliceCarDrawModuleData {
@@ -75,6 +73,24 @@ impl W3DPoliceCarDraw {
         self.base.bind_owner_id(owner_id);
     }
 
+    /// Live host flashing light. The scene-light id stays on this module.
+    pub fn tick_live_host_light(&mut self, position: [f32; 3], hidden: bool) {
+        if hidden {
+            return;
+        }
+        self.tick_live_light(position);
+    }
+
+    /// Live host dust/dirt/powerslide on the embedded truck draw.
+    pub fn tick_live_host_dust(
+        &mut self,
+        template_name: &str,
+        physics: TruckDrawLivePhysics,
+        hidden: bool,
+    ) {
+        self.base.tick_live_host(template_name, physics, hidden);
+    }
+
     pub fn cur_frame(&self) -> Real {
         self.cur_frame
     }
@@ -100,6 +116,14 @@ impl W3DPoliceCarDraw {
                 3.0,
                 20.0,
             );
+        }
+    }
+}
+
+impl Drop for W3DPoliceCarDraw {
+    fn drop(&mut self) {
+        if let Some(id) = self.light_id.take() {
+            fade_scene_point_light(id, 5);
         }
     }
 }
@@ -222,36 +246,6 @@ impl Snapshotable for W3DPoliceCarDraw {
     }
 }
 
-thread_local! {
-    static LIVE_POLICE_CAR: RefCell<HashMap<ObjectID, W3DPoliceCarDraw>> =
-        RefCell::new(HashMap::new());
-}
-
-/// C++ `W3DPoliceCarDraw::doDrawModule` flashing ground light, leftover-ticked
-/// with the live host pose (leftover `TheGameLogic` may not own live objects).
-pub fn tick_live_host_police_car_light(owner_id: ObjectID, position: [f32; 3], hidden: bool) {
-    LIVE_POLICE_CAR.with(|map| {
-        let mut map = map.borrow_mut();
-        let draw = map.entry(owner_id).or_insert_with(|| {
-            let mut draw = W3DPoliceCarDraw::new(W3DPoliceCarDrawModuleData::new());
-            draw.bind_owner_id(owner_id);
-            draw
-        });
-        if hidden {
-            return;
-        }
-        draw.tick_live_light(position);
-    });
-}
-
-/// Fade leftover police-car light when the live drawable is pruned.
-pub fn prune_live_host_police_car_light(owner_id: ObjectID) {
-    LIVE_POLICE_CAR.with(|map| {
-        if let Some(mut draw) = map.borrow_mut().remove(&owner_id) {
-            draw.on_delete();
-        }
-    });
-}
 
 fn police_light_color(cur_frame: Real) -> (Real, Real, Real) {
     let mut red = 0.0;
@@ -300,7 +294,9 @@ mod tests {
 
     #[test]
     fn tick_live_host_police_car_light_creates_scene_point_light() {
-        tick_live_host_police_car_light(77, [10.0, 20.0, 3.0], false);
+        use game_engine::common::thing::module::Module;
+        let mut draw = W3DPoliceCarDraw::new(W3DPoliceCarDrawModuleData::new());
+        draw.tick_live_host_light([10.0, 20.0, 3.0], false);
         let lights = crate::helpers::scene_point_lights();
         assert!(
             lights.iter().any(|l| {
@@ -312,6 +308,6 @@ mod tests {
             }),
             "C++ W3DPoliceCarDraw light is pos.z+8 atten 3-20"
         );
-        prune_live_host_police_car_light(77);
+        draw.on_delete();
     }
 }

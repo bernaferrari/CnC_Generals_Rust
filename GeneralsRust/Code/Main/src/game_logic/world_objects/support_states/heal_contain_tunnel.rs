@@ -397,7 +397,6 @@ impl GameLogic {
                     );
                     if time > 0 {
                         let pulse = gamelogic::object::contain::open_contain::leftover_open_contain_arm_exit_door(
-                            exit_tunnel.0,
                             time,
                         );
                         container.door_close_countdown = pulse.countdown;

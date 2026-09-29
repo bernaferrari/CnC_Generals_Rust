@@ -843,7 +843,7 @@ mod tests {
         // Completing the player upgrade must re-check the existing unit's
         // module immediately (C++ onUpgradeCompleted fan-out).
         let upgrade = UpgradeTemplate::new(AsciiString::from("TestPlayerFanoutUpgrade"));
-        player.add_upgrade(&upgrade, crate::upgrade::UpgradeStatus::Complete);
+        player.add_upgrade(&upgrade, crate::upgrade::UpgradeStatus::Complete, None);
 
         let object = object_handle.read().expect("lock object");
         let status = object.get_status_bits();

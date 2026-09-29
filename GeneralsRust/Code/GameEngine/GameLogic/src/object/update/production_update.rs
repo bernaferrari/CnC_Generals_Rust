@@ -242,7 +242,7 @@ impl ProductionUpdate {
         self.add_to_production_queue(production, ctx);
 
         // Add upgrade to player
-        player.add_upgrade(upgrade, CrateUpgradeStatus::InProduction);
+        player.add_upgrade(upgrade, CrateUpgradeStatus::InProduction, None);
 
         true
     }
@@ -732,8 +732,8 @@ impl ProductionUpdate {
         }
 
         if let Ok(mut exit_guard) = exit_interface.lock() {
-            let _ = exit_guard
-                .exit_object_via_door(new_obj.read().map(|g| g.get_id()).unwrap_or(0), door);
+            let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
+            let _ = exit_guard.exit_object_via_door(new_id, door);
             // A successful exit owns the reservation. Do not unreserve it later.
             self.production_queue[idx].exit_door = ExitDoorType::NoneAvailable;
         }
@@ -894,7 +894,7 @@ impl ProductionUpdate {
             // Apply the upgrade based on type (while we still hold the reference)
             match upgrade_type {
                 UpgradeType::Player => {
-                    player.add_upgrade(upgrade, CrateUpgradeStatus::Complete);
+                    player.add_upgrade(upgrade, CrateUpgradeStatus::Complete, None);
                 }
                 UpgradeType::Object => {
                     // Need &mut Object for give_upgrade — use find_object_mut
@@ -1258,9 +1258,11 @@ impl ExitDoorType {
             ExitDoorType::NoneAvailable => crate::modules::ExitDoorType::NoneAvailable,
             ExitDoorType::NoneNeeded => crate::modules::ExitDoorType::None,
             ExitDoorType::Door(n) => match n {
-                0 => crate::modules::ExitDoorType::Primary,
-                1 => crate::modules::ExitDoorType::Secondary,
-                _ => crate::modules::ExitDoorType::Emergency,
+                0 => crate::modules::ExitDoorType::Door1,
+                1 => crate::modules::ExitDoorType::Door2,
+                2 => crate::modules::ExitDoorType::Door3,
+                3 => crate::modules::ExitDoorType::Door4,
+                _ => crate::modules::ExitDoorType::NoneAvailable,
             },
         }
     }
@@ -1269,13 +1271,16 @@ impl ExitDoorType {
         match door {
             crate::modules::ExitDoorType::None => ExitDoorType::NoneNeeded,
             crate::modules::ExitDoorType::NoneAvailable => ExitDoorType::NoneAvailable,
-            crate::modules::ExitDoorType::Primary => ExitDoorType::Door(0),
-            crate::modules::ExitDoorType::Secondary => ExitDoorType::Door(1),
-            crate::modules::ExitDoorType::Emergency => ExitDoorType::Door(2),
-            crate::modules::ExitDoorType::Door1 => ExitDoorType::Door(1),
-            crate::modules::ExitDoorType::Door2 => ExitDoorType::Door(2),
-            crate::modules::ExitDoorType::Door3 => ExitDoorType::Door(3),
-            crate::modules::ExitDoorType::Door4 => ExitDoorType::Door(4),
+            crate::modules::ExitDoorType::Primary | crate::modules::ExitDoorType::Door1 => {
+                ExitDoorType::Door(0)
+            }
+            crate::modules::ExitDoorType::Secondary | crate::modules::ExitDoorType::Door2 => {
+                ExitDoorType::Door(1)
+            }
+            crate::modules::ExitDoorType::Emergency | crate::modules::ExitDoorType::Door3 => {
+                ExitDoorType::Door(2)
+            }
+            crate::modules::ExitDoorType::Door4 => ExitDoorType::Door(3),
         }
     }
 }

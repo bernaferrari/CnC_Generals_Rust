@@ -1105,6 +1105,8 @@ impl DisplayInterface for Display {
             );
         });
 
+
+
         // C++ W3DParticleSys::doParticles — terrain visible-box cull.
         if let Ok(mut guard) = crate::effects::particle_manager::get_particle_system_manager_mut() {
             if let Some(mgr) = guard.as_mut() {

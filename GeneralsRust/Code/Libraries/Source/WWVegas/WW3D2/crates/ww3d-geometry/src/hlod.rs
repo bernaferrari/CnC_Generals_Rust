@@ -844,6 +844,56 @@ impl HLod {
     }
 }
 
+impl RenderObject for HLod {
+    #[cfg(feature = "wgpu")]
+    fn render(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if self.hidden {
+            return Ok(());
+        }
+        let count = self.get_num_sub_objects();
+        for index in 0..count {
+            if let Some(sub_object) = self.get_sub_object(index) {
+                sub_object.render(render_pass)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn get_bounding_box(&self) -> &AABox {
+        &self.bounding_box
+    }
+
+    fn get_transform(&self) -> &Mat4 {
+        &self.transform
+    }
+
+    fn set_transform(&mut self, transform: Mat4) {
+        self.transform = transform;
+    }
+
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    fn get_num_polys(&self) -> usize {
+        let mut total = 0;
+        let count = self.get_num_sub_objects();
+        for index in 0..count {
+            if let Some(sub_object) = self.get_sub_object(index) {
+                total += sub_object.get_num_polys();
+            }
+        }
+        total
+    }
+
+    fn is_not_hidden_at_all(&self) -> bool {
+        !self.hidden
+    }
+}
+
 impl Clone for HLod {
     fn clone(&self) -> Self {
         Self {

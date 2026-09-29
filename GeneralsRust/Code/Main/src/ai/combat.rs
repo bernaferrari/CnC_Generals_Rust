@@ -191,12 +191,14 @@ impl AIPlayer {
     /// Record C++ `AIAttackMoveState` / `AIInternalMoveToState::onEnter` on the
     /// crate `AiStateMachine` (move/attack only; does not run the 48-state graph).
     pub(super) fn dispatch_crate_attack_move(
+        machines: &mut std::collections::HashMap<u32, gamelogic::ai::state_machine::AiStateMachine>,
         unit_id: ObjectId,
         dest: Vec3,
         focus: Option<ObjectId>,
     ) {
         let dest = gamelogic::common::types::Coord3D::new(dest.x, dest.y, dest.z);
         let _ = gamelogic::ai::state_machine::dispatch_host_move_attack(
+            machines,
             unit_id.0,
             gamelogic::ai::state_machine::HostMoveAttackKind::AttackMoveTo,
             Some(dest),
@@ -266,7 +268,12 @@ impl AIPlayer {
                     unit.is_attack_path = true;
                     unit.requested_destination = Some(enemy_base);
                 }
-                Self::dispatch_crate_attack_move(unit_id, enemy_base, focus_enemy);
+                Self::dispatch_crate_attack_move(
+                    &mut game_logic.host_move_attack_machines,
+                    unit_id,
+                    enemy_base,
+                    focus_enemy,
+                );
             } else {
                 if let Some(unit) = game_logic.host_object_mut(unit_id) {
                     unit.move_to(enemy_base);
@@ -274,7 +281,12 @@ impl AIPlayer {
                     unit.requested_destination = Some(enemy_base);
                 }
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
-                Self::dispatch_crate_attack_move(unit_id, enemy_base, focus_enemy);
+                Self::dispatch_crate_attack_move(
+                    &mut game_logic.host_move_attack_machines,
+                    unit_id,
+                    enemy_base,
+                    focus_enemy,
+                );
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_move_to(unit_id, enemy_base);
                 }

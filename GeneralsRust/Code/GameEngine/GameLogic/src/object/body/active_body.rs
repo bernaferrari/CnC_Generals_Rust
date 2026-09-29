@@ -948,10 +948,13 @@ impl ActiveBody {
 
         if let Some(template) = engine_template {
             if let Some(set) = template.find_armor_template_set(flags) {
+                // C++ ActiveBody.cpp:249-256. A set with no armor template
+                // clears m_curArmor. Do not substitute the module default.
                 desired_armor_name = set
                     .armor_template_name()
                     .map(|s| AsciiString::from(s.as_str()));
                 damage_fx_name = set.damage_fx_name().map(|s| AsciiString::from(s.as_str()));
+                return (desired_armor_name, damage_fx_name);
             }
         }
 
@@ -1059,7 +1062,7 @@ impl ActiveBody {
     }
 
     /// Perform damage FX using the resolved template, respecting throttling.
-    fn do_damage_fx(&mut self, damage_info: &DamageInfo) -> BodyResult<()> {
+    pub(crate) fn do_damage_fx(&mut self, damage_info: &DamageInfo) -> BodyResult<()> {
         let dealt = damage_info.output.actual_damage_dealt;
         // C++ ActiveBody.cpp:297-316 doDamageFX records last type + throttle
         // even when actualDamageDealt is 0. Do not drop bookkeeping first.
@@ -1340,8 +1343,11 @@ impl ActiveBody {
         let Ok(owner_guard) = owner.read() else {
             return Ok(());
         };
+        // C++ ActiveBody.cpp:963-969. MAX_BONES is 16. maxSystems only limits
+        // how many systems are spawned, not how many bones are queried.
+        const MAX_BONES: usize = 16;
         let bone_positions =
-            owner_guard.get_multi_logical_bone_position(bone_base_name, max_systems as usize);
+            owner_guard.get_multi_logical_bone_position(bone_base_name, MAX_BONES);
         drop(owner_guard);
 
         let num_bones = bone_positions.len();
@@ -1445,20 +1451,22 @@ impl ActiveBody {
                                 behavior_guard.get_projectile_update_interface()
                             {
                                 projectile.projectile_now_jammed();
+                                break;
                             }
                         }
                     }
                 }
             }
         }
-        if let Ok(mut state) = self.state.write() {
-            state.last_damage_cleared = false;
-        }
         Ok(())
     }
 }
 
 impl BodyModuleInterface for ActiveBody {
+    fn do_damage_fx_after_death(&mut self, damage_info: &DamageInfo) {
+        let _ = self.do_damage_fx(damage_info);
+    }
+
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
         // C++ ActiveBody::attemptDamage always applies local HP damage and records
         // lastDamageInfo (including death type). Owner/registry lookups already
@@ -1872,9 +1880,12 @@ impl BodyModuleInterface for ActiveBody {
                 }
             }
 
-            // Check if we died
+            // Check if we died. Object::attempt_damage_with_return also calls
+            // handle_death after dropping the body. That caller already holds
+            // the object write lock, so try_write fails and death runs once
+            // there. A direct body caller does not hold that lock; C++
+            // ActiveBody.cpp:641-649 still scores and calls onDie here.
             if current_health <= 0.0 && previous_health > 0.0 {
-                // C++ parity: credit the killer on health-crossing inside ActiveBody.
                 if damage_info.input.source_id != INVALID_ID {
                     let source_id = damage_info.input.source_id;
                     let owner_id = self.owner_id;
@@ -1884,13 +1895,19 @@ impl BodyModuleInterface for ActiveBody {
                         });
                     });
                 }
-
-                // Object::attempt_damage_with_return calls on_die on this
-                // &mut Object. A registry write here deadlocks that caller.
+                if let Some(owner) = self.get_owner() {
+                    if let Ok(mut owner_guard) = owner.try_write() {
+                        owner_guard.handle_death(Some(damage_info));
+                        drop(owner_guard);
+                        let _ = self.do_damage_fx(damage_info);
+                        return Ok(());
+                    }
+                }
+                // The object entry holds the write lock and runs death, then FX.
+                return Ok(());
             }
         }
 
-        // Do damage FX. A failed FX call must not retry the damage or the kill credit.
         let _ = self.do_damage_fx(damage_info);
 
         // Repulsor and friend retaliation run on the Object after this guard

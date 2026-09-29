@@ -77,6 +77,11 @@ pub struct AIStateMachine {
     pub(crate) base: StateMachine,
     /// Goal path to follow
     pub(crate) goal_path: Vec<Coord3D>,
+    /// Parallel to `goal_path`. C++ `PathNode` layer, can-optimize, next-optimized id.
+    pub(crate) goal_path_node: Vec<(i32, bool, i32)>,
+    /// C++ `Path::m_isOptimized` / `m_blockedByAlly`, after the node list.
+    pub(crate) goal_path_optimized: bool,
+    pub(crate) goal_path_blocked_by_ally: bool,
     /// Goal waypoint
     pub(crate) goal_waypoint: Option<Arc<Waypoint>>,
     /// Goal squad to attack
@@ -87,6 +92,8 @@ pub struct AIStateMachine {
     pub(crate) temporary_state_id: Option<u32>,
     /// Frame when temporary state ends
     pub(crate) temporary_state_frame_end: u32,
+    /// Consumed by the next `set_temporary_state`. Set by `do_quick_exit`, which already holds the AI mutex.
+    pub(crate) owner_ai_mutex_held_for_next_enter: bool,
 }
 
 impl std::fmt::Debug for AIStateMachine {
@@ -107,11 +114,15 @@ impl AIStateMachine {
         let mut machine = Self {
             base: StateMachine::new(Some(owner), name),
             goal_path: Vec::new(),
+            goal_path_node: Vec::new(),
+            goal_path_optimized: false,
+            goal_path_blocked_by_ally: false,
             goal_waypoint: None,
             goal_squad: None,
             goal_polygon: None,
             temporary_state_id: None,
             temporary_state_frame_end: 0,
+            owner_ai_mutex_held_for_next_enter: false,
         };
 
         // Define all AI states
@@ -587,6 +598,9 @@ impl AIStateMachine {
         // C++ AIStateMachine::clear() calls StateMachine::clear(), not reset().
         self.base.clear();
         self.goal_path.clear();
+        self.goal_path_node.clear();
+        self.goal_path_optimized = false;
+        self.goal_path_blocked_by_ally = false;
         self.goal_waypoint = None;
         self.goal_squad = None;
         self.goal_polygon = None;
@@ -683,6 +697,12 @@ impl AIStateMachine {
     /// Set goal path
     pub fn set_goal_path(&mut self, path: &[Coord3D]) {
         self.goal_path = path.to_vec();
+        self.goal_path_node = path
+            .iter()
+            .map(|_| (crate::path::PathfindLayerEnum::Ground as i32, true, -1))
+            .collect();
+        self.goal_path_optimized = false;
+        self.goal_path_blocked_by_ally = false;
     }
     /// Stamp a path onto FollowExitProduction before its onEnter.
     /// C++ reads friend_getGoalPathPosition; Rust onEnter reads self.path.
@@ -701,6 +721,8 @@ impl AIStateMachine {
     pub fn add_to_goal_path(&mut self, path_point: &Coord3D) {
         if self.goal_path.is_empty() {
             self.goal_path.push(*path_point);
+            self.goal_path_node
+                .push((crate::path::PathfindLayerEnum::Ground as i32, true, -1));
             return;
         }
 
@@ -714,6 +736,8 @@ impl AIStateMachine {
         }
 
         self.goal_path.push(*path_point);
+        self.goal_path_node
+            .push((crate::path::PathfindLayerEnum::Ground as i32, true, -1));
     }
 
     /// Get goal path position at index
@@ -801,6 +825,8 @@ impl AIStateMachine {
 
     /// Set temporary state
     pub fn set_temporary_state(&mut self, new_state_id: u32, frame_limit: u32) -> StateReturnType {
+        let owner_ai_mutex_held =
+            std::mem::replace(&mut self.owner_ai_mutex_held_for_next_enter, false);
         if let Some(current_id) = self.temporary_state_id.take() {
             if let Some(state) = self.base.get_state_mut(current_id) {
                 state.on_exit(StateExitType::Reset);
@@ -818,7 +844,21 @@ impl AIStateMachine {
             state.bind_goal_squad(goal_squad);
             state.bind_goal_polygon(goal_polygon);
             state.bind_goal_waypoint(goal_waypoint);
+            if owner_ai_mutex_held {
+                if let Some(kind) =
+                    crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
+                {
+                    kind.note_owner_ai_mutex_held(true);
+                }
+            }
             let ret = state.on_enter();
+            if owner_ai_mutex_held {
+                if let Some(kind) =
+                    crate::ai::states::follow_path::state_follow_path_kind(state.as_mut())
+                {
+                    kind.note_owner_ai_mutex_held(false);
+                }
+            }
             if ret != StateReturnType::Continue {
                 state.on_exit(StateExitType::Normal);
                 return ret;
@@ -1068,8 +1108,8 @@ impl Snapshotable for AIStateMachine {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
+        let mut version: u8 = 2;
+        xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed to xfer AIStateMachine version: {:?}", e))?;
 
         self.base
@@ -1079,6 +1119,10 @@ impl Snapshotable for AIStateMachine {
         let mut count = self.goal_path.len() as i32;
         xfer.xfer_int(&mut count)
             .map_err(|e| format!("Failed to xfer AIStateMachine goal path size: {:?}", e))?;
+        if xfer.is_loading() {
+            self.goal_path.clear();
+            self.goal_path_node.clear();
+        }
 
         for i in 0..count.max(0) {
             let mut pos = if xfer.is_loading() {
@@ -1089,16 +1133,44 @@ impl Snapshotable for AIStateMachine {
                     .copied()
                     .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
             };
-
+            if version >= 2 {
+                let mut node_id = count - i;
+                xfer.xfer_int(&mut node_id)
+                    .map_err(|e| format!("Failed to xfer goal_path[{i}] id: {:?}", e))?;
+            }
             xfer.xfer_real(&mut pos.x)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].x: {:?}", e))?;
             xfer.xfer_real(&mut pos.y)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].y: {:?}", e))?;
             xfer.xfer_real(&mut pos.z)
                 .map_err(|e| format!("Failed to xfer goal_path[{i}].z: {:?}", e))?;
+            let mut layer = self.goal_path_node.get(i as usize).map(|n| n.0).unwrap_or(crate::path::PathfindLayerEnum::Ground as i32);
+            let mut can_opt = self.goal_path_node.get(i as usize).map(|n| n.1).unwrap_or(false);
+            let mut next_opt = self.goal_path_node.get(i as usize).map(|n| n.2).unwrap_or(-1);
+            if version >= 2 {
+                xfer.xfer_int(&mut layer)
+                    .map_err(|e| format!("Failed to xfer goal_path[{i}] layer: {:?}", e))?;
+                xfer.xfer_bool(&mut can_opt)
+                    .map_err(|e| format!("Failed to xfer goal_path[{i}] canOptimize: {:?}", e))?;
+                xfer.xfer_int(&mut next_opt)
+                    .map_err(|e| format!("Failed to xfer goal_path[{i}] nextOptimized: {:?}", e))?;
+            }
             if xfer.is_loading() {
                 self.goal_path.push(pos);
+                self.goal_path_node.push((layer, can_opt, next_opt));
             }
+        }
+        if version >= 2 {
+            xfer.xfer_bool(&mut self.goal_path_optimized)
+                .map_err(|e| format!("Failed to xfer goal path optimized: {:?}", e))?;
+            let mut obsolete1 = 0i32;
+            let mut obsolete2 = 0u32;
+            xfer.xfer_int(&mut obsolete1)
+                .map_err(|e| format!("Failed to xfer obsolete path int: {:?}", e))?;
+            xfer.xfer_unsigned_int(&mut obsolete2)
+                .map_err(|e| format!("Failed to xfer obsolete path uint: {:?}", e))?;
+            xfer.xfer_bool(&mut self.goal_path_blocked_by_ally)
+                .map_err(|e| format!("Failed to xfer goal path blocked by ally: {:?}", e))?;
         }
 
         let mut waypoint_name = self

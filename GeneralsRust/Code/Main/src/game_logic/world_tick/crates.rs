@@ -510,6 +510,26 @@ impl GameLogic {
         };
         use gamelogic::common::Relationship;
 
+        let step = {
+            let store = game_engine::common::ini::get_ai_data_store();
+            let from_store = store.read().ok().and_then(|guard| {
+                guard
+                    .get_active()
+                    .map(|d| d.attack_priority_distance_modifier)
+            });
+            from_store
+                .filter(|v| *v > 0.0)
+                .or_else(|| {
+                    gamelogic::ai::the_ai().read().ok().and_then(|ai| {
+                        ai.get_ai_data()
+                            .read()
+                            .ok()
+                            .map(|d| d.attack_priority_distance_modifier)
+                    })
+                })
+                .filter(|v| *v > 0.0)
+                .unwrap_or(ATTACK_PRIORITY_DISTANCE_MODIFIER)
+        };
         let kind = classify_command_button_hunt_special(button);
         let hunter_off = self.hunt_pos_off_map(hunter_pos);
         let hunter_owner = self.objects.get(&hunter_id).and_then(|h| h.owner_player_id);
@@ -584,7 +604,7 @@ impl GameLogic {
             if raw == 0 {
                 continue;
             }
-            let eff = hunt_effective_priority(raw, d, ATTACK_PRIORITY_DISTANCE_MODIFIER);
+            let eff = hunt_effective_priority(raw, d, step);
             let better = match best {
                 None => true,
                 Some((_, be, br)) => eff > be || (eff == be && raw > br),

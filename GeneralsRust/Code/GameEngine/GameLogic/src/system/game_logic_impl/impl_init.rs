@@ -20,9 +20,7 @@ pub fn publish_rank_cap_if_live(logic: &GameLogic) {
                 publish_rank_level_limit(logic.rank_level_limit);
             }
         }
-        Err(std::sync::TryLockError::WouldBlock) => {
-            publish_rank_level_limit(logic.rank_level_limit);
-        }
+        Err(std::sync::TryLockError::WouldBlock) => {}
         Err(_) => {}
     }
 }
@@ -161,6 +159,8 @@ impl GameLogic {
         self.objects.clear();
         self.event_queue.clear();
         self.command_queue.clear();
+        self.formation_manager = crate::commands::FormationManager::new();
+        self.command_processor = crate::commands::CommandProcessor::new();
         self.radar_updates.clear();
         self.game_mode = GAME_NONE;
         self.game_paused = false;

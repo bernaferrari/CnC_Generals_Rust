@@ -106,7 +106,7 @@ impl Weapon {
         _distance_to_target: f32,
         target_object_type: ObjectType,
     ) -> Coord3D {
-        self.scatter_aim_point(target, target_object_type).0
+        self.scatter_aim_point(target, target_object_type, PathfindLayerEnum::Ground).0
     }
 
     /// Returns `(aim_point, rolled_scatter_radius)` after C++ randomization.
@@ -114,6 +114,7 @@ impl Weapon {
         &self,
         mut target: Coord3D,
         target_object_type: ObjectType,
+        layer: PathfindLayerEnum,
     ) -> (Coord3D, f32) {
         let mut scatter_radius = self.template.scatter_radius;
         if target_object_type == ObjectType::Infantry
@@ -130,7 +131,7 @@ impl Weapon {
         target.x += rolled * angle.cos();
         target.y += rolled * angle.sin();
         if let Some(terrain) = TheTerrainLogic::get() {
-            target.z = terrain.get_ground_height(target.x, target.y, None);
+            target.z = terrain.get_layer_height(target.x, target.y, layer);
         }
         (target, rolled)
     }
@@ -139,22 +140,25 @@ impl Weapon {
     pub(crate) fn take_scatter_target_pos(
         &mut self,
         primary_target_pos: &Coord3D,
+        layer: PathfindLayerEnum,
     ) -> Option<Coord3D> {
         if self.scatter_targets_unused.is_empty() {
             return None;
         }
         let last = self.scatter_targets_unused.len() as i32 - 1;
         let random_pick = get_game_logic_random_value(0, last) as usize;
-        let target_index = self.scatter_targets_unused[random_pick] as usize;
-        let scatter_target = self.template.scatter_targets.get(target_index).copied()?;
+        let target_index = self.scatter_targets_unused.swap_remove(random_pick) as usize;
+        let Some(scatter_target) = self.template.scatter_targets.get(target_index).copied() else {
+            return None;
+        };
         let scalar = self.template.get_scatter_target_scalar();
         let mut pos = *primary_target_pos;
         pos.x += scatter_target.x * scalar;
         pos.y += scatter_target.y * scalar;
         if let Some(terrain) = TheTerrainLogic::get() {
+            // C++ Weapon.cpp:2605 uses getGroundHeight, not the victim layer.
             pos.z = terrain.get_ground_height(pos.x, pos.y, None);
         }
-        self.scatter_targets_unused.swap_remove(random_pick);
         Some(pos)
     }
 
@@ -340,6 +344,7 @@ impl Weapon {
                 } else {
                     source_arc.as_ref().and_then(|arc| arc.try_read().ok())
                 };
+                let source_known = obj_id == source_obj_id || source_now.is_some();
                 let (producer_id, relationship, similar_skip, source_pos, x_axis) =
                     if obj_id == source_obj_id {
                         let rel = if victim_guard.is_undetected_defector() {
@@ -427,6 +432,9 @@ impl Weapon {
 
                 // Directional radius damage check (cone)
                 if self.template.radius_damage_angle < std::f32::consts::PI {
+                    if !source_known {
+                        continue;
+                    }
                     let dx = obj_pos.x - source_pos.x;
                     let dy = obj_pos.y - source_pos.y;
                     let dz = obj_pos.z - source_pos.z;
@@ -1112,11 +1120,6 @@ impl Weapon {
                 }
             }
 
-            if !launched {
-                if let Ok(mut proj_guard) = projectile_arc.write() {
-                    let _ = proj_guard.set_position(target_pos);
-                }
-            }
             report_missile_for_countermeasures(projectile_id, target_obj_id);
 
             return Ok(projectile_id);
@@ -1186,13 +1189,10 @@ impl Weapon {
         let mut laser_guard = laser_obj
             .write()
             .map_err(|_| WeaponError::SystemError("Laser object lock failed".to_string()))?;
-        let mut end_pos = if let Some(target_id) = target_obj_id {
-            TheGameLogic::find_object_by_id(target_id)
-                .and_then(|arc| arc.read().ok().map(|guard| *guard.get_position()))
-                .unwrap_or(*target_pos)
-        } else {
-            *target_pos
-        };
+        // C++ Weapon.cpp:2442-2448. Start from the passed aim point. Raise
+        // non-projectile, non-airborne victims by 10 so the beam is not in
+        // their feet. Do not replace the aim point with getPosition().
+        let mut end_pos = *target_pos;
         if let Some(target_id) = target_obj_id {
             let raise = TheGameLogic::find_object_by_id(target_id)
                 .and_then(|arc| {
@@ -1288,6 +1288,13 @@ impl Weapon {
             });
             if let Some(drawable) = drawable {
                 if let Ok(mut draw) = drawable.try_write() {
+                    let recoil = self.template.weapon_recoil;
+                    let recoil_angle = if recoil == 0.0 {
+                        0.0
+                    } else {
+                        (impact_pos.y - source_pos.y).atan2(impact_pos.x - source_pos.x)
+                    };
+                    draw.apply_weapon_recoil(recoil, recoil_angle);
                     handled = draw.handle_weapon_fire_fx(
                         crate::common::WeaponSlotType::from(self.weapon_slot),
                         self.current_barrel,
@@ -1476,6 +1483,18 @@ impl Weapon {
         {
             self.queue_self_damage(self.build_engine_damage_info(damage_info));
             return Ok(damage_info.input.amount);
+        }
+
+        if let Some(result) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
+                obj.attempt_damage(damage_info)
+                    .map(|_| damage_info.output.actual_damage_dealt)
+                    .map_err(|err| {
+                        WeaponError::SystemError(format!("Failed to apply damage: {}", err))
+                    })
+            })
+        {
+            return result;
         }
 
         // Borrow-first mutable access (no Arc clone).

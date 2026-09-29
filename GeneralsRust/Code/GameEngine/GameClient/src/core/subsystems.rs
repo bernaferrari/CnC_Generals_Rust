@@ -1015,36 +1015,23 @@ pub fn register_campaign_snapshot_block() {
 }
 
 fn xfer_tactical_view_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    // C++ View::xfer (View.cpp:236-256): version, angle, then look-at xyz.
     let current_version: XferVersion = 1;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    let mut position = with_tactical_view_ref(|view| *view.position());
     let mut angle = with_tactical_view_ref(|view| view.angle());
-    let mut pitch = with_tactical_view_ref(|view| view.pitch());
-    let mut zoom = with_tactical_view_ref(|view| view.zoom());
-    let mut height_above_ground = with_tactical_view_ref(|view| view.height_above_ground());
-    let mut field_of_view = with_tactical_view_ref(|view| view.field_of_view());
+    xfer.xfer_real(&mut angle)?;
 
+    let mut position = with_tactical_view_ref(|view| *view.position());
     xfer.xfer_real(&mut position.x)?;
     xfer.xfer_real(&mut position.y)?;
     xfer.xfer_real(&mut position.z)?;
-    xfer.xfer_real(&mut angle)?;
-    xfer.xfer_real(&mut pitch)?;
-    xfer.xfer_real(&mut zoom)?;
-    xfer.xfer_real(&mut height_above_ground)?;
-    xfer.xfer_real(&mut field_of_view)?;
 
-    if xfer.get_xfer_mode() == XferMode::Load {
-        with_tactical_view(|view| {
-            view.set_position(&Point3::new(position.x, position.y, position.z));
-            view.set_angle(angle);
-            view.set_pitch(pitch);
-            view.set_zoom(zoom);
-            view.set_height_above_ground(height_above_ground);
-            view.set_field_of_view(field_of_view);
-        });
-    }
+    with_tactical_view(|view| {
+        view.set_angle(angle);
+        view.look_at(&Point3::new(position.x, position.y, position.z));
+    });
 
     Ok(())
 }

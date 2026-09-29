@@ -145,6 +145,7 @@ pub struct PolygonSortingRenderer {
     view_proj_matrix: Mat4,
     /// Enable triangle drawing
     enable_draw: bool,
+
     /// Statistics
     total_vertices: usize,
     total_polygons: usize,
@@ -159,6 +160,7 @@ impl PolygonSortingRenderer {
             camera_position: Vec3::ZERO,
             view_proj_matrix: Mat4::IDENTITY,
             enable_draw: true,
+
             total_vertices: 0,
             total_polygons: 0,
         }
@@ -296,8 +298,8 @@ impl PolygonSortingRenderer {
         batches
     }
 
-    /// Clear all sorting data
-    /// Port of sortingrenderer.cpp Flush (lines 612-652)
+    /// Clear all sorting data.
+    /// Port of sortingrenderer.cpp Flush (lines 612-652).
     pub fn flush(&mut self) {
         self.nodes.clear();
         self.sorted_polygons.clear();

@@ -271,47 +271,15 @@ impl<'a> CommandExecutor<'a> {
 
     /// C++ `Pathfinder::isLinePassable` host analog for
     /// `AIGroup::friend_computeGroundPath` (`AIGroup.cpp:590-611`).
-    fn infantry_line_passable_to_center(&self, from: Vec3, center: Vec3) -> bool {
-        let (w, h, mask) = self.game_logic.snapshot_pathfinding_passability();
-        if w == 0 || h == 0 || mask.is_empty() {
-            return true;
-        }
-        let (origin, _) = self.game_logic.world_bounds();
-        const CELL: f32 = crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL;
-        let to_cell = |p: Vec3| -> (i32, i32) {
-            (
-                ((p.x - origin.x) / CELL) as i32,
-                ((p.z - origin.z) / CELL) as i32,
-            )
-        };
-        let (mut x0, mut y0) = to_cell(from);
-        let (x1, y1) = to_cell(center);
-        let dx = (x1 - x0).abs();
-        let sx = if x0 < x1 { 1 } else { -1 };
-        let dy = -(y1 - y0).abs();
-        let sy = if y0 < y1 { 1 } else { -1 };
-        let mut err = dx + dy;
-        loop {
-            if x0 < 0 || y0 < 0 || x0 >= w as i32 || y0 >= h as i32 {
-                return false;
-            }
-            let idx = (y0 as u32 * w + x0 as u32) as usize;
-            if mask.get(idx).copied().unwrap_or(true) {
-                return false;
-            }
-            if x0 == x1 && y0 == y1 {
-                return true;
-            }
-            let e2 = 2 * err;
-            if e2 >= dy {
-                err += dy;
-                x0 += sx;
-            }
-            if e2 <= dx {
-                err += dx;
-                y0 += sy;
-            }
-        }
+    fn infantry_line_passable_to_center(
+        &self,
+        from: Vec3,
+        center: Vec3,
+        surfaces: u32,
+    ) -> bool {
+        self.game_logic
+            .pathfinding_system
+            .line_passable_for_surfaces(from, center, surfaces)
     }
 
     /// C++ AIGroup::getMinMaxAndCenter residual (XZ plane; skip held).
@@ -333,7 +301,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             };
             // C++ AIGroup.cpp:335-362 — skip DISABLED_HELD and members with no AI.
-            if !o.is_alive() || o.contained_by.is_some() {
+            if !o.is_alive() || o.contained_by.is_some() || o.status.disabled_held {
                 continue;
             }
             if !Self::member_has_ai_update(o) {
@@ -372,7 +340,11 @@ impl<'a> CommandExecutor<'a> {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if !o.is_alive() || o.contained_by.is_some() {
+            if !o.is_alive()
+                || o.contained_by.is_some()
+                || o.status.disabled_held
+                || !Self::member_has_ai_update(o)
+            {
                 continue;
             }
             if o.is_kind_of(KindOf::Infantry) || o.object_type == ObjectType::Infantry {
@@ -393,7 +365,7 @@ impl<'a> CommandExecutor<'a> {
             let Some(o) = self.game_logic.host_object(id) else {
                 continue;
             };
-            if !o.is_alive() || o.contained_by.is_some() {
+            if !o.is_alive() || o.contained_by.is_some() || o.status.disabled_held {
                 continue;
             }
             if !Self::member_has_ai_update(o) {
@@ -454,6 +426,7 @@ impl<'a> CommandExecutor<'a> {
                 };
                 if !o.is_alive()
                     || o.contained_by.is_some()
+                    || o.status.disabled_held
                     || !Self::member_has_ai_update(o)
                     || o.is_kind_of(KindOf::Aircraft)
                 {
@@ -474,10 +447,21 @@ impl<'a> CommandExecutor<'a> {
                 if !o.is_kind_of(KindOf::Infantry) && o.object_type != ObjectType::Infantry {
                     continue;
                 }
-                if !o.is_alive() || o.contained_by.is_some() {
+                if !o.is_alive()
+                    || o.contained_by.is_some()
+                    || !Self::member_has_ai_update(o)
+                {
                     continue;
                 }
-                if !self.infantry_line_passable_to_center(o.get_position(), center_vehicle) {
+                let surfaces = if o.locomotor_surfaces != 0 {
+                    o.locomotor_surfaces
+                } else {
+                    crate::game_logic::object::Object::default_locomotor_surfaces_for_template(
+                        &o.thing.template,
+                    )
+                };
+                let from = o.get_position();
+                if !self.infantry_line_passable_to_center(from, center_vehicle, surfaces) {
                     is_passable = false;
                     break;
                 }
@@ -507,8 +491,11 @@ impl<'a> CommandExecutor<'a> {
             if !o.is_alive() {
                 continue;
             }
-            // C++ skips DISABLED_HELD riders.
-            if o.contained_by.is_some() {
+            // C++ sums AI members first. Held riders are skipped here and below.
+            if o.contained_by.is_some()
+                || o.status.disabled_held
+                || !Self::member_has_ai_update(o)
+            {
                 continue;
             }
             if o.is_kind_of(crate::game_logic::KindOf::Immobile)
@@ -523,15 +510,28 @@ impl<'a> CommandExecutor<'a> {
             count += 1;
         }
         if count == 0 {
-            // Fallback: any alive member.
+            let mut fx = 0.0f32;
+            let mut fy = 0.0f32;
+            let mut fz = 0.0f32;
+            let mut fallback = 0u32;
             for &id in units {
-                if let Some(o) = self.game_logic.host_object(id) {
-                    if o.is_alive() {
-                        return Some(o.get_position());
-                    }
+                let Some(o) = self.game_logic.host_object(id) else {
+                    continue;
+                };
+                if !o.is_alive() || o.status.disabled_held || o.contained_by.is_some() {
+                    continue;
                 }
+                let p = o.get_position();
+                fx += p.x;
+                fy += p.y;
+                fz += p.z;
+                fallback += 1;
             }
-            return None;
+            if fallback == 0 {
+                return None;
+            }
+            let n = fallback as f32;
+            return Some(Vec3::new(fx / n, fy / n, fz / n));
         }
         let n = count as f32;
         Some(Vec3::new(cx / n, cy / n, cz / n))

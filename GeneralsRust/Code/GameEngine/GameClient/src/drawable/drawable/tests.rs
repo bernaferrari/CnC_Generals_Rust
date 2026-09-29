@@ -270,6 +270,34 @@ fn fade_out_reaches_zero_opacity_after_requested_frames() {
 }
 
 #[test]
+fn expired_update_fades_then_skips_flash_and_tint() {
+    // C++ updateDrawable: client updates, fade, decal, then destroy and return
+    // before flash (`m_flashCount`) and tint status.
+    let mut drawable = BasicDrawable::new(DrawableId(90_001));
+    drawable.fade_out(8);
+    drawable.color_flash(Vector3::new(1.0, 0.0, 0.0), 2);
+    drawable.set_tint_status(TintStatus::FRENZY);
+    drawable.set_current_frame(DRAWABLE_FRAMES_PER_FLASH);
+    drawable.set_expiration_frame(DRAWABLE_FRAMES_PER_FLASH);
+
+    drawable.update(0.0);
+
+    assert_eq!(
+        drawable.time_elapsed_fade(),
+        1,
+        "fade runs before the expiration destroy"
+    );
+    assert!(
+        drawable.tint_envelope.is_none(),
+        "flash and tint status run after expiration and must not start"
+    );
+    assert_eq!(
+        drawable.flash_count, 2,
+        "flash count is not consumed on the expiration frame"
+    );
+}
+
+#[test]
 fn test_drawable_visibility() {
     let mut drawable = BasicDrawable::new(DrawableId(1));
 

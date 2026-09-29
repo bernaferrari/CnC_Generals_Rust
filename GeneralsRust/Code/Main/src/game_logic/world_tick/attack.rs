@@ -317,6 +317,13 @@ impl GameLogic {
     /// True when view is LOS-blocked or target is outside attack range
     /// (unless leech-range is active).
     pub fn out_of_weapon_range_object(&self, unit_id: ObjectId, victim_id: ObjectId) -> bool {
+        let contained = self.objects.get(&unit_id).and_then(|obj| obj.contained_by);
+        let container_ground = contained.is_some_and(|id| {
+            self.objects.get(&id).is_some_and(|container| {
+                container.is_kind_of(crate::game_logic::KindOf::Structure)
+                    || !container.status.airborne_target
+            })
+        });
         let Some(obj) = self.objects.get(&unit_id) else {
             return true;
         };
@@ -341,21 +348,20 @@ impl GameLogic {
         if obj.leech_range_active_for_slot(slot) {
             return false;
         }
-        // Contact weapon residual: skip LOS false positives at tiny ranges.
-        let contact =
-            weapon.range <= 5.0 || weapon.min_range > 0.0 && weapon.range <= weapon.min_range * 2.0;
-        // Ground LOS residual.
-        let on_ground = !obj.status.airborne_target
-            || obj.is_kind_of(crate::game_logic::KindOf::Structure)
-            || obj.contained_by.is_some()
-            || !obj.can_move();
-        let victim_air = victim.status.airborne_target;
-        if !contact && on_ground && !victim_air {
-            let from = obj.get_position();
+        let wname = obj.weapon_name_for_slot(slot);
+        let contact = wname
+            .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
+            .unwrap_or(false)
+            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(weapon.range);
+        let name = obj.template_name.to_ascii_lowercase();
+        let spawns = name.contains("spawnsaretheweapons") || name.contains("stinger");
+        let immobile = obj.is_kind_of(crate::game_logic::KindOf::Immobile);
+        let moving = crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
+        let on_ground = immobile || spawns || container_ground || moving;
+        let victim_high = victim.is_significantly_above_terrain();
+        if !contact && on_ground && !victim_high {
             let to = victim.get_position();
-            if self.attack_view_blocked(unit_id, Some(victim_id), to)
-                || self.pathfinding_system.is_attack_view_blocked(from, to)
-            {
+            if self.attack_view_blocked(unit_id, Some(victim_id), to) {
                 return true;
             }
         }
@@ -1536,9 +1542,12 @@ impl GameLogic {
                 let actual = if len > 0.0 { (v.y / len).asin() } else { 0.0 };
                 let mut desired = actual.max(min_pitch);
                 if ground_pitch > 0.0 && (!has_object || victim_immobile || victim_ground) {
+                    let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
                     let range = u
                         .selected_weapon_slot()
-                        .and_then(|s| u.weapon_slot(s).map(|w| w.range))
+                        .and_then(|s| u.weapon_slot(s).map(|w| {
+                            (u.effective_weapon_range(w.range) - under).max(0.0)
+                        }))
                         .unwrap_or(1.0)
                         .max(1.0);
                     let dist = v.length();
@@ -1880,19 +1889,9 @@ impl GameLogic {
         if !atk.is_within_attack_range_for_slot(slot, vic) {
             return false;
         }
-        if require_los {
-            let from = atk.get_position();
-            let to = vic.get_position();
-            if self.pathfinding_system.is_attack_view_blocked(from, to) {
-                return false;
-            }
-            let eye_a = atk.selection_radius.max(5.0) * 0.5;
-            let eye_b = vic.selection_radius.max(5.0) * 0.5;
-            let a = glam::Vec3::new(from.x, from.y + eye_a, from.z);
-            let b = glam::Vec3::new(to.x, to.y + eye_b, to.z);
-            if !self.is_clear_line_of_sight_terrain(a, b) {
-                return false;
-            }
+        let to = vic.get_position();
+        if require_los && self.attack_view_blocked(attacker_id, Some(victim_id), to) {
+            return false;
         }
         true
     }
@@ -2173,10 +2172,16 @@ impl GameLogic {
                     // C++ computeApproachTarget runs on the firing Weapon after chooseBest.
                     let slot = u.selected_weapon_slot();
                     let w = slot.and_then(|s| u.weapon_slot(s));
-                    let (min_r, max_r) = w.map(|w| (w.min_range, w.range)).unwrap_or((0.0, 0.0));
+                    let (min_r, max_r) = w
+                        .map(|w| (w.min_range, u.effective_weapon_range(w.range)))
+                        .unwrap_or((0.0, 0.0));
+                    let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+                    let min_r = (min_r - under).max(0.0);
+                    let max_r = (max_r - under).max(0.0);
                     let name = slot.and_then(|s| u.weapon_name_for_slot(s));
+                    let raw_range = w.map(|w| w.range).unwrap_or(0.0);
                     let contact = crate::game_logic::weapon_bootstrap::is_contact_effective_range(
-                        max_r,
+                        raw_range - under,
                     ) || name
                         .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
                         .unwrap_or(false);
@@ -2196,19 +2201,44 @@ impl GameLogic {
             // otherwise 0.9 * max.
             let dx = from.x - vic_pos.x;
             let dz = from.z - vic_pos.z;
-            let dist = (dx * dx + dz * dz).sqrt();
-            let (dir_x, dir_z) = if dist > 1e-3 {
-                (dx / dist, dz / dist)
+            let center_dist = (dx * dx + dz * dz).sqrt();
+            let dist = (center_dist - src_r - vic_r).max(0.0);
+            let cell = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE;
+            // C++ dist < 0.001: already there, unless the min-range back-off runs.
+            if dist < 0.001 && !(min_range > cell && dist < min_range) {
+                return true;
+            }
+            let (mut dir_x, mut dir_z) = if center_dist > 1e-3 {
+                (dx / center_dist, dz / center_dist)
             } else {
                 (1.0, 0.0)
             };
-            let cell = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE;
+            let too_close = !is_contact && min_range > cell && dist < min_range;
+            if too_close {
+                if let Some(unit) = self.objects.get(&unit_id) {
+                    if unit.is_above_terrain() {
+                        let angle = (-dir_z).atan2(-dir_x);
+                        let mut rel = unit.get_orientation() - angle;
+                        let pi = std::f32::consts::PI;
+                        if rel > 2.0 * pi {
+                            rel -= 2.0 * pi;
+                        }
+                        if rel < -2.0 * pi {
+                            rel += 2.0 * pi;
+                        }
+                        if rel.abs() < pi * 0.5 {
+                            dir_x = -dir_x;
+                            dir_z = -dir_z;
+                        }
+                    }
+                }
+            }
             let standoff = if is_contact {
                 0.0
-            } else if min_range > cell && dist < min_range {
+            } else if too_close {
                 (min_range + max_range) * 0.5 + src_r + vic_r
             } else if max_range > 0.0 {
-                max_range * 0.9 + src_r + vic_r
+                max_range * 0.9
             } else {
                 0.0
             };
@@ -2425,9 +2455,7 @@ impl GameLogic {
         let is_final = obj.is_final_goal;
         let adjusts = obj.adjust_destinations;
         let projectile = obj.is_kind_of(KindOf::Projectile);
-        let loco = if is_aircraft {
-            gamelogic::ai::pathfind_complete::SURFACE_AIR
-        } else if surfaces != 0 {
+        let loco = if surfaces != 0 {
             surfaces
         } else {
             gamelogic::ai::pathfind_complete::SURFACE_GROUND

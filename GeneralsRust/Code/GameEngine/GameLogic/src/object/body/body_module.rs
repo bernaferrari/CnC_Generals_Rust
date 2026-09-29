@@ -123,6 +123,8 @@ pub trait BodyModuleInterface: Send + Sync {
     /// Try to damage this object
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()>;
 
+    /// C++ doDamageFX after onDie. Default is a no-op for bodies that do not FX.
+    fn do_damage_fx_after_death(&mut self, _damage_info: &DamageInfo) {}
     /// Try to heal this object  
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()>;
 

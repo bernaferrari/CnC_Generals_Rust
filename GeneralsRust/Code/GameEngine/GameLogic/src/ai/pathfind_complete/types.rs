@@ -160,79 +160,62 @@ impl PathResult {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GoalCell {
-    pub(crate) goal_unit_ground: ObjectID,
-    pub(crate) goal_unit_top: ObjectID,
+    /// One id per layer ordinal. Ground is 1, bridges are 3–14, Wall is 15.
+    goal_unit: [ObjectID; 16],
+    pos_unit: [ObjectID; 16],
     pub(crate) goal_aircraft: ObjectID,
-    /// C++ PathfindCell::getPosUnit / setPosUnit (UNIT_PRESENT_FIXED occupancy).
-    pub(crate) pos_unit_ground: ObjectID,
-    pub(crate) pos_unit_top: ObjectID,
 }
 
 impl GoalCell {
     pub(crate) fn new() -> Self {
         Self {
-            goal_unit_ground: INVALID_ID,
-            goal_unit_top: INVALID_ID,
+            goal_unit: [INVALID_ID; 16],
+            pos_unit: [INVALID_ID; 16],
             goal_aircraft: INVALID_ID,
-            pos_unit_ground: INVALID_ID,
-            pos_unit_top: INVALID_ID,
         }
+    }
+
+    fn layer_index(layer: PathfindLayerEnum) -> Option<usize> {
+        let index = layer as u32 as usize;
+        if index < 16 { Some(index) } else { None }
     }
 
     pub(crate) fn get_goal_unit(&self, layer: PathfindLayerEnum) -> ObjectID {
-        match layer {
-            PathfindLayerEnum::Ground => self.goal_unit_ground,
-            _ => self.goal_unit_top,
-        }
+        Self::layer_index(layer)
+            .map(|index| self.goal_unit[index])
+            .unwrap_or(INVALID_ID)
     }
 
     pub(crate) fn set_goal_unit(&mut self, layer: PathfindLayerEnum, unit: ObjectID) {
-        match layer {
-            PathfindLayerEnum::Ground => self.goal_unit_ground = unit,
-            _ => self.goal_unit_top = unit,
+        if let Some(index) = Self::layer_index(layer) {
+            self.goal_unit[index] = unit;
         }
     }
 
     pub(crate) fn clear_goal_unit(&mut self, layer: PathfindLayerEnum, unit: ObjectID) {
-        match layer {
-            PathfindLayerEnum::Ground => {
-                if self.goal_unit_ground == unit {
-                    self.goal_unit_ground = INVALID_ID;
-                }
-            }
-            _ => {
-                if self.goal_unit_top == unit {
-                    self.goal_unit_top = INVALID_ID;
-                }
+        if let Some(index) = Self::layer_index(layer) {
+            if self.goal_unit[index] == unit {
+                self.goal_unit[index] = INVALID_ID;
             }
         }
     }
 
     pub(crate) fn get_pos_unit(&self, layer: PathfindLayerEnum) -> ObjectID {
-        match layer {
-            PathfindLayerEnum::Ground => self.pos_unit_ground,
-            _ => self.pos_unit_top,
-        }
+        Self::layer_index(layer)
+            .map(|index| self.pos_unit[index])
+            .unwrap_or(INVALID_ID)
     }
 
     pub(crate) fn set_pos_unit(&mut self, layer: PathfindLayerEnum, unit: ObjectID) {
-        match layer {
-            PathfindLayerEnum::Ground => self.pos_unit_ground = unit,
-            _ => self.pos_unit_top = unit,
+        if let Some(index) = Self::layer_index(layer) {
+            self.pos_unit[index] = unit;
         }
     }
 
     pub(crate) fn clear_pos_unit(&mut self, layer: PathfindLayerEnum, unit: ObjectID) {
-        match layer {
-            PathfindLayerEnum::Ground => {
-                if self.pos_unit_ground == unit {
-                    self.pos_unit_ground = INVALID_ID;
-                }
-            }
-            _ => {
-                if self.pos_unit_top == unit {
-                    self.pos_unit_top = INVALID_ID;
-                }
+        if let Some(index) = Self::layer_index(layer) {
+            if self.pos_unit[index] == unit {
+                self.pos_unit[index] = INVALID_ID;
             }
         }
     }

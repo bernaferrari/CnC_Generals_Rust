@@ -131,7 +131,7 @@ impl Weapon {
                             Some(source),
                             approach_target_pos,
                             |goal| {
-                                self.is_source_object_with_goal_position_within_attack_range(
+                                self.is_goal_pos_within_attack_range(
                                     source, goal, target, pos,
                                 )
                             },

@@ -141,9 +141,7 @@ use gamelogic::object::draw::{
     W3DPoliceCarDrawModuleData, W3DScienceModelDraw, W3DScienceModelDrawModuleData, W3DTankDraw,
     W3DTankDrawModuleData, W3DTankTruckDraw, W3DTankTruckDrawModuleData, W3DTreeDraw,
     W3DTreeDrawModuleData, W3DTruckDraw, W3DTruckDrawModuleData, leftover_science_model_data,
-    prune_live_host_police_car_light, prune_live_host_tread_debris, prune_live_host_truck_dust,
-    tick_live_host_police_car_light, tick_live_host_science_model_hide,
-    tick_live_host_tread_debris, tick_live_host_truck_dust,
+    tick_live_host_science_model_hide,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::{

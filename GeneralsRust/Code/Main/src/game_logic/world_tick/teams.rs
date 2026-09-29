@@ -199,26 +199,49 @@ impl GameLogic {
             return 0.0;
         };
         let base = obj.vision_range.max(0.0);
+        if obj.contained_by.is_some() {
+            let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+            let mut weapon_r = -1.0f32;
+            for slot in 0u8..8 {
+                if let Some(w) = obj.weapon_slot(slot) {
+                    let r = (obj.effective_weapon_range(w.range) - under).max(0.0);
+                    if r > weapon_r {
+                        weapon_r = r;
+                    }
+                }
+            }
+            return weapon_r;
+        }
         use crate::game_logic::host_radar_stealth_vision_residual::{
             VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL, VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
+            VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL, VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL,
         };
         let leftover = {
             let store = game_engine::common::ini::get_ai_data_store();
             let store = store.read().expect("AI data store read lock");
-            store
-                .get_active()
-                .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier))
+            store.get_active().map(|d| {
+                (
+                    d.alert_range_modifier,
+                    d.aggressive_range_modifier,
+                    d.guard_outer_modifier_human,
+                    d.guard_outer_modifier_ai,
+                )
+            })
         };
         let leftover = leftover.or_else(|| {
             gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|d| (d.alert_range_modifier, d.aggressive_range_modifier))
+                ai.get_ai_data().read().ok().map(|d| {
+                    (
+                        d.alert_range_modifier,
+                        d.aggressive_range_modifier,
+                        d.guard_outer_modifier_human,
+                        d.guard_outer_modifier_ai,
+                    )
+                })
             })
         });
-        let (alert, aggressive) = leftover
-            .map(|(a, g)| {
+        let (alert, aggressive, outer_human, outer_ai) = leftover
+            .map(|(a, g, h, i)| {
                 (
                     if a > 0.0 {
                         a
@@ -230,20 +253,46 @@ impl GameLogic {
                     } else {
                         VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL
                     },
+                    if h > 0.0 {
+                        h
+                    } else {
+                        VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL
+                    },
+                    if i > 0.0 {
+                        i
+                    } else {
+                        VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL
+                    },
                 )
             })
             .unwrap_or((
                 VISION_ALERT_RANGE_MODIFIER_RESIDUAL,
                 VISION_AGGRESSIVE_RANGE_MODIFIER_RESIDUAL,
+                VISION_GUARD_OUTER_MODIFIER_HUMAN_RESIDUAL,
+                VISION_GUARD_OUTER_MODIFIER_AI_RESIDUAL,
             ));
-        let mult = match obj.ai_attitude.clamp(-2, 2) {
-            -2 => 0.0, // Sleep: ignore all
-            -1 => 1.0, // Passive: wait-for-attack (range still used for last-attacker)
-            0 => 1.0,  // Normal
-            1 => alert,
-            _ => aggressive,
+        let player_is_human = self
+            .player_id_for_team(obj.team)
+            .and_then(|pid| self.players.get(&pid))
+            .map(|p| p.is_local)
+            .unwrap_or(false);
+        let mult = if player_is_human {
+            1.0
+        } else {
+            match obj.ai_attitude.clamp(-2, 2) {
+                -2 => 0.0, // Sleep: ignore all
+                -1 => 1.0, // Passive: wait-for-attack (range still used for last-attacker)
+                0 => 1.0,  // Normal
+                1 => alert,
+                _ => aggressive,
+            }
         };
-        base * mult
+        let owner = if player_is_human {
+            outer_human
+        } else {
+            outer_ai
+        };
+        base * mult * owner
     }
 
     /// C++ AIGuardMachine::getStdGuardRange / outer vision (no GUARDINNER).
@@ -258,12 +307,16 @@ impl GameLogic {
             .map(|p| p.is_local)
             .unwrap_or(false);
         let mood = obj.ai_attitude.clamp(-2, 2);
-        let weapon_r = obj
-            .weapon
-            .as_ref()
-            .map(|w| w.range)
-            .or_else(|| obj.secondary_weapon.as_ref().map(|w| w.range))
-            .unwrap_or(0.0);
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let mut weapon_r = -1.0f32;
+        for slot in 0u8..8 {
+            if let Some(w) = obj.weapon_slot(slot) {
+                let r = (obj.effective_weapon_range(w.range) - under).max(0.0);
+                if r > weapon_r {
+                    weapon_r = r;
+                }
+            }
+        }
         let contained = obj.contained_by.is_some();
         let base = obj.vision_range.max(0.0);
         let inner =

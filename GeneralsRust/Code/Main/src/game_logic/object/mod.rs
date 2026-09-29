@@ -1564,6 +1564,12 @@ pub struct Object {
     /// C++ `OpenContain::m_doorCloseCountdown` — frames until DOOR_1_CLOSING.
     #[serde(default)]
     pub door_close_countdown: u32,
+    /// C++ `OpenContain::m_lastLoadSoundFrame` — last frame EnterSound played.
+    #[serde(default)]
+    pub last_load_sound_frame: u32,
+    /// C++ `OpenContain::m_lastUnloadSoundFrame` — last frame ExitSound played.
+    #[serde(default)]
+    pub last_unload_sound_frame: u32,
 
 
     /// Applied upgrades keyed by upgrade template/tag name.

@@ -1160,6 +1160,7 @@ impl MeshRenderManager {
             0,
             force_two_sided,
         );
+        let mut sorted_groups: Vec<Arc<wgpu::BindGroup>> = Vec::with_capacity(8);
 
         let camera_binds = WgpuMaterialBinds::camera(
             self.gpu_device.as_ref(),
@@ -1206,10 +1207,12 @@ impl MeshRenderManager {
 
         resources.retain_buffer(Arc::clone(&camera_binds.buffer));
         resources.set_bind_group(render_pass, 0, Arc::clone(&camera_binds.bind_group));
+        sorted_groups.push(Arc::clone(&camera_binds.bind_group));
 
         resources.retain_buffer(Arc::clone(&model_binds.model_buffer));
         resources.retain_buffer(Arc::clone(&model_binds.lighting_buffer));
         resources.set_bind_group(render_pass, 1, Arc::clone(&model_binds.bind_group));
+        sorted_groups.push(Arc::clone(&model_binds.bind_group));
 
         let next_slot = 3u32;
         if prepared.is_skinned {
@@ -1232,6 +1235,7 @@ impl MeshRenderManager {
             resources.retain_buffer(Arc::clone(&binds.bones_buffer));
             resources.retain_buffer(Arc::clone(&binds.uv_transform_buffer));
             resources.set_bind_group(render_pass, 2, Arc::clone(&binds.bind_group));
+            sorted_groups.push(Arc::clone(&binds.bind_group));
         } else {
             // Non-skinned shaders expect UV transform at group 2.
             let uv_transform_binds = WgpuMaterialBinds::uv_transform(
@@ -1243,6 +1247,7 @@ impl MeshRenderManager {
             )?;
             resources.retain_buffer(Arc::clone(&uv_transform_binds.buffer));
             resources.set_bind_group(render_pass, 2, Arc::clone(&uv_transform_binds.bind_group));
+            sorted_groups.push(Arc::clone(&uv_transform_binds.bind_group));
         }
 
         let texture_bind_groups =
@@ -1253,6 +1258,7 @@ impl MeshRenderManager {
                 next_slot + offset as u32,
                 Arc::clone(bind_group),
             );
+            sorted_groups.push(Arc::clone(bind_group));
         }
         let color_group_index = next_slot + texture_bind_groups.len() as u32;
         let vertex_color =
@@ -1264,6 +1270,7 @@ impl MeshRenderManager {
             color_group_index,
             Arc::clone(&vertex_color.bind_group),
         );
+        sorted_groups.push(Arc::clone(&vertex_color.bind_group));
 
         if pass
             .diffuse_vertex_colors
@@ -1279,18 +1286,77 @@ impl MeshRenderManager {
             self.stats.vertex_color_passes += 1;
         }
 
-        self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
-
+        let sorting = mesh.model.as_ref().is_some_and(|model| {
+            DX8FVFCategoryContainer::sorting_for_mesh(model.flags, model.sort_level)
+        });
+        if sorting {
+            let origin = mesh.transform.w_axis.truncate();
+            let camera = render_info.camera.get_position();
+            let distance = (origin - camera).length();
+            self.enqueue_sorted_material_pass(
+                prepared,
+                pass,
+                &pipeline,
+                sorted_groups,
+                distance,
+            );
+        } else {
+            self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
+        }
 
         self.stats.material_passes += 1;
         self.stats.shader_switches += 1;
         if stage_masks.mask != 0 {
             self.stats.texture_switches += 1;
         }
-
-
         Ok(())
     }
+
+    fn enqueue_sorted_material_pass(
+        &self,
+        prepared: &PreparedMeshModel,
+        pass: &MaterialPassClass,
+        pipeline: &Arc<wgpu::RenderPipeline>,
+        bind_groups: Vec<Arc<wgpu::BindGroup>>,
+        distance: f32,
+    ) {
+        let pass_index = pass.get_pass_index();
+        let (start_index, count) = if pass_index < prepared.pass_index_ranges.len() {
+            prepared.pass_index_ranges[pass_index]
+        } else {
+            (0, 0)
+        };
+        let Some(index_buffer) = prepared.index_buffer.as_ref() else {
+            return;
+        };
+        if count < 3 {
+            return;
+        }
+        let vertex_buffer = ww3d_gpu::GpuBuffer::from_existing(
+            prepared.vertex_buffer.as_ref().clone(),
+            prepared.vertex_buffer.size(),
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        );
+        let index_gpu = ww3d_gpu::GpuBuffer::from_existing(
+            index_buffer.as_ref().clone(),
+            index_buffer.size(),
+            wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        );
+        ww3d_gpu::add_sorted_triangles_with_state(
+            vertex_buffer,
+            index_gpu,
+            start_index,
+            count / 3,
+            0,
+            prepared.vertex_count,
+            distance,
+            Arc::clone(pipeline),
+            bind_groups,
+            wgpu::IndexFormat::Uint32,
+        );
+    }
+
+
 
     // helper slots intentionally minimal; temporary bindings are stored in local vectors to ensure
     // they outlive the render pass borrow.
@@ -1755,6 +1821,19 @@ impl MeshRenderManager {
 
     pub fn register_fvf_container(&mut self, container: Arc<DX8FVFCategoryContainer>) {
         self.fvf_containers.push(container);
+    }
+
+    /// One rigid/skin container per sorting bit. C++ reuses a container with the same `Is_Sorting`.
+    pub fn ensure_sorting_container(&mut self, sorting: bool) {
+        if self
+            .fvf_containers
+            .iter()
+            .any(|container| container.is_sorting() == sorting)
+        {
+            return;
+        }
+        self.fvf_containers
+            .push(Arc::new(DX8FVFCategoryContainer::with_sorting(sorting)));
     }
 
     pub fn render_decal_queue(

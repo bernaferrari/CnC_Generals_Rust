@@ -60,9 +60,16 @@ impl MeshModelClass {
             model.texture_coords = stage0.clone();
         }
         if let Some(header) = &prototype.header {
-            model.sort_level = header.attrs;
+            model.sort_level = header.sort_level.max(0) as u32;
             model.w3d_attributes = header.attrs;
             super::mesh_camera_align::apply_camera_align_flags_from_header(&mut model, header);
+        }
+        if model.sort_level == SORT_LEVEL_NONE
+            && model.shaders.iter().any(|shader| {
+                shader.dest_blend != 0 && shader.alpha_test == 0
+            })
+        {
+            model.set_flag(MeshGeometryClass::SORT, true);
         }
         model.ensure_stage_zero();
 

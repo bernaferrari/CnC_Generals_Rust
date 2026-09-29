@@ -390,13 +390,20 @@ impl MeshClass {
     }
 
     /// Render the mesh - equivalent to C++ MeshClass::Render
-    pub fn render<'a>(
-        &'a mut self,
+    pub fn render(
+        &mut self,
         render_info: &RenderInfoClass,
-        render_pass: &mut wgpu::RenderPass<'a>,
+        render_pass: &mut wgpu::RenderPass<'_>,
     ) -> W3dResult<()> {
         if !self.is_not_hidden_at_all() {
             return Ok(());
+        }
+        if self
+            .model
+            .as_ref()
+            .is_some_and(|model| model.get_flag(MeshGeometryClass::SKIN))
+        {
+            self.update_skin();
         }
 
         // Static sort list handling (transparency sorting)
@@ -468,18 +475,19 @@ impl MeshClass {
                     for polygon_renderer in &model.polygon_renderer_list {
                         // Draw geometry again for this procedural pass
                         if let Some(index_buffer) = &polygon_renderer.index_buffer {
+                            let index_buffer = index_buffer.clone();
                             render_pass.set_index_buffer(
                                 index_buffer.slice(..),
                                 wgpu::IndexFormat::Uint32,
                             );
                             if let Some(vb) = &polygon_renderer.vertex_buffer {
+                                let vb = vb.clone();
                                 render_pass.set_vertex_buffer(0, vb.slice(..));
                             }
                             render_pass.draw_indexed(0..polygon_renderer.index_count, 0, 0..1);
-                        } else {
-                            if let Some(vb) = &polygon_renderer.vertex_buffer {
-                                render_pass.set_vertex_buffer(0, vb.slice(..));
-                            }
+                        } else if let Some(vb) = &polygon_renderer.vertex_buffer {
+                            let vb = vb.clone();
+                            render_pass.set_vertex_buffer(0, vb.slice(..));
                             render_pass.draw(0..polygon_renderer.vertex_count, 0..1);
                         }
                     }

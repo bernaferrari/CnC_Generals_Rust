@@ -13,14 +13,15 @@ use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
     TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient, register_preload_asset_hook,
-    register_pristine_bone_lookup_hook, register_terrain_decal_client,
+    register_pristine_bone_lookup_hook, register_sub_object_name_hook, register_model_bounds_hook,
+    register_terrain_decal_client,
     register_terrain_track_client, register_texture_aspect_hook,
 };
 use glam::{Mat4, Vec3};
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Once};
-use ww3d_assets::prototypes::HlodPrototype;
+use ww3d_assets::prototypes::{BoxPrototype, HlodPrototype};
 
 struct TerrainHeight;
 impl TerrainTrackHeightProvider for TerrainHeight {
@@ -362,6 +363,58 @@ fn lookup_pristine_bone(
     lookup_w3d_client_bone(model, scale, frame, bone)
 }
 
+fn lookup_sub_object_names(model: &str) -> Vec<String> {
+    let Ok(guard) = THE_RENDER_BRIDGE.lock() else {
+        return Vec::new();
+    };
+    let Some(bridge) = guard.as_ref() else {
+        return Vec::new();
+    };
+    let Some(hlod) = bridge.asset_manager().get_prototype_as::<HlodPrototype>(model) else {
+        return Vec::new();
+    };
+    hlod.lods
+        .iter()
+        .flat_map(|lod| lod.models.iter().map(|child| child.name.clone()))
+        .collect()
+}
+
+fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
+    let guard = THE_RENDER_BRIDGE.lock().ok()?;
+    let bridge = guard.as_ref()?;
+    let assets = bridge.asset_manager();
+    let Some(proto) = assets.get_prototype_as::<HlodPrototype>(model) else {
+        return Some(([0.0; 3], [0.0; 3]));
+    };
+    let Some(lod) = proto.lods.last() else {
+        return Some(([0.0; 3], [0.0; 3]));
+    };
+    let Some(child) = lod.models.iter().find(|child| {
+        child
+            .name
+            .rsplit('.')
+            .next()
+            .unwrap_or(child.name.as_str())
+            .eq_ignore_ascii_case("BOUNDINGBOX")
+    }) else {
+        return Some(([0.0; 3], [0.0; 3]));
+    };
+    let Some(obbox) = assets.get_prototype_as::<BoxPrototype>(&child.name) else {
+        return Some(([0.0; 3], [0.0; 3]));
+    };
+    let center = glam::Vec3::new(obbox.center.x, obbox.center.y, obbox.center.z);
+    let extent = glam::Vec3::new(obbox.extent.x, obbox.extent.y, obbox.extent.z);
+    let bind = assets
+        .get_hierarchy_prototype(&proto.hierarchy_name)
+        .and_then(|hierarchy| hierarchy.bind_transforms.get(child.bone_index as usize).copied())
+        .unwrap_or(glam::Mat4::IDENTITY);
+    let placed = bind.transform_point3(center);
+    let placed_extent = bind.x_axis.truncate().abs() * extent.x
+        + bind.y_axis.truncate().abs() * extent.y
+        + bind.z_axis.truncate().abs() * extent.z;
+    Some((placed.to_array(), placed_extent.to_array()))
+}
+
 fn preload_asset(name: &str) {
     log::debug!("W3DModelDraw preload_assets: {name}");
 }
@@ -384,6 +437,8 @@ pub fn ensure_logic_draw_hooks() {
         register_texture_aspect_hook(texture_aspect);
         register_preload_asset_hook(preload_asset);
         register_pristine_bone_lookup_hook(Some(Arc::new(lookup_pristine_bone)));
+        register_sub_object_name_hook(Some(Arc::new(lookup_sub_object_names)));
+        register_model_bounds_hook(Some(Arc::new(lookup_model_obj_bounds)));
         let _ = TheGameLogic::get_frame();
     });
 }

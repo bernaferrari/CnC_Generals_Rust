@@ -192,9 +192,6 @@ pub fn prune_presentation_specialized_draw(object_id: u32) {
     {
         map.remove(&object_id);
     }
-    prune_live_host_tread_debris(object_id);
-    prune_live_host_truck_dust(object_id);
-    prune_live_host_police_car_light(object_id);
     prune_live_host_animated_particle_sys_bones(object_id);
 }
 
@@ -398,58 +395,9 @@ impl PresentationSpecializedDrawModule {
                     * std::f32::consts::TAU;
             }
         }
-        let last_pos = self.last_pos;
-        let last_ori = self.last_orientation;
-        let had_pose = self.has_last_pose;
         self.last_pos = pos;
         self.last_orientation = e.orientation;
         self.has_last_pose = true;
-
-        if self.kind.has_tread_debris() {
-            // C++ W3DTankDraw.cpp:309-315 — leftover emitters, live host pose.
-            tick_live_host_tread_debris(
-                e.object_id,
-                pos,
-                vel_mag_sq,
-                e.scene_hidden_by_stealth || e.destroyed,
-                false,
-            );
-        }
-        if self.kind.has_truck_dust() {
-            // C++ W3DTruckDraw.cpp:554-614 — leftover emitters + landing/slide audio.
-            let speed = vel_mag_sq.sqrt();
-            let heading_x = e.orientation.cos();
-            let heading_y = e.orientation.sin();
-            let turning = if had_pose {
-                e.orientation - last_ori
-            } else {
-                0.0
-            };
-            let airborne = pos[2] > 2.0
-                || (had_pose && pos[2] > last_pos[2] + 0.35);
-            let visual = if e.visual_template_name.is_empty() {
-                e.template_name.as_str()
-            } else {
-                e.visual_template_name.as_str()
-            };
-            tick_live_host_truck_dust(
-                e.object_id,
-                visual,
-                leftover_truck_draw_module_data(visual),
-                TruckDrawLivePhysics {
-                    speed,
-                    vel_x: heading_x * speed,
-                    vel_y: heading_y * speed,
-                    accel_x: heading_x * speed,
-                    accel_y: heading_y * speed,
-                    is_motive: speed > 0.01,
-                    airborne,
-                    frames_airborne: 0,
-                    turning,
-                },
-                e.scene_hidden_by_stealth || e.destroyed,
-            );
-        }
 
         if self.kind == PresentationSpecializedDrawKind::Debris {
             self.tick_debris(e);
@@ -458,14 +406,6 @@ impl PresentationSpecializedDrawModule {
             // C++ W3DLaserDraw.h getLaserTemplateWidth = m_outerBeamWidth * 0.5.
             self.laser_width = DEFAULT_LASER_OUTER_BEAM_WIDTH * 0.5;
             self.publish_laser_line(e);
-        }
-        if self.kind.has_police_light() {
-            // C++ W3DPoliceCarDraw.cpp:77-131 leftover flashing ground light.
-            tick_live_host_police_car_light(
-                e.object_id,
-                pos,
-                e.scene_hidden_by_stealth || e.destroyed,
-            );
         }
         let visual = if e.visual_template_name.is_empty() {
             e.template_name.as_str()
@@ -674,14 +614,17 @@ impl GameClient {
                 PresentationSpecializedDrawModule::new(name.clone(), kind, e.object_id, model_name);
             drawable.add_draw_module(Box::new(residual));
         }
-        Self::tick_specialized_from_sync(e);
+        Self::tick_specialized_from_sync(drawable, e);
     }
 
-    fn tick_presentation_specialized_draw_modules(e: &PresentationDrawableSync) {
-        Self::tick_specialized_from_sync(e);
+    fn tick_presentation_specialized_draw_modules(
+        drawable: &mut BasicDrawable,
+        e: &PresentationDrawableSync,
+    ) {
+        Self::tick_specialized_from_sync(drawable, e);
     }
 
-    fn tick_specialized_from_sync(e: &PresentationDrawableSync) {
+    fn tick_specialized_from_sync(drawable: &mut BasicDrawable, e: &PresentationDrawableSync) {
         let names = presentation_draw_module_names_for(e);
         let Some(name) = names.first() else {
             return;
@@ -718,7 +661,247 @@ impl GameClient {
             module.has_last_pose = true;
         }
         module.tick(e);
+        tick_persistent_live_host_draws(drawable, e);
         store_last_pose(e.object_id, e.position, e.orientation);
+    }
+}
+
+enum HostedDrawRole {
+    Tank,
+    Truck,
+    Police,
+}
+
+struct LiveHostTick {
+    object_id: u32,
+    position: [f32; 3],
+    vel_mag_sq: Real,
+    hidden: bool,
+    visual: String,
+    physics: TruckDrawLivePhysics,
+}
+
+fn live_host_tick_from_sync(e: &PresentationDrawableSync) -> LiveHostTick {
+    let pos = e.position;
+    let mut vel_mag_sq = 0.0;
+    let mut had_pose = false;
+    let mut last_pos = pos;
+    let mut last_ori = e.orientation;
+    if let Some(prev) = prev_last_pos(e.object_id) {
+        had_pose = true;
+        last_pos = prev;
+        last_ori = prev_last_ori(e.object_id).unwrap_or(e.orientation);
+        let dx = pos[0] - last_pos[0];
+        let dy = pos[1] - last_pos[1];
+        vel_mag_sq = dx * dx + dy * dy;
+    }
+    let speed = vel_mag_sq.sqrt();
+    let heading_x = e.orientation.cos();
+    let heading_y = e.orientation.sin();
+    let turning = if had_pose {
+        e.orientation - last_ori
+    } else {
+        0.0
+    };
+    let airborne = pos[2] > 2.0 || (had_pose && pos[2] > last_pos[2] + 0.35);
+    let visual = if e.visual_template_name.is_empty() {
+        e.template_name.clone()
+    } else {
+        e.visual_template_name.clone()
+    };
+    LiveHostTick {
+        object_id: e.object_id,
+        position: pos,
+        vel_mag_sq,
+        hidden: e.scene_hidden_by_stealth || e.destroyed,
+        visual,
+        physics: TruckDrawLivePhysics {
+            speed,
+            vel_x: heading_x * speed,
+            vel_y: heading_y * speed,
+            accel_x: heading_x * speed,
+            accel_y: heading_y * speed,
+            is_motive: speed > 0.01,
+            airborne,
+            frames_airborne: 0,
+            turning,
+        },
+    }
+}
+
+fn hosted_draw_role(
+    module: &mut dyn game_engine::common::thing::module::Module,
+) -> Option<HostedDrawRole> {
+    use game_engine::common::thing::module::Module;
+    if Module::as_any_mut(module)
+        .downcast_mut::<W3DTankDraw>()
+        .is_some()
+    {
+        return Some(HostedDrawRole::Tank);
+    }
+    if Module::as_any_mut(module)
+        .downcast_mut::<W3DOverlordTankDraw>()
+        .is_some()
+    {
+        return Some(HostedDrawRole::Tank);
+    }
+    if Module::as_any_mut(module)
+        .downcast_mut::<W3DPoliceCarDraw>()
+        .is_some()
+    {
+        return Some(HostedDrawRole::Police);
+    }
+    if Module::as_any_mut(module)
+        .downcast_mut::<W3DTruckDraw>()
+        .is_some()
+    {
+        return Some(HostedDrawRole::Truck);
+    }
+    if Module::as_any_mut(module)
+        .downcast_mut::<W3DOverlordTruckDraw>()
+        .is_some()
+    {
+        return Some(HostedDrawRole::Truck);
+    }
+    if Module::as_any_mut(module)
+        .downcast_mut::<W3DTankTruckDraw>()
+        .is_some()
+    {
+        return Some(HostedDrawRole::Truck);
+    }
+    None
+}
+
+fn live_host_roles(drawable: &mut BasicDrawable) -> (bool, bool, bool) {
+    let mut tank = false;
+    let mut truck = false;
+    let mut police = false;
+    for module in drawable.get_draw_modules_mut() {
+        let Some(logic) = module.logic_module_mut() else {
+            continue;
+        };
+        match hosted_draw_role(logic) {
+            Some(HostedDrawRole::Tank) => tank = true,
+            Some(HostedDrawRole::Truck) => truck = true,
+            Some(HostedDrawRole::Police) => police = true,
+            None => {}
+        }
+    }
+    (tank, truck, police)
+}
+
+fn push_logic_draw(
+    drawable: &mut BasicDrawable,
+    name: &str,
+    module: Box<dyn game_engine::common::thing::module::Module>,
+) {
+    drawable.add_draw_module(Box::new(LogicDrawModuleSnapshotAdapter::draw_module(
+        name,
+        module,
+    )));
+}
+
+fn ensure_live_host_draw(
+    drawable: &mut BasicDrawable,
+    e: &PresentationDrawableSync,
+    kind: PresentationSpecializedDrawKind,
+) {
+    if !kind.has_tread_debris() && !kind.has_truck_dust() && !kind.has_police_light() {
+        return;
+    }
+    let (has_tank, has_truck, has_police) = live_host_roles(drawable);
+    let visual = if e.visual_template_name.is_empty() {
+        e.template_name.as_str()
+    } else {
+        e.visual_template_name.as_str()
+    };
+    let mut has_police = has_police;
+    if kind.has_police_light() && !has_police {
+        let mut data = W3DPoliceCarDrawModuleData::new();
+        if let Some(truck) = leftover_truck_draw_module_data(visual) {
+            data.base = truck;
+        }
+        let mut draw = W3DPoliceCarDraw::new(data);
+        draw.bind_owner_id(e.object_id);
+        push_logic_draw(drawable, "W3DPoliceCarDraw", Box::new(draw));
+        has_police = true;
+    }
+    if kind.has_truck_dust() && !has_truck && !has_police {
+        let data =
+            leftover_truck_draw_module_data(visual).unwrap_or_else(W3DTruckDrawModuleData::new);
+        let mut draw = W3DTruckDraw::new(data);
+        draw.bind_owner_id(e.object_id);
+        draw.bind_sounds_from_template(visual);
+        push_logic_draw(drawable, "W3DTruckDraw", Box::new(draw));
+    }
+    if kind.has_tread_debris() && !has_tank {
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData::new());
+        draw.bind_owner_id(e.object_id);
+        push_logic_draw(drawable, "W3DTankDraw", Box::new(draw));
+    }
+}
+
+fn apply_live_host_draw(
+    module: &mut dyn game_engine::common::thing::module::Module,
+    kind: PresentationSpecializedDrawKind,
+    ctx: &LiveHostTick,
+) {
+    use game_engine::common::thing::module::Module;
+    if kind.has_tread_debris() {
+        if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DTankDraw>() {
+            draw.bind_owner_id(ctx.object_id);
+            draw.tick_live_move_debris(ctx.position, ctx.vel_mag_sq, ctx.hidden, false);
+            return;
+        }
+        if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DOverlordTankDraw>() {
+            draw.bind_owner_id(ctx.object_id);
+            draw.tick_live_tread_debris(ctx.position, ctx.vel_mag_sq, ctx.hidden, false);
+            return;
+        }
+    }
+    if kind.has_police_light() {
+        if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DPoliceCarDraw>() {
+            draw.bind_owner_id(ctx.object_id);
+            draw.tick_live_host_light(ctx.position, ctx.hidden);
+            if kind.has_truck_dust() {
+                draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+            }
+        }
+        return;
+    }
+    if kind.has_truck_dust() {
+        if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DTruckDraw>() {
+            draw.bind_owner_id(ctx.object_id);
+            draw.tick_live_host(&ctx.visual, ctx.physics, ctx.hidden);
+            return;
+        }
+        if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DOverlordTruckDraw>() {
+            draw.bind_owner_id(ctx.object_id);
+            draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+            return;
+        }
+        if let Some(draw) = Module::as_any_mut(module).downcast_mut::<W3DTankTruckDraw>() {
+            draw.bind_owner_id(ctx.object_id);
+            draw.tick_live_host_dust(&ctx.visual, ctx.physics, ctx.hidden);
+        }
+    }
+}
+
+fn tick_persistent_live_host_draws(drawable: &mut BasicDrawable, e: &PresentationDrawableSync) {
+    let names = presentation_draw_module_names_for(e);
+    let Some(name) = names.first() else {
+        return;
+    };
+    let Some(kind) = PresentationSpecializedDrawKind::from_module_name(name) else {
+        return;
+    };
+    ensure_live_host_draw(drawable, e, kind);
+    let ctx = live_host_tick_from_sync(e);
+    for module in drawable.get_draw_modules_mut() {
+        let Some(logic) = module.logic_module_mut() else {
+            continue;
+        };
+        apply_live_host_draw(logic, kind, &ctx);
     }
 }
 

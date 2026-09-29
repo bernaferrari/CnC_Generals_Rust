@@ -63,6 +63,11 @@ pub mod state_machine;
 // Constants
 pub const MAX_AI_UPGRADES: usize = 20;
 pub const NO_FORMATION_ID: FormationId = 0xFFFFFFFF;
+fn elevated_eye(obj: &Object, pos: &Coord3D) -> Coord3D {
+    let z = pos.z + obj.get_geometry_info().get_max_height_above_position();
+    Coord3D::new(pos.x, pos.y, z)
+}
+
 
 // Debug options for AI visualization
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1728,11 +1733,13 @@ impl AI {
                         }
                         if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
                             let target_pos = *target.get_position();
+                            let me_eye = elevated_eye(me_guard, &me_pos);
+                            let target_eye = elevated_eye(target, &target_pos);
                             if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
-                                Some(me),
-                                &to_collide_coord(&me_pos),
-                                Some(target_id),
-                                &to_collide_coord(&target_pos),
+                                None,
+                                &to_collide_coord(&me_eye),
+                                None,
+                                &to_collide_coord(&target_eye),
                             ) {
                                 return None;
                             }
@@ -1919,12 +1926,15 @@ impl AI {
                             return None;
                         }
                         if (qualifiers & search_qualifiers::CAN_SEE) != 0 {
+                            let me_pos = *me_guard.get_position();
                             let target_pos = *target.get_position();
+                            let me_eye = elevated_eye(me_guard, &me_pos);
+                            let target_eye = elevated_eye(target, &target_pos);
                             if !crate::object::collide::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
-                                Some(me),
-                                &to_collide_coord(me_guard.get_position()),
-                                Some(target_id),
-                                &to_collide_coord(&target_pos),
+                                None,
+                                &to_collide_coord(&me_eye),
+                                None,
+                                &to_collide_coord(&target_eye),
                             ) {
                                 return None;
                             }
@@ -2121,19 +2131,6 @@ impl Snapshot for AI {
     }
 
     fn load_post_process(&mut self) {}
-}
-
-static FRAME_OBJECTS_CHANGED_TRIGGER_AREAS: std::sync::atomic::AtomicU32 =
-    std::sync::atomic::AtomicU32::new(0);
-
-/// Stamp used by area-guard scans (C++ `getFrameObjectsChangedTriggerAreas`).
-pub fn set_frame_objects_changed_trigger_areas(frame: u32) {
-    FRAME_OBJECTS_CHANGED_TRIGGER_AREAS.store(frame, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// C++ `TheGameLogic::getFrameObjectsChangedTriggerAreas`.
-pub fn get_frame_objects_changed_trigger_areas() -> u32 {
-    FRAME_OBJECTS_CHANGED_TRIGGER_AREAS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[derive(Debug)]
@@ -3285,6 +3282,14 @@ impl Pathfinder {
 
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
         self.inner.snap_position(pos)
+    }
+
+    pub fn snap_position_for_radius(&self, pos: &Coord3D, unit_radius: f32) -> Coord3D {
+        self.inner.snap_position_for_radius(pos, unit_radius)
+    }
+
+    pub fn is_map_ready(&self) -> bool {
+        self.inner.is_map_ready()
     }
 
     /// C++ `Pathfinder::updateGoal`.

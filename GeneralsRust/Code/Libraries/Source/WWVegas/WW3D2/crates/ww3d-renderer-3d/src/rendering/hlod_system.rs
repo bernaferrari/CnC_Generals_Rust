@@ -92,6 +92,8 @@ impl HLODNode {
         self.lod_levels.first().map(|level| &level.mesh)
     }
 
+
+
     /// Get all visible meshes for rendering (including children)
     pub fn get_visible_meshes(&self) -> Vec<&MeshClass> {
         let mut meshes = Vec::new();
@@ -511,8 +513,6 @@ impl HLODBatchRenderer {
                     self.render_stats.total_rendered_meshes += 1;
                     self.render_stats.total_triangles_rendered += mesh.get_num_polys() as usize;
                 }
-
-                // Render children
                 for child in &node.children {
                     if let Some(mesh) = child.get_current_mesh() {
                         self.render_stats.total_rendered_meshes += 1;

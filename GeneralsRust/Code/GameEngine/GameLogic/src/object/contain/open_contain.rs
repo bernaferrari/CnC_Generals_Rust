@@ -56,6 +56,16 @@ struct ExitPrep {
     ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
 }
 
+fn queue_produced_exit(obj_id: ObjectID, exit: crate::object::PendingProducedExit) {
+    let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+    else {
+        return;
+    };
+    let mut owner = obj.write().unwrap_or_else(|err| err.into_inner());
+    owner.ai_pending_produced_exits.push(exit);
+}
+
 /// C++ reads `getAllowToFall`, sets false for `aiFollowPath`/`updateGoal`, then restores.
 /// One guard does both the read and the write. `std::Mutex` does not reenter: `WouldBlock`
 /// means this thread already holds the physics mutex, so do not lock it again.
@@ -84,20 +94,10 @@ pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
 const MAX_FIRE_POINTS: usize = 32;
 
 thread_local! {
-    static LIVE_LAST_LOAD_SOUND_FRAME: RefCell<HashMap<ObjectID, UnsignedInt>> =
-        RefCell::new(HashMap::new());
-    static LIVE_LAST_UNLOAD_SOUND_FRAME: RefCell<HashMap<ObjectID, UnsignedInt>> =
-        RefCell::new(HashMap::new());
-}
-thread_local! {
     static LAST_ON_CONTAINING_TEMPLATE: RefCell<Option<LeftoverOnContainingTemplateCall>> =
         RefCell::new(None);
     static LAST_ON_REMOVING_TEMPLATE: RefCell<Option<LeftoverOnRemovingTemplateCall>> =
         RefCell::new(None);
-}
-thread_local! {
-    static LIVE_DOOR_CLOSE_COUNTDOWN: RefCell<HashMap<ObjectID, u32>> =
-        RefCell::new(HashMap::new());
 }
 
 const LEFTOVER_CONTAIN_MODULE_NAMES: &[&str] = &[
@@ -168,29 +168,33 @@ pub fn leftover_do_unload_sound(
 }
 
 /// Live host: C++ `doLoadSound` via leftover TheAudio, once per frame per container.
+/// `last_load_sound_frame` is `OpenContain::m_lastLoadSoundFrame` on the module
+/// (the host object mirrors the same field).
 pub fn leftover_play_container_enter_sound(
     enter_sound: Option<&str>,
     object_id: ObjectID,
     now: UnsignedInt,
+    last_load_sound_frame: &mut UnsignedInt,
 ) {
-    LIVE_LAST_LOAD_SOUND_FRAME.with(|m| {
-        let mut map = m.borrow_mut();
-        let last = map.entry(object_id).or_insert(0);
-        leftover_do_load_sound(enter_sound, object_id, true, now, last);
-    });
+    leftover_do_load_sound(
+        enter_sound,
+        object_id,
+        true,
+        now,
+        last_load_sound_frame,
+    );
 }
 
 /// Live host: C++ `doUnloadSound` via leftover TheAudio, once per frame per container.
+/// `last_unload_sound_frame` is `OpenContain::m_lastUnloadSoundFrame` on the module
+/// (the host object mirrors the same field).
 pub fn leftover_play_container_exit_sound(
     exit_sound: Option<&str>,
     object_id: ObjectID,
     now: UnsignedInt,
+    last_unload_sound_frame: &mut UnsignedInt,
 ) {
-    LIVE_LAST_UNLOAD_SOUND_FRAME.with(|m| {
-        let mut map = m.borrow_mut();
-        let last = map.entry(object_id).or_insert(0);
-        leftover_do_unload_sound(exit_sound, object_id, now, last);
-    });
+    leftover_do_unload_sound(exit_sound, object_id, now, last_unload_sound_frame);
 }
 
 fn leftover_contain_module_sound_name(template_name: &str, enter: bool) -> Option<String> {
@@ -532,20 +536,9 @@ pub fn leftover_open_contain_door_open_time(template_name: &str) -> u32 {
 }
 
 /// Live host: C++ `exitObjectViaDoor` door start with an explicit DoorOpenTime.
-pub fn leftover_open_contain_arm_exit_door(
-    object_id: ObjectID,
-    door_open_time: u32,
-) -> LeftoverOpenContainDoorPulse {
-    let pulse = leftover_open_contain_start_exit_door(door_open_time);
-    LIVE_DOOR_CLOSE_COUNTDOWN.with(|slot| {
-        let mut map = slot.borrow_mut();
-        if pulse.countdown == 0 {
-            map.remove(&object_id);
-        } else {
-            map.insert(object_id, pulse.countdown);
-        }
-    });
-    pulse
+/// The countdown is `OpenContain::m_doorCloseCountdown` on the container, not a process map.
+pub fn leftover_open_contain_arm_exit_door(door_open_time: u32) -> LeftoverOpenContainDoorPulse {
+    leftover_open_contain_start_exit_door(door_open_time)
 }
 
 /// Leftover ThingFactory `DoorOpenTime` when present, else the live-host fallback.
@@ -554,34 +547,8 @@ pub fn leftover_open_contain_resolved_door_open_time(template_name: &str, fallba
 }
 
 /// Live host: C++ `exitObjectViaDoor` door start (countdown + OPENING).
-pub fn leftover_open_contain_open_exit_door(
-    object_id: ObjectID,
-    template_name: &str,
-) -> LeftoverOpenContainDoorPulse {
-    leftover_open_contain_arm_exit_door(
-        object_id,
-        leftover_open_contain_door_open_time(template_name),
-    )
-}
-
-/// Live host: C++ `OpenContain::update` door tick for every pending container.
-pub fn leftover_open_contain_update_exit_doors() -> Vec<(ObjectID, LeftoverOpenContainDoorPulse)> {
-    LIVE_DOOR_CLOSE_COUNTDOWN.with(|slot| {
-        let mut map = slot.borrow_mut();
-        let ids: Vec<ObjectID> = map.keys().copied().collect();
-        let mut pulses = Vec::with_capacity(ids.len());
-        for id in ids {
-            let countdown = map.get(&id).copied().unwrap_or(0);
-            let pulse = leftover_open_contain_tick_exit_door(countdown);
-            if pulse.countdown == 0 {
-                map.remove(&id);
-            } else {
-                map.insert(id, pulse.countdown);
-            }
-            pulses.push((id, pulse));
-        }
-        pulses
-    })
+pub fn leftover_open_contain_open_exit_door(template_name: &str) -> LeftoverOpenContainDoorPulse {
+    leftover_open_contain_arm_exit_door(leftover_open_contain_door_open_time(template_name))
 }
 
 /// Configuration data for OpenContain module
@@ -2372,17 +2339,23 @@ impl OpenContain {
                     Self::destination_layer(&prep.end_pos),
                 );
             } else {
-                crate::ai::states::follow_path::queue_follow_exit(
-                    prep.exit_path,
-                    prep.owner_id,
-                    prep.end_pos,
+                queue_produced_exit(
+                    obj_id,
+                    crate::object::PendingProducedExit::Follow {
+                        path: prep.exit_path,
+                        ignore_id: prep.owner_id,
+                        end: prep.end_pos,
+                    },
                 );
             }
         } else {
-            crate::ai::states::follow_path::queue_follow_exit(
-                prep.exit_path,
-                prep.owner_id,
-                prep.end_pos,
+            queue_produced_exit(
+                obj_id,
+                crate::object::PendingProducedExit::Follow {
+                    path: prep.exit_path,
+                    ignore_id: prep.owner_id,
+                    end: prep.end_pos,
+                },
             );
         }
 
@@ -2428,7 +2401,10 @@ impl OpenContain {
                     Self::destination_layer(&prep.end_pos),
                 );
             } else {
-                crate::ai::states::follow_path::queue_quick_exit(prep.exit_path);
+                queue_produced_exit(
+                    obj_id,
+                    crate::object::PendingProducedExit::Quick(prep.exit_path),
+                );
             }
         }
 
@@ -3355,11 +3331,11 @@ mod tests {
         assert_eq!(leftover_open_contain_door_open_time(""), 1);
         assert_eq!(leftover_open_contain_resolved_door_open_time("", 0), 0);
         assert_eq!(leftover_open_contain_resolved_door_open_time("", 7), 7);
-        let live = leftover_open_contain_open_exit_door(77, "");
+        let live = leftover_open_contain_open_exit_door("");
         assert_eq!(live, open);
-        let ticks = leftover_open_contain_update_exit_doors();
-        assert_eq!(ticks, vec![(77, close)]);
-        let armed = leftover_open_contain_arm_exit_door(88, 0);
+        let tick = leftover_open_contain_tick_exit_door(live.countdown);
+        assert_eq!(tick, close);
+        let armed = leftover_open_contain_arm_exit_door(0);
         assert!(!armed.set_opening);
         assert_eq!(armed.countdown, 0);
     }

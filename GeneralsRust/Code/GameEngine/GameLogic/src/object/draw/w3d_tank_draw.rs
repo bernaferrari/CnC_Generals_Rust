@@ -18,49 +18,10 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
-use std::cell::RefCell;
-use std::collections::HashMap;
 
 /// C++ `W3DTankDraw.cpp:286` ground-speed gate for TrackDebrisDirt.
 const DEBRIS_THRESHOLD: Real = 0.00001;
 
-thread_local! {
-    static LIVE_TREAD_DEBRIS: RefCell<HashMap<ObjectID, W3DTankDraw>> =
-        RefCell::new(HashMap::new());
-}
-
-/// C++ `W3DTankDraw::doDrawModule` debris start/stop, driven by live host pose.
-pub fn tick_live_host_tread_debris(
-    owner_id: ObjectID,
-    position: [f32; 3],
-    vel_mag_sq: Real,
-    hidden: bool,
-    shrouded: bool,
-) {
-    LIVE_TREAD_DEBRIS.with(|map| {
-        let mut map = map.borrow_mut();
-        let draw = map.entry(owner_id).or_insert_with(|| {
-            let mut draw = W3DTankDraw::new(W3DTankDrawModuleData::new());
-            draw.bind_owner_id(owner_id);
-            draw
-        });
-        draw.tick_live_move_debris(
-            &Coord3D::new(position[0], position[1], position[2]),
-            vel_mag_sq,
-            hidden,
-            shrouded,
-        );
-    });
-}
-
-/// Toss leftover TrackDebrisDirt emitters when the live drawable is pruned.
-pub fn prune_live_host_tread_debris(owner_id: ObjectID) {
-    LIVE_TREAD_DEBRIS.with(|map| {
-        if let Some(mut draw) = map.borrow_mut().remove(&owner_id) {
-            draw.toss_emitters();
-        }
-    });
-}
 
 /// Tread type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -498,10 +459,10 @@ impl W3DTankDraw {
         }
     }
 
-    /// Live host pose/velocity — leftover GameLogic physics is dual-world only.
-    fn tick_live_move_debris(
+    /// Live host pose/velocity. Emitter ids stay on this module.
+    pub fn tick_live_move_debris(
         &mut self,
-        position: &Coord3D,
+        position: [f32; 3],
         vel_mag_sq: Real,
         hidden: bool,
         shrouded: bool,
@@ -509,7 +470,7 @@ impl W3DTankDraw {
         DrawModule::set_hidden(self, hidden);
         self.set_fully_obscured_by_shroud(shrouded);
         self.create_emitters();
-        self.place_emitters_at(position);
+        self.place_emitters_at(&Coord3D::new(position[0], position[1], position[2]));
         self.update_move_debris(vel_mag_sq);
     }
 
@@ -647,6 +608,12 @@ impl W3DTankDraw {
                 tread.uv_offset = wrap_uv_offset(offset);
             }
         }
+    }
+}
+
+impl Drop for W3DTankDraw {
+    fn drop(&mut self) {
+        self.toss_emitters();
     }
 }
 

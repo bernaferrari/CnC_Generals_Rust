@@ -25,31 +25,30 @@ impl CreateInterface for SpecialPowerCreate {
     fn on_create(&self) {}
 
     fn on_build_complete(&self) {
+        self.base.on_build_complete();
+    }
+
+    fn on_build_complete_with_owner(&self, owner: &mut dyn std::any::Any) {
         if !self.base.should_do_on_build_complete() {
             return;
         }
 
         self.base.on_build_complete();
 
-        let object_id = self
-            .base
-            .get_thing()
-            .as_object()
-            .map(|obj| obj.get_object_id())
-            .unwrap_or_default();
-        if object_id == 0 {
+        let Some(obj) = owner.downcast_mut::<crate::object::Object>() else {
+            return;
+        };
+        if obj.get_id() == 0 {
             return;
         }
 
-        crate::object::create::with_create_owner_mut(object_id, |object_guard| {
-            for behavior_arc in &object_guard.behaviors {
-                if let Ok(mut behavior_guard) = behavior_arc.lock() {
-                    if let Some(sp) = behavior_guard.get_special_power() {
-                        sp.on_special_power_creation();
-                    }
+        for behavior_arc in &obj.behaviors {
+            if let Ok(mut behavior_guard) = behavior_arc.lock() {
+                if let Some(sp) = behavior_guard.get_special_power() {
+                    sp.on_special_power_creation();
                 }
             }
-        });
+        }
     }
 
     fn should_do_on_build_complete(&self) -> bool {

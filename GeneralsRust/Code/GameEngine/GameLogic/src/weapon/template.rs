@@ -248,7 +248,7 @@ impl WeaponTemplate {
         if collided_guard.is_kind_of(KindOf::Projectile) {
             required_mask |= WeaponCollideMask::PROJECTILE;
         }
-        if collided_guard.is_kind_of(KindOf::Barrier) {
+        if collided_guard.get_template().get_fence_width() > 0.0 {
             required_mask |= WeaponCollideMask::WALLS;
         }
         if collided_guard.is_kind_of(KindOf::SmallMissile) {
@@ -1362,7 +1362,10 @@ impl WeaponTemplate {
         victim_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
     ) -> f32 {
-        let _ = victim_pos; // C++ ignores victim position once victim object is known.
+        let _ = victim_pos;
+        if victim_obj.is_none() && victim_pos.is_none() {
+            return 0.0;
+        }
         let primary_damage = self.get_primary_damage(bonus);
         let Some(victim_id) = victim_obj else {
             return primary_damage;
@@ -1609,7 +1612,7 @@ fn common_historic_bonus_weapon_name(owner: &str) -> Option<String> {
     game_engine::common::ini::ini_weapon::initialize_weapon_store();
     let store = game_engine::common::ini::ini_weapon::get_weapon_store()?;
     let tmpl = store.find_template(&AsciiString::from(owner))?;
-    let raw = tmpl.properties.get("HistoricBonusWeapon")?;
+    let raw = tmpl.historic_bonus_weapon.as_deref()?;
     let name = raw.split_whitespace().next().unwrap_or(raw).trim();
     if name.is_empty() || name.eq_ignore_ascii_case("None") {
         None

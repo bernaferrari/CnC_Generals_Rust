@@ -1240,7 +1240,7 @@ pub struct AIMoveToState {
     /// Whether we can try one more repath
     pub(crate) try_one_more_repath: bool,
     /// Goal layer for movement
-    pub(crate) goal_layer: u8, // PathfindLayerEnum
+    pub(crate) goal_layer: u8,
     /// Whether this is truly a MoveTo (vs child class like AttackMove)
     pub(crate) is_move_to: bool,
     /// Handle for looping move sound
@@ -1249,6 +1249,8 @@ pub struct AIMoveToState {
     pub(crate) repath_limit: Option<RepathLimit>,
     /// Owner when the caller already holds the state-machine mutex.
     pub(crate) preset_owner: Option<Arc<RwLock<crate::object::Object>>>,
+    /// True only for the enter that runs while this unit's AI mutex is already held.
+    pub(crate) owner_ai_mutex_held: bool,
 }
 
 pub(crate) const MIN_REPATH_TIME: u32 = 10;
@@ -1273,11 +1275,12 @@ impl AIMoveToState {
             adjust_destinations_override: None,
             waiting_for_path: false,
             try_one_more_repath: true,
-            goal_layer: 0, // LAYER_GROUND
+            goal_layer: 0, // LAYER_INVALID. LAYER_GROUND is 1. Nothing assigns this yet.
             is_move_to: true,
             ambient_playing_handle: 0,
             repath_limit: None,
             preset_owner: None,
+            owner_ai_mutex_held: false,
         }
     }
 
@@ -1373,6 +1376,35 @@ impl AIMoveToState {
         owner_guard: &mut Object,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> Result<StateReturnType, String> {
+        if self.waiting_for_path {
+            self.path_timestamp = TheGameLogic::get_frame();
+            if ai.is_waiting_for_path() {
+                return Ok(StateReturnType::Continue);
+            }
+            if ai.get_path().is_none() {
+                return Ok(StateReturnType::Failure);
+            }
+            self.waiting_for_path = false;
+            if self.adjust_destinations
+                && !owner_guard.test_status(crate::common::ObjectStatusTypes::Parachuting)
+                && ai.is_allowed_to_adjust_destination()
+            {
+                if let (Some(last), Some(ordinal)) =
+                    (ai.get_path_last_node(), ai.installed_path_last_layer())
+                {
+                    let _ = ai.update_goal_position(
+                        &last,
+                        crate::common::PathfindLayerEnum::from_u32(u32::from(ordinal)),
+                    );
+                }
+            } else {
+                ai.remove_pathfinder_goal();
+            }
+            self.path_goal_position = self.goal_position;
+            if !ai.get_retry_path() {
+                self.try_one_more_repath = false;
+            }
+        }
         let adjustment = ai.get_mood_matrix_action_adjustment(MoodMatrixAction::Move);
         if self.is_move_to && (adjustment & mood_matrix_adjustment::ACTION_TO_ATTACK_MOVE) != 0 {
             owner_guard.ai_pending_attack_move = Some(self.goal_position);
@@ -1431,58 +1463,76 @@ impl AIMoveToState {
         }
         let frames_blocked = ai.get_num_frames_blocked();
         let blocked = ai.is_blocked_and_stuck() || frames_blocked > 2 * LOGICFRAMES_PER_SECOND;
+        let now = TheGameLogic::get_frame();
         if blocked {
-            owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+            self.blocked_repath_timestamp = now;
+        }
+        let mut set_condition_flag = ModelConditionFlags::MOVING;
+        if is_cliff_at(owner_guard.get_position()) {
+            let moving_backwards = {
+                let mut __back = false;
+                ai.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
+                __back
+            };
+            set_condition_flag = if moving_backwards {
+                ModelConditionFlags::RAPPELLING
+            } else {
+                ModelConditionFlags::CLIMBING
+            };
+        }
+        owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+        if set_condition_flag == ModelConditionFlags::MOVING {
             owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
             owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
         } else {
-            let mut set_condition_flag = ModelConditionFlags::MOVING;
-            if is_cliff_at(owner_guard.get_position()) {
-                let moving_backwards = {
-            let mut __back = false;
-            ai.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
-            __back
-        };
-                set_condition_flag = if moving_backwards {
-                    ModelConditionFlags::RAPPELLING
-                } else {
-                    ModelConditionFlags::CLIMBING
-                };
-            }
-            if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
-                owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
-                owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+            let clear_flag = if set_condition_flag == ModelConditionFlags::CLIMBING {
+                ModelConditionFlags::RAPPELLING
             } else {
-                owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-                if set_condition_flag == ModelConditionFlags::MOVING {
-                    owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
-                    owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-                } else {
-                    let clear_flag = if set_condition_flag == ModelConditionFlags::CLIMBING {
-                        ModelConditionFlags::RAPPELLING
-                    } else {
-                        ModelConditionFlags::CLIMBING
-                    };
-                    owner_guard.clear_model_condition_state(clear_flag);
-                    owner_guard.set_model_condition_state(set_condition_flag);
-                }
-            }
+                ModelConditionFlags::CLIMBING
+            };
+            owner_guard.clear_model_condition_state(clear_flag);
+            owner_guard.set_model_condition_state(set_condition_flag);
         }
-        let now = TheGameLogic::get_frame();
-        let should_repath =
-            blocked || (goal_moved && now.saturating_sub(self.path_timestamp) > MIN_REPATH_TIME);
-        if should_repath {
-            if let Some(limit) = self.repath_limit.as_mut() {
-                if !(limit.blocked_only && !blocked) {
-                    if limit.remaining <= 0 {
-                        return Ok(StateReturnType::Failure);
+        if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
+            owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
+        }
+        let null_path = ai.get_path().is_none();
+        let quick_projectile =
+            owner_guard.is_kind_of(KindOf::Projectile) && ai.can_compute_quick_path();
+        if quick_projectile {
+            self.path_timestamp = 0;
+        }
+        let force_recompute = null_path || blocked || quick_projectile;
+        let time_up = now.saturating_sub(self.path_timestamp) > MIN_REPATH_TIME;
+        if !null_path {
+            ai.set_locomotor_goal_position_on_path();
+        }
+        if force_recompute || time_up {
+            let goal_changed = !self.is_same_position(
+                owner_guard.get_position(),
+                &self.path_goal_position,
+                &self.goal_position,
+            );
+            if force_recompute || goal_changed {
+                if let Some(limit) = self.repath_limit.as_mut() {
+                    if !(limit.blocked_only && !blocked) {
+                        if limit.remaining <= 0 {
+                            return Ok(StateReturnType::Failure);
+                        }
+                        limit.remaining -= 1;
+                        self.compute_path(ai)?;
+                        if ai.get_path().is_none() {
+                            return Ok(StateReturnType::Continue);
+                        }
+                        ai.set_locomotor_goal_position_on_path();
                     }
-                    limit.remaining -= 1;
+                } else {
                     self.compute_path(ai)?;
+                    if ai.get_path().is_none() {
+                        return Ok(StateReturnType::Continue);
+                    }
+                    ai.set_locomotor_goal_position_on_path();
                 }
-            } else {
-                self.compute_path(ai)?;
             }
         }
         let close_enough = {
@@ -1730,6 +1780,7 @@ impl AIMoveToState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
+        let owner_ai_mutex_held = std::mem::replace(&mut self.owner_ai_mutex_held, false);
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -1791,7 +1842,7 @@ impl AIMoveToState {
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai_ref) = borrowed.as_mut() {
             *ai_ref
         } else {
-            if crate::ai::states::follow_path::owner_ai_mutex_held() {
+            if owner_ai_mutex_held {
                 self.adjust_destinations = false;
                 return Ok(StateReturnType::Continue);
             }

@@ -164,12 +164,9 @@ impl WeaponTemplateSet {
             if let Some(name) = engine_set.weapon_template_name(slot_index) {
                 if !name.is_empty() {
                     let ascii_name = AsciiString::from(name.as_str());
-                    let weapon = resolver(&ascii_name).ok_or_else(|| {
-                        WeaponSetConversionError::MissingWeaponTemplate(
-                            ascii_name.as_str().to_string(),
-                        )
-                    })?;
-                    result.weapon_templates[slot_index] = Some(weapon);
+                    if let Some(weapon) = resolver(&ascii_name) {
+                        result.weapon_templates[slot_index] = Some(weapon);
+                    }
                 }
             }
 
@@ -388,6 +385,10 @@ impl WeaponSet {
     /// Add a weapon template set
     pub fn add_weapon_template_set(&mut self, template_set: WeaponTemplateSet) {
         self.weapon_template_sets.push(Arc::new(template_set));
+    }
+
+    pub fn has_weapon_template_sets(&self) -> bool {
+        !self.weapon_template_sets.is_empty()
     }
 
     pub fn remember_thing_template_name(&mut self, name: &str) {
@@ -1077,7 +1078,8 @@ impl WeaponSet {
         self.total_damage_type_mask.test(damage_type) && self.total_damage_type_mask.count() == 1
     }
 
-    /// Check if any weapon is out of ammo
+    /// True when every filled slot is OUT_OF_AMMO. Empty slots do not count.
+    /// An all-empty set is true, matching WeaponSet.cpp:968-980.
     pub fn is_out_of_ammo(&self) -> bool {
         for weapon_opt in &self.weapons {
             if let Some(weapon) = weapon_opt {

@@ -861,15 +861,4 @@ impl Default for FormationManager {
         Self::new()
     }
 }
-
-/// Global formation manager instance
-use once_cell::sync::Lazy;
-static FORMATION_MANAGER: Lazy<Arc<RwLock<FormationManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(FormationManager::new())));
-
-/// Get global formation manager
-pub fn get_formation_manager() -> Arc<RwLock<FormationManager>> {
-    FORMATION_MANAGER.clone()
-}
-
 // Mock-based tests removed to avoid mocks in fidelity-critical code.

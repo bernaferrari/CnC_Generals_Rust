@@ -524,11 +524,14 @@ impl CnCGameEngine {
             }
         }
 
-        // Capture the provenance before this function moves Menu → Loading.  The
-        // flag may only be completed after the normal map/bootstrap path reaches
-        // InGame; a runtime-host `start_game` command has no physical WND click and
-        // therefore cannot satisfy it.
-        let interactive_start_from_menu = self.current_state == GameState::Menu;
+        // Capture the provenance before this function moves Menu → Loading.
+        // The Loading NewGame drain (camera_drain.rs) calls this while state is
+        // already Loading. Only that state may reuse latched menu evidence.
+        // An InGame restart or a host start_game must not.
+        let interactive_start_from_menu = self.current_state == GameState::Menu
+            || (self.current_state == GameState::Loading
+                && self.interactive_playability.menu_wnd_click
+                && self.interactive_playability.skirmish_path);
         // Offline provenance is applied when the parked start reaches InGame.
         // Wave 611: host residual helper.
         // A still-running boot worker must not overwrite this match start (or

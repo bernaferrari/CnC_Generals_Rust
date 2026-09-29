@@ -713,8 +713,8 @@ mod tests {
 
         {
             let player = Arc::new(RwLock::new(Player::new(0)));
-            player.add_upgrade(&first_template, UpgradeStatus::Complete);
-            player.add_upgrade(&second_template, UpgradeStatus::Complete);
+            player.add_upgrade(&first_template, UpgradeStatus::Complete, None);
+            player.add_upgrade(&second_template, UpgradeStatus::Complete, None);
 
             let mut players = player_list().write().expect("player list write");
             players.clear();
@@ -730,7 +730,7 @@ mod tests {
 
         {
             let player = Arc::new(RwLock::new(Player::new(0)));
-            player.add_upgrade(&second_template, UpgradeStatus::Complete);
+            player.add_upgrade(&second_template, UpgradeStatus::Complete, None);
 
             let mut players = player_list().write().expect("player list write");
             players.clear();

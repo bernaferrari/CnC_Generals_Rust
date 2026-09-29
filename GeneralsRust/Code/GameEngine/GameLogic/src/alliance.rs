@@ -8,7 +8,6 @@ use crate::common::*;
 use crate::player::{PLAYER_INDEX_INVALID, Player, PlayerIndex};
 use crate::team::{TEAM_ID_INVALID, Team, TeamID};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
 
 /// Alliance manager for handling all alliance-related operations
 /// Provides centralized management of alliances between players and teams
@@ -424,21 +423,6 @@ impl Default for AllianceManager {
         Self::new()
     }
 }
-
-// ==================== Global Alliance Manager ====================
-
-use std::sync::OnceLock;
-
-/// Global alliance manager instance
-static ALLIANCE_MANAGER: OnceLock<RwLock<AllianceManager>> = OnceLock::new();
-
-/// Get global alliance manager instance
-pub fn get_alliance_manager() -> &'static RwLock<AllianceManager> {
-    ALLIANCE_MANAGER.get_or_init(|| RwLock::new(AllianceManager::new()))
-}
-
-/// Convenience alias for C++ compatibility
-pub use get_alliance_manager as TheAllianceManager;
 
 // ==================== Victory Condition Support ====================
 

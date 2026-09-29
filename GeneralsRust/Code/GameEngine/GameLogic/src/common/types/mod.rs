@@ -21,7 +21,7 @@ use game_engine::system::geometry::{
 use game_engine::thing::thing_template::{
     ArmorTemplateSet, WeaponTemplateSet as EngineWeaponTemplateSet,
 };
-use glam::{IVec2, IVec3, Mat4, Vec2, Vec3};
+use glam::{IVec2, IVec3, Mat4, Vec2, Vec3, Vec4};
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;

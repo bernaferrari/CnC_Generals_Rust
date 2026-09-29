@@ -997,26 +997,14 @@ impl CnCGameEngine {
                 let ui_team = self.local_team_for_ui();
                 frame
                     .first_mobile_friendly_id(frame_team)
+                    .or_else(|| frame.first_mobile_friendly_id(ui_team))
                     .or_else(|| {
                         frame
                             .alive_selectable_friendly_mobile_ids(frame_team)
                             .into_iter()
                             .next()
                     })
-                    .or_else(|| {
-                        if ui_team != frame_team {
-                            frame.first_mobile_friendly_id(ui_team).or_else(|| {
-                                frame
-                                    .alive_selectable_friendly_mobile_ids(ui_team)
-                                    .into_iter()
-                                    .next()
-                            })
-                        } else {
-                            None
-                        }
-                    })
             } else {
-                // Presentation required (no live get_objects dual-read).
                 None
             };
             if let Some(id) = pick {

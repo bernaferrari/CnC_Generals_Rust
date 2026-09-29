@@ -321,11 +321,15 @@ impl GameLogic {
                         && !picking_crate
                         && host_guard_xy_dist_sq(position, return_goal) > GUARD_RETURN_CLOSE_SQ
                     {
-                        self.path_approach_with_state(
+                        if self.path_approach_with_state(
                             object_id,
                             return_goal,
                             AIState::GuardingArea,
-                        );
+                        ) {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.ignored_obstacle_id = None;
+                            }
+                        }
                     }
                 }
                 AIState::GuardingObject => {
@@ -477,11 +481,15 @@ impl GameLogic {
                     if drifted {
                         self.guard_guardee_pos.insert(object_id, guard_anchor);
                         if can_move && !picking_crate && !on_quick_exit && !quick_exit_finished {
-                            self.path_approach_with_state(
+                            if self.path_approach_with_state(
                                 object_id,
                                 guard_anchor,
                                 AIState::GuardingObject,
-                            );
+                            ) {
+                                if let Some(obj) = self.objects.get_mut(&object_id) {
+                                    obj.ignored_obstacle_id = None;
+                                }
+                            }
                         }
                     } else if can_move
                         && !picking_crate
@@ -489,11 +497,15 @@ impl GameLogic {
                         && !quick_exit_finished
                         && host_guard_xy_dist_sq(position, guard_anchor) > GUARD_RETURN_CLOSE_SQ
                     {
-                        self.path_approach_with_state(
+                        if self.path_approach_with_state(
                             object_id,
                             guard_anchor,
                             AIState::GuardingObject,
-                        );
+                        ) {
+                            if let Some(obj) = self.objects.get_mut(&object_id) {
+                                obj.ignored_obstacle_id = None;
+                            }
+                        }
                     }
                 }
                 AIState::Repairing => {

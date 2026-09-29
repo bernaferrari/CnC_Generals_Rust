@@ -100,7 +100,7 @@ pub mod host_terrain_env_boundary_residual_wave159;
 pub mod host_ui_presentation_residual;
 
 #[path = "host_upgrade_module_residuals.rs"]
-pub(super) mod host_upgrade_module_residuals;
+pub(crate) mod host_upgrade_module_residuals;
 
 #[path = "host_w3d_main_menu_init_residual_wave168.rs"]
 pub mod host_w3d_main_menu_init_residual_wave168;

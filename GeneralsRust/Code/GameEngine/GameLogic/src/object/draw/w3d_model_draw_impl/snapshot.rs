@@ -13,7 +13,17 @@ impl Snapshotable for W3DModelDraw {
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| e.to_string())?;
-
+        // DrawModule::xfer -> DrawableModule::xfer -> Module::xfer. Each is
+        // version 1 and writes nothing else (DrawModule.cpp:27, Module.cpp:188).
+        let mut draw_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
         for slot in 0..WEAPONSLOT_COUNT {
             let mut recoil_info_count = self
                 .weapon_recoil_info

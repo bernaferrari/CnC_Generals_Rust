@@ -770,7 +770,11 @@ impl RenderBridge {
             self.mark_model_loaded(&model_draw.model_name);
         }
 
-        let world_transform = model_draw.world_transform;
+        let mut world_transform = model_draw.world_transform;
+        if let Some(recoil) = crate::core::game_client::recoil_glam_for_object(object_id)
+        {
+            world_transform *= recoil;
+        }
         let submission = DrawSubmission {
             drawable_id: DrawableId(model_draw.logic_drawable_id),
             owner_object_id: Some(object_id),

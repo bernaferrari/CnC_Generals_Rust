@@ -138,6 +138,7 @@ pub struct WeaponTemplate {
     pub historic_bonus_radius: f32,
     pub historic_bonus_count: i32,
     pub historic_bonus_weapon: Option<Weak<WeaponTemplate>>,
+    pub historic_bonus_weapon_name: String,
 
     /// Audio properties
     pub fire_sound: AudioEventRts,
@@ -232,6 +233,7 @@ impl WeaponTemplate {
             historic_bonus_radius: 0.0,
             historic_bonus_count: 0,
             historic_bonus_weapon: None,
+            historic_bonus_weapon_name: String::new(),
             fire_sound: AudioEventRts::new(String::new()),
             fire_sound_loop_time: 0,
             fire_fx: [None, None, None, None],
@@ -749,6 +751,8 @@ impl WeaponTemplate {
             .and_then(|weak| weak.upgrade())
         {
             template.historic_bonus_weapon_name = bonus_weapon.name.clone();
+        } else if !self.historic_bonus_weapon_name.is_empty() {
+            template.set_historic_bonus_weapon_name(&self.historic_bonus_weapon_name);
         }
         template.fire_sound = self.fire_sound.clone();
         template.fire_sound_loop_time = self.fire_sound_loop_time;
@@ -2318,7 +2322,13 @@ impl WeaponTemplate {
 
             if count >= self.historic_bonus_count - 1 {
                 if let Some(bonus_weapon) = &self.historic_bonus_weapon {
-                    return bonus_weapon.upgrade();
+                    if let Some(weapon) = bonus_weapon.upgrade() {
+                        return Some(weapon);
+                    }
+                }
+                if !self.historic_bonus_weapon_name.is_empty() {
+                    // Store lookup returns weapon::template::WeaponTemplate, not this type.
+                    return None;
                 }
             }
         }
@@ -2385,7 +2395,8 @@ impl WeaponTemplate {
     pub fn parse_weapon_fields_from_ini(&mut self, properties: &HashMap<String, String>) {
         for (key, value) in properties {
             let trimmed = value.trim();
-            match key.as_str() {
+            let base_key = key.split('#').next().unwrap_or(key.as_str());
+            match base_key {
                 // --- Damage ---
                 "PrimaryDamage" => {
                     if let Ok(v) = trimmed.parse::<f32>() {
@@ -2440,8 +2451,8 @@ impl WeaponTemplate {
                     }
                 }
                 "AcceptableAimDelta" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.aim_delta = v;
+                    if let Some(radians) = angle_radians(trimmed) {
+                        self.aim_delta = radians;
                     }
                 }
                 "ScatterRadius" => {
@@ -2475,13 +2486,13 @@ impl WeaponTemplate {
 
                 // --- Speed ---
                 "WeaponSpeed" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.weapon_speed = v;
+                    if let Some(speed) = velocity_per_frame(trimmed) {
+                        self.weapon_speed = speed;
                     }
                 }
                 "MinWeaponSpeed" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.min_weapon_speed = v;
+                    if let Some(speed) = velocity_per_frame(trimmed) {
+                        self.min_weapon_speed = speed;
                     }
                 }
                 "ScaleWeaponSpeed" => {
@@ -2492,23 +2503,23 @@ impl WeaponTemplate {
 
                 // --- Angles ---
                 "WeaponRecoil" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.weapon_recoil = v;
+                    if let Some(radians) = angle_radians(trimmed) {
+                        self.weapon_recoil = radians;
                     }
                 }
                 "MinTargetPitch" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.min_target_pitch = v;
+                    if let Some(radians) = angle_radians(trimmed) {
+                        self.min_target_pitch = radians;
                     }
                 }
                 "MaxTargetPitch" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.max_target_pitch = v;
+                    if let Some(radians) = angle_radians(trimmed) {
+                        self.max_target_pitch = radians;
                     }
                 }
                 "RadiusDamageAngle" => {
-                    if let Ok(v) = trimmed.parse::<f32>() {
-                        self.radius_damage_angle = v;
+                    if let Some(radians) = angle_radians(trimmed) {
+                        self.radius_damage_angle = radians;
                     }
                 }
 
@@ -2538,14 +2549,13 @@ impl WeaponTemplate {
                     }
                 }
                 "ClipReloadTime" => {
-                    // C++: parseDurationUnsignedInt -> frames at 30 FPS
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.clip_reload_time = v as i32;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.clip_reload_time = frames as i32;
                     }
                 }
                 "AutoReloadWhenIdle" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.auto_reload_when_idle_frames = v;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.auto_reload_when_idle_frames = frames;
                     }
                 }
                 "ShotsPerBarrel" => {
@@ -2554,13 +2564,13 @@ impl WeaponTemplate {
                     }
                 }
                 "PreAttackDelay" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.pre_attack_delay = v as i32;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.pre_attack_delay = frames as i32;
                     }
                 }
                 "SuspendFXDelay" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.suspend_fx_delay = v;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.suspend_fx_delay = frames;
                     }
                 }
 
@@ -2576,8 +2586,8 @@ impl WeaponTemplate {
                     }
                 }
                 "ContinuousFireCoast" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.continuous_fire_coast_frames = v;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.continuous_fire_coast_frames = frames;
                     }
                 }
 
@@ -2627,28 +2637,40 @@ impl WeaponTemplate {
 
                 // --- Anti-mask ---
                 "AntiGround" => {
-                    self.anti_mask.insert(WeaponAntiMask::GROUND);
+                    apply_anti_bit(&mut self.anti_mask, WeaponAntiMask::GROUND, trimmed);
                 }
                 "AntiAirborneVehicle" => {
-                    self.anti_mask.insert(WeaponAntiMask::AIRBORNE_VEHICLE);
+                    apply_anti_bit(
+                        &mut self.anti_mask,
+                        WeaponAntiMask::AIRBORNE_VEHICLE,
+                        trimmed,
+                    );
                 }
                 "AntiProjectile" => {
-                    self.anti_mask.insert(WeaponAntiMask::PROJECTILE);
+                    apply_anti_bit(&mut self.anti_mask, WeaponAntiMask::PROJECTILE, trimmed);
                 }
                 "AntiSmallMissile" => {
-                    self.anti_mask.insert(WeaponAntiMask::SMALL_MISSILE);
+                    apply_anti_bit(&mut self.anti_mask, WeaponAntiMask::SMALL_MISSILE, trimmed);
                 }
                 "AntiMine" => {
-                    self.anti_mask.insert(WeaponAntiMask::MINE);
+                    apply_anti_bit(&mut self.anti_mask, WeaponAntiMask::MINE, trimmed);
                 }
                 "AntiParachute" => {
-                    self.anti_mask.insert(WeaponAntiMask::PARACHUTE);
+                    apply_anti_bit(&mut self.anti_mask, WeaponAntiMask::PARACHUTE, trimmed);
                 }
                 "AntiAirborneInfantry" => {
-                    self.anti_mask.insert(WeaponAntiMask::AIRBORNE_INFANTRY);
+                    apply_anti_bit(
+                        &mut self.anti_mask,
+                        WeaponAntiMask::AIRBORNE_INFANTRY,
+                        trimmed,
+                    );
                 }
                 "AntiBallisticMissile" => {
-                    self.anti_mask.insert(WeaponAntiMask::BALLISTIC_MISSILE);
+                    apply_anti_bit(
+                        &mut self.anti_mask,
+                        WeaponAntiMask::BALLISTIC_MISSILE,
+                        trimmed,
+                    );
                 }
 
                 // --- Reload type ---
@@ -2663,8 +2685,8 @@ impl WeaponTemplate {
 
                 // --- Historic bonus ---
                 "HistoricBonusTime" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.historic_bonus_time = v;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.historic_bonus_time = frames;
                     }
                 }
                 "HistoricBonusRadius" => {
@@ -2677,32 +2699,31 @@ impl WeaponTemplate {
                         self.historic_bonus_count = v;
                     }
                 }
+                "HistoricBonusWeapon" => {
+                    let name = trimmed.split_whitespace().next().unwrap_or("").trim();
+                    if name.is_empty() || name.eq_ignore_ascii_case("None") {
+                        self.historic_bonus_weapon_name.clear();
+                        self.historic_bonus_weapon = None;
+                    } else {
+                        self.historic_bonus_weapon_name = name.to_string();
+                    }
+                }
 
                 // --- Fire sound ---
                 "FireSound" => {
                     self.fire_sound = AudioEventRts::new(trimmed.to_string());
                 }
                 "FireSoundLoopTime" => {
-                    if let Ok(v) = trimmed.parse::<u32>() {
-                        self.fire_sound_loop_time = v;
+                    if let Some(frames) = duration_frames(trimmed) {
+                        self.fire_sound_loop_time = frames;
                     }
                 }
 
                 // --- DelayBetweenShots ---
                 "DelayBetweenShots" => {
-                    // C++: parseShotDelay reads 1 or 2 integers
-                    let tokens: Vec<&str> = trimmed.split_whitespace().collect();
-                    if let Ok(v) = tokens.first().unwrap_or(&"0").parse::<i32>() {
-                        self.min_delay_between_shots = v;
-                    }
-                    if let Some(second) = tokens.get(1) {
-                        if let Ok(v) = second.parse::<i32>() {
-                            self.max_delay_between_shots = v;
-                        } else {
-                            self.max_delay_between_shots = self.min_delay_between_shots;
-                        }
-                    } else {
-                        self.max_delay_between_shots = self.min_delay_between_shots;
+                    if let Some((min_delay, max_delay)) = parse_shot_delay(trimmed) {
+                        self.min_delay_between_shots = min_delay;
+                        self.max_delay_between_shots = max_delay;
                     }
                 }
 
@@ -2745,8 +2766,33 @@ impl WeaponTemplate {
                     }
                 }
 
-                // --- WeaponBonus sub-block handled separately ---
-                "WeaponBonus" | "ScatterTarget" => {}
+                "FireFX" => {
+                    let fx = FXList::new(trimmed);
+                    self.fire_fx = [Some(fx.clone()), Some(fx.clone()), Some(fx.clone()), Some(fx)];
+                }
+                "ProjectileDetonationFX" => {
+                    let fx = FXList::new(trimmed);
+                    self.projectile_detonate_fx =
+                        [Some(fx.clone()), Some(fx.clone()), Some(fx.clone()), Some(fx)];
+                }
+                "VeterancyFireFX" => {
+                    if let Some((level, name)) = vet_level_and_name(trimmed) {
+                        self.fire_fx[level] = Some(FXList::new(&name));
+                    }
+                }
+                "VeterancyProjectileDetonationFX" => {
+                    if let Some((level, name)) = vet_level_and_name(trimmed) {
+                        self.projectile_detonate_fx[level] = Some(FXList::new(&name));
+                    }
+                }
+                "WeaponBonus" => {
+                    self.store_weapon_bonus_line(trimmed);
+                }
+                "ScatterTarget" => {
+                    if let Some(point) = parse_scatter_coord2d(trimmed) {
+                        self.scatter_targets.push(point);
+                    }
+                }
 
                 // Everything else: log and skip (C++ silently skips unknown INI keys)
                 _ => {
@@ -2759,6 +2805,148 @@ impl WeaponTemplate {
             }
         }
     }
+    fn store_weapon_bonus_line(&mut self, value: &str) {
+        let mut tokens = value.split_whitespace();
+        let Some(condition) = bonus_condition(tokens.next().unwrap_or("")) else {
+            return;
+        };
+        let Some(field) = bonus_field(tokens.next().unwrap_or("")) else {
+            return;
+        };
+        let Some(percent) = tokens.next() else {
+            return;
+        };
+        let Ok(percent) = percent.trim_end_matches('%').parse::<f32>() else {
+            return;
+        };
+        let set = self.extra_bonus.get_or_insert_with(WeaponBonusSet::new);
+        let mut bonus = set.get_bonus(condition).cloned().unwrap_or_default();
+        bonus.set_field(field, percent / 100.0);
+        set.set_bonus(condition, bonus);
+    }
+}
+
+fn parse_scatter_coord2d(value: &str) -> Option<Coord2D> {
+    let mut x = None;
+    let mut y = None;
+    for token in value.split_whitespace() {
+        let (label, number) = token.split_once(':')?;
+        let number = number.parse::<f32>().ok()?;
+        match label.to_ascii_uppercase().as_str() {
+            "X" => x = Some(number),
+            "Y" => y = Some(number),
+            _ => return None,
+        }
+    }
+    Some(Coord2D::new(x?, y?))
+}
+
+fn shot_delay_frames(token: &str) -> Option<i32> {
+    let msecs = token.parse::<i32>().ok()?;
+    let frames = (msecs as f32) * (LOGICFRAMES_PER_SECOND as f32) / 1000.0;
+    Some(frames.ceil() as i32)
+}
+
+fn duration_frames(value: &str) -> Option<u32> {
+    let token = value.split_whitespace().next().unwrap_or(value);
+    let frames = shot_delay_frames(token)?;
+    u32::try_from(frames).ok()
+}
+
+fn angle_radians(value: &str) -> Option<f32> {
+    let degrees = value.split_whitespace().next()?.parse::<f32>().ok()?;
+    Some(degrees * std::f32::consts::PI / 180.0)
+}
+
+fn velocity_per_frame(value: &str) -> Option<f32> {
+    let per_second = value.split_whitespace().next()?.parse::<f32>().ok()?;
+    Some(per_second / LOGICFRAMES_PER_SECOND as f32)
+}
+
+fn apply_anti_bit(mask: &mut WeaponAntiMask, bit: u32, value: &str) {
+    match parse_bool_simple(value) {
+        Ok(true) => mask.insert(bit),
+        Ok(false) => mask.remove(bit),
+        Err(_) => {}
+    }
+}
+
+fn vet_level_and_name(value: &str) -> Option<(usize, String)> {
+    let mut tokens = value.split_whitespace();
+    let level = match tokens.next()?.to_ascii_uppercase().as_str() {
+        "REGULAR" => 0,
+        "VETERAN" => 1,
+        "ELITE" => 2,
+        "HEROIC" => 3,
+        _ => return None,
+    };
+    let name = tokens.next()?.to_string();
+    if name.is_empty() { None } else { Some((level, name)) }
+}
+
+fn parse_shot_delay(value: &str) -> Option<(i32, i32)> {
+    let tokens: Vec<&str> = value
+        .split(|c: char| c.is_whitespace() || c == ':')
+        .filter(|token| !token.is_empty())
+        .collect();
+    let first = tokens.first().copied()?;
+    if first.eq_ignore_ascii_case("Min") {
+        let min_delay = shot_delay_frames(tokens.get(1).copied()?)?;
+        if tokens.get(2).is_some_and(|token| token.eq_ignore_ascii_case("Max")) {
+            let max_delay = shot_delay_frames(tokens.get(3).copied()?)?;
+            Some((min_delay, max_delay))
+        } else {
+            Some((min_delay, min_delay))
+        }
+    } else {
+        let frames = shot_delay_frames(first)?;
+        Some((frames, frames))
+    }
+}
+
+fn bonus_condition(name: &str) -> Option<crate::weapon::WeaponBonusConditionType> {
+    use crate::weapon::WeaponBonusConditionType::*;
+    Some(match name.to_ascii_uppercase().as_str() {
+        "GARRISONED" => Garrisoned,
+        "HORDE" => Horde,
+        "CONTINUOUS_FIRE_MEAN" => ContinuousFireMean,
+        "CONTINUOUS_FIRE_FAST" => ContinuousFireFast,
+        "NATIONALISM" => Nationalism,
+        "PLAYER_UPGRADE" => PlayerUpgrade,
+        "DRONE_SPOTTING" => DroneSpotting,
+        "DEMORALIZED_OBSOLETE" => Demoralized,
+        "ENTHUSIASTIC" => Enthusiastic,
+        "VETERAN" => Veteran,
+        "ELITE" => Elite,
+        "HERO" => Hero,
+        "BATTLEPLAN_BOMBARDMENT" => BattleplanBombardment,
+        "BATTLEPLAN_HOLDTHELINE" => BattleplanHoldtheLine,
+        "BATTLEPLAN_SEARCHANDDESTROY" => BattleplanSearchAndDestroy,
+        "SUBLIMINAL" => Subliminal,
+        "SOLO_HUMAN_EASY" => SoloHumanEasy,
+        "SOLO_HUMAN_NORMAL" => SoloHumanNormal,
+        "SOLO_HUMAN_HARD" => SoloHumanHard,
+        "SOLO_AI_EASY" => SoloAiEasy,
+        "SOLO_AI_NORMAL" => SoloAiNormal,
+        "SOLO_AI_HARD" => SoloAiHard,
+        "TARGET_FAERIE_FIRE" => TargetFaerieFire,
+        "FANATICISM" => Fanaticism,
+        "FRENZY_ONE" => FrenzyOne,
+        "FRENZY_TWO" => FrenzyTwo,
+        "FRENZY_THREE" => FrenzyThree,
+        _ => return None,
+    })
+}
+
+fn bonus_field(name: &str) -> Option<WeaponBonusField> {
+    Some(match name.to_ascii_uppercase().as_str() {
+        "DAMAGE" => WeaponBonusField::Damage,
+        "RADIUS" => WeaponBonusField::Radius,
+        "RANGE" => WeaponBonusField::Range,
+        "RATE_OF_FIRE" => WeaponBonusField::RateOfFire,
+        "PRE_ATTACK" => WeaponBonusField::PreAttack,
+        _ => return None,
+    })
 }
 
 impl Default for WeaponTemplate {

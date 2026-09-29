@@ -1,8 +1,8 @@
 use std::io::{Read, Write};
 
 use eac_compression::{
-    compress_btree, compress_huffman, compress_refpack, decompress_btree, decompress_huffman,
-    decompress_refpack,
+    compress_btree, compress_huffman, decompress_btree, decompress_huffman,
+    ref_decode,
 };
 use flate2::{Compression as FlateCompression, read::ZlibDecoder, write::ZlibEncoder};
 use lzh_compression::{
@@ -120,8 +120,12 @@ impl CompressionManager {
             CompressionType::NoxLzh => {
                 (calc_max_compressed_size_raw(uncompressed_len_u) + 8) as Int
             }
-            CompressionType::BTree | CompressionType::Huff | CompressionType::RefPack => {
+            CompressionType::BTree | CompressionType::Huff => {
                 (uncompressed_len_u + 8) as Int
+            }
+            CompressionType::RefPack => {
+                // Literal 0x10FB: EAR header, type, size, one opcode per 4 bytes.
+                (uncompressed_len_u + 16 + uncompressed_len_u / 4) as Int
             }
             CompressionType::ZLib1
             | CompressionType::ZLib2
@@ -177,11 +181,10 @@ impl CompressionManager {
                 0
             }
             CompressionType::RefPack => {
-                if let Ok(compressed) = compress_refpack(src) {
-                    if compressed.len() <= dest.len() {
-                        dest[..compressed.len()].copy_from_slice(&compressed);
-                        return compressed.len() as Int;
-                    }
+                let compressed = encode_retail_refpack(src);
+                if compressed.len() <= dest.len() {
+                    dest[..compressed.len()].copy_from_slice(&compressed);
+                    return compressed.len() as Int;
                 }
                 0
             }
@@ -228,6 +231,7 @@ impl CompressionManager {
         }
     }
 
+
     pub fn decompress_data(src: &[u8], dest: &mut [u8]) -> Int {
         if src.len() < 8 {
             return 0;
@@ -256,7 +260,7 @@ impl CompressionManager {
             }
             CompressionType::RefPack => {
                 let compressed = &src[8..];
-                if let Ok(decompressed) = decompress_refpack(compressed, dest.len()) {
+                if let Ok(decompressed) = ref_decode(compressed) {
                     if decompressed.len() <= dest.len() {
                         dest[..decompressed.len()].copy_from_slice(&decompressed);
                         return decompressed.len() as Int;
@@ -297,5 +301,56 @@ impl CompressionManager {
             }
             CompressionType::None => 0,
         }
+    }
+}
+/// `EAR\0` plus a little-endian size and a literal-only `0x10FB` stream.
+/// `REF_decode` can read this. The token codec in `compress_refpack` cannot.
+fn encode_retail_refpack(src: &[u8]) -> Vec<u8> {
+    let mut body = Vec::with_capacity(5 + src.len() + src.len() / 112 + 1);
+    body.extend_from_slice(&[0x10, 0xFB]);
+    let len = src.len();
+    if len > 0x00FF_FFFF {
+        body[0] = 0x90;
+        body.push((len >> 24) as u8);
+    }
+    body.push((len >> 16) as u8);
+    body.push((len >> 8) as u8);
+    body.push(len as u8);
+    let mut index = 0;
+    while src.len() - index >= 4 {
+        let run = ((src.len() - index).min(112) / 4) * 4;
+        let code = ((run - 4) / 4) as u8;
+        body.push(0xE0 | code);
+        body.extend_from_slice(&src[index..index + run]);
+        index += run;
+    }
+    let tail = src.len() - index;
+    body.push(0xFC | (tail as u8));
+    body.extend_from_slice(&src[index..]);
+    let mut out = Vec::with_capacity(8 + body.len());
+    out.extend_from_slice(b"EAR\0");
+    out.extend_from_slice(&(src.len() as u32).to_le_bytes());
+    out.extend_from_slice(&body);
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retail_refpack_round_trip_hello() {
+        let src = b"Hello, World!";
+        let max = CompressionManager::get_max_compressed_size(
+            src.len() as Int,
+            CompressionType::RefPack,
+        );
+        let mut dest = vec![0u8; max as usize];
+        let n = CompressionManager::compress_data(CompressionType::RefPack, src, &mut dest);
+        assert!(n as usize > 8, "literal refpack must fit the size cap");
+        dest.truncate(n as usize);
+        assert_eq!(&dest[..4], b"EAR\0");
+        let out = ref_decode(&dest[8..]).expect("REF_decode");
+        assert_eq!(out, src);
     }
 }

@@ -612,22 +612,6 @@ mod physics_behavior_default_tests {
         assert!(guard.get_stick_to_ground());
     }
 
-    #[test]
-    fn held_physics_guard_reads_velocity_without_the_arc() {
-        let physics: Arc<Mutex<dyn PhysicsBehavior>> = Arc::new(Mutex::new(DummyPhysics {
-            vel: Vec3D::new(1.5, -2.0, 0.5),
-            stick: true,
-        }));
-        let mut guard = physics.lock().unwrap_or_else(|err| err.into_inner());
-        assert_eq!(PhysicsBehavior::get_velocity(&*guard).x, 1.5);
-        guard.set_velocity(&Vec3D::new(0.0, 4.0, 0.5));
-        guard.scrub_velocity_2d(0.0);
-        let vel = guard.get_velocity();
-        assert_eq!(vel.x, 0.0);
-        assert_eq!(vel.y, 0.0);
-        assert_eq!(vel.z, 0.5);
-        assert!(guard.get_stick_to_ground());
-    }
 
 }
 

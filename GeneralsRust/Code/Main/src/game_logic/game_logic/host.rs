@@ -30,6 +30,10 @@ pub struct GameLogic {
     pub(crate) guard_guardee_pos: HashMap<ObjectId, glam::Vec3>,
     /// C++ doQuickExit temporary-state deadline (10 * LOGICFRAMES_PER_SECOND).
     pub(crate) quick_exit_until: HashMap<ObjectId, u32>,
+    /// Crate move/attack machines for this world only. ObjectIDs are not unique
+    /// across games, so this is not a process map.
+    pub(crate) host_move_attack_machines:
+        HashMap<u32, gamelogic::ai::state_machine::AiStateMachine>,
 
     /// C++ TAiData::m_enableRepulsors residual (AI.ini EnableRepulsors).
     pub enable_repulsors: bool,
@@ -81,6 +85,9 @@ pub struct GameLogic {
 
     /// Simulation frame counter
     pub(crate) frame: u32,
+    /// C++ `getFrameObjectsChangedTriggerAreas`. Instance atomic so a `&self`
+    /// guard scan can store it. `Cell` is `!Sync` and this type is `Arc<Mutex<_>>`.
+    pub(crate) frame_objects_changed_trigger_areas: std::sync::atomic::AtomicU32,
 
     /// Next unused sequence for an actual accepted WeaponSet discharge.
     ///

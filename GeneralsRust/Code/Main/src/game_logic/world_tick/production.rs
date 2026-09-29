@@ -2194,10 +2194,15 @@ impl GameLogic {
                 }
             }
 
-            let Some(base_pos0) = base.or_else(|| self.player_base_position(pid)) else {
-                continue;
-            };
-            let mut base_pos = base_pos0;
+            let mut base_pos = base.or_else(|| self.player_base_position(pid)).unwrap_or_else(|| {
+                let (bmin, bmax) = self.world_bounds();
+                let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
+                Vec3::new(
+                    bmin.x + (bmax.x - bmin.x) * t,
+                    0.0,
+                    bmin.z + (bmax.z - bmin.z) * 0.2,
+                )
+            });
             if let Some(h) = self.terrain_height_at(Vec3::new(base_pos.x, 0.0, base_pos.z)) {
                 base_pos.y = h;
             }
@@ -2255,6 +2260,14 @@ impl GameLogic {
                     unit_pos.y = h;
                 }
                 if let Some(id) = self.create_object_for_player(unit_name, pid, unit_pos) {
+                    if let Some(obj) = self.host_object_mut(id) {
+                        if obj.is_mobile()
+                            && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
+                            && !obj.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable)
+                        {
+                            obj.thing.template.add_kind_of(crate::game_logic::KindOf::Selectable);
+                        }
+                    }
                     gamelogic::player::notify_skirmish_starting_object(pid, unit_name, false);
                     log::info!(
                         "Wave 832: starting unit player={} team={:?} spawned {} id={:?}",
@@ -2263,7 +2276,7 @@ impl GameLogic {
                         unit_name,
                         id
                     );
-                } else if i == 0 && !exact_player_template {
+                } else if i == 0 {
                     // Fallback retail short names for unit0 only.
                     // USA: ThingFactory AmericaVehicleDozer, then host USA_Dozer.
                     let fallbacks: &[&str] = match player.team {
@@ -2277,6 +2290,16 @@ impl GameLogic {
                             continue;
                         }
                         if let Some(id) = self.create_object_for_player(fallback, pid, unit_pos) {
+                            if let Some(obj) = self.host_object_mut(id) {
+                                if obj.is_mobile()
+                                    && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
+                                    && !obj.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable)
+                                {
+                                    obj.thing
+                                        .template
+                                        .add_kind_of(crate::game_logic::KindOf::Selectable);
+                                }
+                            }
                             gamelogic::player::notify_skirmish_starting_object(
                                 pid, fallback, false,
                             );
@@ -2286,6 +2309,7 @@ impl GameLogic {
                                 fallback,
                                 id
                             );
+                            break;
                         }
                     }
                 }

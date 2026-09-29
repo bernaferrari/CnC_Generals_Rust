@@ -495,15 +495,17 @@ impl PathfindingGrid {
 
     /// C++ `AIUpdateInterface::isAircraftThatAdjustsDestination` (HOVER/WINGS).
     pub fn is_aircraft_that_adjusts_destination(obj: &Object) -> bool {
-        if matches!(obj.loco_appearance, LocomotorAppearance::Thrust) {
+        let has_cur = obj
+            .cur_locomotor_name
+            .as_ref()
+            .is_some_and(|name| !name.is_empty());
+        if !has_cur {
             return false;
         }
         matches!(
             obj.loco_appearance,
             LocomotorAppearance::Hover | LocomotorAppearance::Wings
-        ) || obj.is_kind_of(KindOf::Aircraft)
-            || obj.object_type == crate::game_logic::ObjectType::Aircraft
-            || obj.chinook_ai.is_some()
+        )
     }
 
     /// C++ air early-out of `isDoingGroundMovement` (AIUpdate.cpp:2347-2361).
@@ -511,12 +513,6 @@ impl PathfindingGrid {
     /// Unmanned-helipad, a set with no member, HELD, and allow-to-fall stay on the full test.
     pub fn is_doing_ground_movement(obj: &Object) -> bool {
         use crate::game_logic::object::LOCO_SURFACE_AIR;
-        if matches!(
-            obj.loco_appearance,
-            LocomotorAppearance::Wings | LocomotorAppearance::Thrust
-        ) {
-            return false;
-        }
         if obj.locomotor_surfaces != 0 {
             if obj.locomotor_surfaces == LOCO_SURFACE_AIR {
                 return false;
@@ -524,11 +520,6 @@ impl PathfindingGrid {
             if (obj.locomotor_surfaces & LOCO_SURFACE_AIR) != 0 {
                 return false;
             }
-        }
-        if obj.is_kind_of(KindOf::Aircraft)
-            || obj.object_type == crate::game_logic::ObjectType::Aircraft
-        {
-            return false;
         }
         true
     }
@@ -544,12 +535,12 @@ impl PathfindingGrid {
         if obj.locomotor_surfaces == LOCO_SURFACE_AIR {
             return false;
         }
-        let has_set = obj.locomotor_set_names.iter().any(|name| !name.is_empty());
         let has_cur = obj
             .cur_locomotor_name
             .as_ref()
             .is_some_and(|name| !name.is_empty());
-        if has_set && !has_cur {
+        // C++ m_curLocomotor == NULL returns false even with no set.
+        if !has_cur {
             return false;
         }
         if (obj.locomotor_surfaces & LOCO_SURFACE_AIR) != 0 {

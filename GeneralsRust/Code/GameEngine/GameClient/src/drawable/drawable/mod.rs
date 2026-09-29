@@ -95,6 +95,8 @@ pub struct BasicDrawable {
     selection_flash_envelope: Option<TintEnvelope>,
     icon_info: Option<IconInfo>,
     loco_info: Option<LocoInfo>,
+    /// Recoil-only pitch/roll. Not a full locomotor physics xform.
+    recoil_visual: Matrix4,
     receives_dynamic_lights: bool,
     terrain_decal_type: TerrainDecalType,
     terrain_decal_size: Vector3,
@@ -245,6 +247,7 @@ impl BasicDrawable {
             selection_flash_envelope: None,
             icon_info: None,
             loco_info: None,
+            recoil_visual: Matrix4::identity(),
             receives_dynamic_lights: true,
             terrain_decal_type: TerrainDecalType::None,
             terrain_decal_size: Vector3::zero(),

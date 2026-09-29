@@ -580,11 +580,6 @@ pub trait AiPlayerTrait {
     fn get_difficulty(&self) -> GameDifficulty;
 }
 
-/// Global AI Update instance
-use once_cell::sync::Lazy;
-pub static THE_AI_UPDATE: Lazy<Arc<RwLock<AIUpdate>>> =
-    Lazy::new(|| Arc::new(RwLock::new(AIUpdate::new())));
-
 #[cfg(test)]
 mod tests {
     use super::*;

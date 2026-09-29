@@ -203,7 +203,12 @@ impl Decoder {
 
     /// Decode RefPack compressed data
     fn decode_refpack(&mut self, data: &[u8], expected_size: usize) -> Result<Vec<u8>> {
-        crate::refpack::decode(data, expected_size)
+        crate::ref_decode(data).map(|mut out| {
+            if expected_size > 0 && out.len() > expected_size {
+                out.truncate(expected_size);
+            }
+            out
+        })
     }
 
     /// Decode BTree compressed data

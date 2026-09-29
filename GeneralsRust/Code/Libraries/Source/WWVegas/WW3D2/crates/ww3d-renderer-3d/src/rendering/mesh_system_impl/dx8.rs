@@ -21,6 +21,8 @@ pub struct DX8PolygonRendererClass {
     pub material_pass: Option<Arc<MaterialPassClass>>,
     pub shader: ShaderClass,
     pub vertex_material: Option<Arc<VertexMaterialClass>>,
+    /// C++ `sorting ? BUFFER_TYPE_DYNAMIC_SORTING : BUFFER_TYPE_DYNAMIC_DX8` (3 or 2).
+    pub dynamic_buffer_type: u32,
 }
 
 impl Default for DX8PolygonRendererClass {
@@ -41,20 +43,28 @@ impl DX8PolygonRendererClass {
             material_pass: None,
             shader: ShaderClass::default(),
             vertex_material: None,
+            dynamic_buffer_type: 2,
         }
     }
 
+    /// `dx8renderer.cpp` skin `Render`: sorting geometry allocates a dynamic sorting VB.
+    pub fn set_dynamic_sorting(&mut self, sorting: bool) {
+        self.dynamic_buffer_type = if sorting { 3 } else { 2 };
+    }
+
     /// Render a material pass
-    pub fn render_material_pass<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
+    pub fn render_material_pass(
+        &self,
+        render_pass: &mut wgpu::RenderPass<'_>,
         _transform: &Mat4,
         _render_info: &RenderInfoClass,
     ) -> W3dResult<()> {
         if let Some(vertex_buffer) = &self.vertex_buffer {
+            let vertex_buffer = vertex_buffer.clone();
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         }
         if let Some(index_buffer) = &self.index_buffer {
+            let index_buffer = index_buffer.clone();
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..self.index_count, 0, 0..1);
         } else {
@@ -142,6 +152,8 @@ pub struct MeshRenderTask {
 #[derive(Debug)]
 pub struct DX8FVFCategoryContainer {
     pub texture_categories: HashMap<(u32, String), Arc<DX8TextureCategoryClass>>,
+    /// C++ `DX8FVFCategoryContainer::Is_Sorting`.
+    sorting: bool,
 }
 
 impl Default for DX8FVFCategoryContainer {
@@ -154,7 +166,31 @@ impl DX8FVFCategoryContainer {
     pub fn new() -> Self {
         Self {
             texture_categories: HashMap::new(),
+            sorting: false,
         }
+    }
+
+    /// `dx8renderer.cpp` Register_Mesh_Type: SORT, sorting enabled, and sort level none.
+    pub fn sorting_for_mesh(flags: u32, sort_level: u32) -> bool {
+        (flags & MeshGeometryClass::SORT as u32) != 0
+            && ww3d_core::WW3D::is_sorting_enabled()
+            && sort_level == SORT_LEVEL_NONE
+    }
+
+    pub fn with_sorting(sorting: bool) -> Self {
+        Self {
+            texture_categories: HashMap::new(),
+            sorting,
+        }
+    }
+
+    pub fn is_sorting(&self) -> bool {
+        self.sorting
+    }
+
+    /// `3` dynamic sorting, `2` dynamic DX8. Passed into the dynamic VB the way skin `Render` does.
+    pub fn dynamic_buffer_type(&self) -> u32 {
+        if self.sorting { 3 } else { 2 }
     }
 
     pub fn get_or_create_texture_category(

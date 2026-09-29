@@ -269,14 +269,14 @@ impl ObjectDrawInterface for W3DSupplyDraw {
     }
     fn update_supply_status(&mut self, max_supply: i32, current_supply: i32) {
         self.base.update_supply_status(max_supply, current_supply);
-        if self.data.supply_bone_prefix.is_empty() || max_supply <= 0 {
+        if max_supply <= 0 {
             return;
         }
         if self.total_bones == -1 {
             let mut positions = vec![Coord3D::origin(); 1024];
             let mut transforms = vec![Matrix3D::IDENTITY; 1024];
             self.total_bones = self.base.get_pristine_bone_positions(
-                &ModelConditionFlags::empty(),
+                &self.base.last_model_conditions(),
                 self.data.supply_bone_prefix.as_str(),
                 1,
                 &mut positions,
@@ -285,17 +285,20 @@ impl ObjectDrawInterface for W3DSupplyDraw {
             ) as i32;
             self.last_number_shown = self.total_bones;
         }
-        let ratio = (current_supply.max(0) as Real) / (max_supply as Real);
+        let ratio = (current_supply as Real) / (max_supply as Real);
         let bones_to_show = ((self.total_bones as Real) * ratio).ceil() as i32;
-        let bones_to_show = bones_to_show.clamp(0, self.total_bones.max(0));
+        let bones_to_show = bones_to_show.min(self.total_bones);
         if bones_to_show == self.last_number_shown {
             return;
         }
         let prefix = self.data.supply_bone_prefix.as_str();
-        let entries = (1..=self.total_bones.max(0))
-            .map(|index| (format!("{prefix}{index:02}"), index > bones_to_show))
+        let low = self.last_number_shown.min(bones_to_show);
+        let high = self.last_number_shown.max(bones_to_show);
+        let hide = bones_to_show < self.last_number_shown;
+        let entries = ((low + 1)..=high)
+            .map(|index| (format!("{prefix}{index:02}"), hide))
             .collect();
-        self.base.set_unsaved_subobject_hides(entries);
+        self.base.merge_unsaved_subobject_hides(entries);
         self.base.update_sub_objects();
         self.last_number_shown = bones_to_show;
     }

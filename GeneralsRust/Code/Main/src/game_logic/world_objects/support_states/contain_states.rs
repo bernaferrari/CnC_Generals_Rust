@@ -38,30 +38,40 @@ impl GameLogic {
     }
 
     /// C++ `OpenContain::doLoadSound` — leftover TheAudio, once per frame per container.
-    pub(crate) fn play_container_enter_sound(&self, container_id: ObjectId) {
+    pub(crate) fn play_container_enter_sound(&mut self, container_id: ObjectId) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
         let name = Self::contain_module_sound_event_name(container, true);
+        let now = self.frame;
+        let Some(container) = self.objects.get_mut(&container_id) else {
+            return;
+        };
         gamelogic::object::contain::leftover_play_container_enter_sound(
             name.as_deref(),
             container_id.0,
-            self.frame,
+            now,
+            &mut container.last_load_sound_frame,
         );
         // C++ OpenContain::onContaining template SoundEnter (load-sounds-enabled).
         self.play_container_containing_template_sounds(container_id);
     }
 
     /// C++ `OpenContain::doUnloadSound` — leftover TheAudio, once per frame per container.
-    pub(crate) fn play_container_exit_sound(&self, container_id: ObjectId) {
+    pub(crate) fn play_container_exit_sound(&mut self, container_id: ObjectId) {
         let Some(container) = self.objects.get(&container_id) else {
             return;
         };
         let name = Self::contain_module_sound_event_name(container, false);
+        let now = self.frame;
+        let Some(container) = self.objects.get_mut(&container_id) else {
+            return;
+        };
         gamelogic::object::contain::leftover_play_container_exit_sound(
             name.as_deref(),
             container_id.0,
-            self.frame,
+            now,
+            &mut container.last_unload_sound_frame,
         );
     }
 

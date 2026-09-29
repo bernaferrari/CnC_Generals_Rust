@@ -85,7 +85,10 @@ impl AIManager {
             .iter()
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
-        let destroyed = gamelogic::team::take_host_pre_team_destroy_requests();
+        let destroyed = match gamelogic::team::get_team_factory().lock() {
+            Ok(mut factory) => factory.take_host_pre_team_destroy_requests(),
+            Err(poisoned) => poisoned.into_inner().take_host_pre_team_destroy_requests(),
+        };
         let player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
         for player_id in player_ids {
             if let Some(ai_player) = self.ai_players.get_mut(&player_id) {

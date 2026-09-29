@@ -420,6 +420,8 @@ impl CnCGameEngine {
             host_match_total_play_time: None,
             host_match_logic_frame: None,
             host_match_logic_steps: None,
+            host_visual_logic_frame_applied: None,
+            host_snow_logic_frame_applied: None,
             host_match_in_replay: None,
             host_match_in_shell: None,
             host_match_local_team: None,
@@ -1191,9 +1193,7 @@ impl CnCGameEngine {
                     }
                 }
                 "novideo" => {
-                    if allow_debug_flags {
-                        writable.video_on = false;
-                    }
+                    writable.video_on = false;
                 }
                 "scriptdebug" => {
                     writable.script_debug = true;
@@ -1205,9 +1205,7 @@ impl CnCGameEngine {
                     }
                 }
                 "nomusic" => {
-                    if allow_debug_flags {
-                        writable.music_on = false;
-                    }
+                    writable.music_on = false;
                 }
                 "nodraw" => {
                     if allow_debug_flags {

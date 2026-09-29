@@ -312,21 +312,43 @@ impl UnitAIUpdate {
         if let Some(jet_ai) = self.jet_ai.as_ref() {
             return jet_ai.is_doing_ground_movement();
         }
-        let unit = get_unit_arc(self.unit_id);
-        let Some(unit) = unit else {
-            return true;
+        let Some(unit) = get_unit_arc(self.unit_id) else {
+            return false;
         };
         let Ok(guard) = unit.read() else {
-            return true;
+            return false;
         };
+        let base = guard.base_arc();
+        let Ok(object) = base.read() else {
+            return false;
+        };
+        if object.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
+            && object.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
+        {
+            return true;
+        }
+        if guard.locomotor_set.get_valid_surfaces() == crate::ai::pathfind_complete::SURFACE_AIR {
+            return false;
+        }
         let Some(locomotor) = guard.locomotor_set.get_active() else {
-            return true;
+            return false;
         };
-
-        !matches!(
-            locomotor.get_appearance(),
-            LocomotorAppearance::Hover | LocomotorAppearance::Thrust | LocomotorAppearance::Wings
-        )
+        if (locomotor.get_legal_surfaces() & crate::ai::pathfind_complete::SURFACE_AIR) != 0 {
+            return false;
+        }
+        if object.is_disabled_by_type(crate::common::DisabledType::Held) {
+            return false;
+        }
+        if object.is_above_terrain() {
+            if let Some(physics) = object.get_physics() {
+                if let Ok(physics) = physics.lock() {
+                    if physics.get_allow_to_fall() {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
     pub(super) fn is_allowed_to_move_away_from_unit(&self) -> bool {
         self.jet_ai
@@ -445,15 +467,12 @@ impl UnitAIUpdate {
                     terrain.get_layer_height(adjusted.x, adjusted.y, terrain_layer, None, true);
             }
 
-            let mut dest_layer = layer;
+            let dest_layer = layer;
             if layer != crate::common::PathfindLayerEnum::Ground {
                 if let Ok(obj_guard) = guard.base_arc().read() {
                     interacts_with_bridge_end =
                         terrain.object_interacts_with_bridge_layer(&obj_guard, terrain_layer, true);
                 }
-            }
-            if layer != crate::common::PathfindLayerEnum::Ground && !interacts_with_bridge_end {
-                dest_layer = crate::common::PathfindLayerEnum::Ground;
             }
             if let Ok(mut obj_guard) = guard.base_arc().write() {
                 obj_guard.set_destination_layer(dest_layer);
@@ -482,10 +501,7 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
-        let path_layer = match layer {
-            crate::common::PathfindLayerEnum::Ground => ClassicPathLayer::Ground,
-            _ => ClassicPathLayer::Top,
-        };
+        let path_layer = ClassicPathLayer::from_u32(layer as u32);
         let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
         let new_cell = Self::compute_goal_cell(&adjusted, center_in_cell);
         let is_unmanned_heli = guard
@@ -1524,70 +1540,156 @@ impl UnitAIUpdate {
         self.cur_max_blocked_speed = speed;
     }
     pub(super) fn set_locomotor_goal_none(&mut self) {
-        self.locomotor_goal_type = 0;
-        self.locomotor_goal_data = Coord3D::ZERO;
-        if let Some(jet_ai) = self.jet_ai.as_ref() {
-            if jet_ai.is_takeoff_or_landing_in_progress()
+        let jet_keeps_air_goal = self.jet_ai.as_ref().is_some_and(|jet_ai| {
+            jet_ai.is_takeoff_or_landing_in_progress()
                 && jet_ai.allow_air_loco()
                 && !jet_ai.allow_circling()
-            {
-                if let Some(unit) = get_unit_arc(self.unit_id) {
-                    if let Ok(guard) = unit.read() {
-                        let (dir_x, dir_y) = guard.get_unit_direction_vector_2d();
-                        let mut desired = guard.get_position();
-                        desired.x += dir_x * 1000.0;
-                        desired.y += dir_y * 1000.0;
-                        let _ = self.set_movement_target(&desired);
-                        return;
-                    }
+        });
+        if jet_keeps_air_goal {
+            if let Some(unit) = get_unit_arc(self.unit_id) {
+                if let Ok(guard) = unit.read() {
+                    let (dir_x, dir_y) = guard.get_unit_direction_vector_2d();
+                    let mut desired = guard.get_position();
+                    desired.x += dir_x * 1000.0;
+                    desired.y += dir_y * 1000.0;
+                    drop(guard);
+                    self.set_locomotor_goal_position_explicit(desired);
+                    return;
                 }
             }
         }
-
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut guard) = unit.write() {
-                guard.stop_movement();
-            }
-        }
+        self.locomotor_goal_type = 0;
     }
     pub(super) fn set_locomotor_goal_orientation(&mut self, angle: Real) {
         self.locomotor_goal_type = 3;
-        self.locomotor_goal_data = Coord3D::new(angle, 0.0, 0.0);
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut guard) = unit.write() {
-                let _ = guard.set_orientation(angle);
-            }
-        }
+        self.locomotor_goal_data.x = angle;
     }
     pub(super) fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
         self.locomotor_goal_type = 2;
         self.locomotor_goal_data = pos;
-        let _ = self.set_movement_target(&pos);
     }
-    pub(super) fn friend_ending_move(&mut self) {
-        self.queue_for_path_frame = 0;
-        self.ignore_obstacle_id = INVALID_ID;
-        self.movement_complete = true;
-        self.locomotor_goal_type = 0;
-        self.locomotor_goal_data = Coord3D::ZERO;
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut guard) = unit.write() {
-                guard.stop_movement();
+    pub(super) fn apply_stored_locomotor_goal(&mut self) {
+        if self.movement_complete || (self.locomotor_goal_type != 2 && self.locomotor_goal_type != 3) {
+            return;
+        }
+        let goal_type = self.locomotor_goal_type;
+        let goal = self.locomotor_goal_data;
+        let Some(unit) = get_unit_arc(self.unit_id) else {
+            return;
+        };
+        let Ok(mut guard) = unit.write() else {
+            return;
+        };
+        let base = guard.base_arc();
+        let (current, angle, body, forward_speed, physics) = {
+            let Ok(object) = base.read() else {
+                return;
+            };
+            let body = object
+                .get_body_module()
+                .and_then(|body| {
+                    body.lock()
+                        .ok()
+                        .map(|b| to_locomotor_body_damage_type(b.get_damage_state()))
+                })
+                .unwrap_or(crate::locomotor::BodyDamageType::Pristine);
+            let physics = object.get_physics();
+            let forward_speed = physics
+                .as_ref()
+                .and_then(|physics| physics.lock().ok().map(|g| g.get_forward_speed_2d()))
+                .unwrap_or(0.0);
+            (*object.get_position(), object.get_orientation(), body, forward_speed, physics)
+        };
+        let object_arc = guard.base_arc().clone();
+        let Some(loco) = guard.locomotor_set.get_active_mut() else {
+            return;
+        };
+        if let Some(physics) = physics.as_ref() {
+            if let Ok(mut physics) = physics.lock() {
+                loco.apply_physics_options(&mut *physics);
             }
         }
+        let delta = 1.0 / crate::common::LOGICFRAMES_PER_SECOND as Real;
+        let max_speed = loco.get_max_speed_for_condition(body);
+        let mut speed = self.desired_speed;
+        if speed == crate::modules::FAST_AS_POSSIBLE || speed > max_speed {
+            speed = max_speed;
+        }
+        speed = self.apply_bump_speed_limit(speed, self.blocked_frames > 0);
+        let airborne_height = loco.template.airborne_targeting_height;
+        let mut object_write = object_arc.write().ok();
+        let mut physics_write = physics.as_ref().and_then(|physics| physics.lock().ok());
+        let (new_pos, new_angle, _new_speed) = if goal_type == 2 {
+            loco.loco_update_move_towards_position(
+                current,
+                angle,
+                forward_speed,
+                goal,
+                0.0,
+                speed,
+                body,
+                delta,
+                self.blocked_frames > 0,
+                physics_write.as_deref_mut(),
+                object_write.as_deref_mut(),
+            )
+        } else {
+            loco.loco_update_move_towards_angle(current, angle, goal.x, forward_speed, body, delta)
+        };
+        drop(object_write);
+        drop(physics_write);
+        drop(guard);
+        if let Some(unit) = get_unit_arc(self.unit_id) {
+            if let Ok(guard) = unit.read() {
+                if let Ok(mut object) = guard.base_arc().write() {
+                    if goal_type != 2 {
+                        let _ = object.set_position(&new_pos);
+                    }
+                    let _ = object.set_orientation(new_angle);
+                    if let Some(physics) = object.get_physics() {
+                        if let Ok(mut physics) = physics.lock() {
+                            if goal_type != 2 {
+                                let velocity = (new_pos - current) / delta;
+                                physics.set_velocity(&velocity);
+                            }
+                            let mut yaw_delta = new_angle - angle;
+                            let two_pi = std::f32::consts::PI * 2.0;
+                            while yaw_delta > std::f32::consts::PI {
+                                yaw_delta -= two_pi;
+                            }
+                            while yaw_delta < -std::f32::consts::PI {
+                                yaw_delta += two_pi;
+                            }
+                            physics.set_yaw_rate(yaw_delta / delta);
+                            physics.set_turning(if yaw_delta > 0.0 {
+                                1
+                            } else if yaw_delta < 0.0 {
+                                -1
+                            } else {
+                                0
+                            });
+                        }
+                    }
+                    let airborne = object.get_height_above_terrain() > airborne_height as Real;
+                    object.set_status(
+                        crate::common::ObjectStatusMaskType::from_status(
+                            crate::common::ObjectStatusTypes::AirborneTarget,
+                        ),
+                        airborne,
+                    );
+                }
+            }
+        }
+    }
+    pub(super) fn friend_ending_move(&mut self) {
+        self.movement_complete = true;
+        self.cpp_is_moving = false;
     }
     pub(super) fn friend_starting_move(&mut self) {
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
         self.movement_complete = false;
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(mut guard) = unit.write() {
-                guard.movement_state = MovementState::Moving;
-                if let Some(loco) = guard.locomotor_set.get_active_mut() {
-                    loco.start_move();
-                }
-            }
-        }
+        self.cpp_is_moving = true;
     }
     pub(super) fn evaluate_morale_bonus(&mut self) {
         let Some(unit_arc) = get_unit_arc(self.unit_id) else {
@@ -2233,12 +2335,11 @@ impl UnitAIUpdate {
         self.set_desired_speed(crate::modules::FAST_AS_POSSIBLE);
         self.friend_starting_move();
         self.with_cur_locomotor(&mut |loco| loco.start_move());
-        let _ = crate::ai::states::follow_path::with_owner_ai_mutex_held(|| {
-            guard.set_temporary_state(
-                AIStateType::FollowExitProductionPath as u32,
-                10 * crate::common::LOGICFRAMES_PER_SECOND as UnsignedInt,
-            )
-        });
+        guard.owner_ai_mutex_held_for_next_enter = true;
+        let _ = guard.set_temporary_state(
+            AIStateType::FollowExitProductionPath as u32,
+            10 * crate::common::LOGICFRAMES_PER_SECOND as UnsignedInt,
+        );
         if locked {
             guard.lock();
         }

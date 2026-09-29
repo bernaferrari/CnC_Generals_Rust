@@ -285,10 +285,7 @@ impl PropagandaCenterBehavior {
                 }
 
                 if let Ok(mut exit_guard) = exit_interface.lock() {
-                    let _ = exit_guard.exit_object_via_door(
-                        subject_arc.read().map(|g| g.get_id()).unwrap_or(0),
-                        exit_door,
-                    );
+                    let _ = exit_guard.exit_object_via_door(subject_id, exit_door);
                 };
             }
         }

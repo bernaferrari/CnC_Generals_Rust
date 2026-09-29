@@ -1173,25 +1173,6 @@ fn calc_transform(obj: &Object, pos: &Coord3D, max_turn_rate: f32) -> Matrix3D {
         rot_mtx.transform_vector3(obj_dir)
     };
 
-    // Build transform matrix from position and direction
-    // Create basis vectors: X (forward), Y (up), Z (right)
     let x_axis = new_dir.normalize();
-
-    // Choose an up vector that's not parallel to the forward direction
-    let up = if x_axis.y.abs() < 0.999 {
-        Vector3::Y
-    } else {
-        Vector3::Z
-    };
-
-    // Construct orthonormal basis
-    let z_axis = x_axis.cross(up).normalize();
-    let y_axis = z_axis.cross(x_axis).normalize();
-
-    Matrix3D::from_cols(
-        x_axis.extend(0.0),
-        y_axis.extend(0.0),
-        z_axis.extend(0.0),
-        obj_pos.extend(1.0),
-    )
+    crate::common::build_transform_matrix(obj_pos, x_axis)
 }

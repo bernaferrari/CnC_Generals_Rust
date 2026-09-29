@@ -1887,12 +1887,10 @@ impl GameLogic {
                             // leave unarmed units alone
                         } else {
                             let range = attacker
-                                .weapon
-                                .as_ref()
-                                .map(|w| w.range)
-                                .or_else(|| attacker.secondary_weapon.as_ref().map(|w| w.range))
-                                .unwrap_or(50.0)
-                                .max(15.0);
+                                .selected_weapon_slot()
+                                .and_then(|slot| attacker.weapon_slot(slot))
+                                .map(|w| attacker.effective_weapon_range(w.range))
+                                .unwrap_or(50.0);
                             let from = attacker.get_position();
                             let mut dir = tpos - from;
                             dir.y = 0.0;

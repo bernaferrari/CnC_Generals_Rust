@@ -977,7 +977,6 @@ mod tests {
                             g: 0.4,
                             b: 0.2,
                             a: 1.0,
-            multiview_mask: None,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -992,6 +991,7 @@ mod tests {
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &camera_group, &[]);

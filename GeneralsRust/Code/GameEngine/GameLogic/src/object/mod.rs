@@ -1526,16 +1526,16 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
         if let Ok(mut guard) = self.behavior.lock() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface
-                    .exit_object_via_door(obj.read().map(|g| g.get_id()).unwrap_or(0), door);
+                return exit_interface.exit_object_via_door(obj_id, door);
             }
         }
         Ok(())
@@ -1601,11 +1601,9 @@ impl ExitInterface for ContainExitInterfaceProxy {
         let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
             return false;
         };
-        self.exit_object_via_door(
-            obj.read().map(|g| g.get_id()).unwrap_or(0),
-            crate::modules::ExitDoorType::Primary,
-        )
-        .is_ok()
+        let exit_id = obj.read().map(|g| g.get_id()).unwrap_or(0);
+        self.exit_object_via_door(exit_id, crate::modules::ExitDoorType::Primary)
+            .is_ok()
     }
 
     fn get_rally_point(&self) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
@@ -1643,18 +1641,17 @@ impl ExitInterface for ContainExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
         self.contain
             .lock()
             .map_err(|_| "failed to lock contain exit interface".into())
-            .and_then(|mut guard| {
-                guard.exit_object_via_door(obj.read().map(|g| g.get_id()).unwrap_or(0), door)
-            })
+            .and_then(|mut guard| guard.exit_object_via_door(obj_id, door))
     }
 
     fn exit_object_in_a_hurry(
@@ -1732,16 +1729,15 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
-        self.with_exit_behavior(|module| {
-            module.exit_object_via_door(obj.read().map(|g| g.get_id()).unwrap_or(0), door)
-        })
-        .unwrap_or(Ok(()))
+        self.with_exit_behavior(|module| module.exit_object_via_door(obj_id, door))
+            .unwrap_or(Ok(()))
     }
 
     fn exit_object_in_a_hurry(
@@ -2759,6 +2755,18 @@ pub enum ObjectError {
     InvalidState,
 }
 
+/// Exit path queued while this object's AI mutex is already held.
+/// Applied by that unit's `UnitAIUpdate::update`, not a process-global slot.
+#[derive(Debug)]
+pub(crate) enum PendingProducedExit {
+    Quick(Vec<Coord3D>),
+    Follow {
+        path: Vec<Coord3D>,
+        ignore_id: ObjectID,
+        end: Coord3D,
+    },
+}
+
 /// Main Object struct - the core game entity
 #[allow(dead_code)]
 pub struct Object {
@@ -2828,6 +2836,8 @@ pub struct Object {
     pub(crate) ai_pending_exit: Option<bool>,
     pub(crate) ai_pending_exit_source: crate::common::CommandSourceType,
     pub(crate) ai_pending_exit_obj: Option<crate::object::ObjectId>,
+    /// Door/hurry exit paths queued because this object's AI mutex was already held.
+    pub(crate) ai_pending_produced_exits: Vec<PendingProducedExit>,
     pub(crate) ai_fire_hacking: bool,
     pub(crate) ai_fire_hack_known: bool,
     pub(crate) ai_fire_combat_drop: bool,

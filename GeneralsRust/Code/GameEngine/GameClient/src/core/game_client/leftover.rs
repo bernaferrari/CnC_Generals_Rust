@@ -1374,13 +1374,10 @@ impl GameClient {
     fn update_drawable_animations(&mut self, delta_time: f32) -> GameClientResult<()> {
         let frame = self.frame;
 
-        for drawable in self.drawable_map.values_mut() {
-            // Update drawable animation state
-            // The drawable's update method advances animation frames
-            drawable.update(delta_time);
-        }
+        self.tick_mapped_drawables(frame, delta_time);
 
         // Dual-world residual only — host drawables live solely in drawable_map above.
+        let mut expired_logic_drawables = Vec::new();
         self.iterate_objects_with_drawables(|obj_ref| {
             let Ok(mut obj) = obj_ref.write() else {
                 return;
@@ -1388,9 +1385,18 @@ impl GameClient {
             if let Some(drawable) = obj.get_drawable() {
                 if let Ok(mut drawable_guard) = drawable.write() {
                     let _ = drawable_guard.update(delta_time, frame);
+                    let expiration = drawable_guard.expiration_date();
+                    if expiration != 0 && frame >= expiration {
+                        expired_logic_drawables.push(drawable_guard.get_drawable_id());
+                    }
                 }
             }
         })?;
+        if let Some(client) = TheGameClient::get() {
+            for id in expired_logic_drawables {
+                client.destroy_drawable(id);
+            }
+        }
         let _ = frame;
         Ok(())
     }

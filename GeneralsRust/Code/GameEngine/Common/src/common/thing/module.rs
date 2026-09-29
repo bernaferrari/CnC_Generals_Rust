@@ -341,6 +341,19 @@ pub trait CreateInterface {
     fn on_create(&self);
     fn on_build_complete(&self);
     fn should_do_on_build_complete(&self) -> bool;
+
+    /// Object already borrowed by the create caller (`Object::init_object` /
+    /// `Object::on_build_complete`). Common cannot name GameLogic's `Object`,
+    /// so the live value is passed as `Any` and downcast at the hook.
+    /// Default keeps hooks that do not need the owner on `on_create`.
+    fn on_create_with_owner(&self, _owner: &mut dyn Any) {
+        self.on_create();
+    }
+
+    /// Same owner threading as [`on_create_with_owner`] for build completion.
+    fn on_build_complete_with_owner(&self, _owner: &mut dyn Any) {
+        self.on_build_complete();
+    }
 }
 
 pub trait ClientUpdateInterface {

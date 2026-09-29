@@ -187,6 +187,9 @@ impl GameLogic {
         if has_kind("huge_vehicle") {
             template.add_kind_of(KindOf::HugeVehicle);
         }
+        if has_kind("cliff_jumper") || has_kind("cliffjumper") {
+            template.add_kind_of(KindOf::CliffJumper);
+        }
     }
 
     /// Preserve the exact DockUpdate and normal-containment slice that the

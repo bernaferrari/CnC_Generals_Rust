@@ -485,6 +485,22 @@ fn insert_repeatable_named_property(
     }
 }
 
+fn weapon_slot_key(key: &str) -> bool {
+    matches!(
+        key,
+        "FireFX"
+            | "ProjectileDetonationFX"
+            | "FireOCL"
+            | "ProjectileDetonationOCL"
+            | "ProjectileExhaust"
+            | "VeterancyFireFX"
+            | "VeterancyProjectileDetonationFX"
+            | "VeterancyFireOCL"
+            | "VeterancyProjectileDetonationOCL"
+            | "VeterancyProjectileExhaust"
+    )
+}
+
 fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<String, String>)> {
     let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
     if name.trim().is_empty() {
@@ -511,6 +527,37 @@ fn parse_named_property_block(ini: &mut INI) -> INIResult<(String, HashMap<Strin
         }
     }
 
+    Ok((name, properties))
+}
+
+fn parse_weapon_property_block(ini: &mut INI) -> INIResult<(String, HashMap<String, String>)> {
+    let name = ini.get_next_value_token().ok_or(INIError::InvalidData)?;
+    if name.trim().is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut properties = HashMap::new();
+    let mut line: u32 = 0;
+    loop {
+        let ended = read_block_line(ini)?;
+        if ended {
+            break;
+        }
+        if ini.buffer.trim().is_empty() {
+            continue;
+        }
+        if ini.buffer.trim().eq_ignore_ascii_case("End") {
+            break;
+        }
+        if let Some((key, value)) = parse_key_value_line(&ini.buffer) {
+            line = line.saturating_add(1);
+            if weapon_slot_key(&key) {
+                properties.insert(format!("{key}#{line}"), value);
+            } else {
+                insert_repeatable_named_property(&mut properties, key, value);
+            }
+        }
+    }
     Ok((name, properties))
 }
 
@@ -733,7 +780,7 @@ fn parse_water_transparency_block(ini: &mut INI) -> INIResult<()> {
 }
 
 fn parse_weapon_block(ini: &mut INI) -> INIResult<()> {
-    let (name, properties) = parse_named_property_block(ini)?;
+    let (name, properties) = parse_weapon_property_block(ini)?;
     super::ini_weapon::IniWeapon::register_definition(
         AsciiString::from(name.as_str()),
         properties,

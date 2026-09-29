@@ -98,6 +98,17 @@ impl W3DOverlordTankDraw {
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.owner_id.or_else(|| self.base.owner_id())
     }
+
+    pub fn tick_live_tread_debris(
+        &mut self,
+        position: [f32; 3],
+        vel_mag_sq: Real,
+        hidden: bool,
+        shrouded: bool,
+    ) {
+        self.base
+            .tick_live_move_debris(position, vel_mag_sq, hidden, shrouded);
+    }
 }
 
 impl Module for W3DOverlordTankDraw {

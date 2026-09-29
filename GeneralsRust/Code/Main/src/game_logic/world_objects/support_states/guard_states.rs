@@ -39,13 +39,12 @@ fn host_area_occupancy()
     &SESSIONS
 }
 
-static HOST_AREA_STAMP: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 fn note_host_guard_area_occupancy(
     frame: u32,
     trigger: &gamelogic::polygon_trigger::PolygonTrigger,
     occupants: impl Iterator<Item = (ObjectId, glam::Vec3)>,
-) {
+    ) -> bool {
     let name = trigger.get_trigger_name().as_str().to_string();
     let mut current = std::collections::BTreeSet::new();
     for (id, pos) in occupants {
@@ -56,11 +55,11 @@ fn note_host_guard_area_occupancy(
     let mut sessions = host_area_occupancy()
         .lock()
         .unwrap_or_else(|e| e.into_inner());
-    if sessions.get(&name) != Some(&current) {
-        sessions.insert(name, current);
-        HOST_AREA_STAMP.store(frame, std::sync::atomic::Ordering::Relaxed);
-        gamelogic::ai::set_frame_objects_changed_trigger_areas(frame);
-    }
+        if sessions.get(&name) != Some(&current) {
+            sessions.insert(name, current);
+            return true;
+        }
+        false
 }
 
 /// C++ `AIGuardIdleState::update` per-axis 2-cell (`delta*delta > 4*cell^2`).
@@ -78,11 +77,7 @@ pub(crate) fn host_guardee_moved_beyond_return_threshold(
     dz * dz > limit_sqr
 }
 
-fn host_guard_area_stamp_expired(frame: u32, scan_rate: u32) -> bool {
-    let leftover_atomic = gamelogic::ai::get_frame_objects_changed_trigger_areas();
-    let leftover_gl = gamelogic::helpers::TheGameLogic::get_frame_objects_changed_trigger_areas();
-    let host = HOST_AREA_STAMP.load(std::sync::atomic::Ordering::Relaxed);
-    let changed = leftover_atomic.max(leftover_gl).max(host);
+fn host_guard_area_stamp_expired(frame: u32, changed: u32, scan_rate: u32) -> bool {
     changed != 0 && frame > changed.saturating_add(scan_rate)
 }
 
@@ -163,14 +158,20 @@ impl GameLogic {
             return None;
         }
         if let Some(trigger) = polygon {
-            note_host_guard_area_occupancy(
+            if note_host_guard_area_occupancy(
                 self.frame,
                 trigger,
-                self.objects
-                    .iter()
-                    .map(|(id, obj)| (*id, obj.get_position())),
-            );
-            if host_guard_area_stamp_expired(self.frame, self.host_guard_enemy_scan_rate()) {
+                self.objects.iter().map(|(id, obj)| (*id, obj.get_position())),
+            ) {
+                self.frame_objects_changed_trigger_areas
+                    .store(self.frame, std::sync::atomic::Ordering::Relaxed);
+            }
+            if host_guard_area_stamp_expired(
+                self.frame,
+                self.frame_objects_changed_trigger_areas
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                self.host_guard_enemy_scan_rate(),
+            ) {
                 return None;
             }
         }
@@ -422,7 +423,11 @@ impl GameLogic {
             // it for an ultra-accurate locomotor.
             o.adjust_destinations = !o.ultra_accurate;
         }
-        self.path_approach_with_state(object_id, goal, state);
+        if self.path_approach_with_state(object_id, goal, state) {
+            if let Some(o) = self.objects.get_mut(&object_id) {
+                o.ignored_obstacle_id = None;
+            }
+        }
     }
 
     /// C++ AIGuardInner / Outer / AttackAggressor ExitConditions while Attacking.

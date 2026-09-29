@@ -136,6 +136,7 @@ impl Object {
             ai_pending_exit: None,
             ai_pending_exit_source: crate::common::CommandSourceType::FromAi,
             ai_pending_exit_obj: None,
+            ai_pending_produced_exits: Vec::new(),
             ai_fire_hacking: false,
             ai_fire_hack_known: false,
             ai_fire_combat_drop: false,
@@ -299,23 +300,8 @@ impl Object {
 
     /// Initialize object after creation
     pub fn init_object(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object_id = self.id;
-        crate::object::create::with_create_owner_object(self as *mut Object, object_id, || {
-            for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
-                module.with_module(|module| {
-                    if let Some(create) = module.get_create_interface() {
-                        create.on_create();
-                    } else {
-                        log::debug!(
-                            "Object {} module '{}' advertises CREATE but has no create interface",
-                            object_id,
-                            module.get_module_name_key()
-                        );
-                    }
-                });
-            }
-        });
-
+        self.install_template_weapons();
+        self.run_create_hooks(false);
         if self.firing_tracker.is_none()
             && !self.has_firing_tracker_module()
             && self.weapon_set.has_any_weapons()
@@ -328,26 +314,57 @@ impl Object {
         Ok(())
     }
 
+    fn install_template_weapons(&mut self) {
+        if self.weapon_set.has_weapon_template_sets() {
+            return;
+        }
+        for engine_set in self.thing_template.weapon_template_sets() {
+            let Ok(set) = crate::weapon::WeaponTemplateSet::from_engine_set(engine_set, |name| {
+                crate::weapon::with_weapon_store(|store| {
+                    store.find_weapon_template(name.as_str()).cloned()
+                })
+                .ok()
+                .flatten()
+            }) else {
+                continue;
+            };
+            self.weapon_set.add_weapon_template_set(set);
+        }
+        if self.weapon_set.has_weapon_template_sets() {
+            let flags = self.cur_weapon_set_flags;
+            let _ = self.weapon_set.update_weapon_set(self.id, &flags);
+        }
+    }
+
     /// Notify create modules that construction has completed.
     pub fn on_build_complete(&mut self) {
+        self.run_create_hooks(true);
+    }
+
+    /// C++ `CreateModule::getObject()` is this `Object`, already mutably borrowed.
+    /// Hooks receive it directly so they do not re-lock or stash a raw pointer.
+    fn run_create_hooks(&mut self, build_complete: bool) {
+        let modules = self.modules_with_interface(ModuleInterfaceType::CREATE);
         let object_id = self.id;
-        crate::object::create::with_create_owner_object(self as *mut Object, object_id, || {
-            for module in self.modules_with_interface(ModuleInterfaceType::CREATE) {
-                module.with_module(|module| {
-                    if let Some(create) = module.get_create_interface() {
+        for module in modules {
+            module.with_module(|module| {
+                if let Some(create) = module.get_create_interface() {
+                    if build_complete {
                         if create.should_do_on_build_complete() {
-                            create.on_build_complete();
+                            create.on_build_complete_with_owner(self);
                         }
                     } else {
-                        log::debug!(
-                            "Object {} module '{}' advertises CREATE but has no create interface",
-                            object_id,
-                            module.get_module_name_key()
-                        );
+                        create.on_create_with_owner(self);
                     }
-                });
-            }
-        });
+                } else {
+                    log::debug!(
+                        "Object {} module '{}' advertises CREATE but has no create interface",
+                        object_id,
+                        module.get_module_name_key()
+                    );
+                }
+            });
+        }
     }
 
     /// Called during object destruction

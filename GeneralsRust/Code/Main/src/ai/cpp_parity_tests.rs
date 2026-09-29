@@ -2785,7 +2785,7 @@ fn launch_attack_dispatches_crate_attack_move_state() {
     ai.launch_attack(&mut logic, 1000.0);
 
     assert_eq!(
-        host_move_attack_state(usa_unit.0),
+        host_move_attack_state(&logic.host_move_attack_machines, usa_unit.0),
         Some(AiStateType::AttackMoveTo),
         "launch_attack must record crate AttackMoveTo for the live unit"
     );

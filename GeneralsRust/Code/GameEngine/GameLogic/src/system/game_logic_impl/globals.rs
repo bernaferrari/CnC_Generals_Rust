@@ -326,14 +326,6 @@ pub fn note_rank_level_limit_during_update(level: i32) -> bool {
     }
     let level = if level < 1 { 1 } else { level };
     PENDING_RANK_LIMIT.with(|c| c.set(Some(level)));
-    // Only the singleton's update holds the mutex. A stack `logic.update`
-    // try-locks successfully; leave the process cap alone.
-    if matches!(
-        crate::system::game_logic::get_game_logic().try_lock(),
-        Err(std::sync::TryLockError::WouldBlock)
-    ) {
-        publish_rank_level_limit(level);
-    }
     true
 }
 

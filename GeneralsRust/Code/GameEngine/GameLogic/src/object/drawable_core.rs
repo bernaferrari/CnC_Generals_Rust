@@ -238,6 +238,26 @@ impl Drawable {
         count.max(1)
     }
 
+    /// C++ Drawable.cpp recoil impulse inside handleWeaponFireFX.
+    pub fn apply_weapon_recoil(&mut self, recoil_amount: f32, recoil_angle: f32) {
+        if recoil_amount == 0.0 {
+            return;
+        }
+        let mut adjusted = recoil_angle;
+        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
+            if let Ok(guard) = obj.read() {
+                adjusted -= guard.get_orientation();
+            }
+        }
+        adjusted += std::f32::consts::PI;
+        let loco = self.loco_info.get_or_insert_with(LegacyDrawableLocoInfo::default);
+        loco.acceleration_pitch_rate += recoil_amount * adjusted.cos();
+        loco.acceleration_roll_rate += recoil_amount * adjusted.sin();
+        if let Some(client) = crate::helpers::TheGameClient::get() {
+            client.note_weapon_recoil(self.object_id, recoil_amount, recoil_angle);
+        }
+    }
+
     /// Iterate every registered DRAW module, matching C++ `getDrawModules()` walks.
     pub fn for_each_draw_module_mut<F>(&self, mut func: F)
     where

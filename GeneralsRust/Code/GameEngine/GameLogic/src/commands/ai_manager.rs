@@ -16,8 +16,7 @@
 //! interface used by the existing Rust command system.
 
 use std::collections::HashMap;
-use std::sync::MutexGuard;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use super::command_processor::AIManager;
 use super::unit_command_queue::{UnitCommand, UnitCommandQueue};
@@ -32,8 +31,8 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-/// Global per-unit command queues. Each unit has its own FIFO queue.
-/// Indexed by ObjectID.
+/// Per-manager unit command queues. Each unit has its own FIFO queue,
+/// indexed by ObjectID. Owned by [`AIManagerImpl`] so two games do not share entries.
 pub struct UnitCommandQueueManager {
     queues: HashMap<ObjectID, UnitCommandQueue>,
 }
@@ -74,23 +73,18 @@ impl Default for UnitCommandQueueManager {
     }
 }
 
-use once_cell::sync::Lazy;
-
-static UNIT_QUEUE_MANAGER: Lazy<Mutex<UnitCommandQueueManager>> =
-    Lazy::new(|| Mutex::new(UnitCommandQueueManager::new()));
-
-pub fn get_unit_queue_manager() -> MutexGuard<'static, UnitCommandQueueManager> {
-    UNIT_QUEUE_MANAGER.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 /// Concrete implementation of the `AIManager` trait.
 ///
 /// PARITY_NOTE: In C++, there is no single AIManager class. This struct exists
 /// to satisfy the CommandProcessor's trait-based dispatch while routing commands
 /// through the per-unit queue system.
+///
+/// Unit queues live on this value. Callers that already hold `&mut AIManagerImpl`
+/// (or the `AIManager` lock around it) must not reach a process-global map.
 pub struct AIManagerImpl {
     cmd_source: CommandSourceType,
     current_frame: u32,
+    queues: UnitCommandQueueManager,
 }
 
 impl AIManagerImpl {
@@ -98,6 +92,7 @@ impl AIManagerImpl {
         Self {
             cmd_source: CommandSourceType::FromPlayer,
             current_frame: 0,
+            queues: UnitCommandQueueManager::new(),
         }
     }
 
@@ -105,7 +100,23 @@ impl AIManagerImpl {
         Self {
             cmd_source,
             current_frame,
+            queues: UnitCommandQueueManager::new(),
         }
+    }
+
+    /// Advance every unit queue owned by this manager. Called once per game frame.
+    pub fn update_unit_command_queues(&mut self, current_frame: u32) {
+        advance_owned_unit_queues(&mut self.queues, current_frame);
+    }
+
+    /// Clear one unit's queue (destroyed or sold).
+    pub fn clear_unit_command_queue(&mut self, object_id: ObjectID) {
+        self.queues.remove_queue(object_id);
+    }
+
+    /// Clear every unit queue owned by this manager (game end).
+    pub fn clear_all_unit_command_queues(&mut self) {
+        self.queues.clear_all();
     }
 }
 
@@ -127,22 +138,22 @@ impl AIManager for AIManagerImpl {
     fn issue_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
         release_temporary_weapon_locks(objects);
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in objects {
-            let cmd = UnitCommand::move_to_position(destination, self.cmd_source);
-            if manager
+            let cmd = UnitCommand::move_to_position(destination, source);
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd, self.current_frame)
+                .issue_command(cmd, frame)
             {
                 any_ok = true;
             }
         }
-        // Must drop manager before execute_next_command_for_unit re-locks UNIT_QUEUE_MANAGER
-        drop(manager);
 
         for &object_id in objects {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
@@ -151,23 +162,24 @@ impl AIManager for AIManagerImpl {
     fn issue_waypoint_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
         release_temporary_weapon_locks(objects);
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in objects {
-            let mut cmd = UnitCommand::new(AiCommandType::FollowPathAppend, self.cmd_source);
+            let mut cmd = UnitCommand::new(AiCommandType::FollowPathAppend, source);
             cmd.pos = destination;
             cmd.is_queued = true;
-            if manager
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd, self.current_frame)
+                .issue_command(cmd, frame)
             {
                 any_ok = true;
             }
         }
-        drop(manager);
 
         for &object_id in objects {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
@@ -175,23 +187,24 @@ impl AIManager for AIManagerImpl {
 
     fn issue_attack_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         release_temporary_weapon_locks(objects);
 
         for &object_id in objects {
-            let cmd = UnitCommand::attack_move_to_position(destination, self.cmd_source);
-            if manager
+            let cmd = UnitCommand::attack_move_to_position(destination, source);
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd, self.current_frame)
+                .issue_command(cmd, frame)
             {
                 any_ok = true;
             }
         }
-        drop(manager);
 
         for &object_id in objects {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
@@ -200,56 +213,57 @@ impl AIManager for AIManagerImpl {
     fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool {
         release_temporary_weapon_locks(attackers);
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in attackers {
-            let cmd = UnitCommand::attack_object(target, self.cmd_source);
-            if manager
+            let cmd = UnitCommand::attack_object(target, source);
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd, self.current_frame)
+                .issue_command(cmd, frame)
             {
                 any_ok = true;
             }
         }
-        drop(manager);
 
         for &object_id in attackers {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
     }
 
     fn issue_build_order(&mut self, builder: ObjectID, _template: &str, position: Coord3D) -> bool {
-        let mut manager = get_unit_queue_manager();
-
-        let cmd = UnitCommand::move_to_position(position, self.cmd_source);
-        let accepted = manager
+        let frame = self.current_frame;
+        let source = self.cmd_source;
+        let cmd = UnitCommand::move_to_position(position, source);
+        let accepted = self
+            .queues
             .get_or_create_queue(builder)
-            .issue_command(cmd, self.current_frame);
-        drop(manager);
+            .issue_command(cmd, frame);
 
         if accepted {
-            execute_next_command_for_unit(builder);
+            execute_next_command_for_unit(&mut self.queues, builder);
         }
 
         accepted
     }
 
     fn issue_stop_order(&mut self, objects: &[ObjectID]) -> bool {
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in objects {
-            if let Some(queue) = manager.get_queue_mut(object_id) {
-                let cmd = UnitCommand::stop(self.cmd_source);
-                queue.issue_command(cmd, self.current_frame);
+            if let Some(queue) = self.queues.get_queue_mut(object_id) {
+                let cmd = UnitCommand::stop(source);
+                queue.issue_command(cmd, frame);
             }
         }
-        drop(manager);
 
         // PARITY_NOTE: Stop immediately transitions to AI_IDLE (C++ aiIdle).
         for &object_id in objects {
-            execute_ai_command_on_unit(object_id, AiCommandType::Idle, self.cmd_source);
+            execute_ai_command_on_unit(&self.queues, object_id, AiCommandType::Idle, source);
         }
 
         true
@@ -262,32 +276,33 @@ impl AIManager for AIManagerImpl {
         ai_command: AiCommandType,
     ) -> bool {
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in objects {
             let cmd_with_target = match ai_command {
-                AiCommandType::Enter => UnitCommand::enter(target, self.cmd_source),
-                AiCommandType::Repair => UnitCommand::repair(target, self.cmd_source),
-                AiCommandType::Dock => UnitCommand::dock(target, self.cmd_source),
-                AiCommandType::GetRepaired => UnitCommand::get_repaired(target, self.cmd_source),
-                AiCommandType::GetHealed => UnitCommand::get_healed(target, self.cmd_source),
+                AiCommandType::Enter => UnitCommand::enter(target, source),
+                AiCommandType::Repair => UnitCommand::repair(target, source),
+                AiCommandType::Dock => UnitCommand::dock(target, source),
+                AiCommandType::GetRepaired => UnitCommand::get_repaired(target, source),
+                AiCommandType::GetHealed => UnitCommand::get_healed(target, source),
                 AiCommandType::ResumeConstruction => {
-                    UnitCommand::resume_construction(target, self.cmd_source)
+                    UnitCommand::resume_construction(target, source)
                 }
-                _ => UnitCommand::new(ai_command, self.cmd_source),
+                _ => UnitCommand::new(ai_command, source),
             };
 
-            if manager
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd_with_target, self.current_frame)
+                .issue_command(cmd_with_target, frame)
             {
                 any_ok = true;
             }
         }
-        drop(manager);
 
         for &object_id in objects {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
@@ -300,21 +315,22 @@ impl AIManager for AIManagerImpl {
         guard_mode: GuardMode,
     ) -> bool {
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in objects {
-            let cmd = UnitCommand::guard_position(position, guard_mode.as_i32(), self.cmd_source);
-            if manager
+            let cmd = UnitCommand::guard_position(position, guard_mode.as_i32(), source);
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd, self.current_frame)
+                .issue_command(cmd, frame)
             {
                 any_ok = true;
             }
         }
-        drop(manager);
 
         for &object_id in objects {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
@@ -327,21 +343,22 @@ impl AIManager for AIManagerImpl {
         guard_mode: GuardMode,
     ) -> bool {
         let mut any_ok = false;
-        let mut manager = get_unit_queue_manager();
+        let frame = self.current_frame;
+        let source = self.cmd_source;
 
         for &object_id in objects {
-            let cmd = UnitCommand::guard_object(target, guard_mode.as_i32(), self.cmd_source);
-            if manager
+            let cmd = UnitCommand::guard_object(target, guard_mode.as_i32(), source);
+            if self
+                .queues
                 .get_or_create_queue(object_id)
-                .issue_command(cmd, self.current_frame)
+                .issue_command(cmd, frame)
             {
                 any_ok = true;
             }
         }
-        drop(manager);
 
         for &object_id in objects {
-            execute_next_command_for_unit(object_id);
+            execute_next_command_for_unit(&mut self.queues, object_id);
         }
 
         any_ok
@@ -382,10 +399,9 @@ impl AIManager for AIManagerImpl {
 ///
 /// This dequeues the next PENDING command and calls ai_do_command on the unit's
 /// AI state machine.
-fn execute_next_command_for_unit(object_id: ObjectID) {
+fn execute_next_command_for_unit(queues: &mut UnitCommandQueueManager, object_id: ObjectID) {
     let (cmd_type, cmd_source) = {
-        let mut manager = get_unit_queue_manager();
-        let Some(queue) = manager.get_queue_mut(object_id) else {
+        let Some(queue) = queues.get_queue_mut(object_id) else {
             return;
         };
         let Some(cmd) = queue.process_next_command() else {
@@ -394,7 +410,7 @@ fn execute_next_command_for_unit(object_id: ObjectID) {
         (cmd.cmd, cmd.cmd_source)
     };
 
-    execute_ai_command_on_unit(object_id, cmd_type, cmd_source);
+    execute_ai_command_on_unit(queues, object_id, cmd_type, cmd_source);
 }
 
 /// Execute an AI command directly on a unit's AI state machine.
@@ -402,6 +418,7 @@ fn execute_next_command_for_unit(object_id: ObjectID) {
 /// PARITY_NOTE: This matches the C++ path where GameLogicDispatch calls
 /// obj->getAI()->aiDoCommand(parms) or obj->getAIUpdateInterface()->aiDoCommand(parms).
 fn execute_ai_command_on_unit(
+    queues: &UnitCommandQueueManager,
     object_id: ObjectID,
     ai_cmd: AiCommandType,
     cmd_source: CommandSourceType,
@@ -419,33 +436,26 @@ fn execute_ai_command_on_unit(
     };
 
     let mut params = AiCommandParams::new(ai_cmd, cmd_source);
-
-    if let Ok(manager) = UNIT_QUEUE_MANAGER.lock() {
-        if let Some(queue) = manager.get_queue(object_id) {
-            if let Some(active) = queue.get_active_command() {
-                params.pos = active.pos;
-                params.obj = active.target_object;
-                params.other_obj = active.other_object;
-                params.int_value = active.int_value;
-            }
-        }
+    if let Some(active) = queues
+        .get_queue(object_id)
+        .and_then(|queue| queue.get_active_command())
+    {
+        params.pos = active.pos;
+        params.obj = active.target_object;
+        params.other_obj = active.other_object;
+        params.int_value = active.int_value;
     }
 
     let _ = ai.execute_command(&params);
 }
 
-/// Update all unit command queues. Called once per game frame.
-///
-/// For each unit with an active command, checks if the command has completed
-/// (AI state machine returned to idle) and advances to the next queued command.
-pub fn update_unit_command_queues(current_frame: u32) {
-    let manager = get_unit_queue_manager();
-    let object_ids: Vec<ObjectID> = manager.queues.keys().copied().collect();
-    drop(manager);
+/// For each unit with an active command, advance when the AI state machine is idle.
+fn advance_owned_unit_queues(queues: &mut UnitCommandQueueManager, current_frame: u32) {
+    let object_ids: Vec<ObjectID> = queues.queues.keys().copied().collect();
 
     for object_id in object_ids {
         if should_advance_unit_queue(object_id) {
-            advance_unit_queue(object_id, current_frame);
+            advance_unit_queue(queues, object_id, current_frame);
         }
     }
 }
@@ -466,10 +476,13 @@ fn should_advance_unit_queue(object_id: ObjectID) -> bool {
     ai.is_idle()
 }
 
-fn advance_unit_queue(_object_id: ObjectID, _current_frame: u32) {
+fn advance_unit_queue(
+    queues: &mut UnitCommandQueueManager,
+    object_id: ObjectID,
+    _current_frame: u32,
+) {
     let next_cmd = {
-        let mut manager = get_unit_queue_manager();
-        let Some(queue) = manager.get_queue_mut(_object_id) else {
+        let Some(queue) = queues.get_queue_mut(object_id) else {
             return;
         };
 
@@ -487,20 +500,8 @@ fn advance_unit_queue(_object_id: ObjectID, _current_frame: u32) {
     };
 
     if let Some((cmd_type, cmd_source)) = next_cmd {
-        execute_ai_command_on_unit(_object_id, cmd_type, cmd_source);
+        execute_ai_command_on_unit(queues, object_id, cmd_type, cmd_source);
     }
-}
-
-/// Clear a unit's command queue (e.g., when unit is destroyed or sold).
-pub fn clear_unit_command_queue(object_id: ObjectID) {
-    let mut manager = get_unit_queue_manager();
-    manager.remove_queue(object_id);
-}
-
-/// Clear all unit command queues (e.g., on game end).
-pub fn clear_all_unit_command_queues() {
-    let mut manager = get_unit_queue_manager();
-    manager.clear_all();
 }
 
 /// Create a new `AIManagerImpl` wrapped in `Arc<RwLock<dyn AIManager>>` for
@@ -518,16 +519,9 @@ pub fn create_ai_manager(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    fn test_queue_guard() -> std::sync::MutexGuard<'static, ()> {
-        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-        GUARD.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
 
     #[test]
     fn test_unit_queue_manager() {
-        let _guard = test_queue_guard();
         let mut manager = UnitCommandQueueManager::new();
         assert!(manager.get_queue(1).is_none());
 
@@ -537,30 +531,23 @@ mod tests {
     }
 
     #[test]
-    fn test_global_queue_manager() {
-        let _guard = test_queue_guard();
-        clear_all_unit_command_queues();
+    fn test_unit_queues_do_not_cross_managers() {
+        let mut first = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 1);
+        let mut second = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 2);
+        let destination = Coord3D::new(1.0, 2.0, 0.0);
 
-        let manager = get_unit_queue_manager();
-        assert!(manager.get_queue(999).is_none());
+        assert!(first.issue_waypoint_order(&[42], destination));
+        assert!(second.queues.get_queue(42).is_none());
 
-        drop(manager);
-        let mut manager = get_unit_queue_manager();
-        manager.get_or_create_queue(999);
-        drop(manager);
+        second.clear_all_unit_command_queues();
+        assert!(first.queues.get_queue(42).is_some());
 
-        let manager = get_unit_queue_manager();
-        assert!(manager.get_queue(999).is_some());
-        drop(manager);
-
-        clear_all_unit_command_queues();
+        first.clear_unit_command_queue(42);
+        assert!(first.queues.get_queue(42).is_none());
     }
 
     #[test]
     fn test_ai_manager_impl_default() {
-        let _guard = test_queue_guard();
-        clear_all_unit_command_queues();
-
         let mut mgr = AIManagerImpl::new();
         // No objects → returns false for move/attack/guard
         assert!(!mgr.issue_move_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
@@ -568,22 +555,16 @@ mod tests {
         assert!(!mgr.issue_attack_move_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
         assert!(!mgr.issue_attack_order(&[], 0));
         assert!(mgr.issue_stop_order(&[]));
-
-        clear_all_unit_command_queues();
     }
 
     #[test]
     fn test_ai_manager_waypoint_order_appends_follow_path_command() {
-        let _guard = test_queue_guard();
-        clear_all_unit_command_queues();
-
         let mut mgr = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 17);
         let destination = Coord3D::new(10.0, 20.0, 3.0);
 
         assert!(mgr.issue_waypoint_order(&[42], destination));
 
-        let manager = get_unit_queue_manager();
-        let queue = manager.get_queue(42).expect("waypoint queue expected");
+        let queue = mgr.queues.get_queue(42).expect("waypoint queue expected");
         let active = queue
             .get_active_command()
             .expect("waypoint command should become active");
@@ -591,23 +572,19 @@ mod tests {
         assert_eq!(active.pos, destination);
         assert!(active.is_queued);
         assert_eq!(active.issued_frame, 17);
-        drop(manager);
-
-        clear_all_unit_command_queues();
     }
 
     #[test]
     fn test_ai_manager_attack_move_order_queues_attack_move_command() {
-        let _guard = test_queue_guard();
-        clear_all_unit_command_queues();
-
         let mut mgr = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 23);
         let destination = Coord3D::new(30.0, 40.0, 5.0);
 
         assert!(mgr.issue_attack_move_order(&[77], destination));
 
-        let manager = get_unit_queue_manager();
-        let queue = manager.get_queue(77).expect("attack-move queue expected");
+        let queue = mgr
+            .queues
+            .get_queue(77)
+            .expect("attack-move queue expected");
         let active = queue
             .get_active_command()
             .expect("attack-move command should become active");
@@ -615,8 +592,5 @@ mod tests {
         assert_eq!(active.pos, destination);
         assert!(!active.is_queued);
         assert_eq!(active.issued_frame, 23);
-        drop(manager);
-
-        clear_all_unit_command_queues();
     }
 }

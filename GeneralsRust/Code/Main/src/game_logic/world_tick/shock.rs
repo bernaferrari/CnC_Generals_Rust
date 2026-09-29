@@ -650,16 +650,7 @@ impl GameLogic {
                 Some(t) => t,
                 None => return false,
             };
-            let wname = if slot == 1 {
-                attacker
-                    .thing
-                    .template
-                    .secondary_weapon_name
-                    .as_deref()
-                    .or(attacker.thing.template.primary_weapon_name.as_deref())
-            } else {
-                attacker.thing.template.primary_weapon_name.as_deref()
-            };
+            let wname = attacker.weapon_name_for_slot(slot);
             let hit_r = if target.selection_radius > 0.0 {
                 target.selection_radius
             } else {
@@ -688,9 +679,20 @@ impl GameLogic {
         target_pos: glam::Vec3,
         min_range: f32,
     ) -> bool {
-        use crate::game_logic::weapon_bootstrap::{
-            compute_min_range_backup_pos, is_inside_minimum_attack_range,
-        };
+        self.try_min_range_backup_between(attacker_id, target_pos, min_range, 0.0, None)
+    }
+
+    /// C++ `Weapon.cpp:2043`: stand at `(getAttackRange + getMinimumAttackRange) / 2`
+    /// when `max_range > min_range`. Otherwise keep the 110% residual.
+    pub(crate) fn try_min_range_backup_between(
+        &mut self,
+        attacker_id: ObjectId,
+        target_pos: glam::Vec3,
+        min_range: f32,
+        max_range: f32,
+        target_id: Option<ObjectId>,
+    ) -> bool {
+        use crate::game_logic::weapon_bootstrap::is_inside_minimum_attack_range;
         let Some(attacker) = self.objects.get(&attacker_id) else {
             return false;
         };
@@ -698,13 +700,78 @@ impl GameLogic {
             return false;
         }
         let src = attacker.get_position();
-        let dx = src.x - target_pos.x;
-        let dz = src.z - target_pos.z;
-        let dist = (dx * dx + dz * dz).sqrt();
+        let orientation = attacker.get_orientation();
+        let above = attacker.is_above_terrain();
+        let src_r = attacker
+            .thing
+            .template
+            .geometry_info
+            .bounding_circle_radius();
+        let mut dx = src.x - target_pos.x;
+        let mut dz = src.z - target_pos.z;
+        let center = (dx * dx + dz * dz).sqrt();
+        let tgt_r = target_id
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+            .unwrap_or(0.0);
+        // C++ getVectorTo FROM_BOUNDINGSPHERE_2D.
+        let dist = (center - src_r - tgt_r).max(0.0);
         if !is_inside_minimum_attack_range(dist, min_range) {
             return false;
         }
-        let dest = compute_min_range_backup_pos(src, target_pos, min_range);
+        // C++ Weapon.cpp:2020-2032. Above terrain, do not U-turn if the
+        // through-target heading is within 90 degrees of facing.
+        if above {
+            let angle = (-dz).atan2(-dx);
+            let mut rel = orientation - angle;
+            let tau = std::f32::consts::TAU;
+            if rel > tau {
+                rel -= tau;
+            }
+            if rel < -tau {
+                rel += tau;
+            }
+            if rel.abs() < std::f32::consts::FRAC_PI_2 {
+                dx = -dx;
+                dz = -dz;
+            }
+        }
+        let dest = if max_range > min_range {
+            let stand = (min_range + max_range) * 0.5 + src_r + tgt_r;
+            if center < 1e-3 {
+                glam::Vec3::new(target_pos.x + stand, src.y, target_pos.z)
+            } else {
+                let scale = stand / center;
+                glam::Vec3::new(
+                    target_pos.x + dx * scale,
+                    src.y,
+                    target_pos.z + dz * scale,
+                )
+            }
+        } else {
+            let stand = crate::game_logic::weapon_bootstrap::effective_minimum_attack_range(min_range);
+            if stand <= 0.0 || center < 1e-3 {
+                glam::Vec3::new(target_pos.x + stand, src.y, target_pos.z)
+            } else {
+                let scale = stand / center;
+                glam::Vec3::new(target_pos.x + dx * scale, src.y, target_pos.z + dz * scale)
+            }
+        };
+        // C++ clipToTerrainExtent: one full cell inside the terrain X/ground extent.
+        // Host ground plane is XZ. Height is left alone.
+        let (lo_x, lo_z, hi_x, hi_z) = self.ocl_map_extents();
+        let cell = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE;
+        let lo_x = lo_x + cell;
+        let hi_x = hi_x - cell;
+        let lo_z = lo_z + cell;
+        let hi_z = hi_z - cell;
+        let mut dest = dest;
+        if hi_x > lo_x {
+            dest.x = dest.x.clamp(lo_x, hi_x);
+        }
+        if hi_z > lo_z {
+            dest.z = dest.z.clamp(lo_z, hi_z);
+        }
         // Direct backup residual (fail-closed vs full reverse-pathfind matrix).
         if let Some(a) = self.objects.get_mut(&attacker_id) {
             a.movement.path.clear();
@@ -735,24 +802,47 @@ impl GameLogic {
         target_pos: glam::Vec3,
         weapon_range: f32,
         weapon_name: Option<&str>,
+        target_id: Option<ObjectId>,
     ) -> glam::Vec3 {
+        let Some(attacker) = self.objects.get(&attacker_id) else {
+            return target_pos;
+        };
+        let under = crate::game_logic::weapon_bootstrap::PATHFIND_CELL_SIZE * 0.25;
+        let raw_gap = attacker
+            .selected_weapon_slot()
+            .and_then(|slot| attacker.weapon_slot(slot))
+            .map(|w| w.range - under)
+            .unwrap_or(weapon_range);
+        let src = attacker.get_position();
+        let src_r = attacker
+            .thing
+            .template
+            .geometry_info
+            .bounding_circle_radius();
+        let tgt_r = target_id
+            .and_then(|id| self.objects.get(&id))
+            .map(|o| o.thing.template.geometry_info.bounding_circle_radius())
+            .unwrap_or(0.0);
+        let dx = target_pos.x - src.x;
+        let dz = target_pos.z - src.z;
+        let gap = ((dx * dx + dz * dz).sqrt() - src_r - tgt_r).max(0.0);
+        if gap < 0.001 {
+            return src;
+        }
         let contact = weapon_name
             .map(crate::game_logic::weapon_bootstrap::host_is_contact_weapon_name)
             .unwrap_or(false)
-            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(weapon_range);
+            || crate::game_logic::weapon_bootstrap::is_contact_effective_range(raw_gap);
         if contact {
             return target_pos;
         }
-        let src = self
-            .objects
-            .get(&attacker_id)
-            .map(|o| o.get_position())
-            .unwrap_or(target_pos);
-        let dest = crate::game_logic::weapon_bootstrap::compute_approach_target_pos(
+        let dest = crate::game_logic::weapon_bootstrap::compute_approach_target_pos_at(
             src,
             target_pos,
             weapon_range,
+            false,
         );
+
         self.adjust_aircraft_attack_approach(attacker_id, dest, target_pos, weapon_range, 0.0)
     }
 
@@ -829,6 +919,28 @@ impl GameLogic {
         if continue_range <= 0.0 {
             return false;
         }
+        let can_air = self
+            .objects
+            .get(&attacker_id)
+            .and_then(|attacker| {
+                attacker.selected_weapon_slot().and_then(|slot| {
+                    attacker.weapon_slot(slot).map(|weapon| weapon.can_target_air)
+                })
+            })
+            .unwrap_or(false);
+        let attacker_off_map = self
+            .objects
+            .get(&attacker_id)
+            .map(|attacker| {
+                crate::game_logic::host_deliver_payload::is_off_map_default_residual(
+                    attacker.get_position(),
+                )
+            })
+            .unwrap_or(false);
+        let victim_owner = self
+            .objects
+            .get(&dead_victim_id)
+            .and_then(|victim| victim.owner_player_id);
         // Pure residual acquire: nearest same-team victim near kill position (XZ).
         let candidates: Vec<_> = self
             .objects
@@ -837,7 +949,22 @@ impl GameLogic {
                 if id == attacker_id || id == dead_victim_id || !obj.is_alive() {
                     return None;
                 }
-                if obj.team != victim_team {
+                let same_player = if let Some(owner) = victim_owner {
+                    obj.owner_player_id == Some(owner)
+                } else {
+                    obj.team == victim_team
+                };
+                if !same_player
+                    || obj.is_effectively_stealthed()
+                    || obj.status.under_construction
+                    || obj.is_eject_invulnerable()
+                    || obj.contained_by.is_some()
+                    || (!obj.is_attackable() && !obj.is_disarmable_mine())
+                    || crate::game_logic::host_deliver_payload::is_off_map_default_residual(
+                        obj.get_position(),
+                    ) != attacker_off_map
+                    || ((obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target) && !can_air)
+                {
                     return None;
                 }
                 Some(
@@ -872,14 +999,21 @@ impl GameLogic {
             crate::game_logic::host_ai_decision_log::record_set_state(attacker_id, 2);
             return true;
         }
-        if let Some(attacker) = self.objects.get_mut(&attacker_id) {
+        let next_pos = self.objects.get(&next_id).map(|obj| obj.get_position());
+        let armed = if let Some(attacker) = self.objects.get_mut(&attacker_id) {
             attacker.target = Some(next_id);
             attacker.set_ai_state(AIState::Attacking);
             attacker.set_status_attacking(true);
             true
         } else {
             false
+        };
+        if armed {
+            if let Some(pos) = next_pos {
+                let _ = self.assign_unit_attack_path(attacker_id, Some(next_id), pos);
+            }
         }
+        armed
     }
 
     #[cfg(test)]

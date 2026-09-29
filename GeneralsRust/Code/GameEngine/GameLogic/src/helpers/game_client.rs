@@ -358,6 +358,12 @@ pub fn get_camera_view_bridge() -> Option<&'static Arc<dyn CameraViewBridge>> {
     CAMERA_VIEW_BRIDGE.get()
 }
 
+fn weapon_recoil_queue() -> &'static std::sync::Mutex<Vec<(ObjectID, f32, f32)>> {
+    static QUEUE: std::sync::OnceLock<std::sync::Mutex<Vec<(ObjectID, f32, f32)>>> =
+        std::sync::OnceLock::new();
+    QUEUE.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
 /// Game client bridge for drawables/scorch marks and visual effects
 pub struct TheGameClient;
 
@@ -385,6 +391,24 @@ impl TheGameClient {
         // in lock-step with the simulation. The current Rust client-side
         // does not maintain a separate frame counter.
         let _ = _frame; // suppress unused warning until full implementation
+    }
+
+    pub fn note_weapon_recoil(&self, object_id: ObjectID, amount: f32, aim_angle: f32) {
+        if amount == 0.0 {
+            return;
+        }
+        weapon_recoil_queue()
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push((object_id, amount, aim_angle));
+    }
+
+    pub fn take_weapon_recoils(&self) -> Vec<(ObjectID, f32, f32)> {
+        std::mem::take(
+            &mut *weapon_recoil_queue()
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()),
+        )
     }
 
     pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {

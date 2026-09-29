@@ -1037,6 +1037,10 @@ fn choose_default_map(state: &mut SkirmishGameOptionsState) {
         .iter_maps()
         .into_iter()
         .filter(|(_, meta)| meta.is_multiplayer)
+        .filter(|(name, _)| {
+            let lower = name.trim().to_ascii_lowercase();
+            !lower.contains("shellmap") && lower != "default map"
+        })
         .collect();
     candidates.sort_by(|a, b| a.0.cmp(&b.0));
     if let Some((name, _)) = candidates.first() {

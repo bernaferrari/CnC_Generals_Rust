@@ -52,46 +52,29 @@ lazy_static! {
     };
 }
 
-/// Fast sine using lookup table
+/// C++ `Sin` under `DEFAULT_TRIG`: `sinf`.
 pub fn fast_sin(angle: f32) -> f32 {
-    let normalized = (angle / TAU) % 1.0;
-    let index = ((normalized + 1.0) % 1.0 * TRIG_RES as f32) as usize % TRIG_RES;
-    SIN_LOOKUP[index]
+    angle.sin()
 }
 
-/// Fast cosine using lookup table
+/// C++ `Cos` under `DEFAULT_TRIG`: `cosf`.
 pub fn fast_cos(angle: f32) -> f32 {
-    let normalized = (angle / TAU) % 1.0;
-    let index = ((normalized + 1.0) % 1.0 * TRIG_RES as f32) as usize % TRIG_RES;
-    COS_LOOKUP[index]
+    angle.cos()
 }
 
-/// Fast tangent using lookup table
+/// C++ `Tan` under `DEFAULT_TRIG`: `tanf`.
 pub fn fast_tan(angle: f32) -> f32 {
-    let sin_val = fast_sin(angle);
-    let cos_val = fast_cos(angle);
-    if cos_val.abs() < f32::EPSILON {
-        if sin_val > 0.0 {
-            f32::INFINITY
-        } else {
-            f32::NEG_INFINITY
-        }
-    } else {
-        sin_val / cos_val
-    }
+    angle.tan()
 }
 
-/// Fast arc cosine using lookup table
+/// C++ `ACos` under `DEFAULT_TRIG`: `acosf`.
 pub fn fast_arccos(x: f32) -> f32 {
-    let clamped = x.clamp(-1.0, 1.0);
-    let index = ((clamped + 1.0) * 0.5 * 1023.0) as usize;
-    let index = index.min(1023);
-    ARCCOS_LOOKUP[index]
+    x.clamp(-1.0, 1.0).acos()
 }
 
-/// Fast arc sine using arc cosine
+/// C++ `ASin` under `DEFAULT_TRIG`: `asinf`.
 pub fn fast_arcsin(x: f32) -> f32 {
-    PI * 0.5 - fast_arccos(x)
+    x.clamp(-1.0, 1.0).asin()
 }
 
 /// Fast arc tangent using built-in atan2 (for simplicity)

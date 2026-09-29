@@ -72,6 +72,15 @@ impl W3DOverlordTruckDraw {
     pub fn owner_id(&self) -> Option<ObjectID> {
         self.owner_id.or_else(|| self.base.owner_id())
     }
+
+    pub fn tick_live_host_dust(
+        &mut self,
+        template_name: &str,
+        physics: TruckDrawLivePhysics,
+        hidden: bool,
+    ) {
+        self.base.tick_live_host(template_name, physics, hidden);
+    }
 }
 impl Module for W3DOverlordTruckDraw {
     fn on_object_created(&mut self) {

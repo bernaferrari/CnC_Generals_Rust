@@ -20,79 +20,6 @@ use super::wait_busy::*;
 use super::wander_panic::*;
 use super::waypoint::*;
 use super::*;
-use std::cell::Cell;
-
-enum PendingAiExit {
-    Quick(Vec<crate::common::Coord3D>),
-    Follow {
-        path: Vec<crate::common::Coord3D>,
-        ignore_id: crate::common::ObjectID,
-        end: crate::common::Coord3D,
-    },
-}
-
-thread_local! {
-    static OWNER_AI_MUTEX_HELD: Cell<bool> = const { Cell::new(false) };
-    static PENDING_AI_EXIT: std::cell::RefCell<Vec<PendingAiExit>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// `do_quick_exit` already holds the unit AI mutex. Follow enter must not lock it again.
-pub(crate) fn with_owner_ai_mutex_held<R>(body: impl FnOnce() -> R) -> R {
-    OWNER_AI_MUTEX_HELD.with(|held| held.set(true));
-    struct Clear;
-    impl Drop for Clear {
-        fn drop(&mut self) {
-            OWNER_AI_MUTEX_HELD.with(|held| held.set(false));
-        }
-    }
-    let _clear = Clear;
-    body()
-}
-
-pub(crate) fn owner_ai_mutex_held() -> bool {
-    OWNER_AI_MUTEX_HELD.with(|held| held.get())
-}
-
-/// Hurry exit runs inside `UnitAIUpdate::update`, which already holds the AI mutex.
-pub(crate) fn queue_quick_exit(path: Vec<crate::common::Coord3D>) {
-    PENDING_AI_EXIT.with(|slot| slot.borrow_mut().push(PendingAiExit::Quick(path)));
-}
-
-pub(crate) fn queue_follow_exit(
-    path: Vec<crate::common::Coord3D>,
-    ignore_id: crate::common::ObjectID,
-    end: crate::common::Coord3D,
-) {
-    PENDING_AI_EXIT.with(|slot| {
-        slot.borrow_mut().push(PendingAiExit::Follow {
-            path,
-            ignore_id,
-            end,
-        })
-    });
-}
-
-pub(crate) fn take_pending_ai_exits() -> Vec<(bool, Vec<crate::common::Coord3D>, crate::common::ObjectID, crate::common::Coord3D)> {
-    PENDING_AI_EXIT.with(|slot| {
-        slot.borrow_mut()
-            .drain(..)
-            .map(|item| match item {
-                PendingAiExit::Quick(path) => (
-                    true,
-                    path,
-                    crate::common::INVALID_ID,
-                    crate::common::Coord3D::new(0.0, 0.0, 0.0),
-                ),
-                PendingAiExit::Follow {
-                    path,
-                    ignore_id,
-                    end,
-                } => (false, path, ignore_id, end),
-            })
-            .collect()
-    })
-}
 
 
 use crate::action_manager::{CanEnterType, TheActionManager};
@@ -170,6 +97,13 @@ impl<'a> FollowPathStateKindMut<'a> {
             Self::FollowExitProductionPath(state) => state.append_path(position),
         }
     }
+
+    pub(crate) fn note_owner_ai_mutex_held(self, held: bool) {
+        match self {
+            Self::FollowPath(state) => state.note_owner_ai_mutex_held(held),
+            Self::FollowExitProductionPath(state) => state.base.note_owner_ai_mutex_held(held),
+        }
+    }
 }
 
 pub(crate) fn state_follow_path_kind(
@@ -204,6 +138,8 @@ pub struct AIFollowPathState {
     pub(crate) retry_count: i32,
     pub(crate) follow_exit_production: bool,
     pub(crate) ignore_object_id: Option<ObjectID>,
+    /// True only for the `on_enter` that runs while this unit's AI mutex is already held.
+    pub(crate) owner_ai_mutex_held: bool,
 }
 
 impl AIFollowPathState {
@@ -223,6 +159,7 @@ impl AIFollowPathState {
             retry_count: 0,
             follow_exit_production,
             ignore_object_id: None,
+            owner_ai_mutex_held: false,
         }
     }
 
@@ -237,6 +174,11 @@ impl AIFollowPathState {
 
     pub fn set_ignore_object_id(&mut self, object_id: Option<ObjectID>) {
         self.ignore_object_id = object_id;
+    }
+
+    pub(crate) fn note_owner_ai_mutex_held(&mut self, held: bool) {
+        self.owner_ai_mutex_held = held;
+        self.base.owner_ai_mutex_held = held;
     }
 
     pub(crate) fn set_goal_position(&mut self, pos: Coord3D) {
@@ -277,7 +219,15 @@ impl AIFollowPathState {
                     return Err("follow path failed to adjust destination".to_string());
                 }
                 self.set_goal_position(adjusted_goal);
-                let _ = ai_guard.update_goal_position(&adjusted_goal, PathfindLayerEnum::Ground);
+                let layer = crate::terrain::get_terrain_logic()
+                    .read()
+                    .ok()
+                    .map(|terrain| terrain.get_layer_for_destination(&adjusted_goal))
+                    .unwrap_or(crate::path::PathfindLayerEnum::Ground);
+                let _ = ai_guard.update_goal_position(
+                    &adjusted_goal,
+                    crate::common::PathfindLayerEnum::from_u32(layer as u32),
+                );
             }
             if owner_guard.is_kind_of(KindOf::Projectile) {
                 let _ = ai_guard.set_precise_z_pos(true);
@@ -420,6 +370,7 @@ impl ClassicState for AIFollowPathState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let owner_ai_mutex_held = std::mem::replace(&mut self.owner_ai_mutex_held, false);
         if self.path.is_empty() {
             return Ok(StateReturnType::Failure);
         }
@@ -440,7 +391,7 @@ impl ClassicState for AIFollowPathState {
                 .get_ai_update_interface()
                 .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
             self.set_goal_position(self.path[0]);
-            if owner_ai_mutex_held() {
+            if owner_ai_mutex_held {
                 if self.follow_exit_production {
                     self.base.set_adjusts_destination(false);
                 }
@@ -460,7 +411,7 @@ impl ClassicState for AIFollowPathState {
         }
 
         let status = self.base.classic_on_enter()?;
-        if !owner_ai_mutex_held() {
+        if !owner_ai_mutex_held {
             if let Ok(owner_guard) = owner.read() {
                 if owner_guard.get_formation_id() != FormationID::NONE {
                     if let Some(group_id) = owner_guard.get_group_id() {

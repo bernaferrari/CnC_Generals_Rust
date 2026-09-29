@@ -32,7 +32,7 @@ use crate::weapon::{WeaponSlotType, WeaponTemplate};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use glam::Vec4;
+
 use std::sync::{Arc, Weak};
 
 /// Wave 350: host-only path has no dual-world factory objects.
@@ -1555,19 +1555,7 @@ impl MissileAIUpdateBehavior {
                 }
 
                 let obj_pos = *obj_guard.get_position();
-                let up = if dir.y.abs() < 0.999 {
-                    Coord3D::new(0.0, 1.0, 0.0)
-                } else {
-                    Coord3D::new(0.0, 0.0, 1.0)
-                };
-                let z_axis = dir.cross(up).normalize_or_zero();
-                let y_axis = z_axis.cross(dir).normalize_or_zero();
-                let transform = Matrix3D::from_cols(
-                    Vec4::new(dir.x, dir.y, dir.z, 0.0),
-                    Vec4::new(y_axis.x, y_axis.y, y_axis.z, 0.0),
-                    Vec4::new(z_axis.x, z_axis.y, z_axis.z, 0.0),
-                    Vec4::new(obj_pos.x, obj_pos.y, obj_pos.z, 1.0),
-                );
+                let transform = crate::common::build_transform_matrix(obj_pos, dir);
                 obj_guard.set_transform_matrix(&transform);
                 }
             }

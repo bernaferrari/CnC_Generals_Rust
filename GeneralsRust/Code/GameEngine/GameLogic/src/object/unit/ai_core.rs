@@ -79,6 +79,8 @@ pub struct UnitAIUpdate {
     pub(super) pathfind_goal_cell: ICoord2D,
     pub(super) pathfind_cur_cell: ICoord2D,
     pub(super) pathfind_goal_layer: ClassicPathLayer,
+    /// Astar ordinals zipped with the installed waypoints. Not xfer'd. Not `AiPath`.
+    pub(super) installed_path_layers: Vec<u8>,
     pub(super) move_out_of_way_1: ObjectID,
     pub(super) move_out_of_way_2: ObjectID,
     pub(super) repulsor1: ObjectID,
@@ -98,6 +100,8 @@ pub struct UnitAIUpdate {
     pub(super) is_approach_path: Bool,
     pub(super) is_safe_path: Bool,
     pub(super) movement_complete: Bool,
+    /// C++ `m_isMoving`. Not derived from the path.
+    pub(super) cpp_is_moving: bool,
     pub(super) locomotor_goal_type: u32,
     pub(super) locomotor_goal_data: Coord3D,
     pub(super) is_blocked: Bool,
@@ -218,6 +222,7 @@ impl UnitAIUpdate {
             pathfind_goal_cell: ICoord2D::new(-1, -1),
             pathfind_cur_cell: ICoord2D::new(-1, -1),
             pathfind_goal_layer: ClassicPathLayer::Invalid,
+            installed_path_layers: Vec::new(),
             move_out_of_way_1: INVALID_ID,
             move_out_of_way_2: INVALID_ID,
             repulsor1: INVALID_ID,
@@ -237,6 +242,7 @@ impl UnitAIUpdate {
             is_approach_path: false,
             is_safe_path: false,
             movement_complete: false,
+            cpp_is_moving: false,
             locomotor_goal_type: 0,
             locomotor_goal_data: Coord3D::ZERO,
             is_blocked: false,
