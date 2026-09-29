@@ -324,9 +324,17 @@ impl TextureManager {
         queue: &wgpu::Queue,
         texture_name: &str,
     ) -> Result<&GPUTexture> {
-        let texture_key = self
-            .ensure_raw_texture_cached(archive_system, texture_name)
-            .await?;
+        self.load_texture_sync(archive_system, device, queue, texture_name)
+    }
+
+    pub fn load_texture_sync(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_name: &str,
+    ) -> Result<&GPUTexture> {
+        let texture_key = self.ensure_raw_texture_cached_sync(archive_system, texture_name)?;
 
         if texture_key == self.default_texture_name {
             return Ok(self.get_default_texture());
@@ -364,13 +372,19 @@ impl TextureManager {
         archive_system: &mut ArchiveFileSystem,
         texture_name: &str,
     ) -> Result<()> {
-        let _ = self
-            .ensure_raw_texture_cached(archive_system, texture_name)
-            .await?;
+        self.prime_raw_texture_sync(archive_system, texture_name)
+    }
+
+    pub fn prime_raw_texture_sync(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        texture_name: &str,
+    ) -> Result<()> {
+        let _ = self.ensure_raw_texture_cached_sync(archive_system, texture_name)?;
         Ok(())
     }
 
-    async fn ensure_raw_texture_cached(
+    fn ensure_raw_texture_cached_sync(
         &mut self,
         archive_system: &mut ArchiveFileSystem,
         texture_name: &str,
@@ -390,7 +404,7 @@ impl TextureManager {
         debug!("Loading raw texture from archive: {}", requested_name);
         let mut last_error = None;
         for candidate in Self::build_texture_candidates(requested_name) {
-            let texture_data = match archive_system.open_file(&candidate).await {
+            let texture_data = match archive_system.open_file_sync(&candidate) {
                 Ok(data) => data,
                 Err(err) => {
                     last_error = Some((candidate, err));
@@ -504,6 +518,16 @@ impl TextureManager {
         queue: &wgpu::Queue,
         texture_name: &str,
     ) -> &GPUTexture {
+        self.get_texture_or_default_sync(archive_system, device, queue, texture_name)
+    }
+
+    pub fn get_texture_or_default_sync(
+        &mut self,
+        archive_system: &mut ArchiveFileSystem,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_name: &str,
+    ) -> &GPUTexture {
         let texture_key = self.resolved_cache_key_for_lookup(texture_name);
         let default_key = self.default_texture_name.clone();
 
@@ -523,10 +547,7 @@ impl TextureManager {
         }
 
         // Try to load new texture
-        if let Err(e) = self
-            .load_texture(archive_system, device, queue, texture_name)
-            .await
-        {
+        if let Err(e) = self.load_texture_sync(archive_system, device, queue, texture_name) {
             error!("Failed to load texture {}: {}", texture_name, e);
         }
 

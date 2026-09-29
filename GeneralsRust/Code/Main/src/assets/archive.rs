@@ -283,6 +283,12 @@ impl ArchiveFileSystem {
 
     /// Load an entire file into memory.
     pub async fn open_file(&mut self, filename: &str) -> Result<Vec<u8>> {
+        self.open_file_sync(filename)
+    }
+
+    /// BIG-backed file reads are synchronous; keep that fact visible to render
+    /// paths which need a model during the current frame.
+    pub fn open_file_sync(&mut self, filename: &str) -> Result<Vec<u8>> {
         let mut reader = self
             .core
             .open_file(filename, 0)

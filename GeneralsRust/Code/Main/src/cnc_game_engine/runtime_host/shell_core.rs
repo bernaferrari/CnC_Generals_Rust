@@ -221,8 +221,6 @@ impl CnCGameEngine {
         const MENU_MATCH_GADGETS: &[&str] = &[
             "MainMenu.wnd:ButtonSinglePlayer",
             "MainMenu.wnd:ButtonSkirmish",
-            "SkirmishGameOptionsMenu.wnd:ButtonStart",
-            "SkirmishMapSelectMenu.wnd:ButtonOk",
         ];
         let mut hit_name = String::new();
         let mut saw_menu_match_gadget = false;
@@ -246,12 +244,13 @@ impl CnCGameEngine {
             if self.inject_winit_equivalent_named_gadget_click(name) {
                 hit_name = (*name).to_string();
                 saw_menu_match_gadget = true;
-                if name.contains("Skirmish") {
+                if *name == "MainMenu.wnd:ButtonSkirmish" {
                     self.runtime_host_saw_skirmish_menu = true;
-                    // Host start_game owns match start. Do not push
-                    // SkirmishGameOptionsMenu layout mid-inject (RefCell panic).
-                    #[cfg(feature = "game_client")]
-                    game_client::gui::clear_deferred_shell_pushes();
+                    // C++ ButtonSkirmish pushes the options WND before the
+                    // player can use Start or Map Select. Keep MainMenu's
+                    // deferred push for the next Shell update boundary and
+                    // finish this input event before probing its children.
+                    break;
                 }
                 // Allow dropdown transition before Skirmish (bounded ticks).
                 if name.contains("SinglePlayer") {

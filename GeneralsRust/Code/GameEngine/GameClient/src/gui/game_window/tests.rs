@@ -305,6 +305,17 @@ fn text_length_counts_characters_like_cpp_unicode_string() {
 }
 
 #[test]
+fn user_window_focus_does_not_select_hilite_draw_bank() {
+    let mut window = GameWindow::new();
+    window.set_widget(WindowWidget::User);
+    let _ = window.send_system_message(WindowMessage::InputFocus, 1, 0);
+    assert!(
+        !window.instance_data().state.contains(WindowState::HILITED),
+        "C++ USER callbacks do not set WIN_STATE_HILITED on keyboard focus"
+    );
+}
+
+#[test]
 fn gadget_messages_route_to_owner_not_parent_like_cpp() {
     let owner_seen = Rc::new(RefCell::new(Vec::new()));
     let parent_seen = Rc::new(RefCell::new(Vec::new()));

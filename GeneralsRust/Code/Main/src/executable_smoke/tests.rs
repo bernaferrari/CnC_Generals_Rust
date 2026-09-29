@@ -49,6 +49,51 @@ mod tests {
         assert!(!result.detail.contains(&"x".repeat(4097)));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn child_crash_after_ingame_is_not_a_host_pass() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "exit 101"])
+            .spawn()
+            .unwrap();
+        child.wait().unwrap();
+        let mut result = ExecutableSmokeResult {
+            reached_ingame: true,
+            reached_menu: true,
+            ..Default::default()
+        };
+        let mut st = SmokeRunState {
+            saw_shell_wnd_ok: true,
+            ..Default::default()
+        };
+        st.last_snap.state = "InGame".into();
+
+        assert!(smoke_child_exited_early(&mut st, &mut result, &mut child, true));
+        assert_eq!(result.exit_code, Some(101));
+        assert_eq!(result.status, "process_exited");
+        assert!(!result.executable_host_ok);
+
+        let mut shutdown_child = std::process::Command::new("sh")
+            .args(["-c", "exit 101"])
+            .spawn()
+            .unwrap();
+        shutdown_child.wait().unwrap();
+        let mut shutdown_result = ExecutableSmokeResult {
+            reached_ingame: true,
+            reached_menu: true,
+            shell_wnd_ok: true,
+            ..Default::default()
+        };
+        assert!(smoke_phase_wait_clean_exit(
+            &mut st,
+            &mut shutdown_result,
+            &mut shutdown_child,
+            true,
+        ));
+        assert_eq!(shutdown_result.status, "process_exited");
+        assert!(!shutdown_result.executable_host_ok);
+    }
+
     #[test]
     fn ingame_frame_progress_expires_stalled_smoke_evidence() {
         let mut st = SmokeRunState::default();

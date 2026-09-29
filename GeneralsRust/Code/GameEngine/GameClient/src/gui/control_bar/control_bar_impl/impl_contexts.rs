@@ -21,6 +21,23 @@ impl ControlBar {
             return Ok(());
         }
 
+        // `process_command` rejects a missing state. C++ binds every visible
+        // m_commandWindows slot before its first multi-select update, so seed
+        // those entries even when no single-unit context preceded this group.
+        for button in &buttons {
+            if button.button_hidden || button.command_name.is_empty() {
+                continue;
+            }
+            let state = self
+                .button_states
+                .entry(button.command_name.clone())
+                .or_default();
+            state.visible = true;
+            state.enabled = false;
+            state.availability = CommandAvailability::Restricted;
+            state.check_like_active = false;
+        }
+
         let mut objects_that_can: Vec<u32> = vec![0; buttons.len()];
         for obj_id in &selected {
             if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
@@ -34,43 +51,20 @@ impl ControlBar {
                 if button.button_hidden || button.command_name.is_empty() {
                     continue;
                 }
+                if !self.button_states[&button.command_name].visible {
+                    continue;
+                }
+                let window_name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
                 let availability = self.get_command_availability(button, *obj_id, player_id)?;
-                if matches!(
-                    availability,
-                    CommandAvailability::Available | CommandAvailability::Active
-                ) {
+                if self.record_multi_select_button_availability(button, availability) {
                     objects_that_can[i] += 1;
                 }
-                if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                    match availability {
-                        CommandAvailability::Hidden => bs.visible = false,
-                        CommandAvailability::Restricted => {
-                            bs.enabled = false;
-                            bs.availability = availability;
+                if availability == CommandAvailability::Hidden {
+                    with_window_manager(|wm| {
+                        if let Some(win) = wm.find_window_by_name(&window_name) {
+                            let _ = win.borrow_mut().hide(true);
                         }
-                        CommandAvailability::NotReady => {
-                            bs.enabled = false;
-                            bs.availability = availability;
-                        }
-                        CommandAvailability::CantAfford => {
-                            bs.enabled = false;
-                            bs.availability = availability;
-                        }
-                        CommandAvailability::Active => {
-                            bs.enabled = true;
-                            bs.availability = availability;
-                            if (button.options & CommandOption::CheckLike as u32) != 0 {
-                                bs.check_like_active = true;
-                            }
-                        }
-                        CommandAvailability::Available => {
-                            bs.enabled = true;
-                            bs.availability = availability;
-                            if (button.options & CommandOption::CheckLike as u32) != 0 {
-                                bs.check_like_active = false;
-                            }
-                        }
-                    }
+                    });
                 }
             }
         }
@@ -79,11 +73,62 @@ impl ControlBar {
             if button.button_hidden || button.command_name.is_empty() {
                 continue;
             }
-            if let Some(bs) = self.button_states.get_mut(&button.command_name) {
-                bs.enabled = objects_that_can.get(i).copied().unwrap_or(0) > 0;
-            }
+            self.finish_multi_select_button_state(button, objects_that_can[i]);
         }
+        // C++'s final pass sets winEnable from the any-capable counts. Do not
+        // re-show a window hidden by this or another context.
+        with_window_manager(|wm| {
+            for (i, button) in buttons.iter().enumerate() {
+                if button.button_hidden || button.command_name.is_empty() {
+                    continue;
+                }
+                let name = format!("ControlBar.wnd:ButtonCommand{:02}", i + 1);
+                let Some(win) = wm.find_window_by_name(&name) else {
+                    continue;
+                };
+                if win.borrow().is_hidden() {
+                    continue;
+                }
+                if let Some(state) = self.button_states.get(&button.command_name) {
+                    let _ = win.borrow_mut().enable(state.enabled);
+                }
+            }
+        });
         Ok(())
+    }
+
+    fn record_multi_select_button_availability(
+        &mut self,
+        button: &CommandButton,
+        availability: CommandAvailability,
+    ) -> bool {
+        let state = self
+            .button_states
+            .entry(button.command_name.clone())
+            .or_default();
+        state.availability = availability;
+        state.enabled = matches!(
+            availability,
+            CommandAvailability::Available | CommandAvailability::Active
+        );
+        if availability == CommandAvailability::Hidden {
+            state.visible = false;
+        }
+        if (button.options & CommandOption::CheckLike as u32) != 0 {
+            state.check_like_active = availability == CommandAvailability::Active;
+        }
+        state.enabled
+    }
+
+    fn finish_multi_select_button_state(&mut self, button: &CommandButton, can_count: u32) {
+        let state = self
+            .button_states
+            .entry(button.command_name.clone())
+            .or_default();
+        state.enabled = state.visible && can_count > 0;
+        if state.enabled && state.availability != CommandAvailability::Active {
+            state.availability = CommandAvailability::Available;
+        }
     }
 
 

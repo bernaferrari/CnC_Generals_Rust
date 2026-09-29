@@ -4,6 +4,36 @@
 mod tests {
     use super::*;
 
+    #[test]
+    fn terrain_draw_window_tracks_visible_ground_instead_of_camera_eye() {
+        // At C++'s default pitch, the view eye sits hundreds of world units
+        // behind the visible terrain. Centering 129 cells on the eye clips the
+        // far rows even while they pass frustum culling.
+        let eye = Vec3::new(1_750.0, 310.0, 1_310.0);
+        let look = Vec3::new(1_750.0, 0.0, 1_714.0);
+        let view = Mat4::look_at_rh(eye, look, Vec3::Y);
+        let projection = Mat4::perspective_rh(38.5_f32.to_radians(), 4.0 / 3.0, 10.0, 12_000.0);
+        let center = frustum_ground_footprint_center(view, projection, 0.0)
+            .expect("pitched tactical view must meet the terrain plane");
+        assert!((center.x - look.x).abs() < 0.1);
+        assert!(center.y > look.z, "footprint should extend ahead of look-at");
+
+        let mut visual = TerrainVisualImpl::new();
+        visual.config.world_size = (3_500.0, 3_500.0);
+        visual.height_map = Some(HeightMap::new(350, 350, 255.0, 10.0));
+        visual.reset_draw_area_state();
+        visual.recenter_draw_area_for_view(view, projection);
+        let eye_centered_origin = (eye.z / 10.0).floor() as i32 - visual.draw_height / 2;
+        assert!(
+            visual.draw_origin_y > eye_centered_origin + 20,
+            "draw window must move toward the visible far terrain"
+        );
+
+        let horizon_view = Mat4::look_at_rh(eye, eye + Vec3::Z, Vec3::Y);
+        visual.recenter_draw_area_for_view(horizon_view, projection);
+        assert_eq!(visual.draw_origin_y, eye_centered_origin);
+    }
+
     fn runtime_road_segment(
         start: [f32; 3],
         end: [f32; 3],

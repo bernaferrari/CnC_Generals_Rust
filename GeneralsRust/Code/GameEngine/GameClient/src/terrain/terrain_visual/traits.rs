@@ -247,7 +247,7 @@ impl TerrainVisual for TerrainVisualImpl {
         if self.overlay.overlays_dirty {
             self.rebuild_all_overlays();
         }
-        self.recenter_draw_area_on_world_position(camera_position.x, camera_position.z);
+        self.recenter_draw_area_for_view(*view_matrix, *projection_matrix);
         self.chunk_manager.set_camera(camera_position);
         self.chunk_manager.set_view_frustum(ViewFrustum {
             planes: [Vec3::ZERO; 6],

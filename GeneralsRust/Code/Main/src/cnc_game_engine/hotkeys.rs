@@ -354,7 +354,7 @@ impl CnCGameEngine {
             && !self.keys_pressed.contains(&Key::Named(NamedKey::Shift))
             && !self.keys_pressed.contains(&Key::Named(NamedKey::Alt))
             && matches!(
-                physical,
+                physical.as_ref(),
                 Some(winit::keyboard::PhysicalKey::Code(
                     winit::keyboard::KeyCode::Numpad5
                 ))
@@ -364,7 +364,11 @@ impl CnCGameEngine {
             return;
         }
 
-        match key {
+        // Chat and configured CommandMap bindings have already seen the
+        // original key. C++'s remaining gameplay hotkeys still use the
+        // DirectInput key position, not the character produced by the layout.
+        let gameplay_key = fallback_gameplay_key(key, physical.as_ref());
+        match &gameplay_key {
             Key::Named(NamedKey::Space) => {
                 // Retail CommandMap VIEW_LAST_RADAR_EVENT KEY_SPACE residual.
                 // Pause remains on P. C++ has no Alt+Space center binding.
@@ -1659,53 +1663,71 @@ fn host_localized_gui_label(key: &str) -> String {
     crate::localization::localize(key, key)
 }
 
+fn physical_gameplay_character(physical: Option<&winit::keyboard::PhysicalKey>) -> Option<char> {
+    use winit::keyboard::{KeyCode, PhysicalKey};
+    let Some(PhysicalKey::Code(code)) = physical else {
+        return None;
+    };
+    Some(match code {
+        KeyCode::KeyA => 'A',
+        KeyCode::KeyB => 'B',
+        KeyCode::KeyC => 'C',
+        KeyCode::KeyD => 'D',
+        KeyCode::KeyE => 'E',
+        KeyCode::KeyF => 'F',
+        KeyCode::KeyG => 'G',
+        KeyCode::KeyH => 'H',
+        KeyCode::KeyI => 'I',
+        KeyCode::KeyJ => 'J',
+        KeyCode::KeyK => 'K',
+        KeyCode::KeyL => 'L',
+        KeyCode::KeyM => 'M',
+        KeyCode::KeyN => 'N',
+        KeyCode::KeyO => 'O',
+        KeyCode::KeyP => 'P',
+        KeyCode::KeyQ => 'Q',
+        KeyCode::KeyR => 'R',
+        KeyCode::KeyS => 'S',
+        KeyCode::KeyT => 'T',
+        KeyCode::KeyU => 'U',
+        KeyCode::KeyV => 'V',
+        KeyCode::KeyW => 'W',
+        KeyCode::KeyX => 'X',
+        KeyCode::KeyY => 'Y',
+        KeyCode::KeyZ => 'Z',
+        KeyCode::Digit0 => '0',
+        KeyCode::Digit1 => '1',
+        KeyCode::Digit2 => '2',
+        KeyCode::Digit3 => '3',
+        KeyCode::Digit4 => '4',
+        KeyCode::Digit5 => '5',
+        KeyCode::Digit6 => '6',
+        KeyCode::Digit7 => '7',
+        KeyCode::Digit8 => '8',
+        KeyCode::Digit9 => '9',
+        _ => return None,
+    })
+}
+
+fn fallback_gameplay_key(
+    key: &winit::keyboard::Key,
+    physical: Option<&winit::keyboard::PhysicalKey>,
+) -> winit::keyboard::Key {
+    physical_gameplay_character(physical)
+        .map(|ch| winit::keyboard::Key::Character(ch.to_string().into()))
+        .unwrap_or_else(|| key.clone())
+}
+
 fn os_key_to_command_map_vk(
     key: &winit::keyboard::Key,
     physical: Option<&winit::keyboard::PhysicalKey>,
 ) -> Option<u32> {
     use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
+    if let Some(ch) = physical_gameplay_character(physical) {
+        return Some(ch as u32);
+    }
     if let Some(PhysicalKey::Code(code)) = physical {
         let from_physical = match code {
-            // C++ KeyDefs.h maps KEY_A..KEY_Z and KEY_0..KEY_9 to
-            // DirectInput scan codes. Use the physical key for gameplay
-            // bindings even when the active keyboard layout types another
-            // character at that position.
-            KeyCode::KeyA => Some(b'A' as u32),
-            KeyCode::KeyB => Some(b'B' as u32),
-            KeyCode::KeyC => Some(b'C' as u32),
-            KeyCode::KeyD => Some(b'D' as u32),
-            KeyCode::KeyE => Some(b'E' as u32),
-            KeyCode::KeyF => Some(b'F' as u32),
-            KeyCode::KeyG => Some(b'G' as u32),
-            KeyCode::KeyH => Some(b'H' as u32),
-            KeyCode::KeyI => Some(b'I' as u32),
-            KeyCode::KeyJ => Some(b'J' as u32),
-            KeyCode::KeyK => Some(b'K' as u32),
-            KeyCode::KeyL => Some(b'L' as u32),
-            KeyCode::KeyM => Some(b'M' as u32),
-            KeyCode::KeyN => Some(b'N' as u32),
-            KeyCode::KeyO => Some(b'O' as u32),
-            KeyCode::KeyP => Some(b'P' as u32),
-            KeyCode::KeyQ => Some(b'Q' as u32),
-            KeyCode::KeyR => Some(b'R' as u32),
-            KeyCode::KeyS => Some(b'S' as u32),
-            KeyCode::KeyT => Some(b'T' as u32),
-            KeyCode::KeyU => Some(b'U' as u32),
-            KeyCode::KeyV => Some(b'V' as u32),
-            KeyCode::KeyW => Some(b'W' as u32),
-            KeyCode::KeyX => Some(b'X' as u32),
-            KeyCode::KeyY => Some(b'Y' as u32),
-            KeyCode::KeyZ => Some(b'Z' as u32),
-            KeyCode::Digit0 => Some(b'0' as u32),
-            KeyCode::Digit1 => Some(b'1' as u32),
-            KeyCode::Digit2 => Some(b'2' as u32),
-            KeyCode::Digit3 => Some(b'3' as u32),
-            KeyCode::Digit4 => Some(b'4' as u32),
-            KeyCode::Digit5 => Some(b'5' as u32),
-            KeyCode::Digit6 => Some(b'6' as u32),
-            KeyCode::Digit7 => Some(b'7' as u32),
-            KeyCode::Digit8 => Some(b'8' as u32),
-            KeyCode::Digit9 => Some(b'9' as u32),
             KeyCode::Numpad0 => Some(0x60),
             KeyCode::Numpad1 => Some(0x61),
             KeyCode::Numpad2 => Some(0x62),
@@ -1795,7 +1817,7 @@ fn os_key_to_command_map_vk(
 
 #[cfg(test)]
 mod tests {
-    use super::os_key_to_command_map_vk;
+    use super::{fallback_gameplay_key, os_key_to_command_map_vk};
     use winit::keyboard::{Key, KeyCode, PhysicalKey};
 
     #[test]
@@ -1839,6 +1861,33 @@ mod tests {
             os_key_to_command_map_vk(&Key::Character("&".into()), Some(&physical_one)),
             Some(b'1' as u32),
             "retail KEY_1 is the number-row scan code"
+        );
+    }
+
+    #[test]
+    fn fallback_gameplay_orders_follow_physical_keys_but_text_stays_logical() {
+        let typed = Key::Character("d".into());
+        let physical_stop = PhysicalKey::Code(KeyCode::KeyS);
+        assert_eq!(
+            fallback_gameplay_key(&typed, Some(&physical_stop)),
+            Key::Character("S".into()),
+            "retail DIK_S must dispatch Stop rather than the typed D/Deploy fallback"
+        );
+        assert_eq!(typed, Key::Character("d".into()));
+        assert_eq!(fallback_gameplay_key(&typed, None), typed);
+
+        let typed_digit = Key::Character("&".into());
+        let physical_one = PhysicalKey::Code(KeyCode::Digit1);
+        assert_eq!(
+            fallback_gameplay_key(&typed_digit, Some(&physical_one)),
+            Key::Character("1".into()),
+            "number-row control groups use KEY_1 even when the layout types '&'"
+        );
+        let numpad_five = PhysicalKey::Code(KeyCode::Numpad5);
+        assert_eq!(
+            fallback_gameplay_key(&Key::Character("5".into()), Some(&numpad_five)),
+            Key::Character("5".into()),
+            "numpad remains a separate CommandMap key"
         );
     }
 

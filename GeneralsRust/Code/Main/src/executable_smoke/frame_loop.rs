@@ -401,16 +401,9 @@ fn smoke_child_exited_early(
                 result.reached_menu,
                 result.reached_ingame
             );
-            // Partial success: reached InGame even if non-zero (e.g. unclean shutdown).
-            if result.reached_ingame {
-                result.executable_host_ok =
-                    executable_host_ok_from_residuals(true, result.shell_wnd_ok);
-                result.status = if result.executable_host_ok {
-                    "success_partial_exit".into()
-                } else {
-                    "ingame_without_shell_wnd".into()
-                };
-            }
+            // A frame observed before a crash is not a working host. Keep the
+            // failure status so shutdown includes the child's stderr tail.
+            result.executable_host_ok = false;
         }
         return true;
     }
@@ -949,7 +942,16 @@ fn smoke_phase_wait_clean_exit(
     // Wait for clean exit.
     if let Ok(Some(status)) = child.try_wait() {
         result.exit_code = status.code();
-        if result.reached_ingame {
+        if !status.success() {
+            result.executable_host_ok = false;
+            result.status = "process_exited".into();
+            result.detail = format!(
+                "process exited code={:?} after exit command; state={} ingame={}",
+                status.code(),
+                st.last_snap.state,
+                result.reached_ingame
+            );
+        } else if result.reached_ingame {
             result.executable_host_ok =
                 executable_host_ok_from_residuals(true, result.shell_wnd_ok);
             result.status = if result.executable_host_ok {

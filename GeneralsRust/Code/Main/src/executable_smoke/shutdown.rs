@@ -10,7 +10,7 @@ fn append_smoke_failure_diagnostics(
 ) {
     if matches!(
         result.status.as_str(),
-        "success" | "success_partial_exit" | "success_forced_exit"
+        "success" | "success_forced_exit"
     ) {
         return;
     }
