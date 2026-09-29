@@ -90,6 +90,9 @@ jobs:
       - name: Compare original C++ and Rust skirmish placement decisions
         run: python3 Code/Main/scripts/verify_ai_placement_parity.py --cxx c++
 
+      - name: Compare original C++ and Rust discrete circle behavior
+        run: python3 Code/Main/scripts/verify_discrete_circle_parity.py --cxx c++
+
       - name: Reject stale generated parity inventory
         working-directory: .
         run: >-

@@ -89,6 +89,20 @@
       "source_sha256": "c13579bf25f474e67e463512e8b0e782c512eb34c234749552ee566892ee1ddc",
       "symbols": [
         {
+          "name": "DiscreteCircle::DiscreteCircle",
+          "line": 25,
+          "assignments": [
+            {
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/discrete_circle.rs",
+              "sha256": "6c97b402cb250257f0350cb31c7bf9ac2fc722cf8582390346e7e8e21137f1a9",
+              "symbols": [
+                "new"
+              ],
+              "deviation": null
+            }
+          ]
+        },
+        {
           "name": "DiscreteCircle::drawCircle",
           "line": 36,
           "assignments": [
