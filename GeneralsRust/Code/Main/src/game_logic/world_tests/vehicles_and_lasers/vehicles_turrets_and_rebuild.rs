@@ -2739,6 +2739,38 @@ fn rebuild_hole_and_scaffold_death_destroys_worker() {
 }
 
 #[test]
+fn rebuild_hole_authored_max_clips_template_health() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    let mut logic = GameLogic::new();
+    logic
+        .players
+        .insert(0, Player::new(0, Team::GLA, "GLA", true));
+    let mut building = ThingTemplate::new("GLACommandCenter");
+    building.add_kind_of(KindOf::Structure).set_health(5000.0);
+    building.set_rebuild_hole_expose("GLAHoleCommandCenter", 500.0);
+    logic.templates.insert("GLACommandCenter".into(), building);
+    let mut hole_template = ThingTemplate::new("GLAHoleCommandCenter");
+    hole_template
+        .add_kind_of(KindOf::Structure)
+        .set_health(10_000_000.0);
+    logic
+        .templates
+        .insert("GLAHoleCommandCenter".into(), hole_template);
+    let building_id = logic
+        .create_object("GLACommandCenter", Team::GLA, glam::Vec3::ZERO)
+        .expect("building");
+    let building = logic.host_object_mut(building_id).expect("building");
+    building.set_status_under_construction(false);
+    building.construction_percent = 1.0;
+
+    let hole_id = logic.maybe_spawn_rebuild_hole(building_id).expect("hole");
+    let hole = logic.host_object(hole_id).expect("hole object");
+    assert_eq!(hole.health.current, 500.0);
+    assert_eq!(hole.health.maximum, 500.0);
+    assert_eq!(hole.max_health, 500.0);
+}
+
+#[test]
 fn scud_storm_uses_authored_rebuild_hole_name() {
     use crate::game_logic::{KindOf, Team, ThingTemplate};
     let mut logic = GameLogic::new();

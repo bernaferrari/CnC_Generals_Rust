@@ -33,7 +33,7 @@ pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("GENERALS_RUNTIME_EXE") {
         let pb = PathBuf::from(p);
         if pb.is_file() {
-            return Some(pb);
+            return Some(pb.canonicalize().unwrap_or(pb));
         }
     }
     // Wave 833: current-source binary. Newest-mtime among debug+release so a
@@ -58,7 +58,9 @@ pub(crate) fn resolve_runtime_exe() -> Option<PathBuf> {
         PathBuf::from("./target/debug/generals"),
     ];
     if let Some(path) = resolve_runtime_exe_from_candidates(&candidates, !prefer_release_first) {
-        return Some(path);
+        // The child runs in a temporary working directory. Keep the chosen
+        // binary valid after Command::current_dir changes that directory.
+        return Some(path.canonicalize().unwrap_or(path));
     }
     // Try next to current exe
     if let Ok(cur) = std::env::current_exe() {

@@ -1924,6 +1924,15 @@ impl GameLogic {
                 .filter(|&h| h > 0.0)
                 .unwrap_or(REBUILD_HOLE_MAX_HEALTH_RESIDUAL)
         };
+        // C++ RebuildHoleExposeDie::onDie calls ActiveBody::setMaxHealth with
+        // SAME_CURRENTHEALTH. A newly created hole keeps its template HP unless
+        // the authored cap clips it (GLAHoleCommandCenter: 10,000,000 -> 500).
+        let hole_initial_health = self
+            .templates
+            .get(&hole_name)
+            .map(|t| t.max_health)
+            .unwrap_or(hole_max_health)
+            .min(hole_max_health);
         // Wave 742: under construction sole-tick, pre-spawn hole entity on coupled
         // shadow and bind host ObjectId (entity-first). Non-sole / no-shadow falls
         // back to host create_object. Missing bind under sole is fail-closed via
@@ -1933,6 +1942,7 @@ impl GameLogic {
                 &hole_name,
                 [pos.x, pos.y, pos.z],
                 orient,
+                hole_initial_health,
                 hole_max_health,
             )
         } else {
@@ -1955,8 +1965,10 @@ impl GameLogic {
                 h.construction_percent = 1.0;
                 crate::game_logic::host_construction_progress_log::record(hole_id, 1.0, false, 0.0);
             }
-            Self::write_object_health_authority_aware(h, hole_max_health);
-            h.health.maximum = hole_max_health;
+            // This is initial state, before the hole can take damage. Match
+            // setMaxHealth's max and clipped current HP on both host and shadow.
+            h.set_body_max_health(hole_max_health);
+            h.health.current = h.health.current.min(hole_max_health);
             h.is_rebuild_hole = true;
             h.rebuild_template_name = Some(template_name);
             h.rebuild_spawner_id = Some(destroyed_id);
