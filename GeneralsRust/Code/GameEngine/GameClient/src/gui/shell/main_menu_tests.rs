@@ -1516,8 +1516,8 @@ mod main_menu_shell_borrow_residual_tests {
                 .find_window_by_name("MainMenu.wnd:MapBorder")
                 .expect("MapBorder");
             assert!(
-                !border.borrow().is_hidden(),
-                "C++ MainMenuInit 525-526 loops dropDownWindows[1..]; MapBorder (DROPDOWN_SINGLE) stays visible"
+                border.borrow().is_hidden(),
+                "C++ MainMenuInit 525-526 loops from index 1, which is DROPDOWN_SINGLE"
             );
             let ruler = manager
                 .find_window_by_name("MainMenu.wnd:MainMenuRuler")
@@ -1590,6 +1590,47 @@ mod main_menu_shell_borrow_residual_tests {
             assert!(
                 hidden("MainMenu.wnd:MapBorder2"),
                 "show_only_dropdown(Single) must winHide(TRUE) MapBorder2"
+            );
+        });
+    }
+
+    #[test]
+    fn show_only_dropdown_main_hides_single_player_dropdown() {
+        use crate::gui::window_manager::with_window_manager;
+
+        with_window_manager(|manager| {
+            manager.reset();
+            let parent = manager
+                .create_window(None, 0, 0, 800, 600)
+                .expect("MainMenuParent");
+            parent.borrow_mut().set_name("MainMenu.wnd:MainMenuParent");
+            for name in ["MainMenu.wnd:MapBorder", "MainMenu.wnd:MapBorder2"] {
+                let border = manager
+                    .create_window(Some(&parent), 0, 0, 800, 600)
+                    .expect(name);
+                border.borrow_mut().set_name(name);
+                let _ = border.borrow_mut().hide(false);
+            }
+        });
+
+        let menu = MainMenu::new();
+        menu.show_only_dropdown(&MainMenuState::default(), DropdownType::Main);
+
+        with_window_manager(|manager| {
+            assert!(
+                manager
+                    .find_window_by_name("MainMenu.wnd:MapBorder")
+                    .unwrap()
+                    .borrow()
+                    .is_hidden(),
+                "C++ main dropdown must not leave single-player buttons visible underneath"
+            );
+            assert!(
+                !manager
+                    .find_window_by_name("MainMenu.wnd:MapBorder2")
+                    .unwrap()
+                    .borrow()
+                    .is_hidden()
             );
         });
     }
