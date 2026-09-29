@@ -655,6 +655,7 @@ pub fn bake_straight_road_segment(
     start: [f32; 2],
     end: [f32; 2],
     width: f32,
+    width_in_texture: f32,
     u_offset: f32,
     v_offset: f32,
     scale: f32,
@@ -675,7 +676,9 @@ pub fn bake_straight_road_segment(
     } else {
         road_normal = [road_normal[0] / nlen, road_normal[1] / nlen];
     }
-    let half = width.max(0.1) * 0.5;
+    // W3DRoadBuffer::addMapObject uses both Roads.ini widths for the physical
+    // span; preloadRoadSegment still uses `width` alone as the UV scale.
+    let half = width.max(0.1) * width_in_texture.max(0.0) * 0.5;
     road_normal = [road_normal[0] * half, road_normal[1] * half];
     let bottom_left = [start[0] - road_normal[0], start[1] - road_normal[1]];
     let top_left = [start[0] + road_normal[0], start[1] + road_normal[1]];
@@ -1309,6 +1312,7 @@ mod tests {
                 [0.0, 0.0],
                 [0.1, 0.0],
                 8.0,
+                1.0,
                 0.0,
                 85.0 / 512.0,
                 DEFAULT_ROAD_SCALE,
@@ -1324,6 +1328,7 @@ mod tests {
             [0.0, 0.0],
             [40.0, 0.0],
             10.0,
+            1.0,
             0.0,
             85.0 / 512.0,
             DEFAULT_ROAD_SCALE,
@@ -1343,11 +1348,39 @@ mod tests {
     }
 
     #[test]
+    fn straight_road_uses_authored_width_in_texture_for_mesh_and_uv() {
+        // Roads.ini TwoLane: RoadWidth=35, RoadWidthInTexture=0.9.
+        // C++ addMapObject uses both for the physical half-width, while
+        // preloadRoadSegment keeps RoadWidth as the UV scale.
+        let width = 35.0;
+        let width_in_texture = 0.9;
+        let v_offset = 85.0 / 512.0;
+        let (vertices, _) = bake_straight_road_segment(
+            [0.0, 0.0],
+            [40.0, 0.0],
+            width,
+            width_in_texture,
+            0.0,
+            v_offset,
+            width,
+            |_, _| 0.0,
+        )
+        .expect("authored straight road");
+
+        let half_width = width * width_in_texture / 2.0;
+        assert!((vertices[0].y + half_width).abs() < 1.0e-5);
+        assert!((vertices[1].y - half_width).abs() < 1.0e-5);
+        assert!((vertices[0].v1 - (v_offset + half_width / (width * 4.0))).abs() < 1.0e-5);
+        assert!((vertices[1].v1 - (v_offset - half_width / (width * 4.0))).abs() < 1.0e-5);
+    }
+
+    #[test]
     fn load_float_4pt_section_keeps_columns_when_height_error_exceeds_max() {
         let baked = bake_straight_road_segment(
             [0.0, 0.0],
             [40.0, 0.0],
             10.0,
+            1.0,
             0.0,
             85.0 / 512.0,
             DEFAULT_ROAD_SCALE,
@@ -1363,6 +1396,7 @@ mod tests {
             [0.0, 0.0],
             [40.0, 0.0],
             10.0,
+            1.0,
             0.0,
             85.0 / 512.0,
             DEFAULT_ROAD_SCALE,

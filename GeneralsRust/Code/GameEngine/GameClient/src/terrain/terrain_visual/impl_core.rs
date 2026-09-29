@@ -3,11 +3,7 @@
 /// C++ HeightMapRenderObjClass::updateCenter projects the four view corners
 /// onto the lowest height in its current draw window, then centers the draw
 /// window on that visible ground footprint (HeightMap.cpp:1709-1794).
-fn frustum_ground_footprint_center(
-    view: Mat4,
-    projection: Mat4,
-    ground_y: f32,
-) -> Option<Vec2> {
+fn frustum_ground_footprint_center(view: Mat4, projection: Mat4, ground_y: f32) -> Option<Vec2> {
     let eye = view.inverse().transform_point3(Vec3::ZERO);
     let inverse_view_projection = (projection * view).inverse();
     if !eye.is_finite() || !inverse_view_projection.is_finite() {
@@ -126,7 +122,6 @@ impl TerrainVisualImpl {
             had_dynamic_lights: false,
             overlay_gpu_meshes_dirty: true,
 
-
             tree_buffer: W3DTreeBuffer::new(),
             last_tree_gpu_vertices: Vec::new(),
             last_tree_atlas_mips: Vec::new(),
@@ -240,7 +235,6 @@ impl TerrainVisualImpl {
         self.chunk_ids_for_gpu_draw().len()
     }
 
-
     /// Apply texture-LOD side effects immediately after a runtime LOD adjustment.
     ///
     /// Matches the intent of C++ `TheTerrainRenderObject->setTextureLOD(...)` called from
@@ -258,15 +252,10 @@ impl TerrainVisualImpl {
     }
 
     fn map_scale(&self) -> f32 {
-        self.map_sample_dimensions()
-            .map(|(width, _height)| {
-                (self.config.world_size.0 / width.max(1) as f32).max(f32::EPSILON)
-            })
-            .or_else(|| {
-                self.height_map
-                    .as_ref()
-                    .map(|height_map| height_map.scale.max(f32::EPSILON))
-            })
+        self.height_map
+            .as_ref()
+            .map(|height_map| height_map.scale)
+            .filter(|scale| scale.is_finite() && *scale > f32::EPSILON)
             .unwrap_or(1.0)
     }
 
@@ -289,15 +278,18 @@ impl TerrainVisualImpl {
     }
 
     fn recenter_draw_area_on_world_position(&mut self, world_x: f32, world_z: f32) {
-        let Some((_map_width, _map_height)) = self.map_sample_dimensions() else {
+        let Some(height_map) = self.height_map.as_ref() else {
             return;
         };
 
-        let scale = self.map_scale().max(f32::EPSILON);
-        let sample_x = (world_x / scale).floor() as i32;
-        let sample_y = (world_z / scale).floor() as i32;
-        self.draw_origin_x = sample_x - (self.draw_width / 2);
-        self.draw_origin_y = sample_y - (self.draw_height / 2);
+        let scale = self.map_scale();
+        // C++ updateCenter keeps the projected coordinate fractional through
+        // border addition and half-width subtraction, then assigns to Int.
+        // Casting earlier shifts the window by one cell for many camera pans.
+        self.draw_origin_x =
+            (world_x / scale + height_map.border_size as f32 - self.draw_width as f32 / 2.0) as i32;
+        self.draw_origin_y = (world_z / scale + height_map.border_size as f32
+            - self.draw_height as f32 / 2.0) as i32;
         self.clamp_draw_area_to_map();
     }
 
@@ -308,7 +300,8 @@ impl TerrainVisualImpl {
             let mut min_height = f32::INFINITY;
             for z in self.draw_origin_y.max(0)..z_end {
                 for x in self.draw_origin_x.max(0)..x_end {
-                    min_height = min_height.min(height_map.world_height_at_index(x as u32, z as u32));
+                    min_height =
+                        min_height.min(height_map.world_height_at_index(x as u32, z as u32));
                 }
             }
             if min_height.is_finite() {
@@ -367,19 +360,15 @@ impl TerrainVisualImpl {
         };
 
         let scale = self.map_scale();
-        let width = (map_width.max(1) as f32) * scale;
-        let height = (map_height.max(1) as f32) * scale;
-
-        let origin_x = (self.draw_origin_x.max(0) as f32) * self.map_scale();
-        let origin_y = (self.draw_origin_y.max(0) as f32) * self.map_scale();
-        let max_x = (((self.draw_origin_x + self.draw_width).max(self.draw_origin_x) as f32)
-            * scale)
-            .max(0.0)
-            .min(width);
-        let max_y = (((self.draw_origin_y + self.draw_height).max(self.draw_origin_y) as f32)
-            * scale)
-            .max(0.0)
-            .min(height);
+        let border = self.height_map.as_ref().map_or(0, |map| map.border_size);
+        let origin_x = (self.draw_origin_x.clamp(0, map_width - 1) - border) as f32 * scale;
+        let origin_y = (self.draw_origin_y.clamp(0, map_height - 1) - border) as f32 * scale;
+        // C++ updateBlock(0, 0, m_x - 1, m_y - 1) draws `m_x` samples,
+        // hence only `m_x - 1` terrain cells from the origin.
+        let max_sample_x = (self.draw_origin_x + self.draw_width - 1).clamp(0, map_width - 1);
+        let max_sample_y = (self.draw_origin_y + self.draw_height - 1).clamp(0, map_height - 1);
+        let max_x = (max_sample_x - border) as f32 * scale;
+        let max_y = (max_sample_y - border) as f32 * scale;
         (origin_x, origin_y, max_x, max_y)
     }
 
@@ -470,7 +459,8 @@ impl TerrainVisualImpl {
         }
         let n = expected.min(data.len()).min(height_map.heights.len());
         for i in 0..n {
-            height_map.heights[i] = data[i] as f32 / crate::terrain::height_map::K_MAX_HEIGHT as f32;
+            height_map.heights[i] =
+                data[i] as f32 / crate::terrain::height_map::K_MAX_HEIGHT as f32;
         }
         self.static_lighting_changed();
     }
@@ -526,7 +516,6 @@ impl TerrainVisualImpl {
         self.last_water_tracks_flush = flush;
         self.upload_water_track_meshes();
     }
-
 
     fn upload_water_track_meshes(&mut self) {
         let Some(device) = self.device.as_ref().cloned() else {
@@ -643,7 +632,6 @@ impl TerrainVisualImpl {
         &self.last_water_tracks_flush
     }
 
-
     pub fn debug_total_chunk_count(&self) -> usize {
         self.chunk_manager.total_chunk_count()
     }
@@ -720,8 +708,6 @@ impl TerrainVisualImpl {
         self.source_tiles[index] = Some(tile);
     }
 
-
-
     fn load_source_tiles_for_class(
         &mut self,
         class: &TerrainSourceTileClass,
@@ -791,10 +777,8 @@ impl TerrainVisualImpl {
                     // Flagged so the radar paint source reports "no art"
                     // (C++ getSourceTile null path) instead of sampling the
                     // hash placeholder as a terrain color.
-                    let stand_in = crate::terrain::tree_buffer::stand_in_tile_bgra(
-                        &class.name,
-                        count,
-                    );
+                    let stand_in =
+                        crate::terrain::tree_buffer::stand_in_tile_bgra(&class.name, count);
                     tile.data.copy_from_slice(&stand_in);
                     self.stand_in_source_tiles[first_tile + count] = true;
                 }
@@ -876,8 +860,7 @@ impl TerrainVisualImpl {
         if let Ok(image) = image::open(path) {
             return Some(image);
         }
-        let bytes =
-            crate::terrain::tree_buffer::read_game_fs_bytes(&path.to_string_lossy())?;
+        let bytes = crate::terrain::tree_buffer::read_game_fs_bytes(&path.to_string_lossy())?;
         image::load_from_memory(&bytes).ok()
     }
 }

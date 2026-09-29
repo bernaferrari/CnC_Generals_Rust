@@ -1647,7 +1647,7 @@ fn leftover_presentation_can_make_restricted(bar: &ControlBar, command: &Command
 }
 
 fn leftover_presentation_money_restricted(bar: &ControlBar, command: &CommandButton) -> bool {
-    let money = bar.last_displayed_money;
+    let money = bar.presentation_money.unwrap_or(bar.last_displayed_money);
     if money < 0 {
         return false;
     }
@@ -1837,4 +1837,3 @@ mod command_availability_window_tests {
         assert!(leftover_presentation_command_set_hidden(&bar));
     }
 }
-

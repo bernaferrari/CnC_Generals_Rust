@@ -281,7 +281,9 @@ pub struct ControlBar {
     presentation_ocl_timer_seconds: u32,
     displayed_construct_percent: f32,
     displayed_ocl_timer_seconds: u32,
-    /// C++ InGameUI.cpp lastMoney — skip MoneyDisplay set_text when unchanged.
+    /// Host freeze cash waiting for the next MoneyDisplay WND update.
+    presentation_money: Option<i32>,
+    /// C++ InGameUI.cpp lastMoney — cash successfully written to MoneyDisplay.
     last_displayed_money: i32,
     /// Presentation CanMake residual (template → CANMAKE_* ordinal).
     presentation_can_make: Vec<(String, u32)>,
@@ -313,4 +315,3 @@ struct ButtonState {
     availability: CommandAvailability,
     check_like_active: bool,
 }
-

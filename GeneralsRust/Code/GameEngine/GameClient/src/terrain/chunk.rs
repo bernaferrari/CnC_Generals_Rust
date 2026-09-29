@@ -9,7 +9,7 @@ use crate::terrain::{
     HeightMap, TerrainConfig, TerrainError, TerrainLOD, TerrainModification, TerrainResult,
     TerrainVertex, calculate_terrain_lod,
 };
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::collections::HashMap;
 use std::time::Instant;
 use wgpu::RenderPass;
@@ -203,6 +203,9 @@ pub struct ChunkManager {
     /// Spatial grid for fast chunk lookup
     spatial_grid: HashMap<(i32, i32), ChunkId>,
 
+    /// World-space origin of spatial_grid, which can include map border cells.
+    grid_origin: Vec2,
+
     /// Configuration for chunk management
     config: TerrainConfig,
 
@@ -286,23 +289,23 @@ impl TerrainChunk {
         self.base_colors.clear();
         self.indices.clear();
 
-        let step = self.size / (resolution as f32 - 1.0);
-        let half_size = self.size / 2.0;
+        let step_x = (self.bounds.max.x - self.bounds.min.x) / (resolution as f32 - 1.0);
+        let step_z = (self.bounds.max.z - self.bounds.min.z) / (resolution as f32 - 1.0);
 
         // Generate vertices
         for z in 0..resolution {
             for x in 0..resolution {
                 let tex_u = x as f32 / (resolution - 1) as f32;
                 let tex_v = z as f32 / (resolution - 1) as f32;
-                let world_x = self.position.x - half_size + (x as f32 * step);
-                let world_z = self.position.z - half_size + (z as f32 * step);
+                let world_x = self.bounds.min.x + (x as f32 * step_x);
+                let world_z = self.bounds.min.z + (z as f32 * step_z);
 
                 // Sample the chunk-local height field continuously. The populated height grid
                 // matches the source terrain sample density, not the requested mesh resolution.
                 let height = self.sample_height_bilinear(tex_u, tex_v);
 
                 // Calculate normal using central differences so lighting matches the legacy renderer.
-                let normal = self.compute_normal(tex_u, tex_v, step);
+                let normal = self.compute_normal(tex_u, tex_v);
 
                 // C++ HeightMap.cpp: vb->diffuse = getStaticDiffuse(x,y) then doTheDynamicLight.
                 let base_color = static_diffuse_from_normal(normal);
@@ -428,7 +431,7 @@ impl TerrainChunk {
         }
     }
 
-    fn compute_normal(&self, u: f32, v: f32, step: f32) -> Vec3 {
+    fn compute_normal(&self, u: f32, v: f32) -> Vec3 {
         let texel_x = if self.heights.first().map_or(0, Vec::len) > 1 {
             1.0 / (self.heights[0].len() as f32 - 1.0)
         } else {
@@ -446,9 +449,16 @@ impl TerrainChunk {
         let h_d = self.sample_height_bilinear(u, v + texel_z);
 
         // Approximate the partial derivatives using central differences.
-        let step = step.max(f32::EPSILON);
-        let dx = (h_r - h_l) / (2.0 * step);
-        let dz = (h_d - h_u) / (2.0 * step);
+        // h_l/h_r and h_u/h_d are one source-height sample apart. C++
+        // HeightMap.cpp uses a 2 * MAP_XY_FACTOR vector for those samples;
+        // dividing by mesh LOD spacing makes the same slope change brightness
+        // as the camera zooms between 65/33/17-vertex chunk meshes.
+        let sample_step_x = (self.bounds.max.x - self.bounds.min.x)
+            / self.heights[0].len().saturating_sub(1).max(1) as f32;
+        let sample_step_z = (self.bounds.max.z - self.bounds.min.z)
+            / self.heights.len().saturating_sub(1).max(1) as f32;
+        let dx = (h_r - h_l) / (2.0 * sample_step_x.max(f32::EPSILON));
+        let dz = (h_d - h_u) / (2.0 * sample_step_z.max(f32::EPSILON));
 
         Vec3::new(-dx, 1.0, -dz).normalize()
     }
@@ -871,6 +881,7 @@ impl ChunkManager {
         Self {
             chunks: HashMap::new(),
             spatial_grid: HashMap::new(),
+            grid_origin: Vec2::ZERO,
             config,
             next_chunk_id: 1,
             camera_position: Vec3::new(0.0, 0.0, 0.0),
@@ -926,16 +937,25 @@ impl ChunkManager {
         self.set_config(config.clone());
         self.clear();
 
+        if !heightmap.scale.is_finite() || heightmap.scale <= f32::EPSILON {
+            return Err(TerrainError::InvalidData(
+                "Heightmap cell scale must be positive".to_string(),
+            ));
+        }
         let chunk_size = self.config.chunk_size.max(1) as f32;
-        let world_width = self.config.world_size.0.max(chunk_size);
-        let world_depth = self.config.world_size.1.max(chunk_size);
-
-        let min = Vec3::new(0.0, 0.0, 0.0);
-        let max = Vec3::new(world_width, 0.0, world_depth);
+        // C++ HeightMap.cpp ADJUST_FROM_INDEX_TO_REAL: the authored border is
+        // terrain too, although the playable camera bounds begin at world 0.
+        let border = heightmap.border_size as f32;
+        let min = Vec3::new(-border * heightmap.scale, 0.0, -border * heightmap.scale);
+        let max = Vec3::new(
+            (heightmap.width.saturating_sub(1) as f32 - border) * heightmap.scale,
+            0.0,
+            (heightmap.height.saturating_sub(1) as f32 - border) * heightmap.scale,
+        );
         self.create_chunks_for_region(min, max, chunk_size)?;
 
         for chunk in self.chunks.values_mut() {
-            Self::populate_chunk_from_heightmap(chunk, heightmap, &self.config);
+            Self::populate_chunk_from_heightmap(chunk, heightmap);
         }
 
         self.stats.total_chunks = self.chunks.len() as u32;
@@ -962,7 +982,7 @@ impl ChunkManager {
     /// Resample all chunks flagged as dirty from the authoritative heightmap data.
     pub fn refresh_dirty_chunks(&mut self, heightmap: &HeightMap) {
         for chunk in self.chunks.values_mut().filter(|chunk| chunk.dirty) {
-            Self::populate_chunk_from_heightmap(chunk, heightmap, &self.config);
+            Self::populate_chunk_from_heightmap(chunk, heightmap);
         }
     }
 
@@ -1326,34 +1346,20 @@ impl ChunkManager {
         Ok(())
     }
 
-    fn sample_heightmap_world(
-        heightmap: &HeightMap,
-        world_x: f32,
-        world_z: f32,
-        world_width: f32,
-        world_depth: f32,
-    ) -> f32 {
-        let clamped_x = world_x.clamp(0.0, world_width.max(0.0));
-        let clamped_z = world_z.clamp(0.0, world_depth.max(0.0));
-        heightmap.get_height_at(clamped_x, clamped_z)
-    }
-
-    fn populate_chunk_from_heightmap(
-        chunk: &mut TerrainChunk,
-        heightmap: &HeightMap,
-        config: &TerrainConfig,
-    ) {
+    fn populate_chunk_from_heightmap(chunk: &mut TerrainChunk, heightmap: &HeightMap) {
         let half_size = chunk.size * 0.5;
-        let map_width = config.world_size.0.max(chunk.size);
-        let map_depth = config.world_size.1.max(chunk.size);
+        let border = heightmap.border_size as f32;
+        let map_min = -border * heightmap.scale;
+        let map_max_x = (heightmap.width.saturating_sub(1) as f32 - border) * heightmap.scale;
+        let map_max_z = (heightmap.height.saturating_sub(1) as f32 - border) * heightmap.scale;
 
-        let min_world_x = (chunk.position.x - half_size).clamp(0.0, map_width);
-        let max_world_x = (chunk.position.x + half_size).clamp(0.0, map_width);
-        let min_world_z = (chunk.position.z - half_size).clamp(0.0, map_depth);
-        let max_world_z = (chunk.position.z + half_size).clamp(0.0, map_depth);
+        let min_world_x = (chunk.position.x - half_size).clamp(map_min, map_max_x);
+        let max_world_x = (chunk.position.x + half_size).clamp(map_min, map_max_x);
+        let min_world_z = (chunk.position.z - half_size).clamp(map_min, map_max_z);
+        let max_world_z = (chunk.position.z + half_size).clamp(map_min, map_max_z);
 
-        let step_x = (map_width / heightmap.width.saturating_sub(1).max(1) as f32).max(1.0);
-        let step_z = (map_depth / heightmap.height.saturating_sub(1).max(1) as f32).max(1.0);
+        let step_x = heightmap.scale;
+        let step_z = heightmap.scale;
         let span_x = (max_world_x - min_world_x).max(step_x);
         let span_z = (max_world_z - min_world_z).max(step_z);
 
@@ -1381,8 +1387,7 @@ impl ChunkManager {
                 };
                 let world_x = min_world_x + t_x * (max_world_x - min_world_x);
 
-                let height =
-                    Self::sample_heightmap_world(heightmap, world_x, world_z, map_width, map_depth);
+                let height = heightmap.get_height_at(world_x, world_z);
                 *sample = height;
                 min_height = min_height.min(height);
                 max_height = max_height.max(height);
@@ -1410,6 +1415,7 @@ impl ChunkManager {
         max_pos: Vec3,
         chunk_size: f32,
     ) -> TerrainResult<()> {
+        self.grid_origin = Vec2::new(min_pos.x, min_pos.z);
         let extent_x = (max_pos.x - min_pos.x).max(chunk_size);
         let extent_z = (max_pos.z - min_pos.z).max(chunk_size);
         let chunks_x = (extent_x / chunk_size).ceil() as i32;
@@ -1439,11 +1445,14 @@ impl ChunkManager {
     pub fn get_chunk_at_position(&self, position: &Vec3) -> Option<&TerrainChunk> {
         // Convert world position to grid coordinates
         let chunk_size = self.config.chunk_size.max(1) as f32;
-        let grid_x = (position.x / chunk_size).floor() as i32;
-        let grid_z = (position.z / chunk_size).floor() as i32;
+        let grid_x = ((position.x - self.grid_origin.x) / chunk_size).floor() as i32;
+        let grid_z = ((position.z - self.grid_origin.y) / chunk_size).floor() as i32;
 
         if let Some(&chunk_id) = self.spatial_grid.get(&(grid_x, grid_z)) {
-            self.chunks.get(&chunk_id)
+            self.chunks.get(&chunk_id).filter(|chunk| {
+                (chunk.bounds.min.x..=chunk.bounds.max.x).contains(&position.x)
+                    && (chunk.bounds.min.z..=chunk.bounds.max.z).contains(&position.z)
+            })
         } else {
             None
         }
@@ -1452,11 +1461,14 @@ impl ChunkManager {
     /// Get mutable chunk by world position
     pub fn get_chunk_at_position_mut(&mut self, position: &Vec3) -> Option<&mut TerrainChunk> {
         let chunk_size = self.config.chunk_size.max(1) as f32;
-        let grid_x = (position.x / chunk_size).floor() as i32;
-        let grid_z = (position.z / chunk_size).floor() as i32;
+        let grid_x = ((position.x - self.grid_origin.x) / chunk_size).floor() as i32;
+        let grid_z = ((position.z - self.grid_origin.y) / chunk_size).floor() as i32;
 
         if let Some(&chunk_id) = self.spatial_grid.get(&(grid_x, grid_z)) {
-            self.chunks.get_mut(&chunk_id)
+            self.chunks.get_mut(&chunk_id).filter(|chunk| {
+                (chunk.bounds.min.x..=chunk.bounds.max.x).contains(&position.x)
+                    && (chunk.bounds.min.z..=chunk.bounds.max.z).contains(&position.z)
+            })
         } else {
             None
         }
@@ -1584,6 +1596,7 @@ impl ChunkManager {
     pub fn clear(&mut self) {
         self.chunks.clear();
         self.spatial_grid.clear();
+        self.grid_origin = Vec2::ZERO;
         self.next_chunk_id = 1;
         self.stats = ChunkManagerStats::default();
     }
@@ -1602,6 +1615,65 @@ impl Default for ViewFrustum {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bordered_heightmap_chunks_cover_authored_samples_without_edge_overhang() {
+        // C++ HeightMap.cpp converts every full-map sample i to
+        // (i - border) * MAP_XY_FACTOR. The playable world is only the
+        // interior; the renderer still has geometry for the authored border.
+        let mut heightmap = HeightMap::new(24, 24, 255.0, 10.0);
+        heightmap.border_size = 2;
+        heightmap.set_height_at_index(0, 0, 1.0);
+        heightmap.set_height_at_index(23, 23, 0.5);
+        let config = TerrainConfig {
+            world_size: (200.0, 200.0),
+            chunk_size: 64,
+            ..TerrainConfig::default()
+        };
+        let mut manager = ChunkManager::with_config(config.clone());
+        manager.load_heightmap(&heightmap, &config).unwrap();
+
+        assert!(
+            manager
+                .get_chunk_at_position(&Vec3::new(-10.0, 0.0, -10.0))
+                .is_some()
+        );
+        assert!(
+            manager
+                .get_chunk_at_position(&Vec3::new(205.0, 0.0, 205.0))
+                .is_some()
+        );
+        assert!(
+            manager
+                .get_chunk_at_position(&Vec3::new(211.0, 0.0, 211.0))
+                .is_none()
+        );
+        let southwest = manager
+            .get_chunk_at_position(&Vec3::new(-20.0, 0.0, -20.0))
+            .unwrap();
+        assert!((southwest.heights[0][0] - 255.0).abs() < 0.001);
+        let northeast = manager
+            .get_chunk_at_position(&Vec3::new(210.0, 0.0, 210.0))
+            .unwrap();
+        assert!((northeast.heights.last().unwrap().last().unwrap() - 127.5).abs() < 0.001);
+
+        for chunk in manager.chunks.values_mut() {
+            chunk.generate_geometry(3).unwrap();
+            for vertex in &chunk.vertices {
+                let position = vertex.position();
+                assert!(
+                    (-20.0..=210.0).contains(&position.x),
+                    "vertex x={}",
+                    position.x
+                );
+                assert!(
+                    (-20.0..=210.0).contains(&position.z),
+                    "vertex z={}",
+                    position.z
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_chunk_creation() {
@@ -1698,6 +1770,29 @@ mod tests {
             (last_col_top - 10.0).abs() < 0.001,
             "top-right corner should preserve corner height, got {last_col_top}"
         );
+    }
+
+    #[test]
+    fn terrain_normal_uses_source_sample_spacing_across_mesh_lods() {
+        // C++ HeightMap.cpp builds its normal vectors from neighboring map
+        // samples separated by MAP_XY_FACTOR. The output should not steepen
+        // when the chunk mesh changes from 17 to 65 vertices during zoom.
+        let mut chunk = TerrainChunk::new(1, Vec3::new(32.0, 0.0, 32.0), 64.0);
+        let sample_step = 64.0 / 7.0;
+        chunk.heights = (0..8)
+            .map(|z| vec![z as f32 * sample_step * 0.2; 8])
+            .collect();
+        let expected = Vec3::new(0.0, 1.0, -0.2).normalize();
+
+        for resolution in [17, 65] {
+            chunk.generate_geometry(resolution).unwrap();
+            let center = (resolution / 2 * resolution + resolution / 2) as usize;
+            let normal = Vec3::from_array(chunk.vertices[center].normal);
+            assert!(
+                normal.distance(expected) < 0.02,
+                "resolution {resolution} normal {normal:?} differs from source slope {expected:?}"
+            );
+        }
     }
 
     #[test]

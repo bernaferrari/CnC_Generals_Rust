@@ -59,6 +59,7 @@ impl ControlBar {
             presentation_ocl_timer_seconds: 0,
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
+            presentation_money: None,
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
             ingame_entry_context_applied: false,
@@ -311,11 +312,8 @@ impl ControlBar {
     /// has no local player.
     ///
     /// Live host: crate `ThePlayerList` is often empty even in a real offline
-    /// match. C++ only hides when `moneyPlayer` is NULL (InGameUI.cpp:1811-1814),
-    /// which does not happen in skirmish. Do not `hide(true)` both windows just
-    /// because the crate list has no local player — fall back to last-applied
-    /// presentation money (`last_displayed_money`) and stamped presentation
-    /// power (`stamp_presentation_power` / `apply_presentation_power`).
+    /// match, so the frozen host presentation supplies the local player's cash.
+    /// Keep that input separate from the last value actually written to a WND.
     pub fn update_money_and_power_windows(&mut self) {
         let money_player = if self.observer_mode {
             self.get_observer_look_at_player_index()
@@ -347,17 +345,20 @@ impl ControlBar {
         with_window_manager(|manager| {
             let money_win = manager.find_window_by_name("ControlBar.wnd:MoneyDisplay");
             let power_win = manager.find_window_by_name("ControlBar.wnd:PowerWindow");
-            // C++ InGameUI.cpp:1808-1809 winHide(FALSE) whenever a local/observer
-            // player exists. Empty crate PlayerList is not moneyPlayer==NULL.
-            let money = crate_money.unwrap_or_else(|| self.last_displayed_money.max(0));
-            let force_write = crate_money.is_none();
+            // The host freeze stands in for C++ moneyPlayer while the legacy
+            // PlayerList is empty. A recreated WND can still contain its
+            // authored $$$ even when the cash amount has not changed.
+            let money = crate_money.or(self.presentation_money);
             if let Some(win) = money_win.as_ref() {
-                if force_write || self.last_displayed_money != money {
+                if let Some(money) = money {
                     let text = Self::format_control_bar_money_display(money);
-                    let _ = win.borrow_mut().set_text(&text);
-                    self.last_displayed_money = money;
+                    if self.last_displayed_money != money || win.borrow().get_text() != text {
+                        if win.borrow_mut().set_text(&text).is_ok() {
+                            self.last_displayed_money = money;
+                        }
+                    }
                 }
-                let _ = win.borrow_mut().hide(false);
+                let _ = win.borrow_mut().hide(money.is_none());
             }
             if let Some(win) = power_win.as_ref() {
                 let presentation = Self::presentation_power();
@@ -371,18 +372,19 @@ impl ControlBar {
                 };
                 let text = Self::format_control_bar_power_display(produced, consumed);
                 let _ = win.borrow_mut().set_text(&text);
-                let _ = win.borrow_mut().hide(false);
+                let _ = win.borrow_mut().hide(money.is_none());
             }
         });
     }
 
-    /// Stamp host presentation-freeze supplies onto ControlBar lastMoney.
+    /// Supply the current host presentation cash for the next WND update.
     ///
     /// `PresentationFrame::apply_to_control_bar` / host tick can call this
     /// before `update()` so MoneyDisplay shows freeze `local_supplies` when
-    /// crate `ThePlayerList` has no local player.
+    /// crate `ThePlayerList` has no local player. This does not mark a WND as
+    /// rendered, since it may not exist yet.
     pub fn apply_presentation_money(&mut self, supplies: i32) {
-        self.last_displayed_money = supplies.max(0);
+        self.presentation_money = Some(supplies.max(0));
     }
 
     /// Stamp host presentation CanMake residual for leftover WND availability.

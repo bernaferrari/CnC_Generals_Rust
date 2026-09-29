@@ -9,8 +9,8 @@
 
 use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;
-use wgpu::util::DeviceExt;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use wgpu::util::DeviceExt;
 
 // ---------------------------------------------------------------------------
 // Constants (C++ parity)
@@ -790,10 +790,9 @@ pub fn collect_blob_shadows_from_presentation(
             // angle, so extent derives from bounding geometry via the C++
             // W3DProjectedShadow.cpp addShadow `Extent * 2` heuristic. The ladder
             // is never (0, 0); draw additionally clamps radius to >= 1.
-            let (sx, sy) =
-                crate::game_logic::host_battlemaster::leftover_template_blob_shadow_size(
-                    &u.template_name,
-                );
+            let (sx, sy) = crate::game_logic::host_battlemaster::leftover_template_blob_shadow_size(
+                &u.template_name,
+            );
             let (ox, oy) = crate::game_logic::host_battlemaster::leftover_template_shadow_offset(
                 &u.template_name,
                 0.0,
@@ -888,23 +887,11 @@ fn pack_rally_point_lines(_frame: &crate::presentation_frame::PresentationFrame)
 
 /// C++ `Drawable::drawIconUI` health bar (`Drawable.cpp:2738-2754` via
 /// `computeHealthRegion` `:2661-2704` + `drawHealthBar` `:3825-3937`): a
-/// screen-space bar above each selected **or moused-over** drawable
-/// (`Drawable.cpp:3834-3835` `isSelected() || getMousedOverDrawableID() ==
-/// getID()`) — cyan construction/disabled
-/// branch else red↔green with REALLYDAMAGED/DAMAGED modulation, 1px open-rect
-/// outline + inset fill, width from `getHealthBoxDimensions`
-/// (Object.cpp:3364-3417, min 20 px), height 3 px, anchored at the projected
-/// `getHealthBoxPosition` (`pos.z += maxHeightAbovePosition + 10`,
-/// Object.cpp:3346-3349; the port approximates that lift from the frozen
-/// health-box width because presentation does not carry the model height).
-///
-/// The GameClient parity lane (`BasicDrawable` overlay +
-/// `GameClient::draw_drawable_icon_overlays`) is orphaned in the windowed
-/// runtime host because full `GameClient::update()` stays disconnected
-/// (Wave 586), so the live world-overlay path packs the identical bar here
-/// from the frozen presentation snapshot. C++ `zoom` scaling of the bar width
-/// (`widthScale = 1.0f / zoom`) is folded into the projection: the bar width
-/// already lands in tactical-viewport pixels at the current camera.
+/// screen-space bar above each selected or moused-over drawable. The frozen
+/// presentation carries Object::getHealthBoxPosition's height and
+/// getHealthBoxDimensions's width; the driving camera supplies C++ getZoom.
+/// Width scales by 1 / zoom, height remains 3 pixels, and the anchor must be
+/// inside the tactical frustum (View::worldToScreen).
 // ---------------------------------------------------------------------------
 // ShowObjectHealth gate (C++ Drawable.cpp:3834)
 // ---------------------------------------------------------------------------
@@ -938,12 +925,12 @@ fn retail_game_data_source_present() -> bool {
         1 => true,
         2 => false,
         _ => {
-            let present = ["Data/INI/GameData.ini", "Data/INI/Default/GameData.ini"].iter().any(
-                |path| {
+            let present = ["Data/INI/GameData.ini", "Data/INI/Default/GameData.ini"]
+                .iter()
+                .any(|path| {
                     crate::cnc_game_engine::CnCGameEngine::read_startup_ini_from_disk(path)
                         .is_some()
-                },
-            );
+                });
             RETAIL_GAME_DATA_PROBE.store(if present { 1 } else { 2 }, Ordering::Relaxed);
             present
         }
@@ -966,9 +953,7 @@ fn log_show_object_health_gate_once(open: bool) {
         if open {
             log::info!("ShowObjectHealth gate open at InGame entry: health bars visible");
         } else {
-            log::info!(
-                "ShowObjectHealth gate closed at InGame entry: GameData block sets No"
-            );
+            log::info!("ShowObjectHealth gate closed at InGame entry: GameData block sets No");
         }
     }
 }
@@ -979,6 +964,7 @@ pub fn pack_health_bar_quads(
     projection_matrix: &Mat4,
     tactical_viewport: (f32, f32),
     display_size: (f32, f32),
+    camera_zoom: f32,
 ) -> Vec<f32> {
     use crate::game_logic::host_enum_table_residual::{
         MC_BIT_DAMAGED, MC_BIT_REALLYDAMAGED, host_model_condition_has,
@@ -988,12 +974,17 @@ pub fn pack_health_bar_quads(
     // The parsed INI value leads; when this install never parsed a GameData
     // block the retail default (`ShowObjectHealth = Yes`, GameData.ini:25 /
     // INIZH GameData.ini:31835) applies.
-    let parsed_show_object_health = game_engine::common::ini::get_global_data()
-        .map(|data| data.read().show_object_health);
+    let parsed_show_object_health =
+        game_engine::common::ini::get_global_data().map(|data| data.read().show_object_health);
     let show_object_health =
         resolve_show_object_health(parsed_show_object_health, retail_game_data_source_present());
     log_show_object_health_gate_once(show_object_health);
-    if !show_object_health || display_size.0 <= 0.0 || display_size.1 <= 0.0 {
+    if !show_object_health
+        || display_size.0 <= 0.0
+        || display_size.1 <= 0.0
+        || !camera_zoom.is_finite()
+        || camera_zoom <= 0.0
+    {
         return Vec::new();
     }
 
@@ -1020,7 +1011,10 @@ pub fn pack_health_bar_quads(
         .filter(|o| !o.destroyed && (o.selected || hovered_id == Some(o.id.0)))
     {
         // C++ bails when maxHealth == 0 or health == 0 (`Drawable.cpp:3860`).
-        if object.health_max <= 0.0 || object.health_current <= 0.0 {
+        if object.health_max <= 0.0
+            || object.health_current <= 0.0
+            || object.health_box_width <= 0.0
+        {
             continue;
         }
         // C++ skips force-attackable props that would otherwise flash a bar
@@ -1051,7 +1045,7 @@ pub fn pack_health_bar_quads(
         // double as full-target pixels for the clip conversion below.
         let anchor = Vec3::new(
             object.position.x,
-            object.position.y + (object.health_box_width.max(20.0) * 0.5).max(10.0) + 10.0,
+            object.position.y + object.health_box_z_offset,
             object.position.z,
         );
         let clip = view_proj * anchor.extend(1.0);
@@ -1059,6 +1053,15 @@ pub fn pack_health_bar_quads(
             continue;
         }
         let ndc = clip.truncate() / clip.w;
+        // C++ computeHealthRegion returns false when worldToScreen does not
+        // return WTS_INSIDE_FRUSTUM, including points beyond the clip planes.
+        if !ndc.is_finite()
+            || ndc.x.abs() > 1.0
+            || ndc.y.abs() > 1.0
+            || !(0.0..=1.0).contains(&ndc.z)
+        {
+            continue;
+        }
         let cx = (ndc.x * 0.5 + 0.5) * vp_w;
         let cy = (1.0 - (ndc.y * 0.5 + 0.5)) * vp_h;
         if !cx.is_finite() || !cy.is_finite() {
@@ -1067,11 +1070,7 @@ pub fn pack_health_bar_quads(
 
         // getHealthBoxDimensions #else branch: width = MAX(20, MIN(150,
         // major+minor) * 2) frozen into `health_box_width`; height 3 px.
-        let bar_w = if object.health_box_width > 0.0 {
-            object.health_box_width
-        } else {
-            20.0
-        };
+        let bar_w = object.health_box_width / camera_zoom;
         let bar_h = 3.0;
         // computeHealthRegion: lo = center − (width*0.45, height*0.5).
         let bar_x = cx - bar_w * 0.45;
@@ -1148,6 +1147,7 @@ pub fn enqueue_selection_render(
     show_attack_lines: bool,
     // Full window pixel size, for screen-space health-bar clip conversion.
     display_size: (f32, f32),
+    camera_zoom: f32,
 ) {
     let renderer = match SelectionRenderer::new() {
         Some(r) => Arc::new(r),
@@ -1175,6 +1175,7 @@ pub fn enqueue_selection_render(
                 projection_matrix,
                 (tactical_viewport.0.max(1.0), tactical_viewport.1.max(1.0)),
                 display_size,
+                camera_zoom,
             )
         })
         .unwrap_or_default();
@@ -1252,7 +1253,7 @@ pub fn enqueue_selection_render(
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
+            });
 
             let vp_w = vp_w.max(1.0);
             let vp_h = vp_h.max(1.0);
@@ -1295,7 +1296,7 @@ pub fn enqueue_selection_render(
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
+            });
             if let Some(drag_rect) = drag_rect.as_ref() {
                 drag_renderer.draw_drag_rect(&mut render_pass, drag_rect);
             }
@@ -1722,7 +1723,7 @@ mod presentation_selection_tests {
         );
         let proj = Mat4::perspective_rh(1.0, 640.0 / 384.0, 1.0, 800.0);
         let pack = |snap: &PresentationFrame| {
-            pack_health_bar_quads(snap, &view, &proj, (640.0, 384.0), (640.0, 480.0))
+            pack_health_bar_quads(snap, &view, &proj, (640.0, 384.0), (640.0, 480.0), 1.0)
         };
 
         // Gate closed: authored No with a GameData source present (C++
@@ -1745,6 +1746,16 @@ mod presentation_selection_tests {
             180,
             "outline 4 + fill 1 quads, 6 verts x 6 floats each"
         );
+        // C++ Object::getHealthBoxPosition uses authored height, never bar width.
+        let object = snap.objects.iter().find(|object| object.id == id).unwrap();
+        let anchor = object.position + Vec3::Y * object.health_box_z_offset;
+        let clip = proj * view * anchor.extend(1.0);
+        let expected_top = (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * 384.0 - 1.5;
+        let actual_top = (1.0 - verts[13]) * 0.5 * 480.0;
+        assert!(
+            (actual_top - expected_top).abs() < 0.01,
+            "bar must use frozen health-box height: got {actual_top}, expected {expected_top}"
+        );
         // ratio 0.75 → red = 1−((0.75−0.5)/0.5) = 0.5, green = 1; the
         // not-DAMAGED modulation (`Drawable.cpp:3908-3912`) halves red and
         // averages green → fill (0.25, 1.0, 0).
@@ -1753,11 +1764,43 @@ mod presentation_selection_tests {
         assert!((fill[3] - 1.0).abs() < 0.01, "fill green {}", fill[3]);
         assert!(fill[4].abs() < 0.01, "health bars carry no blue");
 
+        // Width follows C++ 1/zoom without changing the authored height.
+        for zoom in [0.5, 1.0, 1.3] {
+            let packed =
+                pack_health_bar_quads(&snap, &view, &proj, (640.0, 384.0), (640.0, 480.0), zoom);
+            let width = (packed[6] - packed[0]) * 0.5 * 640.0;
+            assert!((width - object.health_box_width / zoom).abs() < 0.01);
+            let top = (1.0 - packed[13]) * 0.5 * 480.0;
+            assert!((top - expected_top).abs() < 0.01);
+        }
+        // C++ IGNORED_IN_GUI dimensions are zero, and offscreen anchors fail
+        // computeHealthRegion rather than painting partial bars at the edge.
+        let mut no_bar = snap.clone();
+        no_bar
+            .objects
+            .iter_mut()
+            .find(|o| o.id == id)
+            .unwrap()
+            .health_box_width = 0.0;
+        assert!(pack(&no_bar).is_empty());
+        let mut offscreen = snap.clone();
+        offscreen
+            .objects
+            .iter_mut()
+            .find(|o| o.id == id)
+            .unwrap()
+            .position
+            .x += 10_000.0;
+        assert!(pack(&offscreen).is_empty());
         // Contract (d): a hovered NON-selected unit gets its own bar quad set
         // (Drawable.cpp:3834-3835 moused-over branch).
         game_client::helpers::TheInGameUI::set_moused_over_drawable_id(hover_id.0);
         let verts = pack(&snap);
-        assert_eq!(verts.len(), 360, "selected + hovered units each pack 5 quads");
+        assert_eq!(
+            verts.len(),
+            360,
+            "selected + hovered units each pack 5 quads"
+        );
 
         // Hover alone still shows one bar when nothing is selected.
         let mut hover_only = snap.clone();
@@ -1769,7 +1812,11 @@ mod presentation_selection_tests {
                 .expect("selected row");
             sel.selected = false;
         }
-        assert_eq!(pack(&hover_only).len(), 180, "hover-only unit keeps its bar");
+        assert_eq!(
+            pack(&hover_only).len(),
+            180,
+            "hover-only unit keeps its bar"
+        );
 
         // Clearing the mouseover (INVALID_DRAWABLE_ID) removes the hover bar.
         game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);

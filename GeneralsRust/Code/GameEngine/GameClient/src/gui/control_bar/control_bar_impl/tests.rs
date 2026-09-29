@@ -317,6 +317,65 @@ mod tests {
     }
 
     #[test]
+    fn presentation_money_is_written_after_the_window_appears_and_reappears() {
+        // InGameUI.cpp:1776-1810 reads the current local player's money and
+        // writes MoneyDisplay when it changes. A host presentation stamp is
+        // input data; it is not evidence that a WND has received that text.
+        struct RestorePlayers(gamelogic::player::PlayerList);
+        impl Drop for RestorePlayers {
+            fn drop(&mut self) {
+                if let Ok(mut list) = gamelogic::player::player_list().write() {
+                    *list = std::mem::replace(&mut self.0, gamelogic::player::PlayerList::new());
+                }
+            }
+        }
+        let old = {
+            let mut list = gamelogic::player::player_list().write().unwrap();
+            std::mem::replace(&mut *list, gamelogic::player::PlayerList::new())
+        };
+        let _restore = RestorePlayers(old);
+        {
+            let mut player = gamelogic::player::Player::new(0);
+            player.get_money_mut().set_money(1250);
+            let mut list = gamelogic::player::player_list().write().unwrap();
+            list.add_player(Arc::new(RwLock::new(player)));
+            list.set_local_player_index(0);
+        }
+
+        let mut bar = ControlBar::new();
+        bar.apply_presentation_money(1250);
+        crate::gui::with_window_manager(|manager| manager.destroy_all_windows());
+        bar.update_money_and_power_windows(); // Host snapshot arrived before its WND.
+        for _ in 0..2 {
+            let win = crate::gui::with_window_manager(|manager| {
+                manager.destroy_all_windows();
+                let win = manager.create_window(None, 0, 0, 80, 24).unwrap();
+                win.borrow_mut().set_name("ControlBar.wnd:MoneyDisplay");
+                win.borrow_mut().set_text("$$$").unwrap();
+                win
+            });
+            bar.update_money_and_power_windows();
+            assert_eq!(
+                win.borrow().get_text(),
+                ControlBar::format_control_bar_money_display(1250),
+                "first update and recreated WND must both receive cash text"
+            );
+        }
+        gamelogic::player::player_list().write().unwrap().clear();
+        bar.reset().unwrap();
+        bar.update_money_and_power_windows();
+        let hidden = crate::gui::with_window_manager_ref(|manager| {
+            manager
+                .find_window_by_name("ControlBar.wnd:MoneyDisplay")
+                .unwrap()
+                .borrow()
+                .is_hidden()
+        });
+        assert!(hidden, "C++ hides MoneyDisplay without a money player");
+        crate::gui::with_window_manager(|manager| manager.destroy_all_windows());
+    }
+
+    #[test]
     fn control_bar_update_writes_money_display_window_text() {
         // Live path: ControlBar::update → update_money_and_power_windows writes
         // ControlBar.wnd:MoneyDisplay via TheWindowManager (C++ InGameUI.cpp:1776-1815).

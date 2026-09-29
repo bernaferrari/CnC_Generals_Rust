@@ -72,10 +72,8 @@ impl CnCGameEngine {
             // width/height): the WND window manager, UI renderer, and tactical
             // viewport all lay out and draw in logical points, so a physical
             // (Retina) backbuffer leaves them painting the top-left quadrant.
-            let (logical_w, logical_h) = super::types::logical_surface_extent(
-                new_size,
-                self.window.scale_factor(),
-            );
+            let (logical_w, logical_h) =
+                super::types::logical_surface_extent(new_size, self.window.scale_factor());
             if let Err(err) = ww3d_engine::resize(logical_w, logical_h) {
                 warn!("WW3D resize failed: {err:?}");
             }
@@ -1755,6 +1753,7 @@ impl CnCGameEngine {
                 self.show_move_lines,
                 self.show_attack_lines,
                 (display_w as f32, display_h as f32),
+                self.camera_zoom,
             );
             #[cfg(feature = "game_client")]
             {

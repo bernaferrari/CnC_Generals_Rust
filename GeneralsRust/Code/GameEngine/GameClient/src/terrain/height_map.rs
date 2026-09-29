@@ -481,6 +481,38 @@ impl HeightMap {
         self.min_height + normalized_height * self.height_range
     }
 
+    /// C++ `BaseHeightMapRenderObjClass::getMaxCellHeight` for floating roads.
+    /// The road mesh uses the highest of the four cell corners so its strip
+    /// does not sink into a sloped terrain triangle.
+    pub fn get_max_cell_height(&self, world_x: f32, world_y: f32) -> f32 {
+        if self.width < 2
+            || self.height < 2
+            || self.scale.abs() <= f32::EPSILON
+            || !world_x.is_finite()
+            || !world_y.is_finite()
+        {
+            return 0.0;
+        }
+
+        // C++ converts each world coordinate to Int before adding the map
+        // border, then clamps to an enclosing cell with four valid corners.
+        let cell_x = ((world_x / self.scale) as i64)
+            .saturating_add(self.border_size as i64)
+            .clamp(0, self.width as i64 - 2) as u32;
+        let cell_y = ((world_y / self.scale) as i64)
+            .saturating_add(self.border_size as i64)
+            .clamp(0, self.height as i64 - 2) as u32;
+
+        [
+            self.world_height_at_index(cell_x, cell_y),
+            self.world_height_at_index(cell_x + 1, cell_y),
+            self.world_height_at_index(cell_x + 1, cell_y + 1),
+            self.world_height_at_index(cell_x, cell_y + 1),
+        ]
+        .into_iter()
+        .fold(f32::NEG_INFINITY, f32::max)
+    }
+
     /// Get height at heightmap index. Out-of-range samples clamp to the edge
     /// cell like C++ `getClipHeight` — they never invent a 0.0 sea-level cliff.
     pub fn get_height_at_index(&self, x: u32, y: u32) -> f32 {
@@ -1911,6 +1943,19 @@ mod tests {
         );
     }
 
+    #[test]
+    fn road_max_cell_height_uses_four_corners_and_border() {
+        // BaseHeightMapRenderObjClass::getMaxCellHeight picks the highest of
+        // all four enclosing raw samples, not the triangle-interpolated point.
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 10.0);
+        heightmap.border_size = 1;
+        heightmap.set_height_at_index(1, 1, 0.2);
+        heightmap.set_height_at_index(2, 2, 0.8);
+        assert!(heightmap.get_height_at(2.0, 2.0) < 80.0);
+        assert!((heightmap.get_max_cell_height(2.0, 2.0) - 80.0).abs() < 0.001);
+        assert!((heightmap.get_max_cell_height(100.0, 100.0) - 80.0).abs() < 0.001);
+    }
+
     fn test_heightmap_sampling_includes_exact_map_edges() {
         let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
         heightmap.set_height_at_index(3, 0, 0.25);
@@ -2140,30 +2185,26 @@ mod tests {
     #[test]
     fn cell_uv_at_world_uses_quarter_tiles_not_per_cell_repeats() {
         let mut heightmap = HeightMap::new(4, 4, 255.0, 1.0);
-        // All cells share tile class 0 but alternate the packed quadrant
-        // (tileNdx&3): the C++ layout packs four grids per 64px tile.
+        // C++ WorldHeightMap::getUVForNdx uses bit 0 for the U half and bit 1
+        // for the V half of a shared 64px tile. Test all four quadrants.
         let mut tiles = vec![0_i16; 16];
-        for (i, tile) in tiles.iter_mut().enumerate() {
-            *tile = (i % 4) as i16;
-        }
+        tiles[0] = 0;
+        tiles[1] = 1;
+        tiles[4] = 2;
+        tiles[5] = 3;
         heightmap.tile_ndxes = tiles;
-        // Cell centers at scale 1: cell (0,0) center = (0.5, 0.5) with the
-        // borderless map. Quarter UVs must stay inside one half of the tile
-        // (32px of 64 per cell) — a per-cell 0..1 repeat would span the full
-        // tile and double the texel density (the lattice the audit shows).
-        let (u_a, v_a) = {
-            let uv = heightmap.cell_uv_at_world(0.5, 0.5);
-            (uv[0], uv[1])
-        };
-        let (u_b, v_b) = {
-            let uv = heightmap.cell_uv_at_world(1.5, 1.5);
-            (uv[0], uv[1])
-        };
-        assert!(u_a.min(u_b) >= 0.0 && u_a.max(u_b) <= 1.0);
-        assert!(
-            (u_a - u_b).abs() > 1.0e-3,
-            "adjacent quarters must differ: {u_a} vs {u_b}"
-        );
-        assert!((v_a - v_b).abs() > 1.0e-3);
+        let q0 = heightmap.cell_uv_at_world(0.5, 0.5);
+        let q1 = heightmap.cell_uv_at_world(1.5, 0.5);
+        let q2 = heightmap.cell_uv_at_world(0.5, 1.5);
+        let q3 = heightmap.cell_uv_at_world(1.5, 1.5);
+        for uv in [q0, q1, q2, q3] {
+            assert!(uv.iter().all(|component| (0.0..=1.0).contains(component)));
+        }
+        assert!((q0[0] - q1[0]).abs() > 1.0e-3);
+        assert!((q0[1] - q1[1]).abs() < 1.0e-6);
+        assert!((q0[0] - q2[0]).abs() < 1.0e-6);
+        assert!((q0[1] - q2[1]).abs() > 1.0e-3);
+        assert!((q0[0] - q3[0]).abs() > 1.0e-3);
+        assert!((q0[1] - q3[1]).abs() > 1.0e-3);
     }
 }

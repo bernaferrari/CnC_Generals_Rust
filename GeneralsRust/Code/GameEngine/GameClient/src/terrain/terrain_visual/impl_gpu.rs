@@ -655,7 +655,7 @@ impl TerrainVisualImpl {
         self.road_system.invalidate_terrain_lighting();
         if let Some(height_map) = self.height_map.as_ref() {
             self.road_system.apply_terrain_heights_and_normals(
-                |pos| height_map.get_height_at(pos.x, pos.z),
+                |pos| height_map.get_max_cell_height(pos.x, pos.z),
                 |pos| height_map.get_normal_at(pos.x, pos.z),
             );
         }
@@ -667,7 +667,7 @@ impl TerrainVisualImpl {
         let height_map = self.height_map.as_ref();
         let height_at = |x: f32, y: f32| {
             height_map
-                .map(|height_map| height_map.get_height_at(x, y))
+                .map(|height_map| height_map.get_max_cell_height(x, y))
                 .unwrap_or(0.0)
         };
         // C++ updateSegLighting/getStaticDiffuse read TheGlobalData live and
@@ -736,13 +736,17 @@ impl TerrainVisualImpl {
                     && !kind.contains("SyntheticIntersection");
 
                 if use_cpp_float4 {
+                    let width_in_texture = segment
+                        .runtime_texture_override_f32("WidthInTexture")
+                        .unwrap_or(1.0);
                     if let Some((verts, indices)) = bake_straight_road_segment(
                         [segment.start.x, segment.start.z],
                         [segment.end.x, segment.end.z],
                         segment.width,
+                        width_in_texture,
                         0.0,
                         85.0 / 512.0,
-                        segment.width.max(DEFAULT_ROAD_SCALE),
+                        segment.width,
                         height_at,
                     ) {
                         if !verts.is_empty() && !indices.is_empty() {
@@ -790,11 +794,13 @@ impl TerrainVisualImpl {
                         diffuse: 0xFFFF_FFFF,
                     })
                     .collect();
-                // Belt-and-suspenders: keep join/curve strips on the height
-                // field even if RoadManager geometry was authored at Y=0.
-                for vertex in &mut gpu_vertices {
-                    vertex.position[1] =
-                        height_at(vertex.position[0], vertex.position[2]) + ROAD_FLOAT_AMOUNT;
+                // The manager already projected each strip row to the maximum
+                // sampled cell height. Reprojecting individual vertices here
+                // would undo the C++ row maximum and sink joined roads.
+                if height_map.is_none() {
+                    for vertex in &mut gpu_vertices {
+                        vertex.position[1] = ROAD_FLOAT_AMOUNT;
+                    }
                 }
 
                 Self::apply_road_vertex_static_diffuse(
