@@ -50,6 +50,57 @@ mod tests {
     }
 
     #[test]
+    fn ingame_frame_progress_expires_stalled_smoke_evidence() {
+        let mut st = SmokeRunState::default();
+        let mut result = ExecutableSmokeResult::default();
+        let mut snap = StatusSnap {
+            state: "InGame".into(),
+            frame: 210,
+            ..Default::default()
+        };
+        latch_status_residuals(&mut st, &mut result, &snap);
+        assert!(!ingame_frame_stalled(&st, Duration::from_secs(30)));
+
+        st.last_ingame_frame_progress_at = Some(Instant::now() - Duration::from_secs(31));
+        latch_status_residuals(&mut st, &mut result, &snap);
+        assert!(ingame_frame_stalled(&st, Duration::from_secs(30)));
+
+        snap.frame += 1;
+        latch_status_residuals(&mut st, &mut result, &snap);
+        assert!(!ingame_frame_stalled(&st, Duration::from_secs(30)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wall_timeout_rejects_stalled_ingame_host() {
+        let dir = tempfile::tempdir().unwrap();
+        let control = dir.path().join("control.txt");
+        let mut child = std::process::Command::new("sleep").arg("10").spawn().unwrap();
+        let mut st = SmokeRunState {
+            saw_shell_wnd_ok: true,
+            last_ingame_frame: Some(210),
+            last_ingame_frame_progress_at: Some(Instant::now() - Duration::from_secs(31)),
+            ..Default::default()
+        };
+        let mut result = ExecutableSmokeResult {
+            reached_ingame: true,
+            ..Default::default()
+        };
+
+        assert!(smoke_wall_budget_exceeded(
+            &mut st,
+            &mut result,
+            &mut child,
+            &control,
+            Duration::from_secs(1),
+            Instant::now() - Duration::from_secs(2),
+        ));
+        assert_eq!(result.status, "ingame_stalled");
+        assert!(!result.executable_host_ok);
+        assert!(result.detail.contains("last_ingame_frame=Some(210)"));
+    }
+
+    #[test]
     fn automated_smoke_waits_for_live_shell_wnd_before_skirmish_command() {
         let dir = tempfile::tempdir().unwrap();
         let control = dir.path().join("control.txt");
