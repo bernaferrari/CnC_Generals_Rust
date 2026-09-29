@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::game_logic::GameMode;
+use crossbeam::channel::{self, Receiver, Sender};
 use game_engine::common::message_stream::{
     Coord3D, GameMessage, GameMessageArgumentType, GameMessageType, ICoord2D, ObjectID,
     is_network_command_message,
@@ -138,14 +139,79 @@ fn append_game_message_to_stream(msg: &GameMessage) {
     }
 }
 
-static PENDING_REPLAY_COMMANDS: Mutex<Vec<GameCommand>> = Mutex::new(Vec::new());
-static PENDING_REPLAY_CAMERA: Mutex<Option<ReplayCameraPose>> = Mutex::new(None);
-static PENDING_REPLAY_TEAMS: Mutex<Vec<ReplayTeamOp>> = Mutex::new(Vec::new());
-static PENDING_REPLAY_REMIRROR: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+/// Transient replay handoff for one logical game. C++ `RecorderClass::update`
+/// appends playback messages before `GameLogic::processCommandList`; the
+/// callback channel crosses that one engine callback boundary, while all
+/// decoded pending state stays on the driving game instance.
+pub struct ReplayPendingState {
+    incoming: Receiver<Vec<GameMessage>>,
+    sender: Sender<Vec<GameMessage>>,
+    commands: Vec<GameCommand>,
+    camera: Option<ReplayCameraPose>,
+    teams: Vec<ReplayTeamOp>,
+    remirror: Vec<i32>,
+    host_logic_frame: Arc<AtomicU32>,
+    last_logic_crc: u32,
+    last_logic_crc_frame: u32,
+}
+
+impl Default for ReplayPendingState {
+    fn default() -> Self {
+        let (sender, incoming) = channel::unbounded();
+        Self {
+            incoming,
+            sender,
+            commands: Vec::new(),
+            camera: None,
+            teams: Vec::new(),
+            remirror: Vec::new(),
+            host_logic_frame: Arc::new(AtomicU32::new(0)),
+            last_logic_crc: 0,
+            last_logic_crc_frame: u32::MAX,
+        }
+    }
+}
+
+impl ReplayPendingState {
+    pub fn clear(&mut self) {
+        // Disconnect a callback that captured the previous world/session's
+        // sender, so a late delivery cannot enter the reset game.
+        (self.sender, self.incoming) = channel::unbounded();
+        self.commands.clear();
+        self.camera = None;
+        self.teams.clear();
+        self.remirror.clear();
+        self.host_logic_frame.store(0, Ordering::Relaxed);
+        self.last_logic_crc = 0;
+        self.last_logic_crc_frame = u32::MAX;
+    }
+
+    pub fn take_camera(&mut self) -> Option<ReplayCameraPose> {
+        self.camera.take()
+    }
+
+    pub fn take_team_ops(&mut self) -> Vec<ReplayTeamOp> {
+        std::mem::take(&mut self.teams)
+    }
+
+    pub fn queue_selection_remirror(&mut self, player_index: i32) {
+        if !self.remirror.contains(&player_index) {
+            self.remirror.push(player_index);
+        }
+    }
+
+    pub fn take_selection_remirror(&mut self) -> Vec<i32> {
+        std::mem::take(&mut self.remirror)
+    }
+
+    fn drain_incoming(&mut self) {
+        while let Ok(messages) = self.incoming.try_recv() {
+            apply_replay_messages_to_host(self, &messages);
+        }
+    }
+}
+
 static BRIDGES_INSTALLED: AtomicBool = AtomicBool::new(false);
-static HOST_LOGIC_FRAME: AtomicU32 = AtomicU32::new(0);
-static LAST_LOGIC_CRC: AtomicU32 = AtomicU32::new(0);
-static LAST_LOGIC_CRC_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
 
 /// C++ `GameLogic.cpp` / `MessageStream.h` game-mode integers.
 fn game_mode_to_new_game_code(mode: GameMode) -> i32 {
@@ -235,13 +301,8 @@ fn keep_command_during_playback(msg: &GameMessage) -> bool {
     !(is_network_command_message(ty) && !matches!(ty, GameMessageType::LogicCRC(_)))
 }
 
-fn host_logic_frame() -> u32 {
-    let leftover = gamelogic::helpers::TheGameLogic::get_frame();
-    if leftover != 0 {
-        leftover
-    } else {
-        HOST_LOGIC_FRAME.load(Ordering::Relaxed)
-    }
+fn host_logic_frame(state: &ReplayPendingState) -> u32 {
+    state.host_logic_frame.load(Ordering::Relaxed)
 }
 
 fn host_replay_mouse_snapshot() -> (i32, ICoord2D) {
@@ -260,19 +321,6 @@ fn cull_host_command_list() {
             list.retain_messages(keep_command_during_playback);
         }
     }
-}
-
-fn push_pending_replay_command(command: GameCommand) {
-    if let Ok(mut pending) = PENDING_REPLAY_COMMANDS.lock() {
-        pending.push(command);
-    }
-}
-
-fn take_pending_replay_commands() -> Vec<GameCommand> {
-    PENDING_REPLAY_COMMANDS
-        .lock()
-        .map(|mut pending| pending.drain(..).collect())
-        .unwrap_or_default()
 }
 
 /// Install CommandList source/sink + command_router host authority.
@@ -296,21 +344,32 @@ pub fn install_host_replay_bridges() {
         }
     });
     let command_cull: Arc<dyn Fn() + Send + Sync> = Arc::new(cull_host_command_list);
-    let frame_provider: Arc<dyn Fn() -> u32 + Send + Sync> = Arc::new(host_logic_frame);
-
     let _ = with_recorder_mut(|recorder| {
         recorder.set_command_source(Some(command_source));
         recorder.set_command_sink(Some(command_sink));
         recorder.set_command_cull(Some(command_cull));
-        recorder.set_frame_provider(Some(frame_provider));
     });
+}
 
+/// Bind the GameClient command-router callback to the active world's queue.
+/// The closure retains only a sender: dropping a world disconnects its queue.
+pub fn bind_host_replay_authority(state: &ReplayPendingState) {
+    install_host_replay_bridges();
+    let host_frame = Arc::clone(&state.host_logic_frame);
+    let _ = with_recorder_mut(|recorder| {
+        recorder.set_frame_provider(Some(Arc::new(move || host_frame.load(Ordering::Relaxed))));
+    });
     #[cfg(feature = "game_client")]
     {
+        let sender = state.sender.clone();
         game_client::message_stream::command_router::set_host_command_authority(Some(Arc::new(
-            |messages| apply_replay_messages_to_host(messages),
+            move |messages| {
+                let _ = sender.send(messages.to_vec());
+            },
         )));
     }
+    #[cfg(not(feature = "game_client"))]
+    let _ = state;
 }
 
 /// Convert a live host order into a `GameMessage` and append it to
@@ -369,8 +428,8 @@ pub fn tap_replay_camera_for_recorder(pose: ReplayCameraPose) {
 }
 
 /// Stamp live `TheGameLogic->getFrame()` for the next recorder write/playback.
-pub fn stamp_host_logic_frame(frame: u32) {
-    HOST_LOGIC_FRAME.store(frame, Ordering::Relaxed);
+pub fn stamp_host_logic_frame(state: &mut ReplayPendingState, frame: u32) {
+    state.host_logic_frame.store(frame, Ordering::Relaxed);
 }
 
 fn leftover_logic_crc() -> u32 {
@@ -392,12 +451,16 @@ fn logic_crc_due(frame: u32) -> bool {
 /// The recorded value is the plain state CRC: retail `.rep` files store
 /// `GameLogic::getCRC` exactly (GameLogic.cpp:3636-3652), so folding the live
 /// host object hash into the recorded series would desync playback compare.
-pub fn post_host_logic_crc_if_due(frame: u32, host_fold: u32) -> Option<u32> {
+pub fn post_host_logic_crc_if_due(
+    state: &mut ReplayPendingState,
+    frame: u32,
+    host_fold: u32,
+) -> Option<u32> {
     if !logic_crc_due(frame) {
         return None;
     }
-    if LAST_LOGIC_CRC_FRAME.load(Ordering::Relaxed) == frame {
-        return Some(LAST_LOGIC_CRC.load(Ordering::Relaxed));
+    if state.last_logic_crc_frame == frame {
+        return Some(state.last_logic_crc);
     }
 
     let crc = leftover_logic_crc();
@@ -417,8 +480,8 @@ pub fn post_host_logic_crc_if_due(frame: u32, host_fold: u32) -> Option<u32> {
     message.append_boolean_argument(playback);
     append_to_command_list(message);
 
-    LAST_LOGIC_CRC.store(crc, Ordering::Relaxed);
-    LAST_LOGIC_CRC_FRAME.store(frame, Ordering::Relaxed);
+    state.last_logic_crc = crc;
+    state.last_logic_crc_frame = frame;
     Some(crc)
 }
 
@@ -461,14 +524,6 @@ pub fn host_should_remirror_observer_selection(player_index: i32) -> bool {
     host_should_apply_replay_camera(player_index)
 }
 
-/// Take the most recent playback `MSG_SET_REPLAY_CAMERA` pose.
-pub fn take_pending_replay_camera() -> Option<ReplayCameraPose> {
-    PENDING_REPLAY_CAMERA
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
-}
-
 /// C++ SelectionXlat.cpp:1047 MSG_CREATE/SELECT/ADD_TEAM0+group.
 /// `kind`: 0=create, 1=select, 2=add.
 pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
@@ -488,31 +543,6 @@ pub fn tap_host_team_slot_for_recorder(slot: u8, kind: u8, ids: &[ObjectId]) {
         }
     }
     append_to_command_list(message);
-}
-
-/// Take playback team ops for the live host control-group table.
-pub fn take_pending_replay_team_ops() -> Vec<ReplayTeamOp> {
-    PENDING_REPLAY_TEAMS
-        .lock()
-        .map(|mut pending| pending.drain(..).collect())
-        .unwrap_or_default()
-}
-
-/// Queue C++ post-dispatch remirror of `thisPlayer` onto observer InGameUI.
-pub fn queue_replay_selection_remirror(player_index: i32) {
-    if let Ok(mut pending) = PENDING_REPLAY_REMIRROR.lock() {
-        if !pending.contains(&player_index) {
-            pending.push(player_index);
-        }
-    }
-}
-
-/// Take issuing-player indices that should remirror onto observer InGameUI.
-pub fn take_pending_replay_selection_remirror() -> Vec<i32> {
-    PENDING_REPLAY_REMIRROR
-        .lock()
-        .map(|mut pending| pending.drain(..).collect())
-        .unwrap_or_default()
 }
 
 /// Leftover `Player::get_current_selection_ids` for the issuing replay player.
@@ -567,22 +597,24 @@ fn reset_recorded_command_list() {
 /// C++ GameState::loadGame calls GameEngine::reset, which resets Recorder and
 /// CommandList before loading an ordinary save. The Rust host commits a
 /// staged world atomically, so close the old replay only after commit succeeds.
-pub(crate) fn reset_host_recorder_after_successful_load() {
+pub(crate) fn reset_host_recorder_after_successful_load(state: &mut ReplayPendingState) {
     let _ = with_recorder_mut(|recorder| recorder.reset());
     reset_recorded_command_list();
-    LAST_LOGIC_CRC_FRAME.store(u32::MAX, Ordering::Relaxed);
-    LAST_LOGIC_CRC.store(0, Ordering::Relaxed);
+    state.clear();
 }
 
 /// C++ `GameLogic::update` ticks `TheRecorder` then `processCommandList`.
 /// Recording: write CommandList then drop it (host already queued the order).
 /// Playback: playback sink fills CommandList; convert into the live host queue.
-pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand>) {
+pub fn flush_recorder_and_replay_authority(
+    state: &mut ReplayPendingState,
+    host_queue: &mut VecDeque<GameCommand>,
+) {
     install_host_replay_bridges();
     let playback = host_recorder_is_playback();
-    let frame = host_logic_frame();
+    let frame = host_logic_frame(state);
     // C++ posts MSG_LOGIC_CRC onto the stream before TheRecorder->update().
-    let posted = post_host_logic_crc_if_due(frame, 0);
+    let posted = post_host_logic_crc_if_due(state, frame, 0);
     let _ = with_recorder_mut(|recorder| {
         recorder.set_current_frame(frame);
         recorder.update();
@@ -595,11 +627,15 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
         }
     });
 
+    // Router batches delivered before or during this recorder update belong
+    // to this same logic frame. They preceded playback's CommandList entries.
+    state.drain_incoming();
+
     if playback {
         // C++ cullBadCommands drops user network orders before processCommandList.
         host_queue.retain(|cmd| game_command_to_message(cmd).is_none());
         let messages = take_command_list_messages();
-        apply_replay_messages_to_host(&messages);
+        apply_replay_messages_to_host(state, &messages);
     } else {
         // C++ clears all messages at the end of the logic frame. Main already
         // owns the executable orders in `host_queue`; leaving lifecycle
@@ -607,7 +643,7 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
         reset_recorded_command_list();
     }
 
-    for command in take_pending_replay_commands() {
+    for command in std::mem::take(&mut state.commands) {
         host_queue.push_back(command);
     }
 }
@@ -619,12 +655,6 @@ fn object_ids_from_message(message: &GameMessage) -> Vec<ObjectId> {
             _ => None,
         })
         .collect()
-}
-
-fn push_pending_replay_team(op: ReplayTeamOp) {
-    if let Ok(mut pending) = PENDING_REPLAY_TEAMS.lock() {
-        pending.push(op);
-    }
 }
 
 fn apply_replay_team_to_leftover_player(player_index: i32, slot: u8, kind: u8, ids: &[ObjectId]) {
@@ -646,7 +676,7 @@ fn apply_replay_team_to_leftover_player(player_index: i32, slot: u8, kind: u8, i
     }
 }
 
-fn apply_replay_messages_to_host(messages: &[GameMessage]) {
+fn apply_replay_messages_to_host(state: &mut ReplayPendingState, messages: &[GameMessage]) {
     for message in messages {
         let player_index = message.get_player_index();
         match message.get_type() {
@@ -671,17 +701,15 @@ fn apply_replay_messages_to_host(messages: &[GameMessage]) {
                     Some(GameMessageArgumentType::Pixel(value)) => (value.x, value.y),
                     _ => (0, 0),
                 };
-                if let Ok(mut slot) = PENDING_REPLAY_CAMERA.lock() {
-                    *slot = Some(ReplayCameraPose {
-                        pos: vec3_from_coord(coord),
-                        yaw: angle,
-                        pitch,
-                        zoom: zoom_v,
-                        cursor,
-                        pixel,
-                        player_index,
-                    });
-                }
+                state.camera = Some(ReplayCameraPose {
+                    pos: vec3_from_coord(coord),
+                    yaw: angle,
+                    pitch,
+                    zoom: zoom_v,
+                    cursor,
+                    pixel,
+                    player_index,
+                });
             }
             GameMessageType::NewGame | GameMessageType::ClearGameData => {
                 // C++ GameLogicDispatch.cpp:396-440 prepareNewGame/clearGameData.
@@ -690,34 +718,34 @@ fn apply_replay_messages_to_host(messages: &[GameMessage]) {
             GameMessageType::CreateTeamSlot(slot) => {
                 let ids = object_ids_from_message(message);
                 apply_replay_team_to_leftover_player(player_index, *slot, 0, &ids);
-                push_pending_replay_team(ReplayTeamOp::Create {
+                state.teams.push(ReplayTeamOp::Create {
                     player_index,
                     slot: *slot,
                     ids,
                 });
-                queue_replay_selection_remirror(player_index);
+                state.queue_selection_remirror(player_index);
             }
             GameMessageType::SelectTeamSlot(slot) => {
                 apply_replay_team_to_leftover_player(player_index, *slot, 1, &[]);
-                push_pending_replay_team(ReplayTeamOp::Select {
+                state.teams.push(ReplayTeamOp::Select {
                     player_index,
                     slot: *slot,
                 });
-                queue_replay_selection_remirror(player_index);
+                state.queue_selection_remirror(player_index);
             }
             GameMessageType::AddTeamSlot(slot) => {
                 apply_replay_team_to_leftover_player(player_index, *slot, 2, &[]);
-                push_pending_replay_team(ReplayTeamOp::Add {
+                state.teams.push(ReplayTeamOp::Add {
                     player_index,
                     slot: *slot,
                 });
-                queue_replay_selection_remirror(player_index);
+                state.queue_selection_remirror(player_index);
             }
             GameMessageType::LogicCRC(_) => {}
             _ => {
                 if let Some(command) = game_message_to_host_command(message) {
-                    push_pending_replay_command(command);
-                    queue_replay_selection_remirror(player_index);
+                    state.commands.push(command);
+                    state.queue_selection_remirror(player_index);
                 }
             }
         }
@@ -1316,7 +1344,7 @@ mod tests {
         message.append_integer_argument(2);
         message.append_integer_argument(10);
         message.append_integer_argument(45);
-        apply_replay_messages_to_host(&[message]);
+        apply_replay_messages_to_host(&mut ReplayPendingState::default(), &[message]);
         let stream = get_message_stream();
         let guard = stream.read().unwrap_or_else(|e| e.into_inner());
         let found = guard
@@ -1362,16 +1390,41 @@ mod tests {
     #[test]
     fn playback_move_queues_observer_selection_remirror() {
         // C++ GameLogicDispatch.cpp:1970-1984 remirrors after every network command.
-        let _ = take_pending_replay_selection_remirror();
+        let mut state = ReplayPendingState::default();
         let message =
             GameMessage::with_player(GameMessageType::DoMoveTo(Coord3D::new(4.0, 0.0, 1.0)), 4);
-        apply_replay_messages_to_host(&[message]);
-        assert_eq!(take_pending_replay_selection_remirror(), vec![4]);
+        apply_replay_messages_to_host(&mut state, &[message]);
+        assert_eq!(state.take_selection_remirror(), vec![4]);
+    }
+
+    #[test]
+    fn replay_handoffs_are_isolated_between_game_instances() {
+        let mut first = ReplayPendingState::default();
+        let mut second = ReplayPendingState::default();
+        let move_message =
+            GameMessage::with_player(GameMessageType::DoMoveTo(Coord3D::new(4.0, 0.0, 1.0)), 4);
+        apply_replay_messages_to_host(&mut first, &[move_message]);
+        stamp_host_logic_frame(&mut first, 100);
+        stamp_host_logic_frame(&mut second, 30);
+
+        assert_eq!(first.commands.len(), 1);
+        assert!(second.commands.is_empty());
+        assert_eq!(first.take_selection_remirror(), vec![4]);
+        assert!(second.take_selection_remirror().is_empty());
+        assert_eq!(first.host_logic_frame.load(Ordering::Relaxed), 100);
+        assert_eq!(second.host_logic_frame.load(Ordering::Relaxed), 30);
+
+        let stale_sender = first.sender.clone();
+        first.clear();
+        assert!(first.commands.is_empty());
+        assert_eq!(first.host_logic_frame.load(Ordering::Relaxed), 0);
+        assert_eq!(second.host_logic_frame.load(Ordering::Relaxed), 30);
+        assert!(stale_sender.send(Vec::new()).is_err());
     }
 
     #[test]
     fn set_replay_camera_does_not_queue_selection_remirror() {
-        let _ = take_pending_replay_selection_remirror();
+        let mut state = ReplayPendingState::default();
         let pose = ReplayCameraPose {
             pos: Vec3::new(1.0, 2.0, 3.0),
             yaw: 0.0,
@@ -1389,19 +1442,14 @@ mod tests {
             .find(|msg| matches!(msg.get_type(), GameMessageType::SetReplayCamera(..)))
             .cloned()
             .expect("camera tap");
-        apply_replay_messages_to_host(&[camera]);
-        assert!(take_pending_replay_selection_remirror().is_empty());
-        let stored = take_pending_replay_camera().expect("pose stored");
+        apply_replay_messages_to_host(&mut state, &[camera]);
+        assert!(state.take_selection_remirror().is_empty());
+        let stored = state.take_camera().expect("pose stored");
         assert_eq!(stored.player_index, 3);
     }
 
-    fn reset_logic_crc_cadence() {
-        LAST_LOGIC_CRC_FRAME.store(u32::MAX, Ordering::Relaxed);
-        LAST_LOGIC_CRC.store(0, Ordering::Relaxed);
-    }
-
-    /// The global recorder, TheCommandList, and the CRC cadence statics are
-    /// process-wide; serialize every test that mutates them.
+    /// The remaining global recorder and TheCommandList are process-wide;
+    /// serialize tests that mutate them. Pending replay state is per test.
     fn with_recorder_test_lock<T>(f: impl FnOnce() -> T) -> T {
         static LOCK: Mutex<()> = Mutex::new(());
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -1412,10 +1460,11 @@ mod tests {
     fn live_host_posts_logic_crc_every_replay_interval() {
         // C++ GameLogic.cpp:3634 — m_frame > 0 && (m_frame % REPLAY_CRC_INTERVAL) == 0.
         with_recorder_test_lock(|| {
-            reset_logic_crc_cadence();
+            let mut state = ReplayPendingState::default();
             clear_command_list();
-            stamp_host_logic_frame(100);
-            let posted = post_host_logic_crc_if_due(100, 0xABCD_0001).expect("frame 100 is due");
+            stamp_host_logic_frame(&mut state, 100);
+            let posted =
+                post_host_logic_crc_if_due(&mut state, 100, 0xABCD_0001).expect("frame 100 is due");
             let snap = snapshot_command_list();
             let crc_msg = snap
                 .iter()
@@ -1432,11 +1481,11 @@ mod tests {
             ));
 
             assert!(
-                post_host_logic_crc_if_due(101, 0xABCD_0002).is_none(),
+                post_host_logic_crc_if_due(&mut state, 101, 0xABCD_0002).is_none(),
                 "off-interval frames must not emit LogicCRC"
             );
             assert!(
-                post_host_logic_crc_if_due(0, 0xABCD_0003).is_none(),
+                post_host_logic_crc_if_due(&mut state, 0, 0xABCD_0003).is_none(),
                 "frame 0 must not emit LogicCRC (C++ m_frame > 0 guard)"
             );
             clear_command_list();
@@ -1447,10 +1496,11 @@ mod tests {
     fn logic_crc_post_is_plain_state_crc_without_host_fold_blend() {
         // C++ GameLogic.cpp:3636-3652 — retail .rep stores getCRC exactly.
         with_recorder_test_lock(|| {
-            reset_logic_crc_cadence();
+            let mut state = ReplayPendingState::default();
             clear_command_list();
-            stamp_host_logic_frame(100);
-            let posted = post_host_logic_crc_if_due(100, 0xABCD_0001).expect("frame 100 is due");
+            stamp_host_logic_frame(&mut state, 100);
+            let posted =
+                post_host_logic_crc_if_due(&mut state, 100, 0xABCD_0001).expect("frame 100 is due");
             let plain = leftover_logic_crc();
             assert_eq!(posted, plain, "recorded series must equal getCRC exactly");
             let mut blended = game_engine::common::crc::Crc::new();
@@ -1469,7 +1519,7 @@ mod tests {
     fn logic_crc_message_carries_local_player_index() {
         // C++ GameLogicDispatch.cpp:1904-1946 threads the local player index.
         with_recorder_test_lock(|| {
-            reset_logic_crc_cadence();
+            let mut state = ReplayPendingState::default();
             clear_command_list();
             {
                 let mut list = gamelogic::player::ThePlayerList()
@@ -1483,9 +1533,9 @@ mod tests {
                 }
                 list.set_local_player_index(2);
             }
-            stamp_host_logic_frame(300);
+            stamp_host_logic_frame(&mut state, 300);
             assert!(
-                post_host_logic_crc_if_due(300, 0).is_some(),
+                post_host_logic_crc_if_due(&mut state, 300, 0).is_some(),
                 "frame 300 is due"
             );
             let snap = snapshot_command_list();
@@ -1512,18 +1562,19 @@ mod tests {
     #[test]
     fn flush_recorder_writes_then_consumes_logic_crc() {
         with_recorder_test_lock(|| {
-            reset_logic_crc_cadence();
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
+            let _ = with_recorder_mut(|recorder| recorder.reset());
             clear_command_list();
-            stamp_host_logic_frame(200);
+            stamp_host_logic_frame(&mut state, 200);
             // Premise: the stamp is the frame source (crate GameLogic
             // singleton untouched in this test binary).
-            assert_eq!(host_logic_frame(), 200);
+            assert_eq!(host_logic_frame(&state), 200);
             let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
             // The flush posts MSG_LOGIC_CRC for updateRecord before update()...
             assert_eq!(
-                LAST_LOGIC_CRC_FRAME.load(Ordering::Relaxed),
-                200,
+                state.last_logic_crc_frame, 200,
                 "flush must post MSG_LOGIC_CRC before updateRecord"
             );
             // ...then consumes it after the write: C++ processCommandList
@@ -1539,9 +1590,33 @@ mod tests {
     }
 
     #[test]
+    fn router_batch_arrives_in_the_same_logic_frame() {
+        with_recorder_test_lock(|| {
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
+            let _ = with_recorder_mut(|recorder| recorder.reset());
+            clear_command_list();
+            let message =
+                GameMessage::with_player(GameMessageType::DoMoveTo(Coord3D::new(7.0, 0.0, 9.0)), 2);
+            state.sender.send(vec![message]).unwrap();
+            stamp_host_logic_frame(&mut state, 1);
+            let mut queue = VecDeque::new();
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
+            assert_eq!(queue.len(), 1);
+            assert_eq!(queue.front().unwrap().player_id, 2);
+            assert!(matches!(
+                &queue.front().unwrap().command_type,
+                CommandType::MoveTo { .. }
+            ));
+            clear_command_list();
+        });
+    }
+
+    #[test]
     fn new_game_starts_one_recording_and_leaves_no_lifecycle_message() {
         with_recorder_test_lock(|| {
-            reset_logic_crc_cadence();
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
             let temp = tempfile::tempdir().unwrap();
             let global = game_engine::common::ini::ini_game_data::ensure_global_data();
             {
@@ -1556,7 +1631,7 @@ mod tests {
             tap_host_new_game_for_recorder(GameMode::Skirmish);
 
             let mut queue = VecDeque::new();
-            flush_recorder_and_replay_authority(&mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
             assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
             assert!(
                 snapshot_command_list()
@@ -1565,14 +1640,14 @@ mod tests {
                 "C++ resets TheCommandList after each logic frame, so MSG_NEW_GAME must not start a second recording"
             );
 
-            flush_recorder_and_replay_authority(&mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
             assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
-            reset_host_recorder_after_successful_load();
+            reset_host_recorder_after_successful_load(&mut state);
+            bind_host_replay_authority(&state);
             assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
-            flush_recorder_and_replay_authority(&mut queue);
+            flush_recorder_and_replay_authority(&mut state, &mut queue);
             assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
             clear_command_list();
-            reset_logic_crc_cadence();
         });
     }
 
@@ -1584,7 +1659,8 @@ mod tests {
         // .rep exactly once — retaining them would re-write old CRCs on
         // every pump and drift the playback CRC queue.
         with_recorder_test_lock(|| {
-            reset_logic_crc_cadence();
+            let mut state = ReplayPendingState::default();
+            bind_host_replay_authority(&state);
             let temp = tempfile::tempdir().unwrap();
             // Recorder reads the replay dir from ini_game_data's GlobalData.
             let global = game_engine::common::ini::ini_game_data::ensure_global_data();
@@ -1616,7 +1692,9 @@ mod tests {
             install_host_replay_bridges();
             with_recorder_mut(|recorder| {
                 recorder.reset();
-                recorder.start_recording(1, 2, 0, 30).expect("start recording");
+                recorder
+                    .start_recording(1, 2, 0, 30)
+                    .expect("start recording");
             });
 
             let interval = game_engine::common::crc_debug::replay_crc_interval().max(1) as u32;
@@ -1626,11 +1704,11 @@ mod tests {
             for _ in 0..pumps {
                 for _ in 0..STEPS_PER_PUMP {
                     frame += 1;
-                    stamp_host_logic_frame(frame);
-                    let _ = post_host_logic_crc_if_due(frame, 0xFEED_F00D);
+                    stamp_host_logic_frame(&mut state, frame);
+                    let _ = post_host_logic_crc_if_due(&mut state, frame, 0xFEED_F00D);
                 }
                 let mut queue = VecDeque::new();
-                flush_recorder_and_replay_authority(&mut queue);
+                flush_recorder_and_replay_authority(&mut state, &mut queue);
             }
             with_recorder_mut(|recorder| recorder.stop_recording());
 
@@ -1646,9 +1724,11 @@ mod tests {
                         .push(msg.get_player_index());
                 }
             })));
-            assert!(reader
-                .playback_file("00000000.rep".to_string())
-                .expect("open recorded .rep"));
+            assert!(
+                reader
+                    .playback_file("00000000.rep".to_string())
+                    .expect("open recorded .rep")
+            );
             for f in 1..=frame {
                 reader.set_current_frame(f);
                 reader.update();

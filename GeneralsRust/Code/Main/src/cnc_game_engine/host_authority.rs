@@ -1092,6 +1092,7 @@ impl CnCGameEngine {
         self.host_invalidate_active_popup_for_world_boundary();
 
         self.game_logic = logic;
+        crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         if let Some(shadow) = self.gameworld_shadow.as_mut() {
             shadow.reset_for_world_boundary();
             // The replacement is already a complete host world.  Seed the
@@ -1165,7 +1166,10 @@ impl CnCGameEngine {
         // execute them in original queue order before shadow reconstruction.
         deferred_effects.execute_after_logic_commit();
         drop(old_logic);
-        crate::command_system::reset_host_recorder_after_successful_load();
+        crate::command_system::reset_host_recorder_after_successful_load(
+            &mut self.game_logic.replay_pending,
+        );
+        crate::command_system::bind_host_replay_authority(&self.game_logic.replay_pending);
         // C++ RandomValue is process-static and no load path reseeds it
         // (GameState.cpp:628-741); only mission saves InitRandom(0) in their
         // message-loop follow-up.  Reseed the committed world's driving
@@ -1247,7 +1251,12 @@ impl CnCGameEngine {
                 .map(|(slot, ids)| (*slot, ids.iter().map(|id| id.0).collect()))
                 .collect(),
         );
-        let client_drawables = self.render_pipeline.capture_client_drawable_snapshot();
+        let visual_world = gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+            &self.game_logic.engine_stores,
+        ));
+        let client_drawables = self
+            .render_pipeline
+            .capture_client_drawable_snapshot(&visual_world);
         let save_path = self.save_file_manager.get_save_path(slot);
         let result = self
             .save_file_manager

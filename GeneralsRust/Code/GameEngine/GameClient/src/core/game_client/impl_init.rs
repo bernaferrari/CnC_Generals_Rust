@@ -197,6 +197,13 @@ impl GameClient {
         // Reset subsystems
         self.subsystem_manager.reset_all()?;
 
+        // C++ GameClient.cpp:438-451 clears Drawables, then resets the
+        // Display/Terrain/RayEffects for the next match. Drop the Rust
+        // transient tracer/ray/light streams at the same boundary.
+        if owns_live_game_client_slot(self) {
+            crate::effects::clear_live_effects_after_drawables();
+        }
+
         if let Some(layout) = reset_background {
             with_window_manager(|manager| manager.destroy_layout(&layout));
         }

@@ -455,7 +455,10 @@ impl GameLogic {
 
     pub fn process_commands(&mut self) {
         // Process all queued commands
-        crate::command_system::flush_recorder_and_replay_authority(&mut self.command_queue);
+        crate::command_system::flush_recorder_and_replay_authority(
+            &mut self.replay_pending,
+            &mut self.command_queue,
+        );
         while let Some(command) = self.command_queue.pop_front() {
             self.execute_command(command);
         }

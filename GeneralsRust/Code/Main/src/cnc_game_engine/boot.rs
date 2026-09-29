@@ -221,6 +221,7 @@ impl CnCGameEngine {
         // Initialize game systems.
         // CombatSystem + PathfindingSystem live on GameLogic (sole host authority).
         let game_logic = GameLogic::initialize();
+        crate::command_system::bind_host_replay_authority(&game_logic.replay_pending);
         let resource_manager = ResourceManager::new();
         let mut save_file_manager = SaveFileManager::new();
         save_file_manager

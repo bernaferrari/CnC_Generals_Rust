@@ -330,28 +330,19 @@ impl TheGlobalData {
     }
 
     pub fn get_time_of_day(&self) -> TimeOfDay {
-        if let Some(data) = get_engine_global_data() {
-            return map_time_of_day(data.read().time_of_day);
-        }
-
-        let guard = GLOBAL_TIME_OF_DAY.lock().unwrap();
-        *guard
+        let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
+        map_time_of_day(data.read().time_of_day)
     }
 
     pub fn set_time_of_day(&self, value: TimeOfDay) {
-        if let Some(data) = get_engine_global_data() {
-            let mut guard = data.write();
-            let mapped = match value {
-                TimeOfDay::Morning => IniTimeOfDay::Morning,
-                TimeOfDay::Evening => IniTimeOfDay::Evening,
-                TimeOfDay::Night => IniTimeOfDay::Night,
-                TimeOfDay::Day => IniTimeOfDay::Afternoon,
-            };
-            guard.set_time_of_day(mapped);
-        }
-
-        let mut guard = GLOBAL_TIME_OF_DAY.lock().unwrap();
-        *guard = value;
+        let data = get_engine_global_data().unwrap_or_else(ensure_engine_global_data);
+        let mapped = match value {
+            TimeOfDay::Morning => IniTimeOfDay::Morning,
+            TimeOfDay::Evening => IniTimeOfDay::Evening,
+            TimeOfDay::Night => IniTimeOfDay::Night,
+            TimeOfDay::Day => IniTimeOfDay::Afternoon,
+        };
+        data.write().set_time_of_day(mapped);
 
         // Host path: dual-world factory empty — Main presentation owns drawable TOD.
         if OBJECT_REGISTRY.is_empty() {
@@ -374,8 +365,6 @@ impl TheGlobalData {
         }
     }
 }
-
-static GLOBAL_TIME_OF_DAY: Lazy<Mutex<TimeOfDay>> = Lazy::new(|| Mutex::new(TimeOfDay::Day));
 
 fn map_time_of_day(value: IniTimeOfDay) -> TimeOfDay {
     match value {

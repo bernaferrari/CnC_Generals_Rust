@@ -421,10 +421,12 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: m_CRC = getCRC(CRC_RECALC); TheMessageStream->appendMessage(MSG_LOGIC_CRC);
         // then TheRecorder->UPDATE() inside processCommandList's recorder flush.
-        crate::command_system::stamp_host_logic_frame(self.frame);
+        crate::command_system::stamp_host_logic_frame(&mut self.replay_pending, self.frame);
+        let host_fold = self.fold_live_host_logic_crc();
         crate::command_system::post_host_logic_crc_if_due(
+            &mut self.replay_pending,
             self.frame,
-            self.fold_live_host_logic_crc(),
+            host_fold,
         );
 
         // -----------------------------------------------------------------------

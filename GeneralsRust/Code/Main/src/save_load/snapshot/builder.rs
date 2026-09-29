@@ -242,7 +242,10 @@ impl SnapshotBuilder {
         if let Some(client_bytes) = take_loaded_game_client_xfer() {
             restore_game_client_from_xfer_bytes(&client_bytes)?;
         }
-        restore_objectless_from_client_drawables(&snapshot.client_drawables);
+        let visual_world = gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
+            &game_logic.engine_stores,
+        ));
+        restore_objectless_from_client_drawables(&visual_world, &snapshot.client_drawables);
         if let Some(particle_bytes) = take_loaded_particle_system_xfer() {
             restore_particle_system_from_xfer_bytes(&particle_bytes)?;
         }

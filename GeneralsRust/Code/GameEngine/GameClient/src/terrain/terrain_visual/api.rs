@@ -18,6 +18,13 @@ pub fn init_terrain_visual() -> TerrainResult<()> {
     Ok(())
 }
 
+/// C++ `GameClient::~GameClient` deletes `TheTerrainVisual` after Drawables.
+/// Called only by the published owner during GameClient teardown.
+pub(crate) fn shutdown_terrain_visual() {
+    let mut visual = THE_TERRAIN_VISUAL.lock().unwrap_or_else(|e| e.into_inner());
+    *visual = None;
+}
+
 /// Bind C++ `TheTerrainVisual::setRawMapHeight` / `staticLightingChanged` to
 /// the live GameClient visual. Safe to call more than once.
 pub fn init_terrain_visual_hooks() {

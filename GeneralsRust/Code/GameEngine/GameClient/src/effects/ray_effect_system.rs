@@ -304,6 +304,16 @@ pub fn reset_ray_effects() {
     }
 }
 
+/// C++ `GameClient::reset` / destructor has already destroyed every Drawable
+/// before `TheRayEffects->reset` / delete. Discard ray bookkeeping without
+/// calling back into a cleared (or newer) client's drawable table.
+pub(crate) fn clear_ray_effects_after_drawables() {
+    global_rays()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .init();
+}
+
 /// GPU line endpoints for the registered ray (start → end).
 pub fn bake_ray_effect_gpu_endpoints(effect: &LiveRayEffect) -> ([f32; 3], [f32; 3], [f32; 3]) {
     (effect.start, effect.midpoint, effect.end)

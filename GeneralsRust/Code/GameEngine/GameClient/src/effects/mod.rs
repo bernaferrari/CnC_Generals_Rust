@@ -62,6 +62,17 @@ pub mod shadow_system;
 pub mod tracer_fx;
 pub mod weather_complete;
 
+/// C++ GameClient resets/deletes transient visuals after its Drawables. The
+/// current bridge stores these effect streams globally, so the owner must
+/// clear them at its reset/destruction boundary until the stores move into
+/// the GameClient instance.
+pub(crate) fn clear_live_effects_after_drawables() {
+    ray_effect_system::clear_ray_effects_after_drawables();
+    tracer_fx::clear_tracer_fx();
+    crate::fx_list::clear_scene_dynamic_lights();
+    let _ = crate::fx_list::drain_display_light_pulses();
+}
+
 use std::time::{Duration, Instant};
 use thiserror::Error;
 

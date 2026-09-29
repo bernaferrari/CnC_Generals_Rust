@@ -50,7 +50,9 @@ pub(crate) fn register_live_game_client(client: &mut GameClient) {
     LIVE_GAME_CLIENT_FRAME.store(client.frame, Ordering::Release);
 }
 
-pub(crate) fn clear_live_game_client(client: &mut GameClient) {
+/// Return whether this client owned the published slot. Only that client may
+/// tear down process-visible presentation state during its destructor.
+pub(crate) fn clear_live_game_client(client: &mut GameClient) -> bool {
     if let Ok(mut slot) = live_game_client_slot().lock() {
         let current = std::ptr::from_mut(client) as usize;
         if slot.raw.is_some_and(|stored| stored == current) {
@@ -58,21 +60,25 @@ pub(crate) fn clear_live_game_client(client: &mut GameClient) {
             slot.owner_thread = None;
             slot.borrowed = false;
             LIVE_GAME_CLIENT_FRAME.store(0, Ordering::Release);
+            return true;
         }
     }
+    false
+}
+
+pub(crate) fn owns_live_game_client_slot(client: &GameClient) -> bool {
+    let current = std::ptr::from_ref(client) as usize;
+    let current_thread = std::thread::current().id();
+    live_game_client_slot().lock().ok().is_some_and(|slot| {
+        slot.raw == Some(current) && slot.owner_thread == Some(current_thread)
+    })
 }
 
 /// Refresh the scalar frame observable for input translators without borrowing
 /// the live singleton.  A non-registered test/local client intentionally does
 /// not replace the active engine's value.
 pub(crate) fn publish_live_game_client_frame(client: &GameClient) {
-    let current = std::ptr::from_ref(client) as usize;
-    let current_thread = std::thread::current().id();
-    let is_live = live_game_client_slot()
-        .lock()
-        .ok()
-        .is_some_and(|slot| slot.raw == Some(current) && slot.owner_thread == Some(current_thread));
-    if is_live {
+    if owns_live_game_client_slot(client) {
         LIVE_GAME_CLIENT_FRAME.store(client.frame, Ordering::Release);
     }
 }
@@ -394,5 +400,133 @@ mod live_slot_tests {
 
         clear_live_game_client(&mut client);
         assert_eq!(live_game_client_frame(), None);
+    }
+
+    #[test]
+    fn only_live_client_destroys_terrain_visual_after_drawables() {
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut old_client = Box::new(GameClient::new().expect("old client"));
+        old_client.mark_initialized();
+        let mut live_client = Box::new(GameClient::new().expect("live client"));
+        live_client.mark_initialized();
+
+        {
+            let mut terrain = crate::terrain::terrain_visual::get_terrain_visual()
+                .expect("terrain lock");
+            *terrain = Some(crate::terrain::terrain_visual::TerrainVisualSystem::new());
+        }
+        let previous_pump = register_load_screen_presentation_pump(|| {});
+        drop(old_client);
+        assert!(
+            crate::terrain::terrain_visual::get_terrain_visual()
+                .expect("terrain lock")
+                .is_some(),
+            "dropping an older client must not clear the active visual"
+        );
+        assert!(
+            clear_load_screen_presentation_pump().is_some(),
+            "dropping an older client must preserve the active load-screen callback"
+        );
+        let _ = register_load_screen_presentation_pump(|| {});
+
+        drop(live_client);
+        assert!(
+            crate::terrain::terrain_visual::get_terrain_visual()
+                .expect("terrain lock")
+                .is_none(),
+            "C++ GameClient destructor deletes its terrain visual"
+        );
+        assert!(
+            clear_load_screen_presentation_pump().is_none(),
+            "the active client's callback must be removed on teardown"
+        );
+        if let Some(previous_pump) = previous_pump {
+            let _ = register_load_screen_presentation_pump(move || previous_pump());
+        }
+
+        let next_client = GameClient::new().expect("next client");
+        assert!(
+            crate::terrain::terrain_visual::get_terrain_visual()
+                .expect("terrain lock")
+                .is_none(),
+            "constructing a client must not inherit or publish presentation state"
+        );
+        drop(next_client);
+    }
+
+    #[test]
+    fn reset_and_active_drop_clear_effects_without_old_client_interference() {
+        let _serial = live_slot_test_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _tracer_serial = crate::effects::tracer_fx::lock_tracer_fx_tests();
+
+        fn seed_effects() {
+            assert!(crate::effects::ray_effect_system::add_ray_effect(
+                901,
+                [0.0, 0.0, 0.0],
+                [10.0, 0.0, 0.0],
+            ));
+            assert!(crate::effects::tracer_fx::create_tracer_fx(
+                "GenericTracer",
+                [0.0, 0.0, 0.0],
+                [20.0, 0.0, 0.0],
+                1.0,
+                2.0,
+                1.0,
+                [1.0, 0.0, 0.0],
+                1.0,
+                0,
+            )
+            .is_some());
+            assert!(crate::fx_list::create_display_light_pulse(
+                crate::fx_list::DisplayLightPulse {
+                    pos: [0.0, 0.0, 0.0],
+                    color: [1.0, 0.5, 0.25],
+                    inner_radius: 1.0,
+                    outer_radius: 50.0,
+                    increase_frames: 1,
+                    decay_frames: 5,
+                }
+            ));
+        }
+
+        fn assert_effect_count(count: usize) {
+            assert_eq!(crate::effects::ray_effect_system::live_ray_effects().len(), count);
+            assert_eq!(crate::effects::tracer_fx::live_tracer_fx().len(), count);
+            assert_eq!(crate::fx_list::scene_dynamic_lights().len(), count);
+        }
+
+        crate::effects::clear_live_effects_after_drawables();
+        let mut old_client = Box::new(GameClient::new().expect("old client"));
+        old_client.mark_initialized();
+        let mut live_client = Box::new(GameClient::new().expect("live client"));
+        live_client.mark_initialized();
+        seed_effects();
+        assert_effect_count(1);
+
+        let mut candidate = GameClient::new().expect("unpublished staged client");
+        candidate.reset().expect("unpublished candidate reset");
+        assert_effect_count(1);
+        drop(candidate);
+        assert_effect_count(1);
+
+        old_client.reset().expect("staged candidate reset");
+        assert_effect_count(1);
+        drop(old_client);
+        assert_effect_count(1);
+
+        live_client.reset().expect("next match reset");
+        assert_effect_count(0);
+        seed_effects();
+        drop(live_client);
+        assert_effect_count(0);
+        assert!(crate::fx_list::drain_display_light_pulses().is_empty());
+
+        let next_client = GameClient::new().expect("next client");
+        assert_effect_count(0);
+        drop(next_client);
     }
 }

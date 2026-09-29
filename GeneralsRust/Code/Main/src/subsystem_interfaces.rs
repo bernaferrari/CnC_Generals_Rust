@@ -176,6 +176,34 @@ pub trait FileSystemSubsystem: SubsystemInterface {
     fn get_file_size(&self, path: &str) -> Result<u64>;
 }
 
+/// Raw asset loaded by the default subsystem. The variant records the kind
+/// independently of the filename so callers cannot confuse model/audio data
+/// with a texture that happens to share an extension.
+#[derive(Debug)]
+pub enum LoadedAsset {
+    Texture { path: String, bytes: Vec<u8> },
+    Model { path: String, bytes: Vec<u8> },
+    Audio { path: String, bytes: Vec<u8> },
+}
+
+impl LoadedAsset {
+    pub fn path(&self) -> &str {
+        match self {
+            Self::Texture { path, .. } | Self::Model { path, .. } | Self::Audio { path, .. } => {
+                path
+            }
+        }
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Texture { bytes, .. } | Self::Model { bytes, .. } | Self::Audio { bytes, .. } => {
+                bytes
+            }
+        }
+    }
+}
+
 /// Asset management subsystem interface
 #[async_trait]
 pub trait AssetSubsystem: SubsystemInterface {
@@ -195,7 +223,7 @@ pub trait AssetSubsystem: SubsystemInterface {
     async fn unload_asset(&mut self, asset_id: u32) -> Result<()>;
 
     /// Get asset by ID
-    fn get_asset(&self, asset_id: u32) -> Option<&dyn Any>;
+    fn get_asset(&self, asset_id: u32) -> Option<&LoadedAsset>;
 
     /// Preload assets
     async fn preload_assets(&mut self, asset_list: &[&str]) -> Result<()>;

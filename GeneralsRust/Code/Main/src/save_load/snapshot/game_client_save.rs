@@ -34,10 +34,10 @@ pub fn restore_game_client_from_xfer_bytes(bytes: &[u8]) -> SaveLoadResult<()> {
         .map_err(SaveLoadError::Serialization)
 }
 
-pub fn restore_objectless_from_client_drawables(snapshot: &super::ClientDrawableWorldSnapshot) {
-    let Some(client) = gamelogic::helpers::TheGameClient::get() else {
-        return;
-    };
+pub fn restore_objectless_from_client_drawables(
+    visual_world: &gamelogic::helpers::ClientVisualHandle,
+    snapshot: &super::ClientDrawableWorldSnapshot,
+) {
     for drawable in &snapshot.drawables {
         if drawable.object_id != 0 {
             continue;
@@ -46,7 +46,7 @@ pub fn restore_objectless_from_client_drawables(snapshot: &super::ClientDrawable
         if template.is_empty() || drawable.draw_module_index == 0 {
             continue;
         }
-        client.restore_objectless_drawable(
+        visual_world.restore_objectless_drawable(
             drawable.draw_module_index,
             &gamelogic::helpers::DrawableState {
                 template_name: template.to_string(),

@@ -1875,15 +1875,26 @@ impl Snapshotable for GameClient {
 impl Drop for GameClient {
     fn drop(&mut self) {
         log::info!("GameClient shutting down");
-        clear_live_game_client(self);
-        GameClient::reset_global_video_player_streams();
-        reset_script_action_runtime_state();
-        register_script_display_bridge(None);
-        clear_load_screen_presentation_pump();
-        shutdown_video_player();
+        let owned_live_slot = clear_live_game_client(self);
 
         // Clear all drawables (they'll be dropped automatically)
         self.drawable_map.clear();
+
+        if owned_live_slot {
+            crate::effects::clear_live_effects_after_drawables();
+        }
+
+        // C++ GameClient::~GameClient destroys all Drawables before deleting
+        // TheTerrainVisual (GameClient.cpp:132-181). A temporary/test client
+        // must not clear the live presentation's visual.
+        if owned_live_slot {
+            crate::terrain::terrain_visual::shutdown_terrain_visual();
+            GameClient::reset_global_video_player_streams();
+            shutdown_video_player();
+            reset_script_action_runtime_state();
+            register_script_display_bridge(None);
+            clear_load_screen_presentation_pump();
+        }
 
         // Subsystems will be dropped automatically through Arc
 

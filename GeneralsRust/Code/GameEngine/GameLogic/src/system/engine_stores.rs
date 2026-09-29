@@ -51,6 +51,7 @@ use game_engine::common::ini::ini_ai_data::{self, AIDataStore};
 use game_engine::common::ini::ini_upgrade::{self, UpgradeCenter as IniUpgradeCenter};
 
 use crate::ai::AI;
+use crate::helpers::ClientVisualState;
 use crate::system::shroud_manager::ShroudManager;
 use crate::upgrade::center::UpgradeCenter;
 
@@ -76,6 +77,9 @@ pub struct EngineStores {
     /// bundles snapshot-clone the engine-lifetime content under a fresh lock
     /// so per-world mutations die with the world.
     shroud: Arc<Mutex<ShroudManager>>,
+    /// Per-world GameClient presentation bridge. C++ GameClient::reset owns
+    /// drawable teardown; candidate worlds must not share these records.
+    client_visuals: ClientVisualState,
 }
 
 impl EngineStores {
@@ -93,6 +97,7 @@ impl EngineStores {
             ini_upgrade_center: ini_upgrade::process_lifetime_upgrade_center(),
             ai_data: ini_ai_data::process_lifetime_ai_data_store(),
             shroud: Arc::new(Mutex::new(ShroudManager::new())),
+            client_visuals: ClientVisualState::default(),
         }
     }
 
@@ -108,6 +113,7 @@ impl EngineStores {
             ini_upgrade_center: ini_upgrade_center_snapshot(),
             ai_data: ai_data_snapshot(),
             shroud: Arc::new(Mutex::new(engine_shroud_snapshot())),
+            client_visuals: ClientVisualState::default(),
         }
     }
 
@@ -134,6 +140,10 @@ impl EngineStores {
     /// Shroud/fog-of-war manager.
     pub fn shroud(&self) -> &Arc<Mutex<ShroudManager>> {
         &self.shroud
+    }
+
+    pub(crate) fn client_visuals(&self) -> &ClientVisualState {
+        &self.client_visuals
     }
 }
 
@@ -229,9 +239,7 @@ pub fn uninstall_active_if_current(world: &Arc<EngineStores>) -> bool {
         let mut active = ACTIVE
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let head_is_world = active
-            .last()
-            .is_some_and(|head| Arc::ptr_eq(head, world));
+        let head_is_world = active.last().is_some_and(|head| Arc::ptr_eq(head, world));
         if head_is_world {
             active.pop();
             (true, active.last().cloned())
@@ -484,6 +492,110 @@ mod tests {
     use super::*;
 
     #[test]
+    fn client_visuals_follow_world_rollback_and_commit() {
+        let _serial = crate::test_sync::lock();
+        assert_eq!(active_stack_depth(), 0);
+        let client = crate::helpers::TheGameClient::get().expect("logic client bridge");
+        let drawable_id = 9_700_101;
+        let object_id = 9_700_102;
+
+        let live = new_for_world();
+        // Constructing a candidate must not publish its empty visual maps.
+        let candidate = new_for_world();
+        assert_eq!(active_stack_depth(), 0);
+        install_active(Arc::clone(&live));
+        client.seed_drawable_pose_for_test(drawable_id, crate::common::Coord3D::ZERO, 0.25);
+        client.begin_object_model_draw_frame(object_id);
+        client.set_object_wheel_info(object_id, crate::helpers::DrawWheelInfo::default());
+        client.note_weapon_recoil(object_id, 2.0, 0.5);
+        let live_light = crate::helpers::create_scene_point_light();
+        client.add_tree(
+            drawable_id,
+            &crate::common::Coord3D::ZERO,
+            1.0,
+            0.0,
+            0.0,
+            &crate::object::draw::w3d_tree_draw::W3DTreeDrawModuleData::new(),
+        );
+
+        // Map/save staging works on its own captured bundle. Reusing IDs in
+        // the candidate cannot overwrite any live-world presentation data.
+        with_active_stores(&candidate, || {
+            assert!(client.find_drawable_by_id(drawable_id).is_none());
+            assert!(client.get_object_wheel_info(object_id).is_none());
+            assert!(client.get_registered_tree(drawable_id).is_none());
+            assert!(client.take_weapon_recoils().is_empty());
+            assert!(crate::helpers::scene_point_lights().is_empty());
+            client.seed_drawable_pose_for_test(
+                drawable_id,
+                crate::common::Coord3D::new(3.0, 4.0, 5.0),
+                0.75,
+            );
+            assert_eq!(crate::helpers::create_scene_point_light(), 1);
+            client.note_weapon_recoil(object_id, 4.0, 0.75);
+        });
+        assert_eq!(live_light, 1);
+        let candidate_visuals = crate::helpers::ClientVisualHandle::new(Arc::clone(&candidate));
+        let captured = candidate_visuals.snapshot_objectless_drawables();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].1.orientation, 0.75);
+        assert_eq!(
+            candidate_visuals.take_weapon_recoils(),
+            vec![(object_id, 4.0, 0.75)]
+        );
+        assert_eq!(
+            client.find_drawable_by_id(drawable_id).unwrap().orientation,
+            0.25
+        );
+        assert_eq!(client.take_weapon_recoils(), vec![(object_id, 2.0, 0.5)]);
+        assert_eq!(
+            live.client_visuals()
+                .model_draw_frames
+                .lock()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(live.client_visuals().terrain_trees.lock().unwrap().len(), 1);
+
+        // Failed candidate: dropping it leaves the installed live world and
+        // its visual state intact. Successful candidate: the candidate's
+        // bundle becomes the head and the buried old world can be dropped.
+        install_active(Arc::clone(&candidate));
+        assert_eq!(
+            client.find_drawable_by_id(drawable_id).unwrap().orientation,
+            0.75
+        );
+        assert!(uninstall_active_if_current(&candidate));
+        assert_eq!(
+            client.find_drawable_by_id(drawable_id).unwrap().orientation,
+            0.25
+        );
+        candidate_visuals.clear_visual_state_for_reset();
+        with_active_stores(&candidate, || {
+            assert!(client.find_drawable_by_id(drawable_id).is_none());
+            assert!(crate::helpers::scene_point_lights().is_empty());
+            client.seed_drawable_pose_for_test(
+                drawable_id,
+                crate::common::Coord3D::new(3.0, 4.0, 5.0),
+                0.75,
+            );
+        });
+        assert_eq!(
+            client.find_drawable_by_id(drawable_id).unwrap().orientation,
+            0.25
+        );
+        install_active(Arc::clone(&candidate));
+        assert!(!uninstall_active_if_current(&live));
+        assert_eq!(
+            client.find_drawable_by_id(drawable_id).unwrap().orientation,
+            0.75
+        );
+        assert!(uninstall_active_if_current(&candidate));
+        assert_eq!(active_stack_depth(), 0);
+    }
+
+    #[test]
     fn dropping_newer_world_restores_previous_as_active() {
         let _serial = crate::test_sync::lock();
         assert_eq!(active_stack_depth(), 0);
@@ -626,10 +738,7 @@ mod tests {
             assert!(Arc::ptr_eq(&active(), &b));
             assert!(Arc::ptr_eq(&the_ai(), b.ai()));
             assert!(Arc::ptr_eq(&shroud_manager(), b.shroud()));
-            assert!(Arc::ptr_eq(
-                &ini_ai_data::get_ai_data_store(),
-                b.ai_data()
-            ));
+            assert!(Arc::ptr_eq(&ini_ai_data::get_ai_data_store(), b.ai_data()));
             // Nested scopes: innermost wins, outer restored after.
             let nested = with_active_stores(&a, || Arc::ptr_eq(&active(), &a));
             assert!(nested);

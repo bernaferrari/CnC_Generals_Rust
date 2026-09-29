@@ -13,9 +13,8 @@ use gamelogic::common::Coord3D as LogicCoord3D;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use glam::{Vec2, Vec3};
 use log::{debug, trace};
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use wgpu::{Device, Queue, Texture, TextureDescriptor, TextureFormat, TextureUsages, TextureView};
 
 const RADAR_CELL_W: f32 = 128.0;
@@ -442,16 +441,6 @@ impl MinimapFowManager {
     }
 }
 
-static MINIMAP_FOW_MANAGER: Lazy<Arc<Mutex<MinimapFowManager>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(MinimapFowManager::new(
-        MinimapDimensions::standard(),
-    )))
-});
-
-pub fn get_minimap_fow_manager() -> Arc<Mutex<MinimapFowManager>> {
-    Arc::clone(&MINIMAP_FOW_MANAGER)
-}
-
 /// Minimap coordinate mapping data
 #[derive(Debug, Clone)]
 pub struct MinimapCoordinates {
@@ -560,6 +549,11 @@ pub struct MinimapTextureRenderer {
 
     /// Force the next update call to regenerate/upload regardless of frame cadence.
     force_refresh: bool,
+
+    /// C++ W3DRadar owns its shroud/terrain images for the current radar
+    /// instance. Keep the CPU fog cache with this renderer as well, so a new
+    /// game or display cannot inherit another instance's pixels.
+    fow: MinimapFowManager,
 }
 
 impl MinimapTextureRenderer {
@@ -583,6 +577,8 @@ impl MinimapTextureRenderer {
             screen_pos: Vec2::new(10.0, 10.0), // Default position, will be updated
         };
 
+        let mut fow = MinimapFowManager::new(dimensions);
+        fow.set_world_bounds(world_bounds.0, world_bounds.1);
         let mut renderer = Self {
             device,
             queue,
@@ -595,20 +591,8 @@ impl MinimapTextureRenderer {
             coordinates,
             texture_format: TextureFormat::Rgba8Unorm,
             force_refresh: true,
+            fow,
         };
-
-        {
-            let manager = get_minimap_fow_manager();
-            match manager.lock() {
-                Ok(mut fow) => {
-                    fow.ensure_dimensions(dimensions);
-                    fow.set_world_bounds(world_bounds.0, world_bounds.1);
-                }
-                Err(err) => {
-                    debug!("Failed to lock minimap FOW manager during init: {}", err);
-                }
-            };
-        }
 
         // Create initial texture
         renderer.create_texture()?;
@@ -670,23 +654,19 @@ impl MinimapTextureRenderer {
             self.current_player_id = player_id;
             self.last_update_frame = frame_number;
 
-            // Get FOW manager and regenerate texture
-            let fow_manager = get_minimap_fow_manager();
-            let mut fow = fow_manager
-                .lock()
-                .map_err(|e| anyhow!("Failed to lock FOW manager: {}", e))?;
-
             // Regenerate texture for current player
-            fow.ensure_dimensions(self.dimensions);
-            fow.set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
+            self.fow.ensure_dimensions(self.dimensions);
+            self.fow
+                .set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
             if let Some(grid) = fow_grid.filter(|g| g.active) {
-                fow.regenerate_texture_from_presentation_grid(player_id, grid, frame_number);
+                self.fow
+                    .regenerate_texture_from_presentation_grid(player_id, grid, frame_number);
             } else {
-                fow.regenerate_texture(player_id, frame_number);
+                self.fow.regenerate_texture(player_id, frame_number);
             }
 
             // Get texture data
-            let texture_data = fow.get_texture_data(player_id);
+            let texture_data = self.fow.get_texture_data(player_id);
 
             // Upload to GPU
             self.upload_texture_to_gpu(&texture_data)?;
@@ -782,13 +762,10 @@ impl MinimapTextureRenderer {
     }
 
     pub fn set_base_terrain_texture(&mut self, texture_data: Vec<u8>) -> Result<()> {
-        let manager = get_minimap_fow_manager();
-        let mut fow = manager
-            .lock()
-            .map_err(|e| anyhow!("Failed to lock FOW manager for base terrain: {}", e))?;
-        fow.ensure_dimensions(self.dimensions);
-        fow.set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
-        fow.set_base_terrain_texture(texture_data)?;
+        self.fow.ensure_dimensions(self.dimensions);
+        self.fow
+            .set_world_bounds(self.coordinates.world_min, self.coordinates.world_max);
+        self.fow.set_base_terrain_texture(texture_data)?;
         self.force_refresh = true;
         Ok(())
     }
@@ -811,18 +788,7 @@ impl MinimapTextureRenderer {
         self.coordinates.world_min = world_bounds.0;
         self.coordinates.world_max = world_bounds.1;
         self.force_refresh = true;
-        let manager = get_minimap_fow_manager();
-        match manager.lock() {
-            Ok(mut fow) => {
-                fow.set_world_bounds(world_bounds.0, world_bounds.1);
-            }
-            Err(err) => {
-                debug!(
-                    "Failed to lock minimap FOW manager for world-bounds update: {}",
-                    err
-                );
-            }
-        };
+        self.fow.set_world_bounds(world_bounds.0, world_bounds.1);
     }
 
     /// Convert screen position to world coordinates (for minimap clicks)
@@ -848,12 +814,9 @@ impl MinimapTextureRenderer {
         }
 
         // Query FOW state
-        let fow_manager = get_minimap_fow_manager();
-        let fow = fow_manager
-            .lock()
-            .map_err(|e| anyhow!("Failed to lock FOW manager: {}", e))?;
-
-        let state = fow.get_pixel_state(self.current_player_id, pixel_x, pixel_y);
+        let state = self
+            .fow
+            .get_pixel_state(self.current_player_id, pixel_x, pixel_y);
 
         // Position is visible if explored or currently visible
         Ok(matches!(
@@ -875,12 +838,9 @@ impl MinimapTextureRenderer {
         }
 
         // Query FOW state
-        let fow_manager = get_minimap_fow_manager();
-        let fow = fow_manager
-            .lock()
-            .map_err(|e| anyhow!("Failed to lock FOW manager: {}", e))?;
-
-        let state = fow.get_pixel_state(self.current_player_id, pixel_x, pixel_y);
+        let state = self
+            .fow
+            .get_pixel_state(self.current_player_id, pixel_x, pixel_y);
 
         // Position is currently visible only if fully visible
         Ok(matches!(state, MinimapFowState::Visible))
@@ -915,16 +875,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_minimap_fow_manager_singleton_is_shared() {
-        let manager_a = get_minimap_fow_manager();
-        let manager_b = get_minimap_fow_manager();
-        assert!(Arc::ptr_eq(&manager_a, &manager_b));
+    fn fow_caches_are_isolated_between_renderer_instances() {
+        let dimensions = MinimapDimensions {
+            width: 2,
+            height: 2,
+        };
+        let mut first = MinimapFowManager::new(dimensions);
+        let second = MinimapFowManager::new(dimensions);
+        first.cached_pixel_states.insert(
+            0,
+            vec![MinimapFowState::Hidden; (dimensions.width * dimensions.height) as usize],
+        );
+        first.cached_textures.insert(0, vec![0; 2 * 2 * 4]);
+
+        assert_eq!(first.get_pixel_state(0, 0, 0), MinimapFowState::Hidden);
+        assert_eq!(second.get_pixel_state(0, 0, 0), MinimapFowState::Visible);
+        assert_eq!(second.get_texture_data(0), vec![255; 2 * 2 * 4]);
     }
 
     #[test]
     fn test_minimap_fow_manager_tracks_dimensions() {
-        let manager = get_minimap_fow_manager();
-        let mut manager = manager.lock().unwrap_or_else(|e| e.into_inner());
+        let mut manager = MinimapFowManager::new(MinimapDimensions::standard());
 
         manager.ensure_dimensions(MinimapDimensions {
             width: 8,

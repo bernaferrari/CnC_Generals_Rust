@@ -761,28 +761,10 @@ impl FileSystemSubsystem for DefaultFileSystemSubsystem {
     }
 }
 
-#[derive(Debug)]
-struct LoadedTextureAsset {
-    path: String,
-    bytes: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct LoadedModelAsset {
-    path: String,
-    bytes: Vec<u8>,
-}
-
-#[derive(Debug)]
-struct LoadedAudioAsset {
-    path: String,
-    bytes: Vec<u8>,
-}
-
 pub struct DefaultAssetSubsystem {
     initialized: bool,
     next_asset_id: u32,
-    assets: HashMap<u32, Box<dyn Any + Send + Sync>>,
+    assets: HashMap<u32, LoadedAsset>,
     search_paths: Vec<PathBuf>,
     loaded_asset_paths: Vec<String>,
 }
@@ -876,7 +858,7 @@ impl DefaultAssetSubsystem {
         Ok((resolved.clone(), std::fs::read(resolved)?))
     }
 
-    fn insert_asset(&mut self, asset: Box<dyn Any + Send + Sync>) -> u32 {
+    fn insert_asset(&mut self, asset: LoadedAsset) -> u32 {
         let id = self.next_asset_id;
         self.next_asset_id = self.next_asset_id.saturating_add(1);
         self.assets.insert(id, asset);
@@ -936,30 +918,30 @@ impl AssetSubsystem for DefaultAssetSubsystem {
         let (resolved_path, bytes) = self.read_asset_bytes(path).await?;
         self.loaded_asset_paths
             .push(resolved_path.to_string_lossy().to_string());
-        Ok(self.insert_asset(Box::new(LoadedTextureAsset {
+        Ok(self.insert_asset(LoadedAsset::Texture {
             path: resolved_path.to_string_lossy().to_string(),
             bytes,
-        })))
+        }))
     }
 
     async fn load_model(&mut self, path: &str) -> Result<u32> {
         let (resolved_path, bytes) = self.read_asset_bytes(path).await?;
         self.loaded_asset_paths
             .push(resolved_path.to_string_lossy().to_string());
-        Ok(self.insert_asset(Box::new(LoadedModelAsset {
+        Ok(self.insert_asset(LoadedAsset::Model {
             path: resolved_path.to_string_lossy().to_string(),
             bytes,
-        })))
+        }))
     }
 
     async fn load_audio(&mut self, path: &str) -> Result<u32> {
         let (resolved_path, bytes) = self.read_asset_bytes(path).await?;
         self.loaded_asset_paths
             .push(resolved_path.to_string_lossy().to_string());
-        Ok(self.insert_asset(Box::new(LoadedAudioAsset {
+        Ok(self.insert_asset(LoadedAsset::Audio {
             path: resolved_path.to_string_lossy().to_string(),
             bytes,
-        })))
+        }))
     }
 
     async fn unload_asset(&mut self, asset_id: u32) -> Result<()> {
@@ -967,10 +949,8 @@ impl AssetSubsystem for DefaultAssetSubsystem {
         Ok(())
     }
 
-    fn get_asset(&self, asset_id: u32) -> Option<&dyn Any> {
-        self.assets
-            .get(&asset_id)
-            .map(|asset| asset.as_ref() as &dyn Any)
+    fn get_asset(&self, asset_id: u32) -> Option<&LoadedAsset> {
+        self.assets.get(&asset_id)
     }
 
     async fn preload_assets(&mut self, asset_list: &[&str]) -> Result<()> {
@@ -1643,12 +1623,10 @@ mod tests {
         asset.init().await.unwrap();
 
         let texture_id = asset.load_texture("ui/texture.dds").await.unwrap();
-        let texture = asset
-            .get_asset(texture_id)
-            .and_then(|asset| asset.downcast_ref::<LoadedTextureAsset>())
-            .expect("expected texture asset");
-        assert_eq!(texture.path, first_asset.to_string_lossy());
-        assert_eq!(texture.bytes, b"first");
+        let texture = asset.get_asset(texture_id).expect("expected texture asset");
+        assert!(matches!(texture, LoadedAsset::Texture { .. }));
+        assert_eq!(texture.path(), first_asset.to_string_lossy());
+        assert_eq!(texture.bytes(), b"first");
         assert_eq!(
             asset.loaded_asset_paths(),
             &[first_asset.to_string_lossy().to_string()]
@@ -1666,6 +1644,62 @@ mod tests {
                 first_asset.to_string_lossy().to_string()
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn test_default_asset_subsystem_keeps_typed_assets_and_handle_lifecycle() {
+        let tempdir = tempdir().unwrap();
+        for (name, bytes) in [
+            ("texture.dds", b"texture".as_slice()),
+            ("model.w3d", b"model".as_slice()),
+            ("audio.wav", b"audio".as_slice()),
+        ] {
+            std::fs::write(tempdir.path().join(name), bytes).unwrap();
+        }
+
+        let mut assets = DefaultAssetSubsystem::new();
+        assets.set_search_paths([tempdir.path().to_path_buf()]);
+        assets.init().await.unwrap();
+
+        let texture_id = assets.load_texture("texture.dds").await.unwrap();
+        assert!(assets.load_model("missing.w3d").await.is_err());
+        let model_id = assets.load_model("model.w3d").await.unwrap();
+        let audio_id = assets.load_audio("audio.wav").await.unwrap();
+        assert_eq!([texture_id, model_id, audio_id], [1, 2, 3]);
+
+        let texture = assets.get_asset(texture_id).unwrap();
+        assert_eq!(texture.bytes(), b"texture");
+        assert_eq!(
+            texture.path(),
+            tempdir.path().join("texture.dds").to_string_lossy()
+        );
+        assert!(matches!(texture, LoadedAsset::Texture { .. }));
+        assert!(matches!(
+            assets.get_asset(model_id),
+            Some(LoadedAsset::Model { .. })
+        ));
+        assert!(matches!(
+            assets.get_asset(audio_id),
+            Some(LoadedAsset::Audio { .. })
+        ));
+        let trait_view: &dyn AssetSubsystem = &assets;
+        assert!(matches!(
+            trait_view.get_asset(model_id),
+            Some(LoadedAsset::Model { .. })
+        ));
+        assert_eq!(assets.get_asset(model_id).unwrap().bytes(), b"model");
+        assert_eq!(assets.get_asset(audio_id).unwrap().bytes(), b"audio");
+
+        assets.unload_asset(model_id).await.unwrap();
+        assert!(assets.get_asset(model_id).is_none());
+        assert!(assets.get_asset(texture_id).is_some());
+        assert!(assets.get_asset(audio_id).is_some());
+
+        assets.shutdown().await.unwrap();
+        assert!(assets.get_asset(texture_id).is_none());
+        assert!(assets.get_asset(audio_id).is_none());
+        assert!(!assets.is_initialized());
+        assert_eq!(assets.load_texture("texture.dds").await.unwrap(), 4);
     }
 
     #[tokio::test]

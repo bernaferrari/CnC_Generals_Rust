@@ -115,10 +115,7 @@ pub struct DrawableState {
     pub expiration_frame: Option<UnsignedInt>,
 }
 
-fn laser_width_scalar(
-    growth_frames: Option<i32>,
-    growth_start: Option<UnsignedInt>,
-) -> Real {
+fn laser_width_scalar(growth_frames: Option<i32>, growth_start: Option<UnsignedInt>) -> Real {
     let Some(frames) = growth_frames else {
         return 1.0;
     };
@@ -139,9 +136,6 @@ fn laser_width_scalar(
     }
 }
 
-static DRAWABLE_STATE: Lazy<Mutex<HashMap<u32, DrawableState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
 /// Per-object bridge state for one logic drawable frame.
 ///
 /// This is intentionally separate from `DRAWABLE_STATE`, which is keyed by a
@@ -149,14 +143,11 @@ static DRAWABLE_STATE: Lazy<Mutex<HashMap<u32, DrawableState>>> =
 /// binds them by pointer; collapsing them made normal W3D output disappear or
 /// attach to a different object whenever the two counters diverged.
 #[derive(Default)]
-struct ObjectModelDrawFrameState {
+pub(crate) struct ObjectModelDrawFrameState {
     active_source: Option<ModelDrawSourceIdentity>,
     active: Option<ModelDrawState>,
     committed: Vec<ModelDrawState>,
 }
-
-static OBJECT_MODEL_DRAW_FRAMES: Lazy<Mutex<HashMap<ObjectID, ObjectModelDrawFrameState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// C++ `TWheelInfo` subset used by W3DTruckDraw bone placement.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -169,9 +160,6 @@ pub struct DrawWheelInfo {
     /// C++ `TWheelInfo::m_framesAirborne`.
     pub frames_airborne: i32,
 }
-
-static OBJECT_WHEEL_INFO: Lazy<Mutex<HashMap<ObjectID, DrawWheelInfo>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Persistent point light (C++ `W3DDynamicLight` used by police cars).
 #[derive(Clone, Debug)]
@@ -186,14 +174,138 @@ pub struct ScenePointLight {
     pub fade_remaining: u32,
 }
 
-static SCENE_POINT_LIGHTS: Lazy<Mutex<HashMap<u64, ScenePointLight>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static NEXT_SCENE_POINT_LIGHT: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(1);
+/// Presentation data associated with one GameLogic world. C++ stores its
+/// Drawable list on GameClient and W3D lights in draw modules. These bridge
+/// maps belong to the world bundle so a staged restore cannot mutate the
+/// still-playable world or leak records into the next match.
+pub(crate) struct ClientVisualState {
+    pub(crate) drawables: Mutex<HashMap<u32, DrawableState>>,
+    pub(crate) model_draw_frames: Mutex<HashMap<ObjectID, ObjectModelDrawFrameState>>,
+    pub(crate) wheel_info: Mutex<HashMap<ObjectID, DrawWheelInfo>>,
+    pub(crate) point_lights: Mutex<HashMap<u64, ScenePointLight>>,
+    pub(crate) next_point_light: std::sync::atomic::AtomicU64,
+    pub(crate) terrain_trees: Mutex<HashMap<u32, TerrainTreeRegistration>>,
+    pub(crate) weapon_recoils: Mutex<Vec<(ObjectID, f32, f32)>>,
+}
+
+impl Default for ClientVisualState {
+    fn default() -> Self {
+        Self {
+            drawables: Mutex::new(HashMap::new()),
+            model_draw_frames: Mutex::new(HashMap::new()),
+            wheel_info: Mutex::new(HashMap::new()),
+            point_lights: Mutex::new(HashMap::new()),
+            next_point_light: std::sync::atomic::AtomicU64::new(1),
+            terrain_trees: Mutex::new(HashMap::new()),
+            weapon_recoils: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+/// A captured world for presentation reads and save/load handoff. Constructing
+/// this handle never publishes a world; the caller chooses its owner explicitly.
+#[derive(Clone)]
+pub struct ClientVisualHandle {
+    stores: Arc<crate::system::engine_stores::EngineStores>,
+}
+
+impl ClientVisualHandle {
+    pub fn new(stores: Arc<crate::system::engine_stores::EngineStores>) -> Self {
+        Self { stores }
+    }
+
+    pub fn snapshot_objectless_drawables(&self) -> Vec<(u32, DrawableState)> {
+        let Ok(map) = self.stores.client_visuals().drawables.lock() else {
+            return Vec::new();
+        };
+        let mut entries: Vec<(u32, DrawableState)> = map
+            .iter()
+            .filter_map(|(id, state)| {
+                let bound = state
+                    .drawable
+                    .as_ref()
+                    .and_then(|drawable| drawable.read().ok())
+                    .map(|guard| guard.get_object_id())
+                    .unwrap_or(INVALID_ID);
+                if bound != INVALID_ID && bound != 0 {
+                    return None;
+                }
+                Some((*id, state.clone()))
+            })
+            .collect();
+        entries.sort_by_key(|(id, _)| *id);
+        entries
+    }
+
+    /// Save restore still creates authored DrawModules through the legacy
+    /// client façade. Pin its existing lookup to this captured world for the
+    /// synchronous operation; the explicit handle migration continues in
+    /// hq-w5bdv as module constructors gain world parameters.
+    pub fn restore_objectless_drawable(&self, saved_id: u32, state: &DrawableState) {
+        crate::system::engine_stores::with_active_stores(&self.stores, || {
+            if let Some(client) = TheGameClient::get() {
+                client.restore_objectless_drawable(saved_id, state);
+            }
+        });
+    }
+
+    pub fn take_weapon_recoils(&self) -> Vec<(ObjectID, f32, f32)> {
+        std::mem::take(
+            &mut *self
+                .stores
+                .client_visuals()
+                .weapon_recoils
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()),
+        )
+    }
+
+    /// Clear the presentation bridge for this world after its GameClient
+    /// drawables have been destroyed. Save/load can stage another world in
+    /// the active slot, so reset must use the owner captured by the engine.
+    pub fn clear_visual_state_for_reset(&self) {
+        let visuals = self.stores.client_visuals();
+        let drawables =
+            std::mem::take(&mut *visuals.drawables.lock().unwrap_or_else(|p| p.into_inner()));
+        visuals
+            .model_draw_frames
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        visuals
+            .wheel_info
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        visuals
+            .point_lights
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        visuals
+            .next_point_light
+            .store(1, std::sync::atomic::Ordering::Relaxed);
+        visuals
+            .terrain_trees
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        visuals
+            .weapon_recoils
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        drop(drawables);
+    }
+}
 
 pub fn create_scene_point_light() -> u64 {
-    let id = NEXT_SCENE_POINT_LIGHT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+    let stores = crate::system::engine_stores::active();
+    let visuals = stores.client_visuals();
+    let id = visuals
+        .next_point_light
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut lights) = visuals.point_lights.lock() {
         lights.insert(
             id,
             ScenePointLight {
@@ -219,7 +331,9 @@ pub fn update_scene_point_light(
     far_start: f32,
     far_end: f32,
 ) {
-    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+    let stores = crate::system::engine_stores::active();
+    let visuals = stores.client_visuals();
+    if let Ok(mut lights) = visuals.point_lights.lock() {
         if let Some(light) = lights.get_mut(&id) {
             light.pos = pos;
             light.ambient = ambient;
@@ -232,7 +346,9 @@ pub fn update_scene_point_light(
 }
 
 pub fn fade_scene_point_light(id: u64, frames: u32) {
-    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+    let stores = crate::system::engine_stores::active();
+    let visuals = stores.client_visuals();
+    if let Ok(mut lights) = visuals.point_lights.lock() {
         if let Some(light) = lights.get_mut(&id) {
             light.fade_remaining = frames.max(1);
         }
@@ -240,7 +356,9 @@ pub fn fade_scene_point_light(id: u64, frames: u32) {
 }
 
 pub fn tick_scene_point_lights() {
-    if let Ok(mut lights) = SCENE_POINT_LIGHTS.lock() {
+    let stores = crate::system::engine_stores::active();
+    let visuals = stores.client_visuals();
+    if let Ok(mut lights) = visuals.point_lights.lock() {
         let mut dead = Vec::new();
         for light in lights.values_mut() {
             if light.fade_remaining == 0 {
@@ -271,14 +389,14 @@ pub fn tick_scene_point_lights() {
 }
 
 pub fn scene_point_lights() -> Vec<ScenePointLight> {
-    SCENE_POINT_LIGHTS
+    let stores = crate::system::engine_stores::active();
+    let visuals = stores.client_visuals();
+    visuals
+        .point_lights
         .lock()
         .map(|lights| lights.values().filter(|l| l.enabled).cloned().collect())
         .unwrap_or_default()
 }
-
-pub static TERRAIN_TREE_STATE: Lazy<Mutex<HashMap<u32, TerrainTreeRegistration>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Bridge trait for camera view operations.
 ///
@@ -358,12 +476,6 @@ pub fn get_camera_view_bridge() -> Option<&'static Arc<dyn CameraViewBridge>> {
     CAMERA_VIEW_BRIDGE.get()
 }
 
-fn weapon_recoil_queue() -> &'static std::sync::Mutex<Vec<(ObjectID, f32, f32)>> {
-    static QUEUE: std::sync::OnceLock<std::sync::Mutex<Vec<(ObjectID, f32, f32)>>> =
-        std::sync::OnceLock::new();
-    QUEUE.get_or_init(|| std::sync::Mutex::new(Vec::new()))
-}
-
 /// Game client bridge for drawables/scorch marks and visual effects
 pub struct TheGameClient;
 
@@ -394,21 +506,20 @@ impl TheGameClient {
     }
 
     pub fn note_weapon_recoil(&self, object_id: ObjectID, amount: f32, aim_angle: f32) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if amount == 0.0 {
             return;
         }
-        weapon_recoil_queue()
+        visuals
+            .weapon_recoils
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .push((object_id, amount, aim_angle));
     }
 
     pub fn take_weapon_recoils(&self) -> Vec<(ObjectID, f32, f32)> {
-        std::mem::take(
-            &mut *weapon_recoil_queue()
-                .lock()
-                .unwrap_or_else(|p| p.into_inner()),
-        )
+        ClientVisualHandle::new(crate::system::engine_stores::active()).take_weapon_recoils()
     }
 
     pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {
@@ -439,9 +550,7 @@ impl TheGameClient {
         }
     }
     /// C++ `W3DGameClient::createRayEffectByTemplate` visuals from W3DLaserDraw.
-    pub fn ray_effect_template_visuals(
-        template_name: &str,
-    ) -> Option<RayEffectTemplateVisuals> {
+    pub fn ray_effect_template_visuals(template_name: &str) -> Option<RayEffectTemplateVisuals> {
         let template = TheThingFactory::find_template(template_name)?;
         laser_visuals_from_thing_template(template.as_ref())
     }
@@ -469,6 +578,8 @@ impl TheGameClient {
     }
 
     pub fn create_drawable(&self, template: &dyn crate::common::ThingTemplate) -> u32 {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         let id = Drawable::allocate_drawable_id();
         let beam_width = template
             .as_any()
@@ -576,7 +687,7 @@ impl TheGameClient {
                 }
             }
         }
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let mut map = visuals.drawables.lock().unwrap();
         map.insert(
             id,
             DrawableState {
@@ -647,7 +758,9 @@ fn laser_visuals_from_thing_template(
 
 impl TheGameClient {
     pub fn destroy_drawable(&self, id: u32) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         let removed_drawable = map
             .remove(&id)
             .and_then(|state| state.drawable)
@@ -658,7 +771,7 @@ impl TheGameClient {
             self.clear_object_model_draws(object_id);
         }
 
-        let mut tree_map = TERRAIN_TREE_STATE.lock().unwrap();
+        let mut tree_map = visuals.terrain_trees.lock().unwrap();
         let removed = tree_map.remove(&id).is_some();
         drop(tree_map);
 
@@ -670,7 +783,9 @@ impl TheGameClient {
     }
 
     pub fn set_drawable_indicator_color(&self, id: u32, color: Color) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.indicator_color = color;
             if let Some(drawable) = state.drawable.as_ref() {
@@ -682,7 +797,9 @@ impl TheGameClient {
     }
 
     pub fn set_drawable_position(&self, id: u32, position: &Coord3D) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.position = *position;
             if let Some(drawable) = state.drawable.as_ref() {
@@ -694,7 +811,9 @@ impl TheGameClient {
     }
 
     pub fn set_drawable_orientation(&self, id: u32, orientation: Real) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.orientation = orientation;
             if let Some(drawable) = state.drawable.as_ref() {
@@ -713,7 +832,9 @@ impl TheGameClient {
     }
 
     pub fn set_drawable_hidden(&self, id: u32, hidden: bool) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             if let Some(drawable) = state.drawable.as_ref() {
                 if let Ok(mut guard) = drawable.write() {
@@ -724,14 +845,18 @@ impl TheGameClient {
     }
 
     pub fn set_drawable_shroud_status_object_id(&self, id: u32, object_id: ObjectID) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.shroud_status_object_id = object_id;
         }
     }
 
     pub fn set_drawable_beam(&self, id: u32, start: &Coord3D, end: &Coord3D) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.beam_start = Some(*start);
             state.beam_end = Some(*end);
@@ -739,15 +864,11 @@ impl TheGameClient {
     }
 
     /// C++ `LaserUpdate::initLaser` on the drawable ClientUpdate module.
-    pub fn init_drawable_laser(
-        &self,
-        id: u32,
-        start: &Coord3D,
-        end: &Coord3D,
-        growth_frames: i32,
-    ) {
+    pub fn init_drawable_laser(&self, id: u32, start: &Coord3D, end: &Coord3D, growth_frames: i32) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         {
-            let mut map = DRAWABLE_STATE.lock().unwrap();
+            let mut map = visuals.drawables.lock().unwrap();
             if let Some(state) = map.get_mut(&id) {
                 state.beam_start = Some(*start);
                 state.beam_end = Some(*end);
@@ -799,8 +920,10 @@ impl TheGameClient {
 
     /// C++ `LaserUpdate::getCurrentLaserRadius`.
     pub fn get_current_laser_radius(&self, id: u32) -> Option<Real> {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         let (template_width, growth_frames, growth_start) = {
-            let map = DRAWABLE_STATE.lock().ok()?;
+            let map = visuals.drawables.lock().ok()?;
             let state = map.get(&id)?;
             (
                 state.beam_width.unwrap_or(1.0),
@@ -840,7 +963,9 @@ impl TheGameClient {
         tile_factor: Real,
         scroll_rate: Real,
     ) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.projectile_stream = Some(ProjectileStreamState {
                 lines,
@@ -853,7 +978,9 @@ impl TheGameClient {
     }
 
     pub fn get_drawable_projectile_stream(&self, id: u32) -> Option<ProjectileStreamState> {
-        let map = DRAWABLE_STATE.lock().ok()?;
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let map = visuals.drawables.lock().ok()?;
         map.get(&id)
             .and_then(|state| state.projectile_stream.clone())
     }
@@ -864,11 +991,13 @@ impl TheGameClient {
     /// in `Drawable::draw`, so stale model output cannot survive a hidden,
     /// stealth, or shroud-suppressed frame.
     pub fn begin_object_model_draw_frame(&self, object_id: ObjectID) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return;
         }
 
-        let mut frames = OBJECT_MODEL_DRAW_FRAMES.lock().unwrap();
+        let mut frames = visuals.model_draw_frames.lock().unwrap();
         let frame = frames.entry(object_id).or_default();
         frame.active_source = None;
         frame.active = None;
@@ -884,11 +1013,13 @@ impl TheGameClient {
         object_id: ObjectID,
         source: ModelDrawSourceIdentity,
     ) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return;
         }
 
-        let mut frames = OBJECT_MODEL_DRAW_FRAMES.lock().unwrap();
+        let mut frames = visuals.model_draw_frames.lock().unwrap();
         let frame = frames.entry(object_id).or_default();
         frame.active_source = Some(source);
         frame.active = None;
@@ -898,11 +1029,13 @@ impl TheGameClient {
     /// Results without an enclosing `begin_active_object_model_draw` are
     /// discarded rather than creating an unbound, guessed association.
     pub fn set_active_object_model_draw(&self, object_id: ObjectID, model_draw: ModelDrawState) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return;
         }
 
-        let mut frames = OBJECT_MODEL_DRAW_FRAMES.lock().unwrap();
+        let mut frames = visuals.model_draw_frames.lock().unwrap();
         let Some(frame) = frames.get_mut(&object_id) else {
             return;
         };
@@ -919,29 +1052,36 @@ impl TheGameClient {
         object_id: ObjectID,
         func: impl FnOnce(&mut ModelDrawState) -> R,
     ) -> Option<R> {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return None;
         }
 
-        let mut frames = OBJECT_MODEL_DRAW_FRAMES.lock().ok()?;
+        let mut frames = visuals.model_draw_frames.lock().ok()?;
         let frame = frames.get_mut(&object_id)?;
         frame.active.as_mut().map(func)
     }
 
     pub fn set_object_wheel_info(&self, object_id: ObjectID, info: DrawWheelInfo) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return;
         }
-        if let Ok(mut map) = OBJECT_WHEEL_INFO.lock() {
+        if let Ok(mut map) = visuals.wheel_info.lock() {
             map.insert(object_id, info);
         }
     }
 
     pub fn get_object_wheel_info(&self, object_id: ObjectID) -> Option<DrawWheelInfo> {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return None;
         }
-        OBJECT_WHEEL_INFO
+        visuals
+            .wheel_info
             .lock()
             .ok()
             .and_then(|map| map.get(&object_id).copied())
@@ -949,11 +1089,13 @@ impl TheGameClient {
 
     /// Commit the active output after its enclosing draw module completes.
     pub fn commit_active_object_model_draw(&self, object_id: ObjectID, logic_drawable_id: u32) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return;
         }
 
-        let mut frames = OBJECT_MODEL_DRAW_FRAMES.lock().unwrap();
+        let mut frames = visuals.model_draw_frames.lock().unwrap();
         let Some(frame) = frames.get_mut(&object_id) else {
             return;
         };
@@ -969,11 +1111,14 @@ impl TheGameClient {
     /// Read the complete ordered W3D model output for a gameplay object.
     /// The client `DrawableID` map is intentionally not consulted here.
     pub fn object_model_draws(&self, object_id: ObjectID) -> Vec<ModelDrawState> {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id == INVALID_ID {
             return Vec::new();
         }
 
-        OBJECT_MODEL_DRAW_FRAMES
+        visuals
+            .model_draw_frames
             .lock()
             .ok()
             .and_then(|frames| frames.get(&object_id).map(|frame| frame.committed.clone()))
@@ -1038,24 +1183,32 @@ impl TheGameClient {
     /// or rebound.  This is separate from `destroy_drawable`, because a
     /// DrawableID is not an ObjectID.
     pub fn clear_object_model_draws(&self, object_id: ObjectID) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if object_id != INVALID_ID {
-            OBJECT_MODEL_DRAW_FRAMES.lock().unwrap().remove(&object_id);
+            visuals.model_draw_frames.lock().unwrap().remove(&object_id);
         }
     }
 
     pub fn find_drawable_by_id(&self, id: u32) -> Option<DrawableState> {
-        let map = DRAWABLE_STATE.lock().ok()?;
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let map = visuals.drawables.lock().ok()?;
         map.get(&id).cloned()
     }
 
     /// Wave 1006: dual-world residual — count of host drawable state entries.
     pub fn drawable_count(&self) -> usize {
-        DRAWABLE_STATE.lock().ok().map(|m| m.len()).unwrap_or(0)
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        visuals.drawables.lock().ok().map(|m| m.len()).unwrap_or(0)
     }
 
-    /// Client-only drawables (RallyPointMarker) keyed by leftover DRAWABLE_STATE.
+    /// Client-only drawables (RallyPointMarker) keyed by leftover drawable state.
     pub fn leftover_drawables_named(&self, template: &str) -> Vec<(u32, DrawableState)> {
-        let Ok(map) = DRAWABLE_STATE.lock() else {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let Ok(map) = visuals.drawables.lock() else {
             return Vec::new();
         };
         map.iter()
@@ -1068,26 +1221,8 @@ impl TheGameClient {
     /// PUC beams, jet lock-on, Chinook ropes, prison visuals, and FX tracers
     /// live here rather than on a host Object.
     pub fn snapshot_objectless_drawables(&self) -> Vec<(u32, DrawableState)> {
-        let Ok(map) = DRAWABLE_STATE.lock() else {
-            return Vec::new();
-        };
-        let mut entries: Vec<(u32, DrawableState)> = map
-            .iter()
-            .filter_map(|(id, state)| {
-                let bound = state
-                    .drawable
-                    .as_ref()
-                    .and_then(|drawable| drawable.read().ok())
-                    .map(|guard| guard.get_object_id())
-                    .unwrap_or(INVALID_ID);
-                if bound != INVALID_ID && bound != 0 {
-                    return None;
-                }
-                Some((*id, state.clone()))
-            })
-            .collect();
-        entries.sort_by_key(|(id, _)| *id);
-        entries
+        ClientVisualHandle::new(crate::system::engine_stores::active())
+            .snapshot_objectless_drawables()
     }
 
     /// Drop objectless DRAWABLE_STATE rows so load can replace the C++ list.
@@ -1103,10 +1238,12 @@ impl TheGameClient {
     }
 
     fn rekey_drawable(&self, from: u32, to: u32) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if from == to || to == 0 {
             return;
         }
-        let Ok(mut map) = DRAWABLE_STATE.lock() else {
+        let Ok(mut map) = visuals.drawables.lock() else {
             return;
         };
         let Some(mut state) = map.remove(&from) else {
@@ -1172,26 +1309,31 @@ impl TheGameClient {
         }
     }
 
-
     pub fn get_drawable_beam_width(&self, id: u32) -> Option<Real> {
-        let map = DRAWABLE_STATE.lock().ok()?;
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let map = visuals.drawables.lock().ok()?;
         map.get(&id).and_then(|state| state.beam_width)
     }
 
     pub fn get_drawable_arc(&self, id: u32) -> Option<Arc<RwLock<Drawable>>> {
-        let map = DRAWABLE_STATE.lock().ok()?;
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let map = visuals.drawables.lock().ok()?;
         map.get(&id)
             .and_then(|state| state.drawable.as_ref().cloned())
     }
 
     #[cfg(test)]
     pub(crate) fn register_drawable_arc_for_test(&self, id: u32, drawable: Arc<RwLock<Drawable>>) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         let position = drawable
             .read()
             .ok()
             .map(|guard| guard.get_position())
             .unwrap_or(Coord3D::ZERO);
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let mut map = visuals.drawables.lock().unwrap();
         map.insert(
             id,
             DrawableState {
@@ -1217,10 +1359,12 @@ impl TheGameClient {
     /// a caller already holding the drawable write lock (set_transform) can
     /// still fall back to the last bridged DRAWABLE_STATE pose.
     pub fn drawable_pose_for_tree(&self, id: u32) -> Option<(Coord3D, Real, Real)> {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if id == INVALID_ID {
             return None;
         }
-        let map = DRAWABLE_STATE.lock().ok()?;
+        let map = visuals.drawables.lock().ok()?;
         let state = map.get(&id)?;
         if let Some(drawable) = state.drawable.as_ref() {
             if let Ok(guard) = drawable.try_read() {
@@ -1242,7 +1386,9 @@ impl TheGameClient {
         position: Coord3D,
         orientation: Real,
     ) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.position = position;
             state.orientation = orientation;
@@ -1269,14 +1415,18 @@ impl TheGameClient {
     }
 
     pub fn set_drawable_expiration_date(&self, id: u32, frame: UnsignedInt) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {
             state.expiration_frame = Some(frame);
         }
     }
 
     pub fn update_drawables(&self, frame: UnsignedInt) {
-        let mut map = DRAWABLE_STATE.lock().unwrap();
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let mut map = visuals.drawables.lock().unwrap();
         let expired: Vec<u32> = map
             .iter()
             .filter_map(|(id, state)| {
@@ -1292,7 +1442,7 @@ impl TheGameClient {
         for id in expired {
             map.remove(&id);
             let removed_tree = {
-                let mut tree_map = TERRAIN_TREE_STATE.lock().unwrap();
+                let mut tree_map = visuals.terrain_trees.lock().unwrap();
                 tree_map.remove(&id).is_some()
             };
             if removed_tree {
@@ -1326,6 +1476,8 @@ impl TheGameClient {
         random_scale_amount: Real,
         module_data: &W3DTreeDrawModuleData,
     ) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if drawable_id == INVALID_ID {
             return;
         }
@@ -1339,7 +1491,7 @@ impl TheGameClient {
             module_data: module_data.clone(),
         };
 
-        let mut tree_map = TERRAIN_TREE_STATE.lock().unwrap();
+        let mut tree_map = visuals.terrain_trees.lock().unwrap();
         tree_map.insert(drawable_id, registration.clone());
         drop(tree_map);
 
@@ -1349,11 +1501,13 @@ impl TheGameClient {
     }
 
     pub fn remove_tree(&self, drawable_id: u32) {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         if drawable_id == INVALID_ID {
             return;
         }
 
-        if let Ok(mut tree_map) = TERRAIN_TREE_STATE.lock() {
+        if let Ok(mut tree_map) = visuals.terrain_trees.lock() {
             tree_map.remove(&drawable_id);
         }
 
@@ -1363,7 +1517,9 @@ impl TheGameClient {
     }
 
     pub fn get_registered_tree(&self, drawable_id: u32) -> Option<TerrainTreeRegistration> {
-        let tree_map = TERRAIN_TREE_STATE.lock().ok()?;
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
+        let tree_map = visuals.terrain_trees.lock().ok()?;
         tree_map.get(&drawable_id).cloned()
     }
 }
@@ -1402,6 +1558,8 @@ mod model_draw_bridge_tests {
 
     #[test]
     fn object_keyed_model_draw_state_never_conflates_drawable_id() {
+        let stores = crate::system::engine_stores::active();
+        let visuals = stores.client_visuals();
         let client = TheGameClient::get().expect("game-client bridge");
         let object_id = 9_010_001;
         let unrelated_client_drawable_id = 42;
@@ -1418,7 +1576,8 @@ mod model_draw_bridge_tests {
         assert_eq!(committed[0].logic_drawable_id, 777);
         assert_eq!(committed[0].source.runtime_draw_ordinal, 0);
         assert!(
-            DRAWABLE_STATE
+            visuals
+                .drawables
                 .lock()
                 .expect("drawable state")
                 .get(&unrelated_client_drawable_id)
