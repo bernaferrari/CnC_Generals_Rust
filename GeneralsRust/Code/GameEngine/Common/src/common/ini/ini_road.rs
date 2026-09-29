@@ -590,7 +590,9 @@ impl TerrainRoadCollection {
             bridges: HashMap::new(),
             road_order: Vec::new(),
             bridge_order: Vec::new(),
-            id_counter: 0,
+            // TerrainRoads.cpp:219: "MUST start this at 1". Map road objects
+            // serialize these IDs, so zero shifts every authored road type.
+            id_counter: 1,
         }
     }
 
@@ -880,6 +882,8 @@ mod tests {
         assert!(collection.find_bridge("Bridge1").is_some());
         assert!(collection.find_road("Bridge1").is_none());
         assert!(collection.find_bridge("Road1").is_none());
+        assert_eq!(collection.find_road("Road1").unwrap().id, 1);
+        assert_eq!(collection.find_bridge("Bridge1").unwrap().id, 2);
     }
 
     #[test]

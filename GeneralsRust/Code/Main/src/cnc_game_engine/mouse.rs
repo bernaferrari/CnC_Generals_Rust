@@ -738,8 +738,12 @@ pub(super) fn unproject_mouse_ray(
 ) -> Option<(Vec3, Vec3)> {
     let width = viewport_width.max(1.0);
     let height = viewport_height.max(1.0);
-    let ndc_x = (mouse_position.0 / width).clamp(0.0, 1.0) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (mouse_position.1 / height).clamp(0.0, 1.0) * 2.0;
+    // C++ W3DView::getPickRay passes the raw pixel through
+    // PixelScreenToW3DLogicalScreen, including pixels beyond the view edge.
+    // Clamping here made captured drags and see-through UI pick along the
+    // tactical border rather than along the cursor's actual ray.
+    let ndc_x = mouse_position.0 / width * 2.0 - 1.0;
+    let ndc_y = 1.0 - mouse_position.1 / height * 2.0;
     let inverse = (projection_matrix * view_matrix).inverse();
     if !inverse.is_finite() {
         return None;

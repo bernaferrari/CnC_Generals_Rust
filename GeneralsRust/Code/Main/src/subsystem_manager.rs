@@ -186,6 +186,14 @@ impl SubsystemInterface for FileSystemSubsystem {
             search_paths.push(cwd.join("windows_game/Command & Conquer Generals/Data"));
         }
 
+        // GameClient terrain, skybox, and Roads.ini texture loaders open via
+        // the shared Common FileSystem. Give its BIG backend the same base
+        // install roots as ArchiveFileSystem, which C++ Win32BIGFileSystem
+        // mounts after the Zero Hour archives (Win32BIGFileSystem.cpp:37-49).
+        // Otherwise AssetManager can see Textures.big while the renderer's
+        // FileSystem still reports TSMorning and road textures as missing.
+        search_paths.extend(crate::assets::archive::base_generals_mount_dirs());
+
         let mut deduped = Vec::new();
         let mut seen = HashSet::new();
         for path in search_paths {

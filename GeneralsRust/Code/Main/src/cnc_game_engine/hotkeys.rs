@@ -1666,6 +1666,46 @@ fn os_key_to_command_map_vk(
     use winit::keyboard::{Key, KeyCode, NamedKey, PhysicalKey};
     if let Some(PhysicalKey::Code(code)) = physical {
         let from_physical = match code {
+            // C++ KeyDefs.h maps KEY_A..KEY_Z and KEY_0..KEY_9 to
+            // DirectInput scan codes. Use the physical key for gameplay
+            // bindings even when the active keyboard layout types another
+            // character at that position.
+            KeyCode::KeyA => Some(b'A' as u32),
+            KeyCode::KeyB => Some(b'B' as u32),
+            KeyCode::KeyC => Some(b'C' as u32),
+            KeyCode::KeyD => Some(b'D' as u32),
+            KeyCode::KeyE => Some(b'E' as u32),
+            KeyCode::KeyF => Some(b'F' as u32),
+            KeyCode::KeyG => Some(b'G' as u32),
+            KeyCode::KeyH => Some(b'H' as u32),
+            KeyCode::KeyI => Some(b'I' as u32),
+            KeyCode::KeyJ => Some(b'J' as u32),
+            KeyCode::KeyK => Some(b'K' as u32),
+            KeyCode::KeyL => Some(b'L' as u32),
+            KeyCode::KeyM => Some(b'M' as u32),
+            KeyCode::KeyN => Some(b'N' as u32),
+            KeyCode::KeyO => Some(b'O' as u32),
+            KeyCode::KeyP => Some(b'P' as u32),
+            KeyCode::KeyQ => Some(b'Q' as u32),
+            KeyCode::KeyR => Some(b'R' as u32),
+            KeyCode::KeyS => Some(b'S' as u32),
+            KeyCode::KeyT => Some(b'T' as u32),
+            KeyCode::KeyU => Some(b'U' as u32),
+            KeyCode::KeyV => Some(b'V' as u32),
+            KeyCode::KeyW => Some(b'W' as u32),
+            KeyCode::KeyX => Some(b'X' as u32),
+            KeyCode::KeyY => Some(b'Y' as u32),
+            KeyCode::KeyZ => Some(b'Z' as u32),
+            KeyCode::Digit0 => Some(b'0' as u32),
+            KeyCode::Digit1 => Some(b'1' as u32),
+            KeyCode::Digit2 => Some(b'2' as u32),
+            KeyCode::Digit3 => Some(b'3' as u32),
+            KeyCode::Digit4 => Some(b'4' as u32),
+            KeyCode::Digit5 => Some(b'5' as u32),
+            KeyCode::Digit6 => Some(b'6' as u32),
+            KeyCode::Digit7 => Some(b'7' as u32),
+            KeyCode::Digit8 => Some(b'8' as u32),
+            KeyCode::Digit9 => Some(b'9' as u32),
             KeyCode::Numpad0 => Some(0x60),
             KeyCode::Numpad1 => Some(0x61),
             KeyCode::Numpad2 => Some(0x62),
@@ -1783,6 +1823,22 @@ mod tests {
         assert_eq!(
             os_key_to_command_map_vk(&Key::Character("[".into()), None),
             Some(0xDB)
+        );
+    }
+
+    #[test]
+    fn command_map_letters_follow_retail_physical_keys_across_layouts() {
+        let physical_a = PhysicalKey::Code(KeyCode::KeyA);
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character("q".into()), Some(&physical_a)),
+            Some(b'A' as u32),
+            "retail KEY_A is the physical DirectInput key, regardless of the typed character"
+        );
+        let physical_one = PhysicalKey::Code(KeyCode::Digit1);
+        assert_eq!(
+            os_key_to_command_map_vk(&Key::Character("&".into()), Some(&physical_one)),
+            Some(b'1' as u32),
+            "retail KEY_1 is the number-row scan code"
         );
     }
 

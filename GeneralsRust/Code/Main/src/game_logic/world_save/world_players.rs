@@ -11,6 +11,7 @@ impl GameLogic {
         let sync_started = Instant::now();
         let mut loader = LogicMapLoader::new();
         self.runtime_road_segments.clear();
+        self.runtime_water_triggers.clear();
         log::info!("Legacy runtime sync started for '{}'", map_path.display());
         if loader.load_runtime_support_from_bytes(map_bytes).is_err() {
             log::warn!(
@@ -189,6 +190,14 @@ impl GameLogic {
                     Vec::new()
                 }
             };
+        // Freeze the same authored polygons that C++ WaterRenderObjClass::renderWater
+        // traverses. Rendering must not depend on a later read of process-global
+        // TerrainLogic, which can be a different instance or unavailable.
+        self.runtime_water_triggers = polygon_triggers
+            .iter()
+            .filter(|trigger| trigger.is_water_area() && trigger.get_num_points() > 2)
+            .cloned()
+            .collect();
         super::script_loader::install_runtime_polygon_triggers(&polygon_triggers);
 
         report_progress(0.435, "Fast sync roads");

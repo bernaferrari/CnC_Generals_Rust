@@ -2,6 +2,76 @@
 use super::*;
 
 #[test]
+fn mouse_ray_extrapolates_beyond_viewport_like_cpp() {
+    // W3DConvert.cpp:75-76 converts the raw screen pixel, even when capture
+    // delivers coordinates outside the tactical view. A clamp would yield -1.
+    let (near, far) = unproject_mouse_ray(
+        glam::Mat4::IDENTITY,
+        glam::Mat4::IDENTITY,
+        (-64.0, 528.0),
+        640.0,
+        480.0,
+    )
+    .expect("finite ray outside viewport");
+    assert!((near.x - -1.2).abs() < 1.0e-6);
+    assert!((near.y - -1.2).abs() < 1.0e-6);
+    assert!((far.x - near.x).abs() < 1.0e-6);
+    assert!((far.y - near.y).abs() < 1.0e-6);
+}
+
+#[test]
+fn cursor_ray_uses_bridge_deck_above_terrain() {
+    let bridge = crate::presentation_frame::PresentationBridgeSegment {
+        start: [0.0, 20.0, 0.0],
+        end: [100.0, 30.0, 0.0],
+        width: 20.0,
+        template_name: "TestBridge".into(),
+    };
+    let bridges = [bridge];
+    let near = Vec3::new(50.0, 100.0, 0.0);
+    let far = Vec3::new(50.0, -100.0, 0.0);
+    let deck = super::world_pick::raycast_frozen_bridge(near, far, &bridges)
+        .expect("ray crosses bridge footprint");
+    assert!((deck.y - 25.0).abs() < 1.0e-4);
+    assert_eq!(
+        super::world_pick::higher_bridge_or_terrain(Some(Vec3::new(50.0, 0.0, 0.0)), Some(deck)),
+        Some(deck)
+    );
+    assert!(
+        super::world_pick::raycast_frozen_bridge(
+            Vec3::new(50.0, 100.0, 11.0),
+            Vec3::new(50.0, -100.0, 11.0),
+            &bridges,
+        )
+        .is_none(),
+        "a ray outside half-width must keep the terrain hit"
+    );
+    assert_eq!(
+        super::world_pick::higher_bridge_or_terrain(Some(Vec3::new(50.0, 40.0, 0.0)), Some(deck)),
+        Some(Vec3::new(50.0, 40.0, 0.0)),
+        "C++ chooses bridge only when its hit is above terrain"
+    );
+}
+
+#[test]
+fn overlapping_bridge_pick_follows_cpp_reverse_map_order() {
+    let segment = |height| crate::presentation_frame::PresentationBridgeSegment {
+        start: [0.0, height, 0.0],
+        end: [100.0, height, 0.0],
+        width: 20.0,
+        template_name: "TestBridge".into(),
+    };
+    let bridges = [segment(30.0), segment(20.0)];
+    let hit = super::world_pick::raycast_frozen_bridge(
+        Vec3::new(50.0, 100.0, 0.0),
+        Vec3::new(50.0, -100.0, 0.0),
+        &bridges,
+    )
+    .expect("both bridge decks overlap the cursor ray");
+    assert!((hit.y - 20.0).abs() < 1.0e-4);
+}
+
+#[test]
 fn double_click_type_select_uses_os_pixel_slop() {
     let src = MOUSE_SOURCE;
     assert!(src.contains("is_os_style_double_click"));
@@ -606,7 +676,7 @@ fn wheel_zoom_stops_scroll_and_lmb_resets_group_tap() {
         .map(|i| &src[i..src.len().min(i + 700)])
         .expect("edge_allowed");
     assert!(
-        edge.contains("window.inner_size()") && edge.contains("win_h"),
+        edge.contains("render_surface_extent(&self.window)") && edge.contains("win_h"),
         "bottom edge-scroll must use Display height, not tactical 80%"
     );
     assert!(

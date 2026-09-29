@@ -44,6 +44,33 @@ fn apply_scripted_camera_constraint_widen(
     )
 }
 
+fn constrain_camera_target_to_map(
+    mut position: Vec3,
+    world_min: Vec3,
+    world_max: Vec3,
+    inset: f32,
+    scripted_widen: Option<(f32, f32, f32, f32)>,
+) -> Vec3 {
+    let (lo_x, hi_x, lo_z, hi_z) = apply_scripted_camera_constraint_widen(
+        world_min.x + inset,
+        world_max.x - inset,
+        world_min.z + inset,
+        world_max.z - inset,
+        scripted_widen,
+    );
+    position.x = if lo_x <= hi_x {
+        position.x.clamp(lo_x, hi_x)
+    } else {
+        (world_min.x + world_max.x) * 0.5
+    };
+    position.z = if lo_z <= hi_z {
+        position.z.clamp(lo_z, hi_z)
+    } else {
+        (world_min.z + world_max.z) * 0.5
+    };
+    position
+}
+
 fn shaker_hash_signed(seed: u32, elapsed_bits: u32, axis: u32, pass: u32) -> f32 {
     let mut x = seed
         ^ elapsed_bits.wrapping_mul(0x9E37_79B9)
@@ -797,6 +824,15 @@ impl CnCGameEngine {
             );
         self.sync_orbit_from_camera_transform();
         self.snap_camera_to_local_units_if_needed();
+        // W3DView::setCameraTransform calculates camera constraints when
+        // lookAt/setZoomToDefault builds the initial pose. The match camera
+        // must apply that same viewport inset before its first player scroll.
+        self.apply_camera_orbit_transform();
+        let clamped_target = self.clamp_to_world_bounds(self.camera_target);
+        if clamped_target != self.camera_target {
+            self.camera_target = clamped_target;
+            self.apply_camera_orbit_transform();
+        }
     }
 
     /// Prefer a local base focus for the match camera when bootstrap aim is far
@@ -1074,6 +1110,18 @@ impl CnCGameEngine {
                     );
                 }
             }
+        }
+
+        // C++ WaterRenderObjClass::renderWater traverses the map's authored
+        // PolygonTrigger water areas. This runs after both hint and frozen
+        // runtime-heightmap hydration, including rematch and save restore.
+        if let Some((areas, gpu_meshes)) =
+            render_pipeline.sync_map_water_areas_from_presentation()
+        {
+            info!(
+                "Installed authored map water: areas={} gpu_meshes={}",
+                areas, gpu_meshes
+            );
         }
 
         // C++ W3DRadar.cpp:977-993 builds the radar terrain texture at newMap
@@ -2082,38 +2130,25 @@ impl CnCGameEngine {
         }
     }
 
-    pub(super) fn clamp_to_world_bounds(&self, mut position: Vec3) -> Vec3 {
+    pub(super) fn clamp_to_world_bounds(&self, position: Vec3) -> Vec3 {
         // Wave 461: presentation-first bounds via shared probe.
         let (world_min, world_max) = self.presentation_world_bounds();
-        let size = self.window.inner_size();
+        // W3DView::calcCameraConstraints casts through the tactical view,
+        // whose height excludes the control bar. Keep this viewport paired
+        // with the tactical projection matrix used for the pick rays.
         let inset = w3d_camera_constraint_offset(
             self.view_matrix,
             self.projection_matrix,
-            (size.width as f32, size.height as f32),
+            self.tactical_viewport_size(),
             position.y,
         );
-        let lo_x = world_min.x + inset;
-        let hi_x = world_max.x - inset;
-        let lo_z = world_min.z + inset;
-        let hi_z = world_max.z - inset;
-        let (lo_x, hi_x, lo_z, hi_z) = apply_scripted_camera_constraint_widen(
-            lo_x,
-            hi_x,
-            lo_z,
-            hi_z,
+        constrain_camera_target_to_map(
+            position,
+            world_min,
+            world_max,
+            inset,
             self.scripted_camera_constraint_widen,
-        );
-        if lo_x <= hi_x {
-            position.x = position.x.clamp(lo_x, hi_x);
-        } else {
-            position.x = (world_min.x + world_max.x) * 0.5;
-        }
-        if lo_z <= hi_z {
-            position.z = position.z.clamp(lo_z, hi_z);
-        } else {
-            position.z = (world_min.z + world_max.z) * 0.5;
-        }
-        position
+        )
     }
 
     pub(super) fn drain_renderer_attachments(&mut self) {
@@ -2522,6 +2557,26 @@ End
         assert!(
             doc.contains("never from `update_camera` during play"),
             "snap must stay match-start / origin-hitch only"
+        );
+    }
+
+    #[test]
+    fn initial_camera_target_near_map_edge_uses_w3d_viewport_inset() {
+        let world_min = Vec3::new(0.0, 0.0, 0.0);
+        let world_max = Vec3::new(3_500.0, 0.0, 3_500.0);
+        let target = Vec3::new(50.0, 12.5, 3_450.0);
+        let constrained =
+            constrain_camera_target_to_map(target, world_min, world_max, 200.0, None);
+        assert_eq!(constrained, Vec3::new(200.0, 12.5, 3_300.0));
+        assert_eq!(
+            constrain_camera_target_to_map(
+                Vec3::new(477.0, 12.5, 1_714.0),
+                world_min,
+                world_max,
+                200.0,
+                None,
+            ),
+            Vec3::new(477.0, 12.5, 1_714.0),
         );
     }
 

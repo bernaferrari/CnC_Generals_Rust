@@ -361,6 +361,30 @@ impl RenderPipeline {
         }
     }
 
+    /// Install C++ PolygonTrigger water after either heightmap load route.
+    /// Called for shell, new maps, and restore by sync_render_terrain_visual.
+    pub fn sync_map_water_areas_from_presentation(&self) -> Option<(usize, usize)> {
+        #[cfg(feature = "game_client")]
+        {
+            let pres = self.presentation_frame.as_ref()?;
+            let areas = pres
+                .world_env
+                .water_areas
+                .iter()
+                .map(|area| area.to_terrain_water_area())
+                .collect::<Vec<_>>();
+            let area_count = areas.len();
+            let mut guard = game_client::terrain::terrain_visual::get_terrain_visual().ok()?;
+            let visual = guard.as_mut()?;
+            visual.set_map_water_areas(areas);
+            Some((area_count, visual.polygon_water_mesh_count()))
+        }
+        #[cfg(not(feature = "game_client"))]
+        {
+            None
+        }
+    }
+
     /// Sync map roads/bridges into the terrain-road render path.
     /// Prefers frozen `PresentationWorldEnv` road/bridge segments when present.
     pub fn sync_runtime_map_roads(&mut self) -> Result<()> {

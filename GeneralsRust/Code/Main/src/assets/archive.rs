@@ -588,6 +588,50 @@ fn path_search_key(path: &Path) -> String {
         .to_ascii_lowercase()
 }
 
+/// Combined installers are often unpacked beneath a named Downloads wrapper.
+/// Probe only Generals-named directories, at a bounded depth, for the exact
+/// base-game install name. C++ obtains this directory from the registry;
+/// macOS and Linux have no equivalent registry entry.
+fn base_generals_dirs_in_downloads(downloads: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut frontier = vec![(downloads.to_path_buf(), 0usize)];
+    while let Some((parent, depth)) = frontier.pop() {
+        if depth >= 3 {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&parent) else {
+            continue;
+        };
+        let mut children: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_dir()
+                    && path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.to_ascii_lowercase().contains("generals"))
+            })
+            .collect();
+        children.sort_by_key(|path| path_search_key(path));
+        for child in children.into_iter().take(64) {
+            let name = child
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default();
+            if BASE_GENERALS_INSTALL_DIR_NAMES
+                .iter()
+                .any(|base| name.eq_ignore_ascii_case(base))
+            {
+                found.push(child);
+            } else {
+                frontier.push((child, depth + 1));
+            }
+        }
+    }
+    found
+}
+
 /// Probe locations for original-Generals `W3D.big` / `W3DEnglish.big`.
 /// Missing files stay in the list so a present install is still searched.
 fn base_generals_search_candidates() -> Vec<PathBuf> {
@@ -606,6 +650,13 @@ fn base_generals_search_candidates() -> Vec<PathBuf> {
                 push(path.clone());
                 push(path.join("Data"));
             }
+        }
+    }
+
+    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
+        for base in base_generals_dirs_in_downloads(&PathBuf::from(home).join("Downloads")) {
+            push(base.clone());
+            push(base.join("Data"));
         }
     }
 
@@ -663,7 +714,7 @@ fn is_base_generals_w3d_archive_name(name: &str) -> bool {
 
 /// Existing directories (and parents of present extract archives) safe to mount.
 /// Does not add loose `extracted_big_files/W3D` trees — those are not `.big`s.
-fn base_generals_mount_dirs() -> Vec<PathBuf> {
+pub(crate) fn base_generals_mount_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut push_dir = |path: PathBuf| {
@@ -1097,6 +1148,18 @@ mod tests {
             rendered.iter().any(|p| p == &base || p.starts_with(&base)),
             "GENERALS_BASE_DIR must be in the search"
         );
+    }
+
+    #[test]
+    fn discovers_base_archives_beneath_combined_download_wrapper() {
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp
+            .path()
+            .join("Command and Conquer Generals + Zero Hour (installer)")
+            .join("Command and Conquer Generals + Zero Hour")
+            .join("Command and Conquer Generals");
+        std::fs::create_dir_all(&base).unwrap();
+        assert!(base_generals_dirs_in_downloads(temp.path()).contains(&base));
     }
 
     #[test]

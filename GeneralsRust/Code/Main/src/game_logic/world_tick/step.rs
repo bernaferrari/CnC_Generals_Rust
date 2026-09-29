@@ -207,16 +207,15 @@ impl GameLogic {
         let mut steps_run = 0usize;
         let mut frozen_steps = 0usize;
         let mut budget_hit = false;
-        // Live catch-up clamp: the live path (max_fixed_steps = None) presents
-        // at a fixed cadence — C++ calls GameLogic::update once per client
-        // frame with no catch-up at all — so a stalled present must not dump
-        // an unbounded backlog of logic frames into one drive_frame. Clamp to
-        // a bounded step count and DROP the excess accumulated time instead of
+        // Live frame: C++ GameEngine::update calls TheGameLogic->UPDATE once
+        // (GameEngine.cpp:751), then execute presents that frame. A stalled
+        // present must not batch several logic frames into one drive_frame.
+        // Run at most one step and DROP the excess accumulated time instead of
         // carrying it into later frames (carrying it would turn one stall into
         // multi-hundred-ms sim spikes across subsequent frames). Headless
         // callers pass an explicit Some(budget) and keep the carry-over
         // semantics.
-        const LIVE_MAX_FIXED_STEPS_PER_DRIVE_FRAME: usize = 6;
+        const LIVE_MAX_FIXED_STEPS_PER_DRIVE_FRAME: usize = 1;
         let live_catchup = max_fixed_steps.is_none();
         let step_budget = max_fixed_steps.unwrap_or(LIVE_MAX_FIXED_STEPS_PER_DRIVE_FRAME);
         let mut dropped_excess_time = false;
@@ -1891,12 +1890,12 @@ mod tests {
     }
 
     /// Live catch-up clamp: with no explicit budget (the live drive_frame
-    /// path), a stall-fed backlog runs at most 6 fixed steps per call and the
+    /// path), a stall-fed backlog runs one fixed step per call and the
     /// excess accumulated time is DROPPED instead of carried into later
-    /// frames (C++ presents at a fixed cadence with no catch-up at all).
+    /// frames (C++ GameEngine::update calls GameLogic::UPDATE once).
     /// Headless callers passing Some(budget) keep the carry-over semantics.
     #[test]
-    fn live_catchup_clamps_to_six_steps_and_drops_excess_backlog() {
+    fn live_catchup_runs_one_step_and_drops_excess_backlog() {
         let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         drop_pending_clear_game_data();
 
@@ -1904,9 +1903,9 @@ mod tests {
         // 20 steps' worth of stall backlog on the live path (budget = None).
         logic.step_simulation_with_budget(20.0 * LOGIC_FRAME_TIMESTEP, None, None);
 
-        assert_eq!(logic.frame, 6, "live catch-up must clamp at 6 steps");
+        assert_eq!(logic.frame, 1, "C++ live update advances one logic frame");
         let diag = logic.fixed_step_diagnostics();
-        assert_eq!(diag.steps_run, 6);
+        assert_eq!(diag.steps_run, 1);
         assert!(diag.budget_hit, "the clamp ceiling reports as budget_hit");
         assert!(
             diag.dropped_excess_time,

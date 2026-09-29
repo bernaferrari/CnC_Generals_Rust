@@ -122,6 +122,8 @@ pub struct TerrainVisualImpl {
     road_texture: Option<Texture>,
     road_sampler: Option<Sampler>,
     road_texture_bind_group: Option<BindGroup>,
+    /// RoadType::applyTexture binds the texture of each Roads.ini type.
+    road_named_bind_groups: HashMap<String, NamedRoadBind>,
     /// True when the bound albedo is the 2x2 gravel fallback, not a Roads.ini texture.
     road_texture_is_fallback: bool,
     /// True once the road texture search found nothing; the gravel fallback
@@ -320,6 +322,8 @@ struct GpuRoadMesh {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     index_count: u32,
+    /// Empty for overlays that use a separate bind group (bibs, scorch, tracks).
+    texture_name: String,
     /// Faction-bib split (C++ renderBibs W3DBibBuffer.cpp:404-412): highlight
     /// bibs draw with the TBRedBib.tga bind group after the normal TBBib set.
     bib_highlight: bool,

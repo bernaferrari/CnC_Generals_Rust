@@ -25,6 +25,11 @@
 //! - Not full KindOf mask runtime / WeaponSet fire matrix / Geometry collision
 //! - Shell `playable_claim` stays false; network deferred
 
+use game_engine::common::bit_flags::ModelConditionFlags;
+
+use std::collections::HashMap;
+use std::sync::OnceLock;
+
 // ---------------------------------------------------------------------------
 // DamageType residual table (Damage.cpp s_bitNameList)
 // ---------------------------------------------------------------------------
@@ -449,270 +454,270 @@ pub const MODELCONDITION_CONTINUOUS_FIRE_FAST: u32 = 86;
 
 /// C++ MODELCONDITION_CONSTRUCTION_COMPLETE residual bit index from name table.
 pub fn construction_complete_model_bit() -> u32 {
-    model_condition_bit_name_index("CONSTRUCTION_COMPLETE").unwrap_or(55) as u32
+    ModelConditionFlags::CONSTRUCTION_COMPLETE as u32
 }
 
 /// C++ MODELCONDITION_RADAR_EXTENDING residual bit index from name table.
 pub fn radar_extending_model_bit() -> u32 {
-    model_condition_bit_name_index("RADAR_EXTENDING").unwrap_or(56) as u32
+    ModelConditionFlags::RADAR_EXTENDING as u32
 }
 
 /// C++ MODELCONDITION_RADAR_UPGRADED residual bit index from name table.
 pub fn radar_upgraded_model_bit() -> u32 {
-    model_condition_bit_name_index("RADAR_UPGRADED").unwrap_or(57) as u32
+    ModelConditionFlags::RADAR_UPGRADED as u32
 }
 
 /// C++ MODELCONDITION_DOOR_1_OPENING residual bit.
 
 /// C++ MODELCONDITION_AWAITING_CONSTRUCTION residual bit.
 pub fn awaiting_construction_model_bit() -> u32 {
-    model_condition_bit_name_index("AWAITING_CONSTRUCTION").unwrap_or(0) as u32
+    ModelConditionFlags::AWAITING_CONSTRUCTION as u32
 }
 /// C++ MODELCONDITION_PARTIALLY_CONSTRUCTED residual bit.
 pub fn partially_constructed_model_bit() -> u32 {
-    model_condition_bit_name_index("PARTIALLY_CONSTRUCTED").unwrap_or(0) as u32
+    ModelConditionFlags::PARTIALLY_CONSTRUCTED as u32
 }
 /// C++ MODELCONDITION_ACTIVELY_BEING_CONSTRUCTED residual bit.
 pub fn actively_being_constructed_model_bit() -> u32 {
-    model_condition_bit_name_index("ACTIVELY_BEING_CONSTRUCTED").unwrap_or(0) as u32
+    ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED as u32
 }
 
 /// C++ MODELCONDITION_ACTIVELY_CONSTRUCTING residual bit (dozer/producer).
 pub fn actively_constructing_model_bit() -> u32 {
-    model_condition_bit_name_index("ACTIVELY_CONSTRUCTING").unwrap_or(0) as u32
+    ModelConditionFlags::ACTIVELY_CONSTRUCTING as u32
 }
 
 /// C++ MODELCONDITION_SOLD residual bit.
 pub fn sold_model_bit() -> u32 {
-    model_condition_bit_name_index("SOLD").unwrap_or(0) as u32
+    ModelConditionFlags::SOLD as u32
 }
 
 /// C++ MODELCONDITION_DEPLOYED residual bit index from name table.
 pub fn deployed_model_bit() -> u32 {
-    model_condition_bit_name_index("DEPLOYED").unwrap_or(0) as u32
+    ModelConditionFlags::DEPLOYED as u32
 }
 
 /// C++ MODELCONDITION_GARRISONED residual bit index from name table.
 pub fn garrisoned_model_bit() -> u32 {
-    model_condition_bit_name_index("GARRISONED").unwrap_or(0) as u32
+    ModelConditionFlags::GARRISONED as u32
 }
 /// C++ MODELCONDITION_PARACHUTING residual bit index from name table.
 pub fn parachuting_model_bit() -> u32 {
-    model_condition_bit_name_index("PARACHUTING").unwrap_or(0) as u32
+    ModelConditionFlags::PARACHUTING as u32
 }
 
 /// C++ MODELCONDITION_JETEXHAUST residual bit index from name table.
 pub fn jetexhaust_model_bit() -> u32 {
-    model_condition_bit_name_index("JETEXHAUST").unwrap_or(0) as u32
+    ModelConditionFlags::JETEXHAUST as u32
 }
 
 /// C++ MODELCONDITION_USING_WEAPON_A residual bit index from name table.
 pub fn using_weapon_a_model_bit() -> u32 {
-    model_condition_bit_name_index("USING_WEAPON_A").unwrap_or(0) as u32
+    ModelConditionFlags::USING_WEAPON_A as u32
 }
 
 /// C++ MODELCONDITION_FIRING_A residual bit index from name table.
 pub fn firing_a_model_bit() -> u32 {
-    model_condition_bit_name_index("FIRING_A").unwrap_or(0) as u32
+    ModelConditionFlags::FIRING_A as u32
 }
 /// C++ MODELCONDITION_FIRING_B residual bit index from name table.
 pub fn firing_b_model_bit() -> u32 {
-    model_condition_bit_name_index("FIRING_B").unwrap_or(0) as u32
+    ModelConditionFlags::FIRING_B as u32
 }
 /// C++ MODELCONDITION_FIRING_C residual bit index from name table.
 pub fn firing_c_model_bit() -> u32 {
-    model_condition_bit_name_index("FIRING_C").unwrap_or(0) as u32
+    ModelConditionFlags::FIRING_C as u32
 }
 /// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_A residual bit index from name table.
 pub fn between_firing_shots_a_model_bit() -> u32 {
-    model_condition_bit_name_index("BETWEEN_FIRING_SHOTS_A").unwrap_or(0) as u32
+    ModelConditionFlags::BETWEEN_FIRING_SHOTS_A as u32
 }
 /// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_B residual bit index from name table.
 pub fn between_firing_shots_b_model_bit() -> u32 {
-    model_condition_bit_name_index("BETWEEN_FIRING_SHOTS_B").unwrap_or(0) as u32
+    ModelConditionFlags::BETWEEN_FIRING_SHOTS_B as u32
 }
 /// C++ MODELCONDITION_BETWEEN_FIRING_SHOTS_C residual bit index from name table.
 pub fn between_firing_shots_c_model_bit() -> u32 {
-    model_condition_bit_name_index("BETWEEN_FIRING_SHOTS_C").unwrap_or(0) as u32
+    ModelConditionFlags::BETWEEN_FIRING_SHOTS_C as u32
 }
 /// C++ MODELCONDITION_PREATTACK_B residual bit index from name table.
 pub fn preattack_b_model_bit() -> u32 {
-    model_condition_bit_name_index("PREATTACK_B").unwrap_or(0) as u32
+    ModelConditionFlags::PREATTACK_B as u32
 }
 /// C++ MODELCONDITION_PREATTACK_C residual bit index from name table.
 pub fn preattack_c_model_bit() -> u32 {
-    model_condition_bit_name_index("PREATTACK_C").unwrap_or(0) as u32
+    ModelConditionFlags::PREATTACK_C as u32
 }
 /// C++ MODELCONDITION_RELOADING_B residual bit index from name table.
 pub fn reloading_b_model_bit() -> u32 {
-    model_condition_bit_name_index("RELOADING_B").unwrap_or(0) as u32
+    ModelConditionFlags::RELOADING_B as u32
 }
 /// C++ MODELCONDITION_RELOADING_C residual bit index from name table.
 pub fn reloading_c_model_bit() -> u32 {
-    model_condition_bit_name_index("RELOADING_C").unwrap_or(0) as u32
+    ModelConditionFlags::RELOADING_C as u32
 }
 /// C++ MODELCONDITION_USING_WEAPON_B residual bit index from name table.
 pub fn using_weapon_b_model_bit() -> u32 {
-    model_condition_bit_name_index("USING_WEAPON_B").unwrap_or(0) as u32
+    ModelConditionFlags::USING_WEAPON_B as u32
 }
 /// C++ MODELCONDITION_USING_WEAPON_C residual bit index from name table.
 pub fn using_weapon_c_model_bit() -> u32 {
-    model_condition_bit_name_index("USING_WEAPON_C").unwrap_or(0) as u32
+    ModelConditionFlags::USING_WEAPON_C as u32
 }
 /// C++ MODELCONDITION_PANICKING residual bit index from name table.
 pub fn panicking_model_bit() -> u32 {
-    model_condition_bit_name_index("PANICKING").unwrap_or(0) as u32
+    ModelConditionFlags::PANICKING as u32
 }
 /// C++ MODELCONDITION_WEAPONSET_VETERAN residual bit index.
 pub fn weaponset_veteran_model_bit() -> u32 {
-    model_condition_bit_name_index("WEAPONSET_VETERAN").unwrap_or(0) as u32
+    ModelConditionFlags::WEAPONSET_VETERAN as u32
 }
 
 /// C++ MODELCONDITION_WEAPONSET_ELITE residual bit index.
 pub fn weaponset_elite_model_bit() -> u32 {
-    model_condition_bit_name_index("WEAPONSET_ELITE").unwrap_or(0) as u32
+    ModelConditionFlags::WEAPONSET_ELITE as u32
 }
 
 /// C++ MODELCONDITION_WEAPONSET_HERO residual bit index.
 pub fn weaponset_hero_model_bit() -> u32 {
-    model_condition_bit_name_index("WEAPONSET_HERO").unwrap_or(0) as u32
+    ModelConditionFlags::WEAPONSET_HERO as u32
 }
 
 /// C++ MODELCONDITION_WEAPONSET_PLAYER_UPGRADE residual bit index.
 pub fn weaponset_player_upgrade_model_bit() -> u32 {
-    model_condition_bit_name_index("WEAPONSET_PLAYER_UPGRADE").unwrap_or(0) as u32
+    ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE as u32
 }
 /// C++ MODELCONDITION_WEAPONSET_CRATEUPGRADE_ONE residual bit index.
 pub fn weaponset_crateupgrade_one_model_bit() -> u32 {
-    model_condition_bit_name_index("WEAPONSET_CRATEUPGRADE_ONE").unwrap_or(0) as u32
+    ModelConditionFlags::WEAPONSET_CRATEUPGRADE_ONE as u32
 }
 /// C++ MODELCONDITION_WEAPONSET_CRATEUPGRADE_TWO residual bit index.
 pub fn weaponset_crateupgrade_two_model_bit() -> u32 {
-    model_condition_bit_name_index("WEAPONSET_CRATEUPGRADE_TWO").unwrap_or(0) as u32
+    ModelConditionFlags::WEAPONSET_CRATEUPGRADE_TWO as u32
 }
 /// C++ MODELCONDITION_ARMORSET_CRATEUPGRADE_ONE residual bit index.
 pub fn armorset_crateupgrade_one_model_bit() -> u32 {
-    model_condition_bit_name_index("ARMORSET_CRATEUPGRADE_ONE").unwrap_or(0) as u32
+    ModelConditionFlags::ARMORSET_CRATEUPGRADE_ONE as u32
 }
 /// C++ MODELCONDITION_ARMORSET_CRATEUPGRADE_TWO residual bit index.
 pub fn armorset_crateupgrade_two_model_bit() -> u32 {
-    model_condition_bit_name_index("ARMORSET_CRATEUPGRADE_TWO").unwrap_or(0) as u32
+    ModelConditionFlags::ARMORSET_CRATEUPGRADE_TWO as u32
 }
 /// C++ MODELCONDITION_ENEMYNEAR residual bit index.
 pub fn enemynear_model_bit() -> u32 {
-    model_condition_bit_name_index("ENEMYNEAR").unwrap_or(0) as u32
+    ModelConditionFlags::ENEMYNEAR as u32
 }
 /// C++ MODELCONDITION_ARMED residual bit index.
 pub fn armed_model_bit() -> u32 {
-    model_condition_bit_name_index("ARMED").unwrap_or(0) as u32
+    ModelConditionFlags::ARMED as u32
 }
 /// C++ MODELCONDITION_JETAFTERBURNER residual bit index.
 pub fn jetafterburner_model_bit() -> u32 {
-    model_condition_bit_name_index("JETAFTERBURNER").unwrap_or(0) as u32
+    ModelConditionFlags::JETAFTERBURNER as u32
 }
 
 /// C++ MODELCONDITION_EXPLODED_FLAILING residual bit index.
 pub fn exploded_flailing_model_bit() -> u32 {
-    model_condition_bit_name_index("EXPLODED_FLAILING").unwrap_or(0) as u32
+    ModelConditionFlags::EXPLODED_FLAILING as u32
 }
 
 /// C++ MODELCONDITION_CENTER_TO_LEFT residual bit index.
 pub fn center_to_left_model_bit() -> u32 {
-    model_condition_bit_name_index("CENTER_TO_LEFT").unwrap_or(0) as u32
+    ModelConditionFlags::CENTER_TO_LEFT as u32
 }
 
 /// C++ MODELCONDITION_DOCKING residual bit index.
 pub fn docking_model_bit() -> u32 {
-    model_condition_bit_name_index("DOCKING").unwrap_or(0) as u32
+    ModelConditionFlags::DOCKING as u32
 }
 
 /// C++ MODELCONDITION_CLIMBING residual bit index.
 pub fn climbing_model_bit() -> u32 {
-    model_condition_bit_name_index("CLIMBING").unwrap_or(0) as u32
+    ModelConditionFlags::CLIMBING as u32
 }
 /// C++ MODELCONDITION_RAPPELLING residual bit index.
 pub fn rappelling_model_bit() -> u32 {
-    model_condition_bit_name_index("RAPPELLING").unwrap_or(0) as u32
+    ModelConditionFlags::RAPPELLING as u32
 }
 /// C++ MODELCONDITION_FLOODED residual bit index.
 pub fn flooded_model_bit() -> u32 {
-    model_condition_bit_name_index("FLOODED").unwrap_or(0) as u32
+    ModelConditionFlags::FLOODED as u32
 }
 /// C++ MODELCONDITION_DOCKING_BEGINNING residual bit index.
 pub fn docking_beginning_model_bit() -> u32 {
-    model_condition_bit_name_index("DOCKING_BEGINNING").unwrap_or(0) as u32
+    ModelConditionFlags::DOCKING_BEGINNING as u32
 }
 /// C++ MODELCONDITION_DOCKING_ACTIVE residual bit index.
 pub fn docking_active_model_bit() -> u32 {
-    model_condition_bit_name_index("DOCKING_ACTIVE").unwrap_or(0) as u32
+    ModelConditionFlags::DOCKING_ACTIVE as u32
 }
 /// C++ MODELCONDITION_DOCKING_ENDING residual bit index.
 pub fn docking_ending_model_bit() -> u32 {
-    model_condition_bit_name_index("DOCKING_ENDING").unwrap_or(0) as u32
+    ModelConditionFlags::DOCKING_ENDING as u32
 }
 /// C++ MODELCONDITION_RIDER1 residual bit index.
 pub fn rider1_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER1").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER1 as u32
 }
 /// C++ MODELCONDITION_RIDER2 residual bit index.
 pub fn rider2_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER2").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER2 as u32
 }
 /// C++ MODELCONDITION_RIDER3 residual bit index.
 pub fn rider3_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER3").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER3 as u32
 }
 /// C++ MODELCONDITION_RIDER4 residual bit index.
 pub fn rider4_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER4").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER4 as u32
 }
 /// C++ MODELCONDITION_RIDER5 residual bit index.
 pub fn rider5_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER5").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER5 as u32
 }
 /// C++ MODELCONDITION_RIDER6 residual bit index.
 pub fn rider6_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER6").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER6 as u32
 }
 /// C++ MODELCONDITION_RIDER7 residual bit index.
 pub fn rider7_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER7").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER7 as u32
 }
 /// C++ MODELCONDITION_RIDER8 residual bit index.
 pub fn rider8_model_bit() -> u32 {
-    model_condition_bit_name_index("RIDER8").unwrap_or(0) as u32
+    ModelConditionFlags::RIDER8 as u32
 }
 /// C++ MODELCONDITION_CENTER_TO_RIGHT residual bit index.
 pub fn center_to_right_model_bit() -> u32 {
-    model_condition_bit_name_index("CENTER_TO_RIGHT").unwrap_or(0) as u32
+    ModelConditionFlags::CENTER_TO_RIGHT as u32
 }
 /// C++ MODELCONDITION_LEFT_TO_CENTER residual bit index.
 pub fn left_to_center_model_bit() -> u32 {
-    model_condition_bit_name_index("LEFT_TO_CENTER").unwrap_or(0) as u32
+    ModelConditionFlags::LEFT_TO_CENTER as u32
 }
 /// C++ MODELCONDITION_RIGHT_TO_CENTER residual bit index.
 pub fn right_to_center_model_bit() -> u32 {
-    model_condition_bit_name_index("RIGHT_TO_CENTER").unwrap_or(0) as u32
+    ModelConditionFlags::RIGHT_TO_CENTER as u32
 }
 /// C++ MODELCONDITION_EXPLODED_BOUNCING residual bit index.
 pub fn exploded_bouncing_model_bit() -> u32 {
-    model_condition_bit_name_index("EXPLODED_BOUNCING").unwrap_or(0) as u32
+    ModelConditionFlags::EXPLODED_BOUNCING as u32
 }
 /// C++ MODELCONDITION_SPLATTED residual bit index.
 pub fn splatted_model_bit() -> u32 {
-    model_condition_bit_name_index("SPLATTED").unwrap_or(0) as u32
+    ModelConditionFlags::SPLATTED as u32
 }
 /// C++ MODELCONDITION_POWER_PLANT_UPGRADING residual bit index.
 pub fn power_plant_upgrading_model_bit() -> u32 {
-    model_condition_bit_name_index("POWER_PLANT_UPGRADING").unwrap_or(0) as u32
+    ModelConditionFlags::POWER_PLANT_UPGRADING as u32
 }
 /// C++ MODELCONDITION_SMOLDERING residual bit index.
 pub fn smoldering_model_bit() -> u32 {
-    model_condition_bit_name_index("SMOLDERING").unwrap_or(0) as u32
+    ModelConditionFlags::SMOLDERING as u32
 }
 /// C++ MODELCONDITION_OVER_WATER residual bit index.
 pub fn over_water_model_bit() -> u32 {
-    model_condition_bit_name_index("OVER_WATER").unwrap_or(0) as u32
+    ModelConditionFlags::OVER_WATER as u32
 }
 
 /// C++ MODELCONDITION_RIDER1..RIDER8 residual bit index for passenger slot `n` (1..=8).
@@ -723,252 +728,265 @@ pub fn rider_model_bit(slot: u8) -> u32 {
 
 /// C++ MODELCONDITION_CAPTURED residual bit index.
 pub fn captured_model_bit() -> u32 {
-    model_condition_bit_name_index("CAPTURED").unwrap_or(0) as u32
+    ModelConditionFlags::CAPTURED as u32
 }
 
 /// C++ MODELCONDITION_DISGUISED residual bit index.
 pub fn disguised_model_bit() -> u32 {
-    model_condition_bit_name_index("DISGUISED").unwrap_or(0) as u32
+    ModelConditionFlags::DISGUISED as u32
 }
 
 /// C++ MODELCONDITION_STUNNED residual bit index.
 pub fn stunned_model_bit() -> u32 {
-    model_condition_bit_name_index("STUNNED").unwrap_or(0) as u32
+    ModelConditionFlags::STUNNED as u32
 }
 
 /// C++ MODELCONDITION_STUNNED_FLAILING residual bit index.
 pub fn stunned_flailing_model_bit() -> u32 {
-    model_condition_bit_name_index("STUNNED_FLAILING").unwrap_or(0) as u32
+    ModelConditionFlags::STUNNED_FLAILING as u32
 }
 /// C++ MODELCONDITION_SECOND_LIFE residual bit index.
 pub fn second_life_model_bit() -> u32 {
-    model_condition_bit_name_index("SECOND_LIFE").unwrap_or(0) as u32
+    ModelConditionFlags::SECOND_LIFE as u32
 }
 /// C++ MODELCONDITION_POST_COLLAPSE residual bit index.
 pub fn post_collapse_model_bit() -> u32 {
-    model_condition_bit_name_index("POST_COLLAPSE").unwrap_or(0) as u32
+    ModelConditionFlags::POST_COLLAPSE as u32
 }
 
 /// C++ MODELCONDITION_FRONTCRUSHED residual bit index.
 pub fn frontcrushed_model_bit() -> u32 {
-    model_condition_bit_name_index("FRONTCRUSHED").unwrap_or(0) as u32
+    ModelConditionFlags::FRONTCRUSHED as u32
 }
 
 /// C++ MODELCONDITION_MOVING residual bit index (wraps MC_BIT_MOVING).
 pub fn moving_model_bit() -> u32 {
-    model_condition_bit_name_index("MOVING").unwrap_or(MC_BIT_MOVING as usize) as u32
+    ModelConditionFlags::MOVING as u32
 }
 /// C++ MODELCONDITION_ATTACKING residual bit index (wraps MC_BIT_ATTACKING).
 pub fn attacking_model_bit() -> u32 {
-    model_condition_bit_name_index("ATTACKING").unwrap_or(MC_BIT_ATTACKING as usize) as u32
+    ModelConditionFlags::ATTACKING as u32
 }
 /// C++ MODELCONDITION_REALLYDAMAGED residual bit index.
 pub fn reallydamaged_model_bit() -> u32 {
-    model_condition_bit_name_index("REALLYDAMAGED").unwrap_or(MC_BIT_REALLYDAMAGED as usize) as u32
+    ModelConditionFlags::REALLYDAMAGED as u32
 }
 /// C++ MODELCONDITION_RUBBLE residual bit index.
 pub fn rubble_model_bit() -> u32 {
-    model_condition_bit_name_index("RUBBLE").unwrap_or(MC_BIT_RUBBLE as usize) as u32
+    ModelConditionFlags::RUBBLE as u32
 }
 /// C++ MODELCONDITION_DAMAGED residual bit index.
 pub fn damaged_model_bit() -> u32 {
-    model_condition_bit_name_index("DAMAGED").unwrap_or(MC_BIT_DAMAGED as usize) as u32
+    ModelConditionFlags::DAMAGED as u32
 }
 /// C++ MODELCONDITION_BACKCRUSHED residual bit index.
 pub fn backcrushed_model_bit() -> u32 {
-    model_condition_bit_name_index("BACKCRUSHED").unwrap_or(0) as u32
+    ModelConditionFlags::BACKCRUSHED as u32
 }
 /// C++ MODELCONDITION_PREORDER residual bit index.
 pub fn preorder_model_bit() -> u32 {
-    model_condition_bit_name_index("PREORDER").unwrap_or(0) as u32
+    ModelConditionFlags::PREORDER as u32
 }
 /// C++ MODELCONDITION_USER_1 residual bit index.
 pub fn user_1_model_bit() -> u32 {
-    model_condition_bit_name_index("USER_1").unwrap_or(0) as u32
+    ModelConditionFlags::USER_1 as u32
 }
 /// C++ MODELCONDITION_USER_2 residual bit index.
 pub fn user_2_model_bit() -> u32 {
-    model_condition_bit_name_index("USER_2").unwrap_or(0) as u32
+    ModelConditionFlags::USER_2 as u32
 }
 /// C++ MODELCONDITION_SPECIAL_DAMAGED residual bit index.
 pub fn special_damaged_model_bit() -> u32 {
-    model_condition_bit_name_index("SPECIAL_DAMAGED").unwrap_or(0) as u32
+    ModelConditionFlags::SPECIAL_DAMAGED as u32
 }
 /// C++ MODELCONDITION_TOPPLED residual bit index.
 pub fn toppled_model_bit() -> u32 {
-    model_condition_bit_name_index("TOPPLED").unwrap_or(0) as u32
+    ModelConditionFlags::TOPPLED as u32
 }
 
 /// C++ MODELCONDITION_FREEFALL residual bit index.
 pub fn freefall_model_bit() -> u32 {
-    model_condition_bit_name_index("FREEFALL").unwrap_or(0) as u32
+    ModelConditionFlags::FREEFALL as u32
 }
 
 /// C++ MODELCONDITION_NIGHT residual bit index.
 pub fn night_model_bit() -> u32 {
-    model_condition_bit_name_index("NIGHT").unwrap_or(0) as u32
+    ModelConditionFlags::NIGHT as u32
 }
 
 /// C++ MODELCONDITION_SNOW residual bit index.
 pub fn snow_model_bit() -> u32 {
-    model_condition_bit_name_index("SNOW").unwrap_or(0) as u32
+    ModelConditionFlags::SNOW as u32
 }
 /// C++ MODELCONDITION_LOADED residual bit index.
 pub fn loaded_model_bit() -> u32 {
-    model_condition_bit_name_index("LOADED").unwrap_or(0) as u32
+    ModelConditionFlags::LOADED as u32
 }
 
 /// C++ MODELCONDITION_POWER_PLANT_UPGRADED residual bit index.
 pub fn power_plant_upgraded_model_bit() -> u32 {
-    model_condition_bit_name_index("POWER_PLANT_UPGRADED").unwrap_or(0) as u32
+    ModelConditionFlags::POWER_PLANT_UPGRADED as u32
 }
 
 /// C++ MODELCONDITION_PACKING residual bit index.
 pub fn packing_model_bit() -> u32 {
-    model_condition_bit_name_index("PACKING").unwrap_or(0) as u32
+    ModelConditionFlags::PACKING as u32
 }
 
 /// C++ MODELCONDITION_UNPACKING residual bit index.
 pub fn unpacking_model_bit() -> u32 {
-    model_condition_bit_name_index("UNPACKING").unwrap_or(0) as u32
+    ModelConditionFlags::UNPACKING as u32
 }
 /// C++ MODELCONDITION_AFLAME residual bit index.
 pub fn aflame_model_bit() -> u32 {
-    model_condition_bit_name_index("AFLAME").unwrap_or(0) as u32
+    ModelConditionFlags::AFLAME as u32
 }
 
 /// C++ MODELCONDITION_BURNED residual bit index.
 pub fn burned_model_bit() -> u32 {
-    model_condition_bit_name_index("BURNED").unwrap_or(0) as u32
+    ModelConditionFlags::BURNED as u32
 }
 
 /// C++ MODELCONDITION_SPECIAL_CHEERING residual bit index.
 pub fn special_cheering_model_bit() -> u32 {
-    model_condition_bit_name_index("SPECIAL_CHEERING").unwrap_or(0) as u32
+    ModelConditionFlags::SPECIAL_CHEERING as u32
 }
 
 /// C++ MODELCONDITION_CARRYING residual bit index.
 pub fn carrying_model_bit() -> u32 {
-    model_condition_bit_name_index("CARRYING").unwrap_or(0) as u32
+    ModelConditionFlags::CARRYING as u32
 }
 /// C++ MODELCONDITION_CONTINUOUS_FIRE_SLOW residual bit index.
 pub fn continuous_fire_slow_model_bit() -> u32 {
-    model_condition_bit_name_index("CONTINUOUS_FIRE_SLOW").unwrap_or(84) as u32
+    ModelConditionFlags::CONTINUOUS_FIRE_SLOW as u32
 }
 
 /// C++ MODELCONDITION_CONTINUOUS_FIRE_MEAN residual bit index.
 pub fn continuous_fire_mean_model_bit() -> u32 {
-    model_condition_bit_name_index("CONTINUOUS_FIRE_MEAN").unwrap_or(85) as u32
+    ModelConditionFlags::CONTINUOUS_FIRE_MEAN as u32
 }
 
 /// C++ MODELCONDITION_CONTINUOUS_FIRE_FAST residual bit index.
 pub fn continuous_fire_fast_model_bit() -> u32 {
-    model_condition_bit_name_index("CONTINUOUS_FIRE_FAST").unwrap_or(86) as u32
+    ModelConditionFlags::CONTINUOUS_FIRE_FAST as u32
 }
 
 /// C++ MODELCONDITION_PRONE residual bit index.
 pub fn prone_model_bit() -> u32 {
-    model_condition_bit_name_index("PRONE").unwrap_or(0) as u32
+    ModelConditionFlags::PRONE as u32
 }
 
 /// C++ MODELCONDITION_PREATTACK_A residual bit index.
 pub fn preattack_a_model_bit() -> u32 {
-    model_condition_bit_name_index("PREATTACK_A").unwrap_or(35) as u32
+    ModelConditionFlags::PREATTACK_A as u32
 }
 
 /// C++ MODELCONDITION_RELOADING_A residual bit index.
 pub fn reloading_a_model_bit() -> u32 {
-    model_condition_bit_name_index("RELOADING_A").unwrap_or(0) as u32
+    ModelConditionFlags::RELOADING_A as u32
 }
 
 /// C++ MODELCONDITION_TURRET_ROTATE residual bit index.
 pub fn turret_rotate_model_bit() -> u32 {
-    model_condition_bit_name_index("TURRET_ROTATE").unwrap_or(0) as u32
+    ModelConditionFlags::TURRET_ROTATE as u32
 }
 /// C++ MODELCONDITION_JAMMED residual bit index.
 pub fn jammed_model_bit() -> u32 {
-    model_condition_bit_name_index("JAMMED").unwrap_or(0) as u32
+    ModelConditionFlags::JAMMED as u32
 }
 
 /// C++ MODELCONDITION_DYING residual bit index.
 pub fn dying_model_bit() -> u32 {
-    model_condition_bit_name_index("DYING").unwrap_or(0) as u32
+    ModelConditionFlags::DYING as u32
 }
 /// C++ MODELCONDITION_RAISING_FLAG residual bit index.
 pub fn raising_flag_model_bit() -> u32 {
-    model_condition_bit_name_index("RAISING_FLAG").unwrap_or(0) as u32
+    ModelConditionFlags::RAISING_FLAG as u32
 }
 
 pub fn door_1_opening_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_1_OPENING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_1_OPENING as u32
 }
 /// C++ MODELCONDITION_DOOR_1_WAITING_OPEN residual bit.
 pub fn door_1_waiting_open_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_1_WAITING_OPEN").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_1_WAITING_OPEN as u32
 }
 /// C++ MODELCONDITION_DOOR_1_CLOSING residual bit.
 pub fn door_1_closing_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_1_CLOSING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_1_CLOSING as u32
 }
 
 /// C++ MODELCONDITION_DOOR_2_OPENING residual bit index.
 pub fn door_2_opening_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_2_OPENING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_2_OPENING as u32
 }
 /// C++ MODELCONDITION_DOOR_2_WAITING_OPEN residual bit index.
 pub fn door_2_waiting_open_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_2_WAITING_OPEN").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_2_WAITING_OPEN as u32
 }
 /// C++ MODELCONDITION_DOOR_2_WAITING_TO_CLOSE residual bit index.
 pub fn door_2_waiting_to_close_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_2_WAITING_TO_CLOSE").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_2_WAITING_TO_CLOSE as u32
 }
 /// C++ MODELCONDITION_DOOR_2_CLOSING residual bit index.
 pub fn door_2_closing_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_2_CLOSING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_2_CLOSING as u32
 }
 /// C++ MODELCONDITION_DOOR_3_OPENING residual bit index.
 pub fn door_3_opening_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_3_OPENING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_3_OPENING as u32
 }
 /// C++ MODELCONDITION_DOOR_3_WAITING_OPEN residual bit index.
 pub fn door_3_waiting_open_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_3_WAITING_OPEN").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_3_WAITING_OPEN as u32
 }
 /// C++ MODELCONDITION_DOOR_3_WAITING_TO_CLOSE residual bit index.
 pub fn door_3_waiting_to_close_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_3_WAITING_TO_CLOSE").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_3_WAITING_TO_CLOSE as u32
 }
 /// C++ MODELCONDITION_DOOR_3_CLOSING residual bit index.
 pub fn door_3_closing_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_3_CLOSING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_3_CLOSING as u32
 }
 /// C++ MODELCONDITION_DOOR_4_OPENING residual bit index.
 pub fn door_4_opening_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_4_OPENING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_4_OPENING as u32
 }
 /// C++ MODELCONDITION_DOOR_4_WAITING_OPEN residual bit index.
 pub fn door_4_waiting_open_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_4_WAITING_OPEN").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_4_WAITING_OPEN as u32
 }
 /// C++ MODELCONDITION_DOOR_4_WAITING_TO_CLOSE residual bit index.
 pub fn door_4_waiting_to_close_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_4_WAITING_TO_CLOSE").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_4_WAITING_TO_CLOSE as u32
 }
 /// C++ MODELCONDITION_DOOR_4_CLOSING residual bit index.
 pub fn door_4_closing_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_4_CLOSING").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_4_CLOSING as u32
 }
 
 /// C++ MODELCONDITION_DOOR_1_WAITING_TO_CLOSE residual bit.
 pub fn door_1_waiting_to_close_model_bit() -> u32 {
-    model_condition_bit_name_index("DOOR_1_WAITING_TO_CLOSE").unwrap_or(0) as u32
+    ModelConditionFlags::DOOR_1_WAITING_TO_CLOSE as u32
 }
 
 pub fn model_condition_bit_name_index(name: &str) -> Option<usize> {
-    MODEL_CONDITION_BIT_NAME_LIST
-        .iter()
-        .position(|&n| n.eq_ignore_ascii_case(name))
+    // Most simulation callers pass canonical C++ names on every frame. Keep
+    // those lookups constant-time while retaining the C++ first-match,
+    // case-insensitive scan for names read from INI data.
+    static CANONICAL_INDEX: OnceLock<HashMap<&'static str, usize>> = OnceLock::new();
+    let canonical_index = CANONICAL_INDEX.get_or_init(|| {
+        let mut index = HashMap::with_capacity(MODEL_CONDITION_BIT_NAME_LIST.len());
+        for (bit, &name) in MODEL_CONDITION_BIT_NAME_LIST.iter().enumerate() {
+            index.entry(name).or_insert(bit);
+        }
+        index
+    });
+    canonical_index.get(name).copied().or_else(|| {
+        MODEL_CONDITION_BIT_NAME_LIST
+            .iter()
+            .position(|&candidate| candidate.eq_ignore_ascii_case(name))
+    })
 }
 
 /// Wave 82 honesty: ModelCondition residual flags table pack (incl. CONTINUOUS_FIRE_*).
@@ -1263,6 +1281,148 @@ mod tests {
             Some(86)
         );
         assert!(!MODEL_CONDITION_BIT_NAME_LIST.contains(&"SURRENDER"));
+    }
+
+    #[test]
+    fn model_condition_lookup_preserves_cpp_table_order_and_case() {
+        for (bit, &name) in MODEL_CONDITION_BIT_NAME_LIST.iter().enumerate() {
+            let first_match = MODEL_CONDITION_BIT_NAME_LIST
+                .iter()
+                .position(|&candidate| candidate.eq_ignore_ascii_case(name));
+            assert_eq!(model_condition_bit_name_index(name), first_match);
+            assert_eq!(model_condition_bit_name_index(&name.to_ascii_lowercase()), first_match);
+            assert!(first_match.unwrap() <= bit);
+        }
+        assert_eq!(model_condition_bit_name_index("NOT_A_MODEL_CONDITION"), None);
+    }
+
+    #[test]
+    fn model_condition_wrappers_match_cpp_ordinals() {
+        let wrappers: &[(&str, fn() -> u32)] = &[
+            ("CONSTRUCTION_COMPLETE", construction_complete_model_bit),
+            ("RADAR_EXTENDING", radar_extending_model_bit),
+            ("RADAR_UPGRADED", radar_upgraded_model_bit),
+            ("AWAITING_CONSTRUCTION", awaiting_construction_model_bit),
+            ("PARTIALLY_CONSTRUCTED", partially_constructed_model_bit),
+            ("ACTIVELY_BEING_CONSTRUCTED", actively_being_constructed_model_bit),
+            ("ACTIVELY_CONSTRUCTING", actively_constructing_model_bit),
+            ("SOLD", sold_model_bit),
+            ("DEPLOYED", deployed_model_bit),
+            ("GARRISONED", garrisoned_model_bit),
+            ("PARACHUTING", parachuting_model_bit),
+            ("JETEXHAUST", jetexhaust_model_bit),
+            ("USING_WEAPON_A", using_weapon_a_model_bit),
+            ("FIRING_A", firing_a_model_bit),
+            ("FIRING_B", firing_b_model_bit),
+            ("FIRING_C", firing_c_model_bit),
+            ("BETWEEN_FIRING_SHOTS_A", between_firing_shots_a_model_bit),
+            ("BETWEEN_FIRING_SHOTS_B", between_firing_shots_b_model_bit),
+            ("BETWEEN_FIRING_SHOTS_C", between_firing_shots_c_model_bit),
+            ("PREATTACK_B", preattack_b_model_bit),
+            ("PREATTACK_C", preattack_c_model_bit),
+            ("RELOADING_B", reloading_b_model_bit),
+            ("RELOADING_C", reloading_c_model_bit),
+            ("USING_WEAPON_B", using_weapon_b_model_bit),
+            ("USING_WEAPON_C", using_weapon_c_model_bit),
+            ("PANICKING", panicking_model_bit),
+            ("WEAPONSET_VETERAN", weaponset_veteran_model_bit),
+            ("WEAPONSET_ELITE", weaponset_elite_model_bit),
+            ("WEAPONSET_HERO", weaponset_hero_model_bit),
+            ("WEAPONSET_PLAYER_UPGRADE", weaponset_player_upgrade_model_bit),
+            ("WEAPONSET_CRATEUPGRADE_ONE", weaponset_crateupgrade_one_model_bit),
+            ("WEAPONSET_CRATEUPGRADE_TWO", weaponset_crateupgrade_two_model_bit),
+            ("ARMORSET_CRATEUPGRADE_ONE", armorset_crateupgrade_one_model_bit),
+            ("ARMORSET_CRATEUPGRADE_TWO", armorset_crateupgrade_two_model_bit),
+            ("ENEMYNEAR", enemynear_model_bit),
+            ("ARMED", armed_model_bit),
+            ("JETAFTERBURNER", jetafterburner_model_bit),
+            ("EXPLODED_FLAILING", exploded_flailing_model_bit),
+            ("CENTER_TO_LEFT", center_to_left_model_bit),
+            ("DOCKING", docking_model_bit),
+            ("CLIMBING", climbing_model_bit),
+            ("RAPPELLING", rappelling_model_bit),
+            ("FLOODED", flooded_model_bit),
+            ("DOCKING_BEGINNING", docking_beginning_model_bit),
+            ("DOCKING_ACTIVE", docking_active_model_bit),
+            ("DOCKING_ENDING", docking_ending_model_bit),
+            ("RIDER1", rider1_model_bit),
+            ("RIDER2", rider2_model_bit),
+            ("RIDER3", rider3_model_bit),
+            ("RIDER4", rider4_model_bit),
+            ("RIDER5", rider5_model_bit),
+            ("RIDER6", rider6_model_bit),
+            ("RIDER7", rider7_model_bit),
+            ("RIDER8", rider8_model_bit),
+            ("CENTER_TO_RIGHT", center_to_right_model_bit),
+            ("LEFT_TO_CENTER", left_to_center_model_bit),
+            ("RIGHT_TO_CENTER", right_to_center_model_bit),
+            ("EXPLODED_BOUNCING", exploded_bouncing_model_bit),
+            ("SPLATTED", splatted_model_bit),
+            ("POWER_PLANT_UPGRADING", power_plant_upgrading_model_bit),
+            ("SMOLDERING", smoldering_model_bit),
+            ("OVER_WATER", over_water_model_bit),
+            ("CAPTURED", captured_model_bit),
+            ("DISGUISED", disguised_model_bit),
+            ("STUNNED", stunned_model_bit),
+            ("STUNNED_FLAILING", stunned_flailing_model_bit),
+            ("SECOND_LIFE", second_life_model_bit),
+            ("POST_COLLAPSE", post_collapse_model_bit),
+            ("FRONTCRUSHED", frontcrushed_model_bit),
+            ("MOVING", moving_model_bit),
+            ("ATTACKING", attacking_model_bit),
+            ("REALLYDAMAGED", reallydamaged_model_bit),
+            ("RUBBLE", rubble_model_bit),
+            ("DAMAGED", damaged_model_bit),
+            ("BACKCRUSHED", backcrushed_model_bit),
+            ("PREORDER", preorder_model_bit),
+            ("USER_1", user_1_model_bit),
+            ("USER_2", user_2_model_bit),
+            ("SPECIAL_DAMAGED", special_damaged_model_bit),
+            ("TOPPLED", toppled_model_bit),
+            ("FREEFALL", freefall_model_bit),
+            ("NIGHT", night_model_bit),
+            ("SNOW", snow_model_bit),
+            ("LOADED", loaded_model_bit),
+            ("POWER_PLANT_UPGRADED", power_plant_upgraded_model_bit),
+            ("PACKING", packing_model_bit),
+            ("UNPACKING", unpacking_model_bit),
+            ("AFLAME", aflame_model_bit),
+            ("BURNED", burned_model_bit),
+            ("SPECIAL_CHEERING", special_cheering_model_bit),
+            ("CARRYING", carrying_model_bit),
+            ("CONTINUOUS_FIRE_SLOW", continuous_fire_slow_model_bit),
+            ("CONTINUOUS_FIRE_MEAN", continuous_fire_mean_model_bit),
+            ("CONTINUOUS_FIRE_FAST", continuous_fire_fast_model_bit),
+            ("PRONE", prone_model_bit),
+            ("PREATTACK_A", preattack_a_model_bit),
+            ("RELOADING_A", reloading_a_model_bit),
+            ("TURRET_ROTATE", turret_rotate_model_bit),
+            ("JAMMED", jammed_model_bit),
+            ("DYING", dying_model_bit),
+            ("RAISING_FLAG", raising_flag_model_bit),
+            ("DOOR_1_OPENING", door_1_opening_model_bit),
+            ("DOOR_1_WAITING_OPEN", door_1_waiting_open_model_bit),
+            ("DOOR_1_CLOSING", door_1_closing_model_bit),
+            ("DOOR_2_OPENING", door_2_opening_model_bit),
+            ("DOOR_2_WAITING_OPEN", door_2_waiting_open_model_bit),
+            ("DOOR_2_WAITING_TO_CLOSE", door_2_waiting_to_close_model_bit),
+            ("DOOR_2_CLOSING", door_2_closing_model_bit),
+            ("DOOR_3_OPENING", door_3_opening_model_bit),
+            ("DOOR_3_WAITING_OPEN", door_3_waiting_open_model_bit),
+            ("DOOR_3_WAITING_TO_CLOSE", door_3_waiting_to_close_model_bit),
+            ("DOOR_3_CLOSING", door_3_closing_model_bit),
+            ("DOOR_4_OPENING", door_4_opening_model_bit),
+            ("DOOR_4_WAITING_OPEN", door_4_waiting_open_model_bit),
+            ("DOOR_4_WAITING_TO_CLOSE", door_4_waiting_to_close_model_bit),
+            ("DOOR_4_CLOSING", door_4_closing_model_bit),
+            ("DOOR_1_WAITING_TO_CLOSE", door_1_waiting_to_close_model_bit),
+        ];
+        assert_eq!(wrappers.len(), 117);
+        for &(name, wrapper) in wrappers {
+            let bit = wrapper() as usize;
+            assert_eq!(MODEL_CONDITION_BIT_NAME_LIST.get(bit).copied(), Some(name));
+            assert_eq!(ModelConditionFlags::BIT_NAMES.get(bit).copied(), Some(name));
+        }
     }
 
     #[test]

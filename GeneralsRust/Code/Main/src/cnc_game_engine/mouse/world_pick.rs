@@ -1,6 +1,67 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+/// C++ `Bridge::pickBridge` intersects the cursor ray with a bridge deck
+/// plane, then accepts the point only inside its four-corner footprint.
+/// Frozen endpoints and width describe that same rectangle in Y-up space.
+pub(super) fn raycast_frozen_bridge(
+    near: Vec3,
+    far: Vec3,
+    bridges: &[crate::presentation_frame::PresentationBridgeSegment],
+) -> Option<Vec3> {
+    let ray = far - near;
+    if !near.is_finite() || !far.is_finite() {
+        return None;
+    }
+    // The frozen map data is in parse order, while C++ addBridgeToLogic
+    // prepends each bridge and pickBridge walks that linked list from head.
+    bridges.iter().rev().find_map(|bridge| {
+        let start = Vec3::from_array(bridge.start);
+        let end = Vec3::from_array(bridge.end);
+        let along = Vec2::new(end.x - start.x, end.z - start.z);
+        let length_squared = along.length_squared();
+        if !start.is_finite()
+            || !end.is_finite()
+            || !bridge.width.is_finite()
+            || bridge.width <= 0.0
+            || length_squared <= PICK_RAY_EPSILON
+        {
+            return None;
+        }
+
+        // Deck height varies linearly from the first end to the second.
+        // Solve ray.y(t) == deck_height(ray.xz(t)) for the plane hit.
+        let rise = end.y - start.y;
+        let near_fraction = Vec2::new(near.x - start.x, near.z - start.z).dot(along)
+            / length_squared;
+        let ray_fraction_rate = Vec2::new(ray.x, ray.z).dot(along) / length_squared;
+        let denominator = ray.y - rise * ray_fraction_rate;
+        if !denominator.is_finite() || denominator.abs() <= PICK_RAY_EPSILON {
+            return None;
+        }
+        let t = (start.y + rise * near_fraction - near.y) / denominator;
+        if !t.is_finite() || !(0.0..=1.0).contains(&t) {
+            return None;
+        }
+        let hit = near + ray * t;
+        let relative = Vec2::new(hit.x - start.x, hit.z - start.z);
+        let length_fraction = relative.dot(along) / length_squared;
+        let cross = relative.x * along.y - relative.y * along.x;
+        (hit.is_finite()
+            && (0.0..=1.0).contains(&length_fraction)
+            && cross.abs() <= bridge.width * 0.5 * length_squared.sqrt())
+            .then_some(hit)
+    })
+}
+
+pub(super) fn higher_bridge_or_terrain(terrain: Option<Vec3>, bridge: Option<Vec3>) -> Option<Vec3> {
+    match (terrain, bridge) {
+        (Some(ground), Some(deck)) if deck.y > ground.y => Some(deck),
+        (Some(ground), _) => Some(ground),
+        (None, deck) => deck,
+    }
+}
+
 impl CnCGameEngine {
     pub(in crate::cnc_game_engine) fn update_mouse_world_position(&mut self) {
         // C++ maps device coordinates through the active W3D camera.  The former
@@ -32,9 +93,14 @@ impl CnCGameEngine {
                 view_h,
             )
             .and_then(|(near, far)| {
-                raycast_frozen_terrain(near, far, world_min, world_max, world_env).or_else(|| {
-                    raycast_ground_plane_clamped(near, far, world_min, world_max, world_env)
-                })
+                let ground = raycast_frozen_terrain(near, far, world_min, world_max, world_env)
+                    .or_else(|| {
+                        raycast_ground_plane_clamped(near, far, world_min, world_max, world_env)
+                    });
+                let deck = world_env.and_then(|env| {
+                    raycast_frozen_bridge(near, far, &env.bridge_segments)
+                });
+                higher_bridge_or_terrain(ground, deck)
             })
         };
         if let Some(position) = picked {

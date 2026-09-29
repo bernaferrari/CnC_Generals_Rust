@@ -342,6 +342,10 @@ struct NamedWaterBind {
     bind_group: BindGroup,
 }
 
+struct NamedRoadBind {
+    _texture: Texture,
+    bind_group: BindGroup,
+}
 
 /// Terrain LOD levels matching C++ implementation
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -394,4 +398,3 @@ impl SeismicSimulationNode {
         }
     }
 }
-

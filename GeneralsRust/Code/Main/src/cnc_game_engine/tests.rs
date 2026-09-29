@@ -1326,20 +1326,11 @@ fn menu_does_not_skip_world_scene_after_warmup() {
 }
 
 #[test]
-fn startup_camera_metadata_uses_xz_ground_not_xy() {
-    let src = include_str!("shell.rs");
-    let start = src
-        .find("fn bootstrap_camera_for_loaded_map")
-        .expect("bootstrap camera");
-    let body = &src[start..src.len().min(start + 2200)];
-    assert!(
-        body.contains("Vec2::new(pos.x, pos.z)"),
-        "InitialCamera ground focus is X/Z, not X/Y"
-    );
-    assert!(
-        !body.contains("Vec2::new(pos.x, pos.y)"),
-        "must not treat camera height as a map axis"
-    );
+fn startup_camera_metadata_converts_cpp_ground_axes() {
+    // ShellMapMD's InitialCameraPosition is serialized as C++ X/Y ground,
+    // Z height. The Rust renderer uses X/Z ground and Y height.
+    let focus = CnCGameEngine::cpp_initial_camera_ground_focus([827.8885, 234.29129, 0.0]);
+    assert_eq!(focus, glam::Vec2::new(827.8885, 234.29129));
 }
 
 #[test]

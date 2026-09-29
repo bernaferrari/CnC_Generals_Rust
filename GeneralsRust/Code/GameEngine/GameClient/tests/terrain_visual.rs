@@ -397,6 +397,15 @@ fn skybox_candidates_swap_tga_to_dds_and_search_art_and_map_dir() {
                 || c == "Art/Textures/TSMorningN.dds"),
         "missing tga→dds swap candidate: {as_str:?}"
     );
+    let base_dds = as_str
+        .iter()
+        .position(|c| c == "Art/Textures/TSMorningN.dds")
+        .expect("base DDS candidate");
+    let base_tga = as_str
+        .iter()
+        .position(|c| c == "Art/Textures/TSMorningN.tga")
+        .expect("base TGA candidate");
+    assert_eq!(base_dds + 1, base_tga, "DDS must precede TGA in one search directory");
     assert!(
         as_str
             .iter()

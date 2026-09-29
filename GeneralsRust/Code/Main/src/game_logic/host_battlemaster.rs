@@ -206,6 +206,10 @@ pub fn battlemaster_ms_to_frames(ms: u32) -> u32 {
 /// Fail-closed: name residual. Excludes weapons/shells/debris/science tokens.
 pub fn is_battlemaster_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
+    is_battlemaster_template_lowercase(&n)
+}
+
+fn is_battlemaster_template_lowercase(n: &str) -> bool {
     if n.is_empty() {
         return false;
     }
@@ -701,6 +705,10 @@ fn is_overlord_horde_template(n: &str) -> bool {
 /// C++ KINDOF_PORTABLE_STRUCTURE ride-on (Overlord/Helix bunker / gattling / speaker).
 pub fn is_portable_structure_template(template_name: &str) -> bool {
     let n = template_name.to_ascii_lowercase();
+    is_portable_structure_template_lowercase(&n)
+}
+
+fn is_portable_structure_template_lowercase(n: &str) -> bool {
     (n.contains("overlord") || n.contains("helix") || n.contains("emperor"))
         && (n.contains("bunker")
             || n.contains("gattling")
@@ -710,14 +718,14 @@ pub fn is_portable_structure_template(template_name: &str) -> bool {
 
 /// Retail China ExactMatch HordeUpdate vehicles, not Battlemaster-only.
 pub fn is_china_vehicle_horde_unit(template_name: &str) -> bool {
-    if is_battlemaster_template(template_name) {
+    let n = template_name.to_ascii_lowercase();
+    if is_battlemaster_template_lowercase(&n) {
         return true;
     }
-    let n = template_name.to_ascii_lowercase();
     if n.is_empty() || leftover_vehicle_name_excluded(&n) {
         return false;
     }
-    if is_portable_structure_template(template_name) {
+    if is_portable_structure_template_lowercase(&n) {
         return false;
     }
     is_dragon_horde_template(&n)
@@ -1419,6 +1427,16 @@ mod tests {
         assert!(is_china_vehicle_horde_unit("ChinaTankOverlord"));
         assert!(!is_china_vehicle_horde_unit("OverlordGattlingCannon"));
         assert!(!is_china_vehicle_horde_unit("ChinaInfantryRedguard"));
+        for name in [
+            "CHINATANKBATTLEMASTER",
+            "chinatankdragon",
+            "cHiNaVeHiClEiNfErNoCaNnOn",
+            "CHINATANKGATTLING",
+            "chinatankoverlord",
+        ] {
+            assert!(is_china_vehicle_horde_unit(name), "{name}");
+        }
+        assert!(!is_china_vehicle_horde_unit("OVERLORDGATTLINGCANNON"));
         assert!(!same_vehicle_horde_family(
             "ChinaTankDragon",
             "Nuke_ChinaTankDragon"

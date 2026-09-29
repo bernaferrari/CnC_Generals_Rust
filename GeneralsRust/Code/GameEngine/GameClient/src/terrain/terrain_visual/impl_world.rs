@@ -894,10 +894,9 @@ impl TerrainVisualImpl {
             // whole process (dx8wrapper.cpp:2870-2878,
             // MissingTexture::_Get_Missing_Texture missingtexture.h:19) —
             // later frames and later map loads reuse it instead of reopening
-            // the file. TSMorning{N,E,S,W,T}.tga (plus .dds twins) are
-            // genuinely absent from the mounted ZH archives, so each face is
-            // attempted once per process, then the synthetic horizon
-            // gradient stays bound. Empty names never reach the loader.
+            // the file. The default TSMorning faces live in the base Generals
+            // texture archives; a missing install falls back to the synthetic
+            // horizon gradient. Empty names never reach the loader.
             if texture_path.is_empty() || skybox_texture_known_missing(texture_path) {
                 continue;
             }
@@ -1383,17 +1382,37 @@ impl TerrainVisualImpl {
         }
         drop(push_unique);
 
-        // C++ DDSFileClass rewrites .tga → .dds before opening (ddsfile.cpp:33-37).
-        let current = candidates.clone();
-        for candidate in current {
-            if let Some(swapped) = swapped_skybox_texture_extension(&candidate) {
-                if seen.insert(swapped.clone()) {
-                    candidates.push(swapped);
+        // WW3D asks DDSFileClass for the .dds sibling before it opens the
+        // named .tga (ddsfile.cpp:33-37). Keep each lookup directory's
+        // precedence as well: a localized DDS beats the base TGA.
+        let mut ordered = Vec::with_capacity(candidates.len() * 2);
+        seen.clear();
+        for candidate in candidates {
+            let is_tga = candidate
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("tga"));
+            let swapped = swapped_skybox_texture_extension(&candidate);
+            if is_tga {
+                if let Some(ref dds) = swapped {
+                    if seen.insert(dds.clone()) {
+                        ordered.push(dds.clone());
+                    }
+                }
+            }
+            if seen.insert(candidate.clone()) {
+                ordered.push(candidate);
+            }
+            if !is_tga {
+                if let Some(tga) = swapped {
+                    if seen.insert(tga.clone()) {
+                        ordered.push(tga);
+                    }
                 }
             }
         }
 
-        candidates
+        ordered
     }
 
 }

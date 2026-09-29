@@ -49,6 +49,7 @@ impl TerrainVisualImpl {
             road_texture: None,
             road_sampler: None,
             road_texture_bind_group: None,
+            road_named_bind_groups: HashMap::new(),
             road_texture_is_fallback: false,
             road_texture_search_exhausted: false,
             snow_texture_search_exhausted: false,

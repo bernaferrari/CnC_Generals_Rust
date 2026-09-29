@@ -813,6 +813,12 @@ impl GameLogic {
         self.runtime_road_segments.clone()
     }
 
+    /// C++ WaterRenderObjClass::renderWater uses every authored water polygon,
+    /// including river flag/start and per-point Z. Instance owned map data.
+    pub fn terrain_water_triggers_snapshot(&self) -> &[gamelogic::polygon_trigger::PolygonTrigger] {
+        &self.runtime_water_triggers
+    }
+
     pub fn terrain_texture_classes_snapshot(
         &self,
     ) -> Vec<super::script_loader::BlendTileTextureClass> {

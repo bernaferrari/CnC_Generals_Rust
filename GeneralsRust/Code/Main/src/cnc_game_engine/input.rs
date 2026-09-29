@@ -72,9 +72,10 @@ impl CnCGameEngine {
             // width/height): the WND window manager, UI renderer, and tactical
             // viewport all lay out and draw in logical points, so a physical
             // (Retina) backbuffer leaves them painting the top-left quadrant.
-            let scale = self.window.scale_factor().max(0.0001);
-            let logical_w = ((new_size.width as f64) / scale).round().max(1.0) as u32;
-            let logical_h = ((new_size.height as f64) / scale).round().max(1.0) as u32;
+            let (logical_w, logical_h) = super::types::logical_surface_extent(
+                new_size,
+                self.window.scale_factor(),
+            );
             if let Err(err) = ww3d_engine::resize(logical_w, logical_h) {
                 warn!("WW3D resize failed: {err:?}");
             }
@@ -794,9 +795,9 @@ impl CnCGameEngine {
         // often reports Used + live hit at center; probe several view points and
         // pick the first without a live under-cursor gadget so RMB reaches
         // handle_right_click + note_gameplay_order (fifth claim flag).
-        let size = self.window.inner_size();
-        let w = size.width.max(2) as f32;
-        let h = size.height.max(2) as f32;
+        let (display_w, display_h) = super::types::render_surface_extent(&self.window);
+        let w = display_w.max(2) as f32;
+        let h = display_h.max(2) as f32;
         // Prefer mid-world / lower thirds (away from top menu chrome and bottom HUD).
         let candidates: [(f32, f32); 8] = [
             (0.50, 0.42),
@@ -1718,14 +1719,14 @@ impl CnCGameEngine {
         // (C++ W3DInGameUI selection circles / drag region after 3D scene setup).
         if !skip_world_scene && matches!(self.current_state, GameState::InGame | GameState::Paused)
         {
-            let size = self.window.inner_size();
+            let (display_w, display_h) = super::types::render_surface_extent(&self.window);
             let drag_rect = if self.is_dragging {
                 self.selection_start_screen.map(|start| {
                     crate::graphics::selection_renderer::DragSelectRect {
                         start: glam::Vec2::new(start.0, start.1),
                         end: glam::Vec2::new(self.mouse_position.0, self.mouse_position.1),
-                        window_width: size.width as f32,
-                        window_height: size.height as f32,
+                        window_width: display_w as f32,
+                        window_height: display_h as f32,
                     }
                 })
             } else {
@@ -1740,7 +1741,7 @@ impl CnCGameEngine {
                     self.draw_rmb_scroll_anchor,
                     self.is_rmb_scrolling,
                     self.rmb_scroll_anchor,
-                    (size.width as f32, size.height as f32),
+                    (display_w as f32, display_h as f32),
                 );
             let ground_markers = self.collect_ground_marker_circles();
             crate::graphics::selection_renderer::enqueue_selection_render(
@@ -1753,7 +1754,7 @@ impl CnCGameEngine {
                 ground_markers,
                 self.show_move_lines,
                 self.show_attack_lines,
-                (size.width as f32, size.height as f32),
+                (display_w as f32, display_h as f32),
             );
             #[cfg(feature = "game_client")]
             {

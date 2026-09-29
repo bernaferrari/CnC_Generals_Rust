@@ -1,4 +1,5 @@
 use super::*;
+use super::basic_core::ambient_sound_is_in_range;
 use std::sync::Arc;
 
 use crate::helpers::TheInGameUI;
@@ -2141,6 +2142,46 @@ fn start_ambient_sound_uses_template_when_custom_info_absent() {
     drawable.custom_sound_ambient_dynamic_info = Some(custom);
     drawable.start_ambient_sound(false);
     assert!(drawable.ambient_sound_is_active());
+}
+
+#[test]
+fn local_ambient_range_uses_cpp_ground_axes_and_strict_boundary() {
+    use game_engine::common::audio::{AudioEventInfo, AudioPriority, Coord3D, ST_GLOBAL};
+
+    let listener = Coord3D::new(1000.0, 2000.0, 30.0);
+    let mut info = AudioEventInfo {
+        max_distance: 100.0,
+        ..AudioEventInfo::default()
+    };
+    // Rust drawable is Y-up; C++ listener is Z-up. C++ tests distSqr < maxDistance².
+    assert!(ambient_sound_is_in_range(
+        &info,
+        Vector3::new(1000.0, 30.0, 2099.0),
+        &listener,
+    ));
+    assert!(!ambient_sound_is_in_range(
+        &info,
+        Vector3::new(1000.0, 30.0, 2100.0),
+        &listener,
+    ));
+    assert!(!ambient_sound_is_in_range(
+        &info,
+        Vector3::new(1000.0, 131.0, 2000.0),
+        &listener,
+    ));
+    info.type_field = ST_GLOBAL;
+    assert!(ambient_sound_is_in_range(
+        &info,
+        Vector3::new(1000.0, 30.0, 2100.0),
+        &listener,
+    ));
+    info.type_field = 0;
+    info.priority = AudioPriority::Critical;
+    assert!(ambient_sound_is_in_range(
+        &info,
+        Vector3::new(1000.0, 30.0, 2100.0),
+        &listener,
+    ));
 }
 
 #[test]
