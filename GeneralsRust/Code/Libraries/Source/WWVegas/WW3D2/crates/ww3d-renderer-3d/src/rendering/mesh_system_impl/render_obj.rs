@@ -27,11 +27,9 @@ impl crate::render_object_system::RenderObjClass for MeshClass {
     }
 
     fn get_num_polys(&self) -> usize {
-        if let Some(model) = &self.model {
-            model.triangles.len()
-        } else {
-            0
-        }
+        self.model.as_ref().map_or(0, |model| {
+            model.get_pass_count() * model.get_polygon_count()
+        })
     }
 
     fn as_any(&self) -> &dyn Any {

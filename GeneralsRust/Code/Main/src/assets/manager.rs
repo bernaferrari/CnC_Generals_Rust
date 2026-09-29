@@ -2031,7 +2031,7 @@ impl AssetManager {
     fn load_companion_animation_blocking(&mut self, identity: &str) -> Result<W3dAnimation> {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
-                return handle.block_on(
+                return Self::block_on_runtime(
                     self.model_loader
                         .load_companion_animation(&mut self.archive_system, identity),
                 );
@@ -2144,7 +2144,7 @@ impl AssetManager {
 
         let model = if let Ok(handle) = tokio::runtime::Handle::try_current() {
             if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread {
-                handle.block_on(
+                Self::block_on_runtime(
                     self.model_loader
                         .load_model(&mut self.archive_system, &resolved_name),
                 )
@@ -2638,6 +2638,32 @@ mod tests {
     };
     use std::path::PathBuf;
     use std::time::{Duration, SystemTime};
+
+    #[test]
+    fn synchronous_w3d_misses_inside_multithread_runtime_do_not_panic() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("Tokio runtime");
+        let mut manager = AssetManager::new().expect("asset manager");
+
+        let (model, animation) = runtime.block_on(async {
+            (
+                manager.load_w3d_model("zzz_nested_runtime_missing_model_probe"),
+                manager.load_companion_animation_blocking("zzz_nested_runtime_missing_animation"),
+            )
+        });
+
+        assert!(
+            model.is_err(),
+            "absent model must remain a normal load miss"
+        );
+        assert!(
+            animation.is_err(),
+            "absent animation must remain a normal load miss"
+        );
+    }
 
     #[test]
     fn clear_missing_model_cache_reenables_late_load_attempts() {

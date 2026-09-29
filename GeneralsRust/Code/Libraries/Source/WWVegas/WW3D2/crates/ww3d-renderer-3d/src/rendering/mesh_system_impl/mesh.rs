@@ -763,7 +763,9 @@ impl MeshClass {
 
     /// Get number of polygons - equivalent to C++ MeshClass::Get_Num_Polys
     pub fn get_num_polys(&self) -> u32 {
-        self.model.as_ref().map_or(0, |m| m.triangles.len() as u32)
+        self.model.as_ref().map_or(0, |model| {
+            (model.get_pass_count() * model.get_polygon_count()) as u32
+        })
     }
 
     /// Get object space bounding sphere - equivalent to C++ Get_Obj_Space_Bounding_Sphere

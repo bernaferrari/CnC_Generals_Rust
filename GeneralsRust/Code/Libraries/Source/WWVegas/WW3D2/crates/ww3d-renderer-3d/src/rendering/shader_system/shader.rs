@@ -2027,10 +2027,10 @@ mod tests {
             DetailAlphaFuncType::Disable,
         );
 
-        // Alpha test with alpha blend and depth write disabled falls into "Other" category
-        // (requires back-to-front sorting like other transparent objects)
-        assert_eq!(shader.get_ss_category(), StaticSortCategoryType::Other);
-        assert_eq!(shader.guess_sort_level(), SORT_LEVEL_BIN1);
+        // C++ Get_SS_Category keeps this exact alpha blend pair in AlphaTest,
+        // regardless of the depth mask.
+        assert_eq!(shader.get_ss_category(), StaticSortCategoryType::AlphaTest);
+        assert_eq!(shader.guess_sort_level(), SORT_LEVEL_NONE);
     }
 
     #[test]

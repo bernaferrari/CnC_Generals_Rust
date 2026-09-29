@@ -1,6 +1,44 @@
 // Lifecycle: shutdown — merge poll latches into the result, then apply the
 // host vertical-slice / playable-claim gates.
 
+/// Keep the reason for a failed child run before removing its temporary files.
+/// Startup can produce megabytes of asset logs, so only read the final 4 KiB.
+fn append_smoke_failure_diagnostics(
+    result: &mut ExecutableSmokeResult,
+    st: &SmokeRunState,
+    tmp: &Path,
+) {
+    if matches!(
+        result.status.as_str(),
+        "success" | "success_partial_exit" | "success_forced_exit"
+    ) {
+        return;
+    }
+
+    if !st.shell_wnd_detail.is_empty() {
+        result
+            .detail
+            .push_str(&format!("; shell_last={}", st.shell_wnd_detail));
+    }
+
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    let Ok(mut stderr) = fs::File::open(tmp.join("child_stderr.txt")) else {
+        return;
+    };
+    let Ok(len) = stderr.metadata().map(|metadata| metadata.len()) else {
+        return;
+    };
+    if len > 4096 && stderr.seek(SeekFrom::End(-4096)).is_err() {
+        return;
+    }
+    let mut tail = Vec::new();
+    if stderr.read_to_end(&mut tail).is_ok() && !tail.is_empty() {
+        let tail = String::from_utf8_lossy(&tail).replace(['\r', '\n'], " | ");
+        result.detail.push_str("; child_stderr_tail=");
+        result.detail.push_str(tail.trim());
+    }
+}
+
 /// Wave 839: ensure presentation honesty counters are latched before the
 /// vertical gate. Always merge poll latches here — early child death /
 /// partial exit skips the phase-2 assignment block, and must not drop

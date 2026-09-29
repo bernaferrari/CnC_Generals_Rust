@@ -42,6 +42,31 @@ fn compute_pass_index_ranges_uses_vertex_count_for_non_indexed_meshes() {
 }
 
 #[test]
+fn mesh_polygon_count_includes_every_material_pass() {
+    let mut model = MeshModelClass::new("two_passes");
+    model.triangles = vec![
+        W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            distance: 0.0,
+        };
+        2
+    ];
+    model.material_passes = vec![MaterialPassClass::new(), MaterialPassClass::new()];
+
+    let mut mesh = MeshClass::new();
+    mesh.model = Some(Arc::new(model));
+
+    assert_eq!(mesh.get_num_polys(), 4);
+    assert_eq!(RenderObjClass::get_num_polys(&mesh), 4);
+}
+
+#[test]
 fn compute_pass_index_ranges_groups_polygon_renderers_by_material_pass() {
     let mut model = MeshModelClass::new("per_pass");
 
