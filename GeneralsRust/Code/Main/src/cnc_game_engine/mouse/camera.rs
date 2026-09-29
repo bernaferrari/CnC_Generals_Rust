@@ -233,7 +233,7 @@ impl CnCGameEngine {
             }
         }
         if self.host_camera_movement_finished() {
-            if let Some(pose) = crate::command_system::take_pending_replay_camera() {
+            if let Some(pose) = self.game_logic.replay_pending.take_camera() {
                 if should_apply_host_replay_camera(pose.player_index) {
                     // C++ GameLogicDispatch.cpp:1801-1823 setLocation always applies pitch.
                     let clamped = self.clamp_to_world_bounds(pose.pos);
@@ -257,7 +257,7 @@ impl CnCGameEngine {
                 }
             }
         }
-        for op in crate::command_system::take_pending_replay_team_ops() {
+        for op in self.game_logic.replay_pending.take_team_ops() {
             match op {
                 crate::command_system::ReplayTeamOp::Create {
                     player_index,
@@ -279,7 +279,7 @@ impl CnCGameEngine {
                 }
             }
         }
-        for player_index in crate::command_system::take_pending_replay_selection_remirror() {
+        for player_index in self.game_logic.replay_pending.take_selection_remirror() {
             self.remirror_host_replay_observer_selection(player_index);
         }
         let initial_zoom = self.camera_zoom;

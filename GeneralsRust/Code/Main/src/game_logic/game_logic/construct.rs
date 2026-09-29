@@ -70,6 +70,7 @@ impl GameLogic {
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
             frame: 0,
+            replay_pending: crate::command_system::ReplayPendingState::default(),
             frame_objects_changed_trigger_areas: std::sync::atomic::AtomicU32::new(0),
             next_weapon_discharge_sequence: 1,
             weapon_discharge_log:
@@ -767,6 +768,7 @@ impl GameLogic {
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;
+        self.replay_pending.clear();
         self.next_weapon_discharge_sequence = 1;
         self.weapon_discharge_log.clear();
         self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);

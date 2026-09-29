@@ -2156,7 +2156,7 @@ impl CnCGameEngine {
             Ok(renderer.take_pending_attachments())
         }) {
             Ok(records) if !records.is_empty() => {
-                AttachmentDispatcher::dispatch(records);
+                dispatch_attachments(records);
             }
             Ok(_) => {}
             Err(err) => {
@@ -2244,6 +2244,13 @@ impl CnCGameEngine {
         if let Err(err) = self.game_client.reset() {
             warn!("GameEngine::reset GameClient::reset failed: {err}");
         }
+        // The GameClient has destroyed its Drawables. Clear the presentation
+        // bridge belonging to this engine's world, even if a save/load
+        // candidate is temporarily the ambient active world.
+        gamelogic::helpers::ClientVisualHandle::new(std::sync::Arc::clone(
+            &self.game_logic.engine_stores,
+        ))
+        .clear_visual_state_for_reset();
 
         // TheShell teardown: C++ tears the shell screens down with the engine
         // on match start. Without this, a runtime-host `start_game` issued

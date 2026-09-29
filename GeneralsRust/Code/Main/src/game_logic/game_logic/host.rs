@@ -85,6 +85,9 @@ pub struct GameLogic {
 
     /// Simulation frame counter
     pub(crate) frame: u32,
+    /// Recorder playback handoff and CRC cadence for this game only. Created
+    /// inertly; live callback binding occurs when the host drives this world.
+    pub(crate) replay_pending: crate::command_system::ReplayPendingState,
     /// C++ `getFrameObjectsChangedTriggerAreas`. Instance atomic so a `&self`
     /// guard scan can store it. `Cell` is `!Sync` and this type is `Arc<Mutex<_>>`.
     pub(crate) frame_objects_changed_trigger_areas: std::sync::atomic::AtomicU32,

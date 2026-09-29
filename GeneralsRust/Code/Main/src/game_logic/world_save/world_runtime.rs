@@ -251,6 +251,7 @@ impl GameLogic {
     /// Start a new game with specified mode
     pub fn start_new_game(&mut self, mode: GameMode) {
         self.start_new_game_state(mode);
+        crate::command_system::bind_host_replay_authority(&self.replay_pending);
         crate::command_system::tap_host_new_game_for_recorder(mode);
     }
 

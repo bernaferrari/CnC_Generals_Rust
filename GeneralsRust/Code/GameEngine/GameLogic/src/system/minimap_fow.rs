@@ -8,8 +8,6 @@
 
 use crate::common::UnsignedInt;
 use log::{debug, trace, warn};
-use std::sync::Mutex;
-use std::sync::OnceLock;
 
 /// Maximum number of players
 const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
@@ -242,14 +240,6 @@ impl Default for MinimapFowManager {
     fn default() -> Self {
         Self::new(MinimapDimensions::standard())
     }
-}
-
-/// Global singleton accessor for MinimapFowManager
-static MINIMAP_FOW_MANAGER: OnceLock<Mutex<MinimapFowManager>> = OnceLock::new();
-
-/// Get the global MinimapFowManager singleton
-pub fn get_minimap_fow_manager() -> &'static Mutex<MinimapFowManager> {
-    MINIMAP_FOW_MANAGER.get_or_init(|| Mutex::new(MinimapFowManager::default()))
 }
 
 #[cfg(test)]

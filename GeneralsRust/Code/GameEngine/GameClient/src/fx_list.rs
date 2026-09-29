@@ -22,7 +22,6 @@ use crate::effects::decals::DecalManager;
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
 use crate::effects::particle_manager::{GameClientRandomVariable, get_particle_system_manager_mut};
 use crate::effects::ray_effect_system::create_ray_effect_by_template;
-use crate::effects::ray_effects::{RayEffectConfig, RayEffectManager};
 use crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp;
 use crate::message_stream::game_message::Coord3D as MessageCoord3D;
 use crate::terrain::scorch_mesh::{add_terrain_scorch, resolve_scorch_type};
@@ -110,7 +109,6 @@ pub fn register_fx_list_manager_bridge() {
             .collect()
         },
     );
-    ensure_default_ray_effect_manager();
 }
 
 /// Common DamageFX::doDamageFX → C++ FXList::doFXObj (FXList.cpp:794).
@@ -194,14 +192,6 @@ fn leftover_object_fx_pose(object: &Object) -> gamelogic::helpers::HostFxObjectP
     }
 }
 
-fn ensure_default_ray_effect_manager() {
-    let slot = FX_RAY_MANAGER.get_or_init(|| RwLock::new(None));
-    let mut guard = slot.write().unwrap_or_else(|e| e.into_inner());
-    if guard.is_none() {
-        *guard = Some(Arc::new(Mutex::new(RayEffectManager::new())));
-    }
-}
-
 pub type FXListResult<T> = Result<T, FXListError>;
 
 #[derive(Debug, Clone)]
@@ -270,7 +260,6 @@ fn to_message_coord(pos: &Coord3D) -> MessageCoord3D {
 type AudioHook = Box<dyn FnMut(&str, Option<MessageCoord3D>) + Send + Sync>;
 
 static FX_AUDIO: OnceLock<RwLock<Option<AudioHook>>> = OnceLock::new();
-static FX_RAY_MANAGER: OnceLock<RwLock<Option<Arc<Mutex<RayEffectManager>>>>> = OnceLock::new();
 static FX_DECAL_MANAGER: OnceLock<RwLock<Option<Arc<Mutex<DecalManager>>>>> = OnceLock::new();
 static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<Arc<Mutex<CameraShakeSystem>>>>> = OnceLock::new();
 static DISPLAY_LIGHT_PULSES: OnceLock<Mutex<Vec<DisplayLightPulse>>> = OnceLock::new();
@@ -541,14 +530,6 @@ pub fn register_fx_audio(mut hook: AudioHook) {
         .replace(hook);
 }
 
-pub fn register_ray_effect_manager(manager: Arc<Mutex<RayEffectManager>>) {
-    FX_RAY_MANAGER
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .replace(manager);
-}
-
 pub fn register_decal_manager(manager: Arc<Mutex<DecalManager>>) {
     FX_DECAL_MANAGER
         .get_or_init(|| RwLock::new(None))
@@ -583,18 +564,6 @@ fn with_audio<F: FnOnce(&mut AudioHook)>(f: F) -> bool {
         }
     }
     false
-}
-
-fn with_ray_manager<F: FnOnce(&mut RayEffectManager)>(f: F) {
-    ensure_default_ray_effect_manager();
-    let Some(manager) = FX_RAY_MANAGER.get() else {
-        return;
-    };
-    if let Some(manager) = manager.read().ok().and_then(|guard| guard.clone()) {
-        if let Ok(mut guard) = manager.lock() {
-            f(&mut guard);
-        }
-    }
 }
 
 fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
@@ -1348,17 +1317,6 @@ impl FXNugget for RayEffectFXNugget {
             &self.template_name,
         );
 
-        with_ray_manager(|manager| {
-            let mut config = match self.template_name.to_ascii_lowercase().as_str() {
-                name if name.contains("lightning") => RayEffectConfig::lightning(),
-                name if name.contains("particle") => RayEffectConfig::particle_cannon(),
-                name if name.contains("laser") => RayEffectConfig::laser(),
-                _ => RayEffectConfig::default(),
-            };
-            config.start = Vec3::new(source.x, source.y, source.z);
-            config.end = Vec3::new(target.x, target.y, target.z);
-            manager.spawn(config);
-        });
     }
 }
 
@@ -1940,6 +1898,30 @@ mod tests {
             sound_name: "UnitDie".to_string(),
         };
         nugget.do_fx_obj(None, None);
+    }
+
+    #[test]
+    fn ray_nugget_spawns_one_cpp_template_ray() {
+        use crate::effects::ray_effect_system::{live_ray_effects, reset_ray_effects};
+
+        reset_ray_effects();
+        let nugget = RayEffectFXNugget {
+            template_name: "GenericLaser".to_string(),
+            primary_offset: Vec3::new(1.0, 0.0, 0.0),
+            secondary_offset: Vec3::new(0.0, 2.0, 0.0),
+        };
+        nugget.do_fx_pos(
+            Some(&Coord3D::new(0.0, 0.0, 0.0)),
+            None,
+            0.0,
+            Some(&Coord3D::new(10.0, 0.0, 0.0)),
+            0.0,
+        );
+        let rays = live_ray_effects();
+        assert_eq!(rays.len(), 1);
+        assert_eq!(rays[0].start, [1.0, 0.0, 0.0]);
+        assert_eq!(rays[0].end, [10.0, 2.0, 0.0]);
+        reset_ray_effects();
     }
 
     #[test]

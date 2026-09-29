@@ -13,7 +13,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 
 use crate::command_line;
-use crate::runtime::attachments::AttachmentDispatcher;
+use crate::runtime::attachments::dispatch_attachments;
 use anyhow::{Context, Result};
 use log::{debug, error, info, warn};
 #[cfg(target_os = "windows")]
@@ -225,7 +225,7 @@ unsafe fn game_main_sync(_argc: c_int, _argv: *mut *mut c_char) {
         Ok(renderer.take_pending_attachments())
     })
     .unwrap_or_default();
-    AttachmentDispatcher::dispatch(attachments);
+    dispatch_attachments(attachments);
 }
 
 fn set_working_directory_to_executable() -> anyhow::Result<()> {
