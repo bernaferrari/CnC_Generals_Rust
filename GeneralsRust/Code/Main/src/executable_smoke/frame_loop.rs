@@ -147,6 +147,8 @@ struct SmokeRunState {
     load_retry_started: Option<Instant>,
     phase: u8, // 0 wait menu/boot, 1 commanded, 2 wait ingame, 3 exit
     last_snap: StatusSnap,
+    last_ingame_frame: Option<u32>,
+    last_ingame_frame_progress_at: Option<Instant>,
     commanded_at: Option<Instant>,
     windowed_start_sent: bool,
     // Windowed phase-20 substep: 0=menu nav inject, 1=start_game, 2=gameplay order inject.
@@ -291,6 +293,7 @@ fn smoke_wall_budget_exceeded(
         // Prefer honest InGame finalization over a bare timeout when the host
         // already reached match state — long command chains can exceed wall budget.
         if result.reached_ingame {
+            let stalled = ingame_frame_stalled(st, Duration::from_secs(30));
             result.shell_wnd_ok = st.saw_shell_wnd_ok;
             // Wave 833: honest host control residual.
             result.gameplay_cmd_ok = (st.saw_select_ok && st.saw_move_ok && st.saw_attack_ok)
@@ -304,16 +307,21 @@ fn smoke_wall_budget_exceeded(
             result.construct_cmd_ok = st.saw_construct_ok;
             result.train_cmd_ok = st.saw_train_ok;
             result.executable_host_ok =
-                executable_host_ok_from_residuals(true, result.shell_wnd_ok);
-            result.status = if result.executable_host_ok {
+                !stalled && executable_host_ok_from_residuals(true, result.shell_wnd_ok);
+            result.status = if stalled {
+                "ingame_stalled".into()
+            } else if result.executable_host_ok {
                 "success_forced_exit".into()
             } else {
                 "ingame_without_shell_wnd".into()
             };
             result.detail = format!(
-                "wall timeout with InGame; status={} frames={} phase={} step={} shell_wnd={} gameplay={}",
+                "wall timeout with InGame; status={} frames={} last_ingame_frame={:?} frame_idle_secs={:?} phase={} step={} shell_wnd={} gameplay={}",
                 result.status,
                 result.frames_observed,
+                st.last_ingame_frame,
+                st.last_ingame_frame_progress_at
+                    .map(|at| at.elapsed().as_secs()),
                 st.phase,
                 st.gameplay_step,
                 result.shell_wnd_ok,
@@ -340,6 +348,14 @@ fn smoke_wall_budget_exceeded(
         return true;
     }
     false
+}
+
+/// A prior InGame frame is not evidence that the match is still running.
+/// Allow slow debug asset loads, but fail a timeout when no game frame has
+/// advanced for 30 seconds after the skirmish began.
+fn ingame_frame_stalled(st: &SmokeRunState, max_idle: Duration) -> bool {
+    st.last_ingame_frame_progress_at
+        .is_some_and(|at| at.elapsed() >= max_idle)
 }
 
 /// Early child-exit guard. Returns true to break the loop.
@@ -466,6 +482,10 @@ fn latch_status_residuals(
         || snap.last_gameplay_cmd.starts_with("open_skirmish_menu_ok")
     {
         result.skirmish_menu_ok = true;
+    }
+    if snap.state == "InGame" && st.last_ingame_frame != Some(snap.frame) {
+        st.last_ingame_frame = Some(snap.frame);
+        st.last_ingame_frame_progress_at = Some(Instant::now());
     }
     st.last_snap = snap.clone();
     result.frames_observed = result.frames_observed.max(snap.frame);

@@ -258,12 +258,6 @@ pub(crate) fn xfer_live_game_client_state(
                     adapter.end_block().map_err(common_status_to_runtime)?;
                 }
             } else {
-                let factory_guard =
-                    get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
-                let factory = factory_guard
-                    .as_ref()
-                    .ok_or(RuntimeXferStatus::InvalidData)?;
-
                 for _ in 0..drawable_count {
                     let mut toc_id: u16 = 0;
                     adapter
@@ -277,7 +271,15 @@ pub(crate) fn xfer_live_game_client_state(
 
                     let data_size = adapter.begin_block().map_err(common_status_to_runtime)?;
 
-                    let Some(template) = factory.find_template(&toc_name, false) else {
+                    // The Arc outlives this guard. Drawable binding below can
+                    // resolve ambient sound through ThingFactory again.
+                    let template = {
+                        let guard =
+                            get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
+                        let factory = guard.as_ref().ok_or(RuntimeXferStatus::InvalidData)?;
+                        factory.find_template(&toc_name, false)
+                    };
+                    let Some(template) = template else {
                         adapter.skip(data_size).map_err(common_status_to_runtime)?;
                         continue;
                     };
@@ -297,17 +299,20 @@ pub(crate) fn xfer_live_game_client_state(
                     }
 
                     let mut drawable = if let Some(existing_id) = reuse_id {
-                        let needs_replace = client
-                            .drawable_map
-                            .get(&existing_id)
-                            .map(|existing| {
-                                !GameClient::drawable_matches_saved_template(
-                                    existing.as_ref(),
-                                    &template,
-                                    factory,
-                                )
-                            })
-                            .unwrap_or(true);
+                        let needs_replace = if let Some(existing) =
+                            client.drawable_map.get(&existing_id)
+                        {
+                            let guard =
+                                get_thing_factory().map_err(|_| RuntimeXferStatus::InvalidData)?;
+                            let factory = guard.as_ref().ok_or(RuntimeXferStatus::InvalidData)?;
+                            !GameClient::drawable_matches_saved_template(
+                                existing.as_ref(),
+                                &template,
+                                factory,
+                            )
+                        } else {
+                            true
+                        };
                         if needs_replace {
                             client
                                 .destroy_drawable(existing_id)

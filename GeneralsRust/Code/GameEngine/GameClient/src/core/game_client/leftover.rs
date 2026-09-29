@@ -1702,11 +1702,6 @@ impl Snapshotable for GameClient {
             // always exists, but demanding it here failed those loads before
             // a single drawable was even decoded. Require it only when there
             // is actually a drawable to resolve a template for.
-            let factory_guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
-            let factory = factory_guard
-                .as_ref()
-                .ok_or_else(|| "ThingFactory not initialized".to_string())?;
-
             for _ in 0..drawable_count {
                 let mut toc_id: u16 = 0;
                 xfer.xfer_unsigned_short(&mut toc_id)
@@ -1719,7 +1714,17 @@ impl Snapshotable for GameClient {
 
                 let data_size = xfer.begin_block().map_err(|e| format!("{:?}", e))?;
 
-                let Some(template) = factory.find_template(&toc_name, false) else {
+                // `find_template` returns an Arc. Release the factory lock
+                // before creating/binding a Drawable: binding may look up its
+                // ambient sound through the same factory.
+                let template = {
+                    let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
+                    let factory = guard
+                        .as_ref()
+                        .ok_or_else(|| "ThingFactory not initialized".to_string())?;
+                    factory.find_template(&toc_name, false)
+                };
+                let Some(template) = template else {
                     xfer.skip(data_size).map_err(|e| format!("{:?}", e))?;
                     continue;
                 };
@@ -1739,17 +1744,16 @@ impl Snapshotable for GameClient {
                 }
 
                 let mut drawable = if let Some(existing_id) = reuse_id {
-                    let needs_replace = self
-                        .drawable_map
-                        .get(&existing_id)
-                        .map(|existing| {
-                            !Self::drawable_matches_saved_template(
-                                existing.as_ref(),
-                                &template,
-                                factory,
-                            )
-                        })
-                        .unwrap_or(true);
+                    let needs_replace = if let Some(existing) = self.drawable_map.get(&existing_id)
+                    {
+                        let guard = get_thing_factory().map_err(|_| "ThingFactory lock failed")?;
+                        let factory = guard
+                            .as_ref()
+                            .ok_or_else(|| "ThingFactory not initialized".to_string())?;
+                        !Self::drawable_matches_saved_template(existing.as_ref(), &template, factory)
+                    } else {
+                        true
+                    };
                     if needs_replace {
                         self.destroy_drawable(existing_id)
                             .map_err(|e| e.to_string())?;
@@ -1963,4 +1967,3 @@ pub fn restore_live_game_client_from_xfer_bytes(bytes: &[u8]) -> Result<(), Stri
     let mut client = GameClient::new().map_err(|e| e.to_string())?;
     read_game_client_xfer_bytes(&mut client, bytes)
 }
-

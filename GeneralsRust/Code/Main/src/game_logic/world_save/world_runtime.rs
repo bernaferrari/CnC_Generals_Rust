@@ -250,6 +250,18 @@ impl GameLogic {
 
     /// Start a new game with specified mode
     pub fn start_new_game(&mut self, mode: GameMode) {
+        self.start_new_game_state(mode);
+        crate::command_system::tap_host_new_game_for_recorder(mode);
+    }
+
+    /// Prepare a candidate world for loading a save. C++ GameState::loadGame
+    /// resets the engine and does not post MSG_NEW_GAME for ordinary saves;
+    /// the candidate must not start a second replay on the live recorder.
+    pub(crate) fn start_new_game_for_restore(&mut self, mode: GameMode) {
+        self.start_new_game_state(mode);
+    }
+
+    fn start_new_game_state(&mut self, mode: GameMode) {
         log::info!("Starting new game: {:?}", mode);
         // C++ GameLogic.cpp:1254-1256 TheCampaignManager->SetVictorious(FALSE).
         clear_live_campaign_victorious_for_new_game();
@@ -305,7 +317,6 @@ impl GameLogic {
             }
         }
         log::info!("New game started successfully");
-        crate::command_system::tap_host_new_game_for_recorder(mode);
     }
 
     pub fn game_mode(&self) -> GameMode {

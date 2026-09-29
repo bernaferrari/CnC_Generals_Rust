@@ -548,22 +548,30 @@ fn host_local_player_index() -> i32 {
     }
 }
 
-/// C++ `GameLogic::update` writes every `TheCommandList` message exactly
-/// once: `updateRecord` snapshots the list, then `processCommandList`
-/// (GameLogic.cpp:3669) consumes it — `TheCommandList->reset()` at
-/// GameLogic.cpp:3765. The Rust recorder only *snapshots* the list, so the
-/// `MSG_LOGIC_CRC` entries `updateRecord` just wrote must be removed here;
-/// otherwise every later client pump re-writes them into the `.rep`, the
-/// playback CRC queue drifts, and playback reports a false
-/// "Replay desync".
-fn consume_written_logic_crcs() {
+/// C++ `GameLogic::update` resets `TheCommandList` after recorder update and
+/// command dispatch (GameLogic.cpp:3765). Main has already queued live orders
+/// in `host_queue`, so the recorded snapshot must be discarded before a
+/// second host command pass or the next logic frame. Retaining `MSG_NEW_GAME`
+/// starts the same replay again; retaining CRCs or orders writes them twice.
+fn reset_recorded_command_list() {
     #[cfg(feature = "game_client")]
     {
         if let Ok(mut list) = game_client::message_stream::command_list::get_command_list().write()
         {
-            list.retain_messages(|msg| !matches!(msg.get_type(), GameMessageType::LogicCRC(_)));
+            list.retain_messages(|_| false);
+            list.reset_frame_counter();
         }
     }
+}
+
+/// C++ GameState::loadGame calls GameEngine::reset, which resets Recorder and
+/// CommandList before loading an ordinary save. The Rust host commits a
+/// staged world atomically, so close the old replay only after commit succeeds.
+pub(crate) fn reset_host_recorder_after_successful_load() {
+    let _ = with_recorder_mut(|recorder| recorder.reset());
+    reset_recorded_command_list();
+    LAST_LOGIC_CRC_FRAME.store(u32::MAX, Ordering::Relaxed);
+    LAST_LOGIC_CRC.store(0, Ordering::Relaxed);
 }
 
 /// C++ `GameLogic::update` ticks `TheRecorder` then `processCommandList`.
@@ -593,15 +601,10 @@ pub fn flush_recorder_and_replay_authority(host_queue: &mut VecDeque<GameCommand
         let messages = take_command_list_messages();
         apply_replay_messages_to_host(&messages);
     } else {
-        // Record mode: updateRecord just wrote the CommandList snapshot, so
-        // consume the written MSG_LOGIC_CRC entries — C++
-        // processCommandList (GameLogic.cpp:3669) drains TheCommandList
-        // after the recorder update, which keeps each CRC in the .rep
-        // exactly once regardless of how many fixed steps ran since the
-        // last client pump.
-        consume_written_logic_crcs();
-        // Drop stale network user orders; the host already queued them.
-        cull_host_command_list();
+        // C++ clears all messages at the end of the logic frame. Main already
+        // owns the executable orders in `host_queue`; leaving lifecycle
+        // messages here makes a second pass call startRecording again.
+        reset_recorded_command_list();
     }
 
     for command in take_pending_replay_commands() {
@@ -1536,6 +1539,44 @@ mod tests {
     }
 
     #[test]
+    fn new_game_starts_one_recording_and_leaves_no_lifecycle_message() {
+        with_recorder_test_lock(|| {
+            reset_logic_crc_cadence();
+            let temp = tempfile::tempdir().unwrap();
+            let global = game_engine::common::ini::ini_game_data::ensure_global_data();
+            {
+                let mut data = global.write();
+                data.set_path_user_data(temp.path().to_string_lossy().to_string());
+                data.map_name = "Maps/RecorderLifecycle.map".to_string();
+                data.pending_file.clear();
+            }
+            clear_command_list();
+            install_host_replay_bridges();
+            with_recorder_mut(|recorder| recorder.reset());
+            tap_host_new_game_for_recorder(GameMode::Skirmish);
+
+            let mut queue = VecDeque::new();
+            flush_recorder_and_replay_authority(&mut queue);
+            assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
+            assert!(
+                snapshot_command_list()
+                    .iter()
+                    .all(|msg| !matches!(msg.get_type(), GameMessageType::NewGame)),
+                "C++ resets TheCommandList after each logic frame, so MSG_NEW_GAME must not start a second recording"
+            );
+
+            flush_recorder_and_replay_authority(&mut queue);
+            assert!(with_recorder(|recorder| recorder.is_recording()).unwrap_or(false));
+            reset_host_recorder_after_successful_load();
+            assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
+            flush_recorder_and_replay_authority(&mut queue);
+            assert!(!with_recorder(|recorder| recorder.is_recording()).unwrap_or(true));
+            clear_command_list();
+            reset_logic_crc_cadence();
+        });
+    }
+
+    #[test]
     fn slow_client_pump_records_each_logic_crc_exactly_once() {
         // C++ processCommandList consumes TheCommandList every logic frame
         // (GameLogic.cpp:3669). With a slow client pump (3 fixed steps per
@@ -1543,6 +1584,7 @@ mod tests {
         // .rep exactly once — retaining them would re-write old CRCs on
         // every pump and drift the playback CRC queue.
         with_recorder_test_lock(|| {
+            reset_logic_crc_cadence();
             let temp = tempfile::tempdir().unwrap();
             // Recorder reads the replay dir from ini_game_data's GlobalData.
             let global = game_engine::common::ini::ini_game_data::ensure_global_data();

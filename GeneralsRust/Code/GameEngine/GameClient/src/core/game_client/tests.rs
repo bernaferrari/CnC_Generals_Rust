@@ -1940,6 +1940,33 @@ mod tests {
     }
 
     #[test]
+    fn load_bound_drawable_can_resolve_ambient_template_without_factory_deadlock() {
+        ensure_templates_registered(&["AmbientBoundTemplate"]);
+        let object_id: ObjectID = 990_011;
+        let logic_template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
+            LogicDefaultThingTemplate::new("AmbientBoundTemplate".to_string()),
+        );
+        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+            logic_template,
+            object_id,
+            ObjectStatusMaskType::none(),
+            None,
+        )));
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let mut client = GameClient::new().unwrap();
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        drawable.set_template_name(Some("AmbientBoundTemplate".to_string()));
+        drawable.set_object_id(Some(object_id));
+        client.register_drawable(Box::new(drawable)).unwrap();
+
+        let bytes = serialize_client(&mut client);
+        let loaded = deserialize_client(&bytes);
+        assert!(loaded.get_drawable_for_object(object_id).is_some());
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
     fn test_register_drawable_preserves_explicit_template_name_over_object_fallback() {
         let mut client = GameClient::new().unwrap();
         let object_id: ObjectID = 990_002;

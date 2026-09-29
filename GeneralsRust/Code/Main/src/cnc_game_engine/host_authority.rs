@@ -1165,6 +1165,7 @@ impl CnCGameEngine {
         // execute them in original queue order before shadow reconstruction.
         deferred_effects.execute_after_logic_commit();
         drop(old_logic);
+        crate::command_system::reset_host_recorder_after_successful_load();
         // C++ RandomValue is process-static and no load path reseeds it
         // (GameState.cpp:628-741); only mission saves InitRandom(0) in their
         // message-loop follow-up.  Reseed the committed world's driving
@@ -1423,7 +1424,7 @@ impl CnCGameEngine {
         let staged_effects = crate::game_logic::staged_world_effects::StagedWorldEffects::enter();
         let runtime_stage = gamelogic::runtime_world_transaction::RuntimeWorldStage::begin();
         let mut staged = crate::game_logic::GameLogic::new();
-        staged.start_new_game(mode);
+        staged.start_new_game_for_restore(mode);
         // Map object restoration needs the live INI/template catalog.  Keep
         // custom/mod templates from the source match while retaining the fresh
         // world's standard startup catalog.
@@ -2008,8 +2009,8 @@ mod staged_restore_tests {
     fn retail_map_path_for_test() -> Option<String> {
         // Keep this test portable for source-only CI while exercising a real
         // extracted retail map whenever `windows_game` is available.  Return
-        // the original logical name so the test also proves the map resolver
-        // can load the saved identity rather than only an absolute test path.
+        // the original logical name for the save; C++ loads its embedded map
+        // from a Save-directory scratch path after decoding.
         for candidate in ["Lone Eagle", "ForgottenForestZH", "GC_ChinaBoss"] {
             if crate::game_logic::script_loader::find_map_file(candidate).is_some() {
                 return Some(candidate.to_string());
@@ -2210,7 +2211,13 @@ mod staged_restore_tests {
             &catalog,
         )
         .expect("saved map should load before restore");
-        assert_eq!(restored.info.map_name, map_name);
+        let extracted_map = std::path::Path::new(&restored.info.map_name);
+        assert_eq!(
+            extracted_map.file_name().and_then(|name| name.to_str()),
+            Some(map_name.as_str()),
+            "C++ GameStateMap extracts the embedded map under its logical name"
+        );
+        assert!(extracted_map.exists(), "the saved map must exist on disk");
         assert_eq!(
             restored.shroud, expected_shroud,
             "staged restore must carry exact saved FOW rather than map-start reveals"
@@ -2220,7 +2227,7 @@ mod staged_restore_tests {
             "staged restore must carry the renderer companion to the commit boundary"
         );
         assert!(restored.logic.isInGame());
-        assert_eq!(restored.logic.get_current_map_name(), map_name);
+        assert_eq!(restored.logic.get_current_map_name(), restored.info.map_name);
         assert_eq!(restored.logic.get_current_frame(), 321);
         assert_eq!(restored.logic.host_ai_player_count(), 1);
         assert_eq!(
