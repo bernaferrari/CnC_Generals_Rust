@@ -506,6 +506,7 @@ impl PathfindingSystem {
         &mut self,
         start: GridPos,
         goal: GridPos,
+        from_pos: Vec3,
         surfaces: u32,
         is_crusher: bool,
         start_layer: PathfindLayerEnum,
@@ -646,10 +647,15 @@ impl PathfindingSystem {
             }
         }
         if start == goal {
-            return Some(vec![
-                self.grid
-                    .adjust_coord_to_cell(start, self.seeker_center_in_cell),
-            ]);
+            let cell_pos = self.grid.adjust_coord_to_cell_on_layer(
+                start,
+                self.seeker_center_in_cell,
+                start_layer,
+            );
+            if from_pos.x == cell_pos.x && from_pos.z == cell_pos.z {
+                return Some(vec![cell_pos]);
+            }
+            return Some(vec![from_pos, cell_pos]);
         }
         let start_c = self.host_to_crate_coord(start);
         let goal_c = self.host_to_crate_coord(goal);
@@ -743,38 +749,10 @@ impl PathfindingSystem {
             let seeker = self.seeker_player;
             let seeker_inf = self.seeker_is_infantry;
             let ally_mask = seeker.map(|p| self.grid.ally_mask_for(p)).unwrap_or(0);
-            let height = self.grid.height;
-            let path_diameter = self.seeker_path_diameter;
-            let cell_types = self.grid.cell_types.clone();
-            let fence_bits = self.grid.fence_bits.clone();
-            let diameter_crusher = is_crusher;
-            let start_for_cost = start;
+            let ignore_cells_for_extra = ignore_cells.as_ref();
             let extra = move |c: GridCoord| {
                 if c.x < 0 || c.y < 0 || c.x >= width {
                     return 0;
-                }
-                // C++ internalFindPath has NO clearCellForDiameter gate on
-                // neighbor expansion (AIPathfind.cpp:6125-6260; the diameter
-                // check lives only in adjustDestination / findGroundPath).
-                // The hq-985ts one-cell-corridor veto below is a repo guard
-                // for generic vehicles; dozer seekers follow the C++
-                // dozerHack (AIPathfind.cpp:6208-6225) which admits obstacle
-                // gaps of any width, so they skip it.
-                if path_diameter >= 2 && dozer_ok_ref.is_none() {
-                    let d = clear_cell_for_diameter_impl(
-                        width,
-                        height,
-                        &cell_types,
-                        &fence_bits,
-                        &occ_fixed,
-                        &occ_crush,
-                        diameter_crusher,
-                        GridPos::new(c.x, c.y),
-                        path_diameter,
-                    );
-                    if d != path_diameter {
-                        return u32::MAX / 8;
-                    }
                 }
                 let key = (c.x, c.y);
                 let layer_id = if start_layer_id > PathfindLayerEnum::Ground as u8
@@ -788,6 +766,18 @@ impl PathfindingSystem {
                 } else {
                     None
                 };
+                // C++ validMovementPosition returns immediately when this
+                // cell contains the ignored structure (AIPathfind.cpp:4836-38),
+                // before object-occupancy checks. The A* extra-cost callback
+                // runs before its passability callback, so it must honor the
+                // same exact ground-footprint exception instead of rejecting
+                // the victim's UNIT_PRESENT/GOAL bits first. Elevated layers
+                // have their own occupancy and do not inherit ground ignores.
+                if layer_id.is_none()
+                    && ignore_cells_for_extra.is_some_and(|cells| cells.contains(&c))
+                {
+                    return 0;
+                }
                 let idx = c.y as usize * width as usize + c.x as usize;
                 let (fixed, moving, goal_m, infantry, crush, pos_u, pos_p, pos_flags, pos_cr) =
                     if let Some(lid) = layer_id {
@@ -931,7 +921,17 @@ impl PathfindingSystem {
         };
         self.note_cells_allocated(examined);
         if let Some(cells) = exact_path {
-            let world = self.crate_path_to_world(&cells);
+            // C++ prependCells skips the terminal A* cell occupied by the
+            // unit and prepends the actual fromPos before optimizeGroundPath.
+            // Optimizing from the snapped start and replacing it afterward
+            // can make the optimizer accept a segment that crosses an obstacle.
+            let mut world = self.crate_path_to_world(cells.get(1..).unwrap_or_default());
+            if world
+                .first()
+                .is_none_or(|first| first.x != from_pos.x || first.z != from_pos.z)
+            {
+                world.insert(0, from_pos);
+            }
             return Some(self.grid.optimize_ground_path_ex(
                 &world,
                 surfaces,
@@ -941,23 +941,11 @@ impl PathfindingSystem {
             ));
         }
         // C++ Pathfinder::findPath (AIPathfind.cpp:6364-6436) returns NULL
-        // when internalFindPath fails. findClosestPath is a separate service
-        // invoked by AIUpdateInterface::computePath (AIUpdate.cpp:1713-1717)
-        // — never an unconditional fallback inside the pathfinder. The one
-        // carried-over closest walk is the structure-sealed goal (every
-        // boundary cell a CELL_OBSTACLE building, hq-985ts click-on-building
-        // UX); a terrain-sealed goal — including a doze-able obstacle gap in
-        // an Impassable wall — fails closed so non-dozers cannot dozerHack
-        // across it (hq-8kkhs).
-        if self.grid.structure_sealed_goal(start, goal) {
-            let from_w = self.grid.grid_to_world(start);
-            let to_w = self.grid.grid_to_world(goal);
-            if let Some(closest) =
-                self.find_closest_path(from_w, to_w, surfaces, is_crusher, is_human, 0.0)
-            {
-                return Some(closest);
-            }
-        }
+        // when internalFindPath fails. Its caller AIUpdateInterface::computePath
+        // may then make one separate findClosestPath request
+        // (AIUpdate.cpp:1713-1717). Keep that fallback at the caller: doing it
+        // here re-enters findClosestPath → findPath → this branch for a
+        // structure-sealed target, with no state change to break the cycle.
         None
     }
 

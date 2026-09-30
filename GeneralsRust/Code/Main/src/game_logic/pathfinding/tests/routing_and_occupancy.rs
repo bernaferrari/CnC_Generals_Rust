@@ -202,66 +202,67 @@ fn clear_cell_for_diameter_open_and_blocked() {
     assert_eq!(PathfindingGrid::path_diameter_for_unit(8.0, 10.0, false), 1);
 }
 
-/// hq-985ts: tanks cannot thread a one-cell infantry slot.
+/// C++ internalFindPath checks each neighbor cell, not a full-radius stencil.
 #[test]
-fn vehicle_astar_rejects_infantry_width_gap() {
+fn internal_astar_routes_infantry_and_vehicle_through_single_cell_opening() {
     use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
-    let mut sys = PathfindingSystem::new(200.0, 200.0);
-    for y in 0..20 {
-        sys.grid.set_blocked(GridPos::new(8, y), true);
-        sys.grid.set_blocked(GridPos::new(10, y), true);
-    }
-    let start = Vec3::new(20.0, 0.0, 50.0);
-    let goal = Vec3::new(150.0, 0.0, 50.0);
-
-    let mut inf_t = ThingTemplate::new("Ranger");
-    inf_t.add_kind_of(KindOf::Infantry);
-    let mut inf = Object::new(inf_t, ObjectId(1), Team::USA);
-    inf.set_position(start);
-    inf.selection_radius = 8.0;
-    let mut objects = HashMap::new();
-    objects.insert(inf.id, inf);
-    let infantry_path = sys
-        .find_path_ex_surfaces(
+    let route = |id: u32, is_vehicle: bool| {
+        let mut sys = PathfindingSystem::new(200.0, 200.0);
+        // A finite wall with one center-cell opening connects the two sides.
+        // CPP internalFindPath accepts neighbors via validMovementPosition +
+        // checkForMovement (AIPathfind.cpp:6200-6260); it does not apply the
+        // destination-radius clearCellForDiameter gate to every expansion.
+        for y in 0..20 {
+            if y != 9 {
+                sys.grid.set_blocked(GridPos::new(8, y), true);
+            }
+        }
+        let start = sys.grid.grid_to_world(GridPos::new(2, 9));
+        let goal = sys.grid.grid_to_world(GridPos::new(15, 9));
+        let mut template = ThingTemplate::new(if is_vehicle { "Crusader" } else { "Ranger" });
+        template.add_kind_of(if is_vehicle {
+            KindOf::Vehicle
+        } else {
+            KindOf::Infantry
+        });
+        let mut unit = Object::new(template, ObjectId(id), Team::USA);
+        unit.set_position(start);
+        unit.selection_radius = if is_vehicle { 15.0 } else { 8.0 };
+        let objects = HashMap::from([(unit.id, unit)]);
+        let path = sys.find_path_ex_surfaces(
             start,
             goal,
             &objects,
             false,
             SURFACE_GROUND,
             false,
-            Some(ObjectId(1)),
-        )
-        .expect("infantry can thread a one-cell corridor");
-    assert!(infantry_path.len() >= 2);
+            Some(ObjectId(id)),
+        );
+        let end_cell = path
+            .as_ref()
+            .and_then(|nodes| nodes.last())
+            .map(|end| sys.grid.world_to_grid(*end));
+        (path, end_cell)
+    };
 
-    objects.clear();
-    let mut tank_t = ThingTemplate::new("Crusader");
-    tank_t.add_kind_of(KindOf::Vehicle);
-    let mut tank = Object::new(tank_t, ObjectId(2), Team::USA);
-    tank.set_position(start);
-    tank.selection_radius = 15.0;
-    objects.insert(tank.id, tank);
-    sys.note_logic_frame(1);
-    let tank_path = sys.find_path_ex_surfaces(
-        start,
-        goal,
-        &objects,
-        false,
-        SURFACE_GROUND,
-        false,
-        Some(ObjectId(2)),
-    );
-    let crossed = tank_path.as_ref().is_some_and(|path| {
-        path.iter().any(|p| {
-            let c = sys.grid.world_to_grid(*p);
-            c.x == 9
-        }) && path
-            .last()
-            .is_some_and(|p| sys.grid.world_to_grid(*p).x >= 12)
-    });
+    let (infantry_path, infantry_end) = route(1, false);
     assert!(
-        !crossed,
-        "vehicle A* must not thread a one-cell infantry gap, got {tank_path:?}"
+        infantry_path.is_some(),
+        "infantry should reach the far side"
+    );
+    assert!(
+        infantry_end.is_some_and(|cell| cell.x >= 12),
+        "infantry route should reach beyond wall x=8: {infantry_end:?}"
+    );
+
+    let (vehicle_path, vehicle_end) = route(2, true);
+    assert!(
+        vehicle_path.is_some(),
+        "vehicle internal A* should reach the far side through the opening"
+    );
+    assert!(
+        vehicle_end.is_some_and(|cell| cell.x >= 12),
+        "vehicle route should reach beyond wall x=8: {vehicle_end:?}"
     );
 }
 
@@ -949,6 +950,8 @@ fn grounded_aircraft_do_not_stamp_unit_present() {
     let mut jet = Object::new(tmpl, ObjectId(7), Team::USA);
     jet.object_type = ObjectType::Aircraft;
     jet.loco_appearance = LocomotorAppearance::Wings;
+    jet.cur_locomotor_name = Some("TestWingLocomotor".into());
+    jet.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     jet.status.airborne_target = false;
     jet.set_position(Vec3::new(55.0, 0.0, 55.0));
     jet.owner_player_id = Some(0);
@@ -958,6 +961,51 @@ fn grounded_aircraft_do_not_stamp_unit_present() {
     assert!(
         !g.is_blocked(center),
         "C++ updatePos never stamps air-movement UNIT_PRESENT"
+    );
+}
+
+/// CPP AIUpdate.cpp:2339-2380: no current locomotor, HELD, and airborne
+/// allow-to-fall each make an object ineligible for ground path occupancy.
+#[test]
+fn ground_movement_requires_live_ground_locomotor_and_not_held_or_falling() {
+    use crate::game_logic::{Object, ObjectId, Team, ThingTemplate};
+
+    let mut mover = Object::new(ThingTemplate::new("TestMover"), ObjectId(70), Team::USA);
+    mover.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    assert!(
+        !PathfindingGrid::is_doing_ground_movement(&mover),
+        "CPP isDoingGroundMovement returns false when m_curLocomotor is null"
+    );
+
+    mover.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+    assert!(PathfindingGrid::is_doing_ground_movement(&mover));
+
+    mover.status.disabled_held = true;
+    assert!(
+        !PathfindingGrid::is_doing_ground_movement(&mover),
+        "CPP HELD objects are not doing ground movement"
+    );
+    mover.status.disabled_held = false;
+
+    mover.allow_to_fall = true;
+    mover.set_position(Vec3::new(20.0, 5.0, 20.0));
+    assert!(mover.is_above_terrain());
+    assert!(
+        !PathfindingGrid::is_doing_ground_movement(&mover),
+        "CPP airborne allow-to-fall objects are not doing ground movement"
+    );
+
+    // AIUpdate.cpp:2342-2345 special-cases an unmanned helicopter produced
+    // at a helipad before checking current locomotor/surface state.
+    let mut parked_heli = Object::new(
+        ThingTemplate::new("AmericaHelicopterComanche"),
+        ObjectId(71),
+        Team::USA,
+    );
+    parked_heli.status.disabled_unmanned = true;
+    assert!(
+        PathfindingGrid::is_doing_ground_movement(&parked_heli),
+        "CPP grounds an unmanned helipad-produced helicopter without a current locomotor"
     );
 }
 
@@ -1388,23 +1436,27 @@ fn final_position_stamps_only_after_the_path_is_cleared() {
     let path_cell = g.cell_for_unit_position(path_end, true);
     let final_cell = g.cell_for_unit_position(planted, true);
     assert_eq!(
-        g.occupancy_bits(path_cell, PathfindLayerEnum::Ground).goal_unit,
+        g.occupancy_bits(path_cell, PathfindLayerEnum::Ground)
+            .goal_unit,
         7,
         "a live path stamps the path node"
     );
     assert_eq!(
-        g.occupancy_bits(final_cell, PathfindLayerEnum::Ground).goal_unit,
+        g.occupancy_bits(final_cell, PathfindLayerEnum::Ground)
+            .goal_unit,
         0
     );
     objects.get_mut(&ObjectId(7)).unwrap().movement.path.clear();
     g.update_dynamic_obstacles(&objects);
     assert_eq!(
-        g.occupancy_bits(final_cell, PathfindLayerEnum::Ground).goal_unit,
+        g.occupancy_bits(final_cell, PathfindLayerEnum::Ground)
+            .goal_unit,
         7,
         "an empty path stamps the snapped final cell"
     );
     assert_eq!(
-        g.occupancy_bits(path_cell, PathfindLayerEnum::Ground).goal_unit,
+        g.occupancy_bits(path_cell, PathfindLayerEnum::Ground)
+            .goal_unit,
         0
     );
 }
@@ -1422,6 +1474,8 @@ fn aircraft_final_cell_stamps_only_after_the_path_is_cleared() {
     let planted = g.grid_to_world(GridPos::new(18, 6));
     jet.set_position(stand);
     jet.loco_appearance = LocomotorAppearance::Wings;
+    jet.cur_locomotor_name = Some("TestWingLocomotor".into());
+    jet.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     jet.selection_radius = 5.0;
     jet.movement.path = vec![stand, path_end];
     jet.do_final_position = true;

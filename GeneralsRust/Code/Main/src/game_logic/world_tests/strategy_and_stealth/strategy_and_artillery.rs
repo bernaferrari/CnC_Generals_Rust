@@ -462,6 +462,7 @@ fn projectiles_step_inside_game_logic_update() {
         target_pos: Some(glam::Vec3::new(5.0, 0.0, 0.0)),
         damage: 25.0,
         speed: 1000.0,
+        speed_unit: crate::game_logic::combat::ProjectileSpeedUnit::DistancePerSecond,
         splash_radius: 0.0,
         is_homing: false,
         damage_type: crate::game_logic::combat::DamageType::Bullet,

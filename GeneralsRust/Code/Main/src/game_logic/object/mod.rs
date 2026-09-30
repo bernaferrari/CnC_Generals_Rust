@@ -1134,6 +1134,10 @@ pub struct Object {
 
     /// AI state for autonomous behavior
     pub ai_state: AIState,
+    /// Monotonic callback stamp for synchronous DockUpdate reservation cancel.
+    /// Runtime-only; the owning GameLogic reconciles changes before queue use.
+    #[serde(skip)]
+    pub(crate) dock_cancel_epoch: u64,
     /// C++ AI state lifetime belongs to this Object, including reused IDs.
     #[serde(skip)]
     pub(crate) unit_ai_runtime: unit_ai_runtime::UnitAiRuntime,

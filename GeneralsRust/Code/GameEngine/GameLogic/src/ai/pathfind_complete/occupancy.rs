@@ -549,6 +549,36 @@ impl PathfindingSystem {
         center_in_cell: bool,
         object_id: ObjectID,
     ) -> PathResult {
+        let layered_path: Vec<_> = grid_path
+            .iter()
+            .copied()
+            .map(|coord| (coord, self.get_layer_for_coord(coord)))
+            .collect();
+        self.build_actual_path_from_layered_path(
+            &layered_path,
+            from_world,
+            to_world,
+            surfaces,
+            is_crusher,
+            blocked,
+            center_in_cell,
+            object_id,
+        )
+    }
+
+    /// Build path nodes from the actual A* cell/layer sequence, including
+    /// same-XY transitions. This is the C++ `PathNode::getLayer()` source.
+    pub(crate) fn build_actual_path_from_layered_path(
+        &self,
+        grid_path: &[(GridCoord, PathfindLayerEnum)],
+        from_world: &Coord3D,
+        to_world: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        blocked: bool,
+        center_in_cell: bool,
+        object_id: ObjectID,
+    ) -> PathResult {
         let _ = (surfaces, is_crusher);
         if grid_path.is_empty() {
             return PathResult::none();
@@ -569,10 +599,9 @@ impl PathfindingSystem {
         let mut prev_coord: Option<GridCoord> = None;
 
         for idx in (0..grid_path.len()).rev() {
-            let coord = grid_path[idx];
-            let layer = self.get_layer_for_coord(coord);
+            let (coord, layer) = grid_path[idx];
             let ctype = self
-                .get_cell_type(&coord.to_world(layer))
+                .get_cell_type_at_cell(layer, coord.x, coord.y)
                 .unwrap_or(PathfindCellType::Clear);
 
             // Same cell layer transition: skip duplicate x,y (C++ continue).
@@ -650,8 +679,7 @@ impl PathfindingSystem {
 
         // Very short path: only goal (no parent) — C++ goalCellNull.
         if waypoints.is_empty() && !grid_path.is_empty() {
-            let coord = *grid_path.last().unwrap();
-            let layer = self.get_layer_for_coord(coord);
+            let (_, layer) = *grid_path.last().unwrap();
             let mut pos = *to_world;
             if let Some(terrain) = TheTerrainLogic::get() {
                 pos.z = terrain.get_layer_height(pos.x, pos.y, CommonPathfindLayerEnum::Ground);
@@ -848,6 +876,16 @@ impl PathfindingSystem {
 
     pub fn new_map(&mut self) {
         // Extent from current width/height (already allocated). Re-classify.
+        self.classify_map();
+        self.finish_map_initialization();
+    }
+
+    /// Mark an explicitly classified map ready without consulting ambient terrain.
+    pub fn new_map_from_classified_cells(&mut self) {
+        self.finish_map_initialization();
+    }
+
+    fn finish_map_initialization(&mut self) {
         self.extent_lo = ICoord2D::new(0, 0);
         self.extent_hi = ICoord2D::new(
             self.width.saturating_sub(1) as i32,
@@ -856,9 +894,42 @@ impl PathfindingSystem {
         // Default logical = full map until process_queue refreshes from terrain.
         self.logical_extent_lo = self.extent_lo;
         self.logical_extent_hi = self.extent_hi;
-        self.classify_map();
+        self.sync_bridge_layers_to_pathfinder();
         self.recalculate_zones_from_cells();
         self.is_map_ready = true;
+    }
+
+    /// Install the explicit bridge-layer cells and ground transition links in
+    /// the owned A* grid. C++ A* nodes carry a layer; keeping that same state in
+    /// the grid lets route reconstruction return the node's actual layer.
+    pub(crate) fn sync_bridge_layers_to_pathfinder(&self) {
+        let Ok(mut pathfinder) = self.pathfinder.lock() else {
+            return;
+        };
+        for bridge in &self.bridges {
+            let layer = PathfindLayerEnum::from_u32(bridge.layer_id);
+            if layer == PathfindLayerEnum::Invalid || layer == PathfindLayerEnum::Ground {
+                continue;
+            }
+            for (coord, cell_type) in &bridge.cell_types {
+                pathfinder.set_cell_type_on_layer(*coord, layer, *cell_type);
+            }
+            for coord in &bridge.ground_connect_cells {
+                if bridge.cell_type_at(*coord).is_none() {
+                    continue;
+                }
+                pathfinder.set_cell_connect_layer_on_layer(
+                    *coord,
+                    PathfindLayerEnum::Ground,
+                    layer,
+                );
+                pathfinder.set_cell_connect_layer_on_layer(
+                    *coord,
+                    layer,
+                    PathfindLayerEnum::Ground,
+                );
+            }
+        }
     }
 
     /// Snapshot cell types + fence flags + connect layers; rebuild zones + combiners.

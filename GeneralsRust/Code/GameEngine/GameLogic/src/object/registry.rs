@@ -22,12 +22,16 @@ struct RegistryStore {
 }
 
 impl RegistryStore {
-    fn register(&mut self, id: ObjectID, object: &Arc<RwLock<Object>>) {
-        self.objects.insert(id, Arc::clone(object));
+    fn register(
+        &mut self,
+        id: ObjectID,
+        object: &Arc<RwLock<Object>>,
+    ) -> Option<Arc<RwLock<Object>>> {
+        self.objects.insert(id, Arc::clone(object))
     }
 
-    fn unregister(&mut self, id: ObjectID) {
-        self.objects.remove(&id);
+    fn unregister(&mut self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+        self.objects.remove(&id)
     }
 
     fn get(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
@@ -38,8 +42,8 @@ impl RegistryStore {
         self.objects.contains_key(&id)
     }
 
-    fn clear(&mut self) {
-        self.objects.clear();
+    fn clear(&mut self) -> HashMap<ObjectID, Arc<RwLock<Object>>> {
+        std::mem::take(&mut self.objects)
     }
 }
 
@@ -60,18 +64,30 @@ impl ObjectRegistry {
 
     /// Register a live object handle.
     pub fn register_object(&self, id: ObjectID, object: &Arc<RwLock<Object>>) {
-        if let Ok(mut guard) = self.store.write() {
-            guard.register(id, object);
+        let replaced = if let Ok(mut guard) = self.store.write() {
+            let replaced = guard.register(id, object);
             self.set_live_count(guard.objects.len());
-        }
+            replaced
+        } else {
+            None
+        };
+        // Object::drop can query the registry through pathfinder cleanup.
+        // Never run it while this registry's write lock is held.
+        drop(replaced);
     }
 
     /// Remove a handle from the registry.
     pub fn unregister_object(&self, id: ObjectID) {
-        if let Ok(mut guard) = self.store.write() {
-            guard.unregister(id);
+        let removed = if let Ok(mut guard) = self.store.write() {
+            let removed = guard.unregister(id);
             self.set_live_count(guard.objects.len());
-        }
+            removed
+        } else {
+            None
+        };
+        // Preserve the old callback order: destruction completes before the
+        // script engine's attack-priority entry is cleared below.
+        drop(removed);
         if let Ok(mut engine_guard) = get_script_engine().try_write() {
             if let Some(engine) = engine_guard.as_mut() {
                 engine.clear_object_attack_priority_set(id);
@@ -233,10 +249,16 @@ impl ObjectRegistry {
 
     /// Clear all registered handles.
     pub fn clear(&self) {
-        if let Ok(mut guard) = self.store.write() {
-            guard.clear();
+        let removed = if let Ok(mut guard) = self.store.write() {
+            let removed = guard.clear();
             self.set_live_count(0);
-        }
+            removed
+        } else {
+            HashMap::new()
+        };
+        // Destructors may re-enter ObjectRegistry while unwinding their
+        // world-side registrations, so release the lock before dropping them.
+        drop(removed);
     }
 
     /// Remove dead weak references from the registry.

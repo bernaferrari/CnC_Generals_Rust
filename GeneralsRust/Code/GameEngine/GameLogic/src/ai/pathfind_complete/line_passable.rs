@@ -39,30 +39,10 @@ impl PathfindingSystem {
             )
         };
 
-        let ground_passability = |from: &Coord3D, to: &Coord3D, diameter: i32| {
-            self.is_ground_line_passable(
-                from,
-                to,
-                request.is_crusher,
-                diameter,
-                ignore_cells.as_ref(),
-            )
-        };
-
-        // Basic optimization
-        let (opt1, layers1) = self.optimizer.optimize(waypoints, layers, passability);
-
-        // Ground-specific optimization
-        let diameter = (request.unit_radius * 2.0) as i32;
-        let (opt2, layers2) = self.optimizer.optimize_ground_path(
-            &opt1,
-            &layers1,
-            request.is_crusher,
-            diameter,
-            ground_passability,
-        );
-
-        (opt2, layers2)
+        // C++ buildActualPath calls Path::optimize only. optimizeGroundPath
+        // belongs to buildGroundPath and must not run over this already-pruned
+        // node sequence, where it could collapse the bridge-layer span again.
+        self.optimizer.optimize(waypoints, layers, passability)
     }
 
     pub(crate) fn world_pos_for_coord(
@@ -239,6 +219,11 @@ impl PathfindingSystem {
         let mut cost = 0;
 
         for i in 0..path.len() - 1 {
+            if path[i] == path[i + 1] {
+                // C++ checkChangeLayers enqueues the same XY cell at the
+                // parent's cost; changing layers adds no movement distance.
+                continue;
+            }
             let dist = if path[i].is_diagonal(&path[i + 1]) {
                 COST_DIAGONAL
             } else {
@@ -486,6 +471,7 @@ impl PathfindingSystem {
         self.bridges.push(layer);
         let idx = self.bridges.len() - 1;
         self.classify_bridge_cells(idx);
+        self.sync_bridge_layers_to_pathfinder();
         layer_id
     }
 
@@ -609,9 +595,10 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::getCell(layer, cellX, cellY)->getType()`.
     ///
-    /// Out of extent or missing elevated-layer cell → `None` (caller treats as
-    /// `CELL_IMPASSABLE`). Ground uses the A* grid. Non-Ground/Top looks up
-    /// `BridgeLayer` (`m_layers`) at the same indices.
+    /// Out-of-extent reads return `None`. Ground uses the A* grid. Elevated
+    /// layers look up their exact `m_layers[layer]` slot; `Top` is the first
+    /// bridge ID, not a wildcard. If that exact slot has no cell here, C++
+    /// `getCell` falls back to the ground map cell.
     pub fn get_cell_type_at_cell(
         &self,
         layer: PathfindLayerEnum,
@@ -627,13 +614,13 @@ impl PathfindingSystem {
             PathfindLayerEnum::Ground | PathfindLayerEnum::Invalid
         ) {
             let layer_id = layer as u32;
-            let bridge = self.bridges.iter().find(|b| {
-                b.contains(coord) && (b.layer_id == layer_id || layer == PathfindLayerEnum::Top)
-            });
-            return match bridge {
-                Some(b) => b.cell_type_at(coord),
-                None => None,
-            };
+            let bridge = self
+                .bridges
+                .iter()
+                .find(|b| b.contains(coord) && b.layer_id == layer_id);
+            if let Some(cell_type) = bridge.and_then(|b| b.cell_type_at(coord)) {
+                return Some(cell_type);
+            }
         }
         let pathfinder = self.pathfinder.lock().ok()?;
         pathfinder.get_cell_type(coord)
@@ -647,6 +634,46 @@ impl PathfindingSystem {
     ) -> Option<PathfindCellType> {
         let c = Self::world_to_cell_trunc(pos);
         self.get_cell_type_at_cell(layer, c.x, c.y)
+    }
+
+    /// Update a ground or bridge-layer cell without aliasing bridge IDs onto ground.
+    pub fn set_cell_type_at_layer(
+        &mut self,
+        pos: &Coord3D,
+        layer: PathfindLayerEnum,
+        cell_type: PathfindCellType,
+    ) {
+        if matches!(
+            layer,
+            PathfindLayerEnum::Invalid | PathfindLayerEnum::Ground
+        ) {
+            self.set_cell_type(pos, cell_type);
+        } else {
+            let coord = Self::world_to_cell_trunc(pos);
+            let layer_id = layer as u32;
+            let bridge_updated = self
+                .bridges
+                .iter_mut()
+                .find(|bridge| bridge.contains(coord) && bridge.layer_id == layer_id)
+                .filter(|bridge| bridge.cell_type_at(coord).is_some())
+                .map(|bridge| {
+                    bridge.cell_types.insert(coord, cell_type);
+                })
+                .is_some();
+            if bridge_updated {
+                if let Ok(mut pathfinder) = self.pathfinder.lock() {
+                    pathfinder.set_cell_type_on_layer(
+                        coord,
+                        PathfindLayerEnum::from_u32(layer_id),
+                        cell_type,
+                    );
+                }
+            } else {
+                self.set_cell_type(pos, cell_type);
+            }
+        }
+        self.clear_cache();
+        self.mark_zones_dirty();
     }
 
     /// Pure zone connectivity (C++ zone1 == zone2 / UNINITIALIZED → true).

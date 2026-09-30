@@ -16,6 +16,25 @@ impl GameLogic {
     /// A new admission receives fresh runtime identity, even when the incoming
     /// object was cloned. Temporary extraction/reinsertion uses the live map.
     pub(crate) fn admit_host_object(&mut self, mut object: Object) {
+        // Replacing an Object with the same ID is a new object lifetime. Retire
+        // any old docker/dock reservations while the old object is still
+        // available to the C++-ordered cancel path.
+        if self.objects.contains_key(&object.id) {
+            let (tracked_docker, owns_dock_queue) = {
+                let queues = self.host_dock_approach_queues.borrow();
+                (queues.tracks_docker(object.id), queues.has_dock(object.id))
+            };
+            let previous_has_live_dock_session =
+                self.objects.get(&object.id).is_some_and(|previous| {
+                    crate::game_logic::host_supply_gather::is_live_dock_ai_state(&previous.ai_state)
+                });
+            if tracked_docker || previous_has_live_dock_session {
+                self.cancel_dock_reservation(object.id);
+            }
+            if owns_dock_queue {
+                self.remove_host_dock_approach_queue(object.id);
+            }
+        }
         // A cloned Object may still hold a weak handle to its source world's
         // trigger owner. Rebind it on admission without touching pose/flags;
         // load restoration and the C++ cell no-op depend on preserving those.

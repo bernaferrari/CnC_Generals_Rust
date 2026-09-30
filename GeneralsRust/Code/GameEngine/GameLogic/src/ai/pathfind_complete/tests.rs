@@ -26,16 +26,39 @@ fn test_pathfinding_system_creation() {
 }
 
 #[test]
+fn layered_path_transition_has_zero_movement_cost() {
+    let system = PathfindingSystem::new(8, 8);
+    let path = [
+        GridCoord::new(1, 1),
+        GridCoord::new(1, 1),
+        GridCoord::new(2, 1),
+    ];
+    assert_eq!(system.calculate_path_cost(&path), COST_ORTHOGONAL);
+}
+
+#[test]
 fn cpp_reset_releases_map_dimensions_and_readiness() {
     let mut system = PathfindingSystem::new(8, 6);
     system.new_map();
     assert!(system.is_map_ready());
 
+    system.wall_cells.lock().unwrap().insert((2, 2));
+    system
+        .unit_goal_cells
+        .lock()
+        .unwrap()
+        .insert(7, ICoord2D::new(3, 3));
+    system.open_list_count = 9;
     system.reset();
 
     assert_eq!(system.width(), 0);
     assert_eq!(system.height(), 0);
     assert!(!system.is_map_ready());
+    assert!(system.wall_cells.lock().unwrap().is_empty());
+    assert!(system.wall_pieces.is_empty());
+    assert!(system.unit_goal_cells.lock().unwrap().is_empty());
+    assert!(system.request_queue.lock().unwrap().is_empty());
+    assert_eq!(system.open_list_count, 0);
 }
 
 #[test]
@@ -854,14 +877,15 @@ fn build_actual_path_prepend_cells_cpp_surface() {
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");
     let i = prod
-        .find("pub fn build_actual_path")
-        .expect("buildActualPath");
+        .find("pub(crate) fn build_actual_path_from_layered_path")
+        .expect("layer-preserving buildActualPath");
     let w = &prod[i..prod.len().min(i + 5000)];
     assert!(
         w.contains("can_optimize")
             && w.contains("PathfindCellType::Cliff")
             && w.contains("insert(0")
-            && w.contains("from_world"),
+            && w.contains("from_world")
+            && w.contains("let (coord, layer) = grid_path[idx]"),
         "buildActualPath/prependCells must reverse-walk with cliff optimize flags"
     );
 }
@@ -902,7 +926,7 @@ fn find_path_propagates_build_failure_without_raw_grid_fallback() {
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");
     let start = prod
-        .find("let built = self.build_actual_path_for_object")
+        .find("let built = self.build_actual_path_from_layered_path")
         .expect("internalFindPath buildActualPath call");
     let end = start
         + prod[start..]
@@ -1201,8 +1225,8 @@ fn get_cell_type_at_layer_ground_truncates_toward_zero() {
 }
 
 #[test]
-fn get_cell_type_at_layer_missing_cell_is_none() {
-    // None = C++ getCell NULL → CELL_IMPASSABLE for diesOnBadLand.
+fn get_cell_type_at_layer_missing_cell_falls_back_to_ground() {
+    // C++ getCell falls back to m_map[x][y] when an elevated slot has no cell.
     let system = PathfindingSystem::new(8, 8);
     assert!(
         system
@@ -1214,10 +1238,15 @@ fn get_cell_type_at_layer_missing_cell_is_none() {
             .get_cell_type_at_cell(PathfindLayerEnum::Ground, 99, 99)
             .is_none()
     );
-    // Top with no BridgeLayer cell → None (impassable).
+    // Top with no BridgeLayer cell inside the map falls back to ground.
+    assert!(
+        system.get_cell_type_at_layer(&Coord3D::new(15.0, 15.0, 0.0), PathfindLayerEnum::Top)
+            == Some(PathfindCellType::Clear)
+    );
+    // The same missing slot outside the map extent has no ground fallback.
     assert!(
         system
-            .get_cell_type_at_layer(&Coord3D::new(15.0, 15.0, 0.0), PathfindLayerEnum::Top)
+            .get_cell_type_at_cell(PathfindLayerEnum::Top, 8, 3)
             .is_none()
     );
 }
@@ -1230,10 +1259,52 @@ fn get_cell_type_at_layer_top_uses_bridge_bounds() {
         system.get_cell_type_at_cell(PathfindLayerEnum::Top, 3, 3),
         Some(PathfindCellType::Clear)
     );
+    // Outside this bridge's AABB but inside map extent, C++ returns ground.
+    assert_eq!(
+        system.get_cell_type_at_cell(PathfindLayerEnum::Top, 10, 10),
+        Some(PathfindCellType::Clear)
+    );
     assert!(
         system
-            .get_cell_type_at_cell(PathfindLayerEnum::Top, 10, 10)
+            .get_cell_type_at_cell(PathfindLayerEnum::Top, 16, 10)
             .is_none()
+    );
+}
+
+#[test]
+fn bridge_cell_reads_and_writes_use_exact_layer_slot() {
+    let mut system = PathfindingSystem::new(16, 16);
+    let first = system.add_bridge((GridCoord::new(2, 2), GridCoord::new(5, 5)));
+    let second = system.add_bridge((GridCoord::new(8, 8), GridCoord::new(11, 11)));
+    assert_eq!(first, PathfindLayerEnum::Top as u32);
+    assert_eq!(second, PathfindLayerEnum::Layer3 as u32);
+    let ground_pos = Coord3D::new(95.0, 95.0, 0.0);
+    system.set_cell_type(&ground_pos, PathfindCellType::Water);
+
+    assert_eq!(
+        system.get_cell_type_at_cell(PathfindLayerEnum::Top, 9, 9),
+        Some(PathfindCellType::Water),
+        "slot 2 misses must fall back to the ground cell, not slot 3"
+    );
+    assert_eq!(
+        system.get_cell_type_at_cell(PathfindLayerEnum::Layer3, 9, 9),
+        Some(PathfindCellType::Clear)
+    );
+
+    system.set_cell_type_at_layer(
+        &ground_pos,
+        PathfindLayerEnum::Top,
+        PathfindCellType::Obstacle,
+    );
+    assert_eq!(
+        system.get_cell_type_at_cell(PathfindLayerEnum::Layer3, 9, 9),
+        Some(PathfindCellType::Clear),
+        "writing slot 2 must leave slot 3 untouched"
+    );
+    assert_eq!(
+        system.get_cell_type_at_cell(PathfindLayerEnum::Top, 9, 9),
+        Some(PathfindCellType::Obstacle),
+        "slot 2 miss must read the updated ground cell"
     );
 }
 
@@ -1543,15 +1614,8 @@ fn get_move_away_from_path_cpp_surface() {
             && w.contains("find_path"),
         "getMoveAwayFromPath must A* expand + box-test path segments + build path"
     );
-    assert!(prod.contains("pub fn reset(&mut self)"));
-    let j = prod.find("pub fn reset(&mut self)").expect("reset");
-    let wr = &prod[j..prod.len().min(j + 1500)];
-    assert!(
-        wr.contains("is_map_ready = false")
-            && wr.contains("wall_pieces.clear")
-            && wr.contains("object_path_queue"),
-        "reset must clear map ready, walls, queues"
-    );
+    // Reset semantics are exercised by cpp_reset_releases_map_dimensions_and_readiness.
+    // Reconstructing the inert owner need not spell out every field assignment.
 }
 
 #[test]
@@ -3532,6 +3596,8 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
         .unwrap_or_else(|e| e.into_inner());
 
     const ID: ObjectID = 0x00F1_A701;
+    const LIVE_SENTINEL_ID: ObjectID = 0x00F1_A702;
+    const REPLACED_ID: ObjectID = 0x00F1_A703;
     struct Unreg(ObjectID);
     impl Drop for Unreg {
         fn drop(&mut self) {
@@ -3539,6 +3605,10 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
         }
     }
     let _unreg = Unreg(ID);
+    // Keep the registry non-empty while ID is removed. The Object destructor
+    // calls pathfinder cleanup, which resolves through ObjectRegistry again;
+    // with no sentinel the empty-store fast path could hide lock re-entry.
+    let sentinel = register_test_object(LIVE_SENTINEL_ID, &[], None);
 
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     #[derive(Debug)]
@@ -3559,17 +3629,18 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
             Ok(())
         }
         fn do_pathfind(&mut self) {
-            self.calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
     let obj = register_test_object(ID, &[], None);
-    obj.write().unwrap().set_ai_update_interface(Some(std::sync::Arc::new(
-        std::sync::Mutex::new(CountingAi {
-            calls: calls.clone(),
-        }),
-    )));
+    obj.write()
+        .unwrap()
+        .set_ai_update_interface(Some(std::sync::Arc::new(std::sync::Mutex::new(
+            CountingAi {
+                calls: calls.clone(),
+            },
+        ))));
 
     let mut system = PathfindingSystem::new(40, 40);
     system.new_map();
@@ -3602,4 +3673,24 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
     );
     assert!(system.request_queue.lock().unwrap().is_empty());
     assert!(system.object_path_queue.lock().unwrap().is_empty());
+
+    // Exercise the last-handle path at a controlled point: unregister drops
+    // the registry's Arc and runs Object::drop while another registered object
+    // forces the destructor's pathfinder lookup through the registry lock.
+    drop(obj);
+    OBJECT_REGISTRY.unregister_object(ID);
+    assert!(!OBJECT_REGISTRY.store_is_empty());
+
+    // Replacement has the same last-Arc hazard: insertion has already made
+    // the new value visible when destruction of the old value calls back in.
+    let replaced = register_test_object(REPLACED_ID, &[], None);
+    drop(replaced);
+    let replacement = register_test_object(REPLACED_ID, &[], None);
+    drop(replacement);
+
+    // Clear must also move its old map out from under the write lock before
+    // any removed object's destructor runs.
+    OBJECT_REGISTRY.clear();
+    drop(sentinel);
+    assert!(OBJECT_REGISTRY.store_is_empty());
 }

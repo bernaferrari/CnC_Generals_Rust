@@ -1,6 +1,53 @@
 //! Behavior suite extracted from `production_and_mobs`.
 use super::*;
 
+fn assert_reserved_dock_approach_path(
+    logic: &GameLogic,
+    dock_id: crate::game_logic::ObjectId,
+    docker_id: crate::game_logic::ObjectId,
+    start: Vec3,
+    dock_pos: Vec3,
+    dock_radius: f32,
+) {
+    let (_, queue) = logic
+        .host_dock_approach_queue_snapshot()
+        .into_iter()
+        .find(|(id, queue)| *id == dock_id && queue.index_of(docker_id).is_some())
+        .expect("dock must retain the docker's registered approach slot");
+    let slot = queue.index_of(docker_id).expect("reserved approach slot") as usize;
+    let registered = queue.approach_world_position(slot, start, dock_pos, dock_radius);
+    let unit = logic.host_object(docker_id).expect("docker");
+    assert!(
+        unit.is_approach_path,
+        "dock request must keep approach mode"
+    );
+    assert_eq!(unit.requested_destination, Some(registered));
+    assert!(unit.ignored_obstacle_id.is_none());
+    let end = *unit.movement.path.last().expect("approach path endpoint");
+    let endpoint_cell = logic.pathfinding_system.grid.world_to_grid(end);
+    assert!(
+        logic.pathfinding_system.grid.valid_movement_position(
+            endpoint_cell,
+            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            unit.locomotor_surfaces,
+            unit.crusher_level > 0,
+            0,
+        ),
+        "closest approach endpoint must be a legal ground cell, end={end:?}"
+    );
+    assert!(
+        end.distance(registered) < start.distance(registered),
+        "path endpoint must make progress toward registered approach {registered:?}, got {end:?}"
+    );
+    assert!(
+        unit.movement.path.windows(2).all(|segment| logic
+            .pathfinding_system
+            .line_passable_for_surfaces(segment[0], segment[1], unit.locomotor_surfaces)),
+        "dock approach path must not cross the dock obstacle: {:?}",
+        unit.movement.path
+    );
+}
+
 #[test]
 fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
     use crate::game_logic::{
@@ -405,8 +452,7 @@ fn simulation_step_finishes_a_short_build() {
         .and_then(|d| d.dozer_dock_action)
         .expect("dozer_new_task_build stores the action dock");
     let building_pos = logic.host_object(pad_id).expect("pad").get_position();
-    let end_dock =
-        crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
+    let end_dock = crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
     {
         let obj = logic.host_object_mut(pad_id).expect("pad");
         obj.set_status_under_construction(true);
@@ -557,9 +603,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
     let mut warehouse_t = ThingTemplate::new("SupplyWarehouse");
-    warehouse_t
-        .add_kind_of(KindOf::Structure)
-        .set_health(500.0);
+    warehouse_t.add_kind_of(KindOf::Structure).set_health(500.0);
     warehouse_t.dock_kind = DockKind::SupplyWarehouse;
     logic
         .templates
@@ -574,9 +618,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
         .templates
         .insert("AmericaSupplyCenter".into(), center_t);
     let mut truck_t = ThingTemplate::new("AmericaSupplyTruck");
-    truck_t
-        .add_kind_of(KindOf::Vehicle)
-        .set_health(200.0);
+    truck_t.add_kind_of(KindOf::Vehicle).set_health(200.0);
     truck_t.supply_truck_metadata = Some(SupplyTruckMetadata {
         max_boxes: 1,
         warehouse_scan_distance: 200.0,
@@ -584,9 +626,7 @@ fn full_truck_returns_to_the_supply_center_approach() {
         center_delay_frames: 0,
         upgraded_supply_boost: 0,
     });
-    logic
-        .templates
-        .insert("AmericaSupplyTruck".into(), truck_t);
+    logic.templates.insert("AmericaSupplyTruck".into(), truck_t);
     let center_pos = Vec3::new(200.0, 0.0, 0.0);
     let warehouse = logic
         .create_object_for_player("SupplyWarehouse", 0, Vec3::ZERO)
@@ -633,16 +673,18 @@ fn full_truck_returns_to_the_supply_center_approach() {
         unit.movement.path
     );
     assert!(unit.ignored_obstacle_id.is_none());
-    logic.host_object_mut(warehouse).expect("warehouse").status.destroyed = true;
+    logic
+        .host_object_mut(warehouse)
+        .expect("warehouse")
+        .status
+        .destroyed = true;
     let mut next_t = ThingTemplate::new("NextSupplyWarehouse");
     next_t
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::SupplySource)
         .set_health(500.0);
     next_t.dock_kind = DockKind::SupplyWarehouse;
-    logic
-        .templates
-        .insert("NextSupplyWarehouse".into(), next_t);
+    logic.templates.insert("NextSupplyWarehouse".into(), next_t);
     let next = logic
         .create_object_for_player("NextSupplyWarehouse", 0, Vec3::new(300.0, 0.0, 0.0))
         .expect("next warehouse");
@@ -751,10 +793,7 @@ fn empty_truck_regroups_outside_the_supply_center() {
         Vec3::new(-1000.0, 0.0, -1000.0),
         Vec3::new(1000.0, 0.0, 1000.0),
     );
-    terrain.add_water_polygon(
-        vec![(247, -3), (253, -3), (253, 3), (247, 3)],
-        10.0,
-    );
+    terrain.add_water_polygon(vec![(247, -3), (253, -3), (253, 3), (247, 3)], 10.0);
     logic.terrain = Some(terrain);
     logic.update_support_states_for_test(&[truck], 1.0 / 30.0);
     let regrouped = logic.host_object(truck).expect("truck");
@@ -775,10 +814,8 @@ fn empty_truck_regroups_outside_the_supply_center() {
         from_center >= 45.0 - 0.1 && from_center <= 100.0,
         "regroup must clear the building by a 5-unit sphere and stay within 100, end={regroup:?}"
     );
-    let in_water = regroup.x >= 247.0
-        && regroup.x <= 253.0
-        && regroup.z >= -3.0
-        && regroup.z <= 3.0;
+    let in_water =
+        regroup.x >= 247.0 && regroup.x <= 253.0 && regroup.z >= -3.0 && regroup.z <= 3.0;
     assert!(
         !in_water,
         "the first +X ring is underwater and must be skipped, end={regroup:?}"
@@ -807,9 +844,6 @@ fn empty_truck_regroups_outside_the_supply_center() {
         crate::game_logic::SupplyTruckState::Regrouping
     );
 }
-
-
-
 
 #[test]
 fn repair_approach_crosses_the_buildings_obstacle() {
@@ -1086,6 +1120,10 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
     }
     {
         let unit = logic.host_object_mut(tank).expect("tank");
+        // C++ requestPath requires an active locomotor with nonzero valid
+        // surfaces; synthetic vehicles default to an immobile fixture.
+        unit.cur_locomotor_name = Some("GattlingTankLocomotor".into());
+        unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
         unit.set_order_target(Some(pad));
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum;
@@ -1116,9 +1154,15 @@ fn full_vehicle_leaves_the_repair_pad_for_its_rally() {
         unit.movement.path
     );
     let end = unit.movement.path.last().copied().expect("rally path");
+    let rally_cell = logic.pathfinding_system.grid.world_to_grid(rally);
+    let cpp_adjusted_rally = logic
+        .pathfinding_system
+        .grid
+        .adjust_coord_to_cell(rally_cell, true);
     assert!(
-        end.distance(rally) < 1.0,
-        "a full vehicle must leave for the pad rally, end={end:?}"
+        logic.pathfinding_system.grid.world_to_grid(end) == rally_cell
+            && end.distance(cpp_adjusted_rally) < 0.1,
+        "ordinary ground path ends at the CPP-adjusted rally cell, end={end:?} expected={cpp_adjusted_rally:?}"
     );
     assert_eq!(unit.ignored_obstacle_id, Some(pad));
 }
@@ -1153,6 +1197,10 @@ fn passthrough_rally_snapshots_the_pad() {
     }
     {
         let unit = logic.host_object_mut(tank).expect("tank");
+        // C++ requestPath requires an active locomotor with nonzero valid
+        // surfaces; synthetic vehicles default to an immobile fixture.
+        unit.cur_locomotor_name = Some("GattlingTankLocomotor".into());
+        unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
         unit.set_order_target(Some(pad));
         unit.set_ai_state(AIState::SeekingRepair);
         unit.health.current = unit.health.maximum;
@@ -1169,7 +1217,6 @@ fn passthrough_rally_snapshots_the_pad() {
 
 #[test]
 fn contact_attack_ignores_the_victim() {
-    use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Player, ThingTemplate, Weapon};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -1186,11 +1233,19 @@ fn contact_attack_ignores_the_victim() {
     let building = logic
         .create_object_for_player("ContactBuilding", 1, Vec3::new(120.0, 0.0, 0.0))
         .expect("building");
+    logic
+        .host_object_mut(building)
+        .expect("building")
+        .selection_radius = 25.0;
     let attacker = logic
         .create_object_for_player("ContactInf", 0, Vec3::ZERO)
         .expect("attacker");
     {
         let unit = logic.host_object_mut(attacker).expect("attacker");
+        // C++ attack-path requests use the attacker's active locomotor
+        // surfaces; a newly-created test object otherwise has mask zero.
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
         unit.weapon = Some(Weapon {
             damage: 10.0,
             range: 5.0,
@@ -1210,42 +1265,44 @@ fn contact_attack_ignores_the_victim() {
             last_bonus_rof: 0.0,
         });
     }
-    let wall_x = {
-        let grid = &logic.pathfinding_system.grid;
-        let start = grid.world_to_grid(Vec3::ZERO);
-        let goal = grid.world_to_grid(Vec3::new(120.0, 0.0, 0.0));
-        (start.x + goal.x) / 2
-    };
-    let height = logic.pathfinding_system.grid.height();
-    for y in 0..height {
-        logic.pathfinding_system.grid.set_cell_obstacle_owned(
-            GridPos::new(wall_x, y),
-            false,
-            false,
-            building.0,
-            None,
-            None,
-        );
-    }
+    logic
+        .pathfinding_system
+        .apply_structure_static_blocks(&logic.objects);
+    logic
+        .pathfinding_system
+        .grid
+        .update_dynamic_obstacles(&logic.objects);
+    let target_cell = logic
+        .pathfinding_system
+        .grid
+        .world_to_grid(Vec3::new(120.0, 0.0, 0.0));
+    assert_eq!(
+        logic.pathfinding_system.grid.cell_type(target_cell),
+        gamelogic::ai::pathfind_astar::PathfindCellType::Obstacle,
+        "fixture must exercise the victim's actual obstacle footprint"
+    );
     logic.force_map_loaded_for_path_test(true);
     assert!(logic.assign_unit_attack_path(attacker, Some(building), Vec3::new(120.0, 0.0, 0.0)));
     logic.process_pathfind_queue();
     let unit = logic.host_object(attacker).expect("attacker");
     assert_eq!(unit.ignored_obstacle_id, Some(building));
-    let xs: Vec<i32> = unit
-        .movement
-        .path
-        .iter()
-        .map(|wp| logic.pathfinding_system.grid.world_to_grid(*wp).x)
-        .collect();
-    let crosses = xs.windows(2).any(|w| {
-        let lo = w[0].min(w[1]);
-        let hi = w[0].max(w[1]);
-        lo <= wall_x && wall_x <= hi
+    let enters_victim_footprint = unit.movement.path.iter().any(|wp| {
+        let cell = logic.pathfinding_system.grid.world_to_grid(*wp);
+        logic.pathfinding_system.grid.cell_type(cell)
+            == gamelogic::ai::pathfind_astar::PathfindCellType::Obstacle
     });
     assert!(
-        crosses,
-        "contact attack must path through the victim, xs={xs:?} wall={wall_x}"
+        enters_victim_footprint,
+        "contact attack must route into the victim's real obstacle footprint, path={:?}",
+        unit.movement.path
+    );
+    assert!(
+        unit.movement
+            .path
+            .last()
+            .is_some_and(|last| last.distance(Vec3::new(120.0, 0.0, 0.0)) < 0.1),
+        "contact attack should jam the final node to the victim position: {:?}",
+        unit.movement.path
     );
     assert_eq!(unit.path_extra_distance, 100.0);
 }
@@ -1267,9 +1324,7 @@ fn ranged_attack_does_not_keep_a_stale_ignore() {
         .set_health(500.0);
     logic.templates.insert("RangedBuilding".into(), bld_t);
     let mut block_t = ThingTemplate::new("StaleBlocker");
-    block_t
-        .add_kind_of(KindOf::Structure)
-        .set_health(500.0);
+    block_t.add_kind_of(KindOf::Structure).set_health(500.0);
     logic.templates.insert("StaleBlocker".into(), block_t);
     let building = logic
         .create_object_for_player("RangedBuilding", 1, Vec3::new(120.0, 0.0, 0.0))
@@ -1318,9 +1373,7 @@ fn ranged_attack_does_not_keep_a_stale_ignore() {
             None,
         );
     }
-    logic
-        .pathfinding_system
-        .set_ignore_obstacle(Some(blocker));
+    logic.pathfinding_system.set_ignore_obstacle(Some(blocker));
     assert!(logic.assign_unit_attack_path(attacker, Some(building), Vec3::new(120.0, 0.0, 0.0)));
     assert_eq!(logic.pathfinding_system.ignore_obstacle(), None);
     let unit = logic.host_object(attacker).expect("attacker");
@@ -1329,12 +1382,7 @@ fn ranged_attack_does_not_keep_a_stale_ignore() {
         "firing scan should succeed; the fail fallback is not this case"
     );
     assert_eq!(unit.path_extra_distance, 0.0);
-    let end = unit
-        .movement
-        .path
-        .last()
-        .copied()
-        .expect("firing path");
+    let end = unit.movement.path.last().copied().expect("firing path");
     let end_x = logic.pathfinding_system.grid.world_to_grid(end).x;
     assert!(
         end_x < wall_x,
@@ -1385,7 +1433,9 @@ fn exact_waypoint_path_sums_five_links() {
     let id = logic
         .create_object_for_player("WayExtraInf", 0, Vec3::ZERO)
         .expect("unit");
-    let points: Vec<Vec3> = (0..7).map(|i| Vec3::new(i as f32 * 10.0, 0.0, 0.0)).collect();
+    let points: Vec<Vec3> = (0..7)
+        .map(|i| Vec3::new(i as f32 * 10.0, 0.0, 0.0))
+        .collect();
     let unit = logic.host_object_mut(id).expect("unit");
     unit.movement.path = points;
     unit.movement.current_path_index = 0;
@@ -1405,10 +1455,13 @@ fn non_final_hop_keeps_the_obstacle_corner() {
     let mut inf_t = ThingTemplate::new("HopInf");
     inf_t.add_kind_of(KindOf::Infantry).set_health(100.0);
     logic.templates.insert("HopInf".into(), inf_t);
-    let corner = Vec3::new(80.0, 0.0, 0.0);
-    let cell = logic.pathfinding_system.grid.world_to_grid(corner);
+    let grid = &logic.pathfinding_system.grid;
+    let start_cell = grid.world_to_grid(Vec3::ZERO);
+    let corner_cell = grid.world_to_grid(Vec3::new(80.0, 0.0, 0.0));
+    let corner = grid.grid_to_world(corner_cell);
+    let blocked_cell = GridPos::new((start_cell.x + corner_cell.x) / 2, start_cell.y);
     logic.pathfinding_system.grid.set_cell_obstacle_owned(
-        GridPos::new(cell.x, cell.y),
+        blocked_cell,
         false,
         false,
         9,
@@ -1418,16 +1471,53 @@ fn non_final_hop_keeps_the_obstacle_corner() {
     let unit = logic
         .create_object_for_player("HopInf", 0, Vec3::ZERO)
         .expect("unit");
+    {
+        let unit = logic.host_object_mut(unit).expect("unit");
+        // C++ requestPath asserts that a unit has at least one valid locomotor
+        // surface before invoking Pathfinder::findPath.
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    }
     logic.force_map_loaded_for_path_test(true);
     let ok = logic.assign_unit_path(unit, Vec3::new(160.0, 0.0, 0.0), &[corner]);
     logic.process_pathfind_queue();
     let path = logic.host_object(unit).expect("unit").movement.path.clone();
-    let hits_corner = path.iter().any(|wp| {
-        logic.pathfinding_system.grid.world_to_grid(*wp) == cell
+    let keeps_corner = path
+        .iter()
+        .any(|wp| logic.pathfinding_system.grid.world_to_grid(*wp) == corner_cell);
+    let crosses_blocked_cell = path.windows(2).any(|segment| {
+        !logic.pathfinding_system.line_passable_for_surfaces(
+            segment[0],
+            segment[1],
+            crate::game_logic::object::LOCO_SURFACE_GROUND,
+        )
     });
+    let blocked_segments: Vec<_> = path
+        .windows(2)
+        .filter(|segment| {
+            !logic.pathfinding_system.line_passable_for_surfaces(
+                segment[0],
+                segment[1],
+                crate::game_logic::object::LOCO_SURFACE_GROUND,
+            )
+        })
+        .map(|segment| {
+            (
+                segment[0],
+                segment[1],
+                logic.pathfinding_system.grid.world_to_grid(segment[0]),
+                logic.pathfinding_system.grid.world_to_grid(segment[1]),
+            )
+        })
+        .collect();
+    let detours_around_blocker = path
+        .iter()
+        .any(|wp| logic.pathfinding_system.grid.world_to_grid(*wp).y != start_cell.y);
     assert!(
-        ok && hits_corner,
-        "a non-final hop must keep the obstacle corner, ok={ok} path={path:?} cell={cell:?}"
+        ok && keeps_corner && detours_around_blocker && !crosses_blocked_cell,
+        "the non-final hop must keep its reachable corner while routing around the blocker, \
+         ok={ok} path={path:?} corner={corner:?} blocked={blocked_cell:?} \
+         unpassable_segments={blocked_segments:?}"
     );
 }
 
@@ -1489,7 +1579,10 @@ fn click_move_sets_follow_path_extra_distance() {
     logic.move_object_with_pathfinding_for_test(id, Vec3::new(200.0, 0.0, 0.0), None);
     let unit = logic.host_object(id).expect("unit");
     assert!(!unit.is_attack_path, "a click move is not a contact attack");
-    assert!(!unit.is_exact_path, "a click move is not an exact waypoint path");
+    assert!(
+        !unit.is_exact_path,
+        "a click move is not an exact waypoint path"
+    );
     let path = &unit.movement.path;
     let index = unit.movement.current_path_index;
     let expected = if index + 1 < path.len() {
@@ -1605,7 +1698,25 @@ fn residual_path_installs_drop_the_exact_path_formula() {
             ]),
         );
         assert!(!unit.is_exact_path);
+        assert_eq!(unit.movement.current_path_index, 0);
+        assert_eq!(
+            unit.movement.target_position,
+            Some(Vec3::new(10.0, 0.0, 0.0))
+        );
         assert!((unit.path_extra_distance - 50.0).abs() < 0.01);
+    }
+    logic.update_movement_for_test(&[id], 1.0 / 30.0);
+    {
+        let unit = logic.host_object(id).expect("unit");
+        assert_eq!(unit.movement.current_path_index, 1);
+        assert_eq!(
+            unit.movement.target_position,
+            Some(Vec3::new(10.0, 0.0, 0.0))
+        );
+        assert!(
+            unit.get_position().x >= 0.0,
+            "movement did not jump behind the path start"
+        );
     }
     {
         let unit = logic.host_object_mut(id).expect("unit");
@@ -1664,18 +1775,24 @@ fn extra_distance_uses_the_easy_goal_metric() {
     let id = logic
         .create_object_for_player("EasyDistInf", 0, Vec3::ZERO)
         .expect("unit");
+    let here = Vec3::ZERO;
+    let middle = Vec3::new(20.0, 0.0, 0.0);
+    let last = Vec3::new(20.0, 0.0, 20.0);
+    {
+        let unit = logic.host_object_mut(id).expect("unit");
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        unit.movement.path = vec![here, middle, last];
+        unit.movement.current_path_index = 1;
+        unit.path_extra_distance = 0.0;
+    }
+    logic.register_ground_path_goal(id, last);
     let unit = logic.host_object_mut(id).expect("unit");
-    let here = Vec3::new(20.0, 0.0, 0.0);
-    let last = Vec3::new(10.0, 0.0, 0.0);
-    unit.movement.path = vec![Vec3::ZERO, last];
-    unit.movement.current_path_index = 1;
-    unit.path_extra_distance = 0.0;
     let strict = unit.host_locomotor_distance_to_goal(here, last);
     unit.path_extra_distance = 80.0;
     let easy = unit.host_locomotor_distance_to_goal(here, last);
     assert!(
-        (strict - 10.0).abs() < 0.01,
-        "no extra distance stays on the straight line to the last node, got {strict}"
+        (strict - 40.0).abs() < 0.01,
+        "ground locomotion measures the routed path to the last node, got {strict}"
     );
     assert!(
         easy < strict,
@@ -1684,7 +1801,7 @@ fn extra_distance_uses_the_easy_goal_metric() {
 }
 
 #[test]
-fn attack_path_request_drops_the_exact_path_flag() {
+fn attack_path_request_preserves_the_exact_path_flag() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -1698,7 +1815,10 @@ fn attack_path_request_drops_the_exact_path_flag() {
     unit.is_exact_path = true;
     assert!(unit.begin_request_attack_path(None, Vec3::new(40.0, 0.0, 0.0), 10));
     assert!(unit.is_attack_path);
-    assert!(!unit.is_exact_path);
+    assert!(
+        unit.is_exact_path,
+        "CPP requestAttackPath changes attack-path state but preserves the exact-path flag"
+    );
 }
 
 #[test]
@@ -1814,10 +1934,14 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
     logic.templates.insert("FarArrive".into(), inf_t);
     let here = Vec3::ZERO;
     let goal = Vec3::new(20.0, 0.0, 0.0);
+    let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(
+        8.0,
+        logic.pathfinding_system.grid.grid_size(),
+    );
     let stand = logic
         .pathfinding_system
         .grid
-        .cell_for_unit_position(here, false);
+        .cell_for_unit_position(here, center);
     logic.pathfinding_system.grid.set_cell_obstacle_owned(
         GridPos::new(stand.x, stand.y),
         false,
@@ -1832,17 +1956,21 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
     {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.selection_radius = 8.0;
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.movement.path = vec![here, goal];
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(goal);
         unit.movement.max_speed = 0.0;
         unit.close_enough_dist = Some(30.0);
+        unit.final_position = Vec3::new(999.0, 0.0, 999.0);
+        unit.do_final_position = true;
         unit.set_status_moving(true);
         unit.set_ai_state(crate::game_logic::AIState::Moving);
     }
+    logic.register_ground_path_goal(id, goal);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let unit = logic.host_object(id).expect("unit");
-    assert!(unit.do_final_position);
+    assert!(!unit.do_final_position);
     let planted = logic
         .pathfinding_system
         .grid
@@ -1855,6 +1983,7 @@ fn far_arrival_snaps_the_current_cell_not_the_goal() {
 
 #[test]
 fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
+    use crate::game_logic::pathfinding::GridPos;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -1869,21 +1998,25 @@ fn close_arrival_plants_the_goal_cell_not_the_raw_point() {
     {
         let unit = logic.host_object_mut(id).expect("unit");
         unit.selection_radius = 8.0;
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
         unit.movement.path = vec![here, raw];
         unit.movement.current_path_index = 1;
         unit.movement.target_position = Some(raw);
         unit.movement.max_speed = 0.0;
         unit.close_enough_dist = Some(30.0);
+        unit.final_position = Vec3::new(999.0, 0.0, 999.0);
+        unit.do_final_position = true;
         unit.set_status_moving(true);
         unit.set_ai_state(crate::game_logic::AIState::Moving);
     }
+    logic.register_ground_path_goal(id, raw);
     logic.update_movement_for_test(&[id], 1.0 / 30.0);
     let unit = logic.host_object(id).expect("unit");
-    assert!(unit.do_final_position);
+    assert!(!unit.do_final_position);
     let grid = &logic.pathfinding_system.grid;
-    let (_, center) =
-        crate::game_logic::PathfindingGrid::radius_and_center(8.0, grid.grid_size());
-    let expected = grid.adjust_coord_to_ground_cell(grid.world_to_grid(raw), center);
+    let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(8.0, grid.grid_size());
+    let registered_goal = GridPos::new(unit.pathfind_goal_cell.0, unit.pathfind_goal_cell.1);
+    let expected = grid.adjust_coord_to_ground_cell(registered_goal, center);
     let planted = unit.final_position;
     assert!(
         (planted.x - expected.x).abs() < 0.01 && (planted.z - expected.z).abs() < 0.01,
@@ -1949,7 +2082,16 @@ fn repair_tick_that_fills_the_vehicle_leaves_for_the_rally() {
         unit.movement.path
     );
     let end = unit.movement.path.last().copied().expect("rally path");
-    assert!(end.distance(rally) < 1.0, "end={end:?}");
+    let rally_cell = logic.pathfinding_system.grid.world_to_grid(rally);
+    let cpp_adjusted_rally = logic
+        .pathfinding_system
+        .grid
+        .adjust_coord_to_cell(rally_cell, true);
+    assert!(
+        logic.pathfinding_system.grid.world_to_grid(end) == rally_cell
+            && end.distance(cpp_adjusted_rally) < 0.1,
+        "ordinary ground path ends at the CPP-adjusted rally cell, end={end:?} expected={cpp_adjusted_rally:?}"
+    );
     assert_eq!(unit.ignored_obstacle_id, Some(pad));
 }
 
@@ -2288,12 +2430,24 @@ fn reissued_gather_paths_to_the_approach() {
     let truck = logic
         .create_object_for_player("GatherReplay", 0, Vec3::ZERO)
         .expect("truck");
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .cur_locomotor_name = Some("SupplyTruckLocomotor".into());
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
     let approach = Vec3::new(70.0, 0.0, 0.0);
     {
         let unit = logic.host_object_mut(truck).expect("truck");
         unit.set_ai_state(AIState::Gathering);
         unit.preferred_dock_id = Some(warehouse);
         unit.pending_move = Some(approach);
+        // Xfer restores this request kind alongside the queued destination.
+        unit.requested_destination = Some(approach);
+        unit.is_final_goal = true;
+        unit.is_approach_path = true;
     }
     logic.force_map_loaded_for_path_test(true);
     logic.reissue_pending_moves();
@@ -2301,10 +2455,21 @@ fn reissued_gather_paths_to_the_approach() {
     let unit = logic.host_object(truck).expect("truck");
     assert_eq!(unit.ai_state, AIState::Gathering);
     assert!(unit.ignored_obstacle_id.is_none());
+    assert!(
+        unit.is_approach_path,
+        "reissued dock request keeps its saved mode"
+    );
+    assert_eq!(unit.requested_destination, Some(approach));
     let end = unit.movement.path.last().copied().expect("approach path");
     assert!(
-        end.distance(approach) < 1.0,
-        "replay must keep the dock approach, not the building center, end={end:?}"
+        logic.pathfinding_system.grid.valid_movement_position(
+            logic.pathfinding_system.grid.world_to_grid(end),
+            gamelogic::ai::pathfind_astar::PathfindLayerEnum::Ground,
+            unit.locomotor_surfaces,
+            unit.crusher_level > 0,
+            0,
+        ) && end.distance(approach) < Vec3::ZERO.distance(approach),
+        "replay must reach a legal path point closer to the saved dock approach, end={end:?}"
     );
 }
 
@@ -2328,6 +2493,14 @@ fn gather_click_paths_to_the_warehouse_approach() {
         .create_object_for_player("GatherClick", 0, Vec3::ZERO)
         .expect("truck");
     logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .cur_locomotor_name = Some("SupplyTruckLocomotor".into());
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+    logic
         .host_object_mut(warehouse)
         .expect("warehouse")
         .selection_radius = 40.0;
@@ -2336,12 +2509,7 @@ fn gather_click_paths_to_the_warehouse_approach() {
     logic.process_pathfind_queue();
     let unit = logic.host_object(truck).expect("truck");
     assert_eq!(unit.ai_state, AIState::Gathering);
-    assert!(unit.ignored_obstacle_id.is_none());
-    let end = unit.movement.path.last().copied().expect("approach path");
-    assert!(
-        end.distance(Vec3::new(70.0, 0.0, 0.0)) < 1.0,
-        "gather click must stop at the dock approach, not the center, end={end:?}"
-    );
+    assert_reserved_dock_approach_path(&logic, warehouse, truck, Vec3::ZERO, warehouse_pos, 40.0);
 }
 
 #[test]
@@ -2366,7 +2534,10 @@ fn stunned_gather_click_holds_the_approach() {
         .host_object_mut(warehouse)
         .expect("warehouse")
         .selection_radius = 40.0;
-    logic.host_object_mut(truck).expect("truck").shock_stun_frames = 100;
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .shock_stun_frames = 100;
     assert!(logic.unit_command_dock_at_supply_warehouse(truck, warehouse));
     let unit = logic.host_object(truck).expect("truck");
     let held = unit.pending_move.expect("held approach");
@@ -2399,6 +2570,14 @@ fn return_click_paths_to_the_supply_center_approach() {
     let truck = logic
         .create_object_for_player("ReturnClick", 0, Vec3::ZERO)
         .expect("truck");
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .cur_locomotor_name = Some("SupplyTruckLocomotor".into());
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
     {
         let pad = logic.host_object_mut(center).expect("center");
         pad.selection_radius = 40.0;
@@ -2410,11 +2589,13 @@ fn return_click_paths_to_the_supply_center_approach() {
     logic.process_pathfind_queue();
     let unit = logic.host_object(truck).expect("truck");
     assert_eq!(unit.ai_state, AIState::ReturningResources);
-    assert!(unit.ignored_obstacle_id.is_none());
-    let end = unit.movement.path.last().copied().expect("approach path");
-    assert!(
-        end.distance(Vec3::new(70.0, 0.0, 0.0)) < 1.0,
-        "return click must stop at the dock approach, not the center, end={end:?}"
+    assert_reserved_dock_approach_path(
+        &logic,
+        center,
+        truck,
+        Vec3::ZERO,
+        Vec3::new(90.0, 0.0, 0.0),
+        40.0,
     );
 }
 
@@ -2447,7 +2628,10 @@ fn stunned_return_click_holds_the_approach() {
         pad.set_status_under_construction(false);
         pad.construction_percent = 1.0;
     }
-    logic.host_object_mut(truck).expect("truck").shock_stun_frames = 100;
+    logic
+        .host_object_mut(truck)
+        .expect("truck")
+        .shock_stun_frames = 100;
     assert!(logic.unit_command_return_supplies(truck, center));
     let unit = logic.host_object(truck).expect("truck");
     let held = unit.pending_move.expect("held approach");
@@ -2504,7 +2688,10 @@ fn guard_object_adjusts_off_an_impassable_post() {
         .pathfinding_system
         .grid
         .world_to_grid(unit.movement.path.last().copied().expect("guard path"));
-    assert_eq!(end_cell, expected, "guard_object must use adjustDestination");
+    assert_eq!(
+        end_cell, expected,
+        "guard_object must use adjustDestination"
+    );
     let guard2 = logic
         .create_object_for_player("GuardInf", 0, Vec3::new(0.0, 0.0, 20.0))
         .expect("guard2");
@@ -2518,13 +2705,7 @@ fn guard_object_adjusts_off_an_impassable_post() {
             400,
         )
         .expect("second adjustDestination cell");
-    assert!(logic.unit_command_guard_full(
-        guard2,
-        None,
-        Some(building),
-        100.0,
-        GuardMode::Normal,
-    ));
+    assert!(logic.unit_command_guard_full(guard2, None, Some(building), 100.0, GuardMode::Normal,));
     logic.process_pathfind_queue();
     let unit2 = logic.host_object(guard2).expect("guard2");
     assert_eq!(unit2.ai_state, AIState::GuardingObject);
@@ -2535,17 +2716,6 @@ fn guard_object_adjusts_off_an_impassable_post() {
     assert_eq!(end2, expected2, "guard_full must use adjustDestination");
     assert_ne!(end2, blocked);
 }
-
-
-
-
-
-
-
-
-
-
-
 
 #[test]
 fn attack_exit_clears_the_victim_building_ignore() {
@@ -2614,22 +2784,12 @@ fn live_attack_move_keeps_the_building_ignore() {
     assert_eq!(unit.movement.path, vec![Vec3::new(80.0, 0.0, 0.0)]);
 }
 
-
-
-
-
-
-
-
-
-
-
-
 #[test]
 fn sole_tick_completion_walks_the_dozer_off_the_pad() {
     use crate::game_logic::{KindOf, Player, ThingTemplate, host_construction_ready_log};
     use crate::gameworld_shadow::{
-        begin_shadow_coupled_tick, end_shadow_coupled_tick, gameworld_construction_sole_tick_enabled,
+        begin_shadow_coupled_tick, end_shadow_coupled_tick,
+        gameworld_construction_sole_tick_enabled,
     };
 
     let _guard = crate::gameworld_shadow::authority_env_lock();
@@ -2682,8 +2842,7 @@ fn sole_tick_completion_walks_the_dozer_off_the_pad() {
     end_shadow_coupled_tick();
 
     let building_pos = logic.host_object(pad_id).expect("pad").get_position();
-    let end_dock =
-        crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
+    let end_dock = crate::game_logic::host_repair::dozer_end_dock_position(action, building_pos);
     {
         let unit = logic.host_object(dozer).expect("dozer");
         let path_end = unit.movement.path.last().copied();
@@ -2750,7 +2909,6 @@ fn player_stop_clears_a_building_ignore() {
     assert!(unit.movement.path.is_empty());
 }
 
-
 #[test]
 fn aircraft_stop_clears_a_building_ignore() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
@@ -2784,7 +2942,6 @@ fn aircraft_stop_clears_a_building_ignore() {
     assert!(unit.movement.path.is_empty());
 }
 
-
 #[test]
 fn player_move_clears_a_building_ignore() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
@@ -2812,8 +2969,6 @@ fn player_move_clears_a_building_ignore() {
     assert_eq!(unit.ai_state, AIState::Moving);
     assert!(unit.ignored_obstacle_id.is_none());
 }
-
-
 
 #[test]
 fn carrier_idle_replaces_the_jet_building_ignore_with_the_carrier() {
@@ -2909,7 +3064,6 @@ fn leaving_enter_clears_the_carrier_ignore() {
     assert_eq!(unit.ai_state, AIState::Docked);
     assert!(unit.ignored_obstacle_id.is_none());
 }
-
 
 #[test]
 fn queued_enter_path_keeps_the_carrier_ignore() {
@@ -3008,15 +3162,13 @@ fn reissued_enter_crosses_the_carrier() {
     );
 }
 
-
-
 #[test]
 fn cliff_cell_picks_the_cliff_member_when_the_set_changes() {
     use crate::game_logic::host_upgrade_module_residuals::{
         AuthoredLocomotorSet, HostLocomotorSetKind,
     };
-    use gamelogic::ai::pathfind_astar::PathfindCellType;
     use crate::game_logic::{KindOf, Player, ThingTemplate};
+    use gamelogic::ai::pathfind_astar::PathfindCellType;
 
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::USA, "P0", true));
@@ -3059,9 +3211,7 @@ fn garrison_enter_ignores_the_bunker() {
     inf_t.transport_slot_count = Some(1);
     logic.templates.insert("GarrisonInf".into(), inf_t);
     let mut bunker_t = ThingTemplate::new("GarrisonBunker");
-    bunker_t
-        .add_kind_of(KindOf::Structure)
-        .set_health(800.0);
+    bunker_t.add_kind_of(KindOf::Structure).set_health(800.0);
     bunker_t.contain_module.kind = ContainModuleKind::Garrison;
     bunker_t.contain_module.admission = ContainAdmission::InfantryOnly;
     logic.templates.insert("GarrisonBunker".into(), bunker_t);
@@ -3268,10 +3418,9 @@ fn rejected_car_bomb_releases_the_infantry() {
     let infantry = logic
         .create_object_for_player("BombInfantry", 0, Vec3::ZERO)
         .expect("infantry");
-    logic.pending_special_abilities.insert(
-        infantry,
-        PendingSpecialAbility::CarBomb { target_id: boat },
-    );
+    logic
+        .pending_special_abilities
+        .insert(infantry, PendingSpecialAbility::CarBomb { target_id: boat });
     {
         let unit = logic.host_object_mut(infantry).expect("infantry");
         unit.set_ai_state(AIState::SpecialAbility);
@@ -3287,8 +3436,6 @@ fn rejected_car_bomb_releases_the_infantry() {
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&infantry));
 }
-
-
 
 #[test]
 fn rejected_disguise_releases_the_infantry() {
@@ -3331,7 +3478,6 @@ fn rejected_disguise_releases_the_infantry() {
     assert!(unit.movement.path.is_empty());
     assert!(!logic.pending_special_abilities.contains_key(&infantry));
 }
-
 
 #[test]
 fn sabotage_of_a_vehicle_releases_the_infantry() {
@@ -3460,7 +3606,9 @@ fn plant_approach_ignores_the_structure() {
         .add_kind_of(KindOf::Structure)
         .add_kind_of(KindOf::Attackable)
         .set_health(500.0);
-    logic.templates.insert("PlantApproachBuilding".into(), bld_t);
+    logic
+        .templates
+        .insert("PlantApproachBuilding".into(), bld_t);
     let building = logic
         .create_object_for_player("PlantApproachBuilding", 1, Vec3::new(120.0, 0.0, 0.0))
         .expect("building");
@@ -3469,7 +3617,9 @@ fn plant_approach_ignores_the_structure() {
         .expect("planter");
     logic.pending_special_abilities.insert(
         planter,
-        PendingSpecialAbility::PlantTimedDemoCharge { target_id: building },
+        PendingSpecialAbility::PlantTimedDemoCharge {
+            target_id: building,
+        },
     );
     {
         let unit = logic.host_object_mut(planter).expect("planter");
@@ -3626,9 +3776,6 @@ fn flee_after_plant_ignores_the_structure() {
     );
 }
 
-
-
-
 #[test]
 fn recrew_enter_ignores_the_empty_vehicle() {
     use crate::game_logic::{KindOf, Player, ThingTemplate};
@@ -3696,7 +3843,6 @@ fn recrew_enter_ignores_the_empty_vehicle() {
     );
 }
 
-
 #[test]
 fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
     use crate::game_logic::host_upgrade_module_residuals::{
@@ -3739,10 +3885,7 @@ fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
             Some("CombatBikeGroundLocomotor"),
             "a cell with no matching member must bind GROUND, not the previous cliff locomotor"
         );
-        assert!(
-            !bike.precise_z_pos,
-            "changing the member clears precise-z"
-        );
+        assert!(!bike.precise_z_pos, "changing the member clears precise-z");
     }
     {
         let bike = logic.host_object_mut(id).expect("bike");
@@ -3750,10 +3893,7 @@ fn water_cell_set_change_falls_back_to_ground_not_the_previous_member() {
     }
     assert!(logic.apply_unit_locomotor_set(id, "normal"));
     let bike = logic.host_object(id).expect("bike");
-    assert!(
-        bike.precise_z_pos,
-        "the same set must not clear precise-z"
-    );
+    assert!(bike.precise_z_pos, "the same set must not clear precise-z");
     assert_eq!(
         bike.cur_locomotor_name.as_deref(),
         Some("CombatBikeGroundLocomotor")
@@ -3865,11 +4005,6 @@ fn bridge_deck_locomotor_ignores_the_water_underneath() {
     );
 }
 
-
-
-
-
-
 #[test]
 fn queued_infantry_spawns_during_simulation() {
     let mut logic = GameLogic::new();
@@ -3910,11 +4045,11 @@ fn queued_infantry_spawns_during_simulation() {
         unit.waiting_for_path
     );
     assert_eq!(
-        unit.owner_player_id, Some(0),
+        unit.owner_player_id,
+        Some(0),
         "spawned infantry must belong to the factory owner"
     );
 }
-
 
 #[test]
 fn reissued_build_stays_constructing() {
@@ -5513,7 +5648,10 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
             clip_reload_time: 0.0,
             can_target_air: false,
             can_target_ground: true,
-            projectile_speed: 0.0,
+            // A finite speed above the 50-unit in-range shot distance gives
+            // C++'s projectileless path a sub-frame delay, so it damages on
+            // the firing frame without relying on the undefined 0/0 case.
+            projectile_speed: 200.0,
             pre_attack_delay: 0.0,
             splash_radius: 0.0,
             suspend_fx_frame: 0,
@@ -5555,13 +5693,31 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         .create_object("DeployStyleTarget", Team::USA, Vec3::new(200.0, 0.0, 0.0))
         .expect("out-of-range target");
     let hp_before = logic.host_object(target_id).unwrap().health.current;
+    let object_ids = [launcher_id, target_id];
+    let mut last_ticked_frame = 0;
+    let tick_through_frame = |logic: &mut GameLogic, last_frame: &mut u32, target_frame: u32| {
+        // Preserve every logic-frame update like C++ does. Skipping frames
+        // also skips AIM/FIRE transitions and turret alignment, so only
+        // advancing the DeployStyle timer would not be a valid comparison.
+        for frame in (*last_frame + 1)..=target_frame {
+            logic.set_current_frame(frame.into());
+            logic.tick_deploy_style_updates();
+            // Mirror Phase 7: legacy combat first, then the nested machine
+            // that owns a normal AttackObject command.
+            logic.update_combat(&object_ids, LOGIC_FRAME_TIMESTEP);
+            logic.tick_nested_attack_machines(
+                &object_ids,
+                frame as f32 * LOGIC_FRAME_TIMESTEP,
+                frame,
+            );
+        }
+        *last_frame = target_frame;
+    };
 
     // A normal player AttackObject remains accepted and approaches; it must
     // not begin the DeployStyle timer merely because the target is distant.
     assert!(logic.unit_command_attack(launcher_id, target_id));
-    logic.set_current_frame(1);
-    logic.tick_deploy_style_updates();
-    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    tick_through_frame(&mut logic, &mut last_ticked_frame, 1);
     let launcher_after_oor = logic.host_object(launcher_id).unwrap();
     assert_eq!(launcher_after_oor.target, Some(target_id));
     assert!(matches!(
@@ -5582,9 +5738,7 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         .host_object_mut(target_id)
         .unwrap()
         .set_position(Vec3::new(50.0, 0.0, 0.0));
-    logic.set_current_frame(2);
-    logic.tick_deploy_style_updates();
-    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    tick_through_frame(&mut logic, &mut last_ticked_frame, 2);
     assert!(matches!(
         logic
             .host_object(launcher_id)
@@ -5608,29 +5762,57 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
         weapon.last_fire_time = -100.0;
     }
 
-    logic.set_current_frame(101);
-    logic.tick_deploy_style_updates();
+    tick_through_frame(&mut logic, &mut last_ticked_frame, 101);
     assert!(
         !logic.attack_can_fire_at(launcher_id, target_id, 101.0 * LOGIC_FRAME_TIMESTEP, false,),
         "every fire authority must reject a packed DeployStyle weapon"
     );
-    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
     assert_eq!(
         logic.host_object(target_id).unwrap().health.current,
         hp_before,
         "retail 100-frame unpack still blocks one frame before completion"
     );
 
-    logic.set_current_frame(102);
-    logic.tick_deploy_style_updates();
-    logic.update_combat(&[launcher_id, target_id], LOGIC_FRAME_TIMESTEP);
+    tick_through_frame(&mut logic, &mut last_ticked_frame, 102);
     assert!(
         logic.host_object(launcher_id).unwrap().is_deployed(),
         "the exact timer boundary enters ReadyToAttack"
     );
+    assert_eq!(
+        logic
+            .host_object(launcher_id)
+            .and_then(|launcher| launcher.weapon.as_ref())
+            .map(|weapon| weapon.last_fire_time),
+        Some(102.0 * LOGIC_FRAME_TIMESTEP),
+        "the retained attack discharges on the first frame ReadyToAttack"
+    );
+    // The complete GameLogic update resolves accepted shots after the nested
+    // attack machine in its projectile phase. Reproduce those exact Phase 9
+    // calls rather than expecting projectile damage during weapon acceptance.
+    // This synthetic weapon has no ProjectileObject and its finite-speed shot
+    // crosses the remaining range in less than one logic frame, so it follows
+    // the projectileless delayed-damage path rather than becoming a
+    // CombatSystem projectile. Production applies ready damage in this phase
+    // after draining the fire queue.
+    crate::game_logic::host_historic_bonus::set_logic_frame(102);
+    crate::game_logic::combat::drain_pending_projectiles(&mut logic.combat_system, &logic.objects);
+    crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
+        &mut logic.combat_system,
+        &mut logic.objects,
+        102,
+        Some(&logic.players),
+    );
+    logic.combat_system.update_projectiles_with_relationships(
+        LOGIC_FRAME_TIMESTEP,
+        &mut logic.objects,
+        Some(&mut logic.countermeasures),
+        102,
+        Some(&logic.players),
+        Some(&logic.team_factory),
+    );
     assert!(
         logic.host_object(target_id).unwrap().health.current < hp_before,
-        "the retained normal attack fires only after ReadyToAttack"
+        "the accepted shot damages its target during the production projectile phase"
     );
 }
 

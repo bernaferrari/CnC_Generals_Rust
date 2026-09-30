@@ -78,6 +78,7 @@ impl GameLogic {
             replay_pending: crate::command_system::ReplayPendingState::default(),
             frame_objects_changed_trigger_areas: std::cell::Cell::new(0),
             host_guard_area_occupancy: Default::default(),
+            host_dock_approach_queues: Default::default(),
             next_weapon_discharge_sequence: 1,
             weapon_discharge_log:
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
@@ -758,6 +759,7 @@ impl GameLogic {
         }
         self.drawable_tint_envelopes.clear();
         self.objects.clear();
+        self.host_dock_approach_queues.get_mut().clear();
         self.host_move_attack_machines.clear();
         self.host_view_dirty.clear();
         self.vision_last_looks.clear();

@@ -372,7 +372,10 @@ fn find_closest_path_rebuilds_via_crate_not_thin_line() {
     let i = src
         .find("pub fn find_closest_path(")
         .expect("find_closest_path");
-    let w = &src[i..src.len().min(i + 7000)];
+    let w = src[i..]
+        .split("\n    ///")
+        .next()
+        .expect("closest function body");
     assert!(
         w.contains("find_path_via_crate"),
         "closest must rebuild with leftover crate A*"
@@ -655,6 +658,27 @@ fn ignore_obstacle_walks_through_owned_footprint() {
                 .is_some_and(|p| { !p.iter().any(|wp| sys.grid.world_to_grid(*wp).x == 5) }),
         "without ignore, factory footprint stays a wall"
     );
+    let crosses_owned_footprint = |grid: &PathfindingGrid, path: &[Vec3]| {
+        path.windows(2).any(|segment| {
+            let from = segment[0];
+            let to = segment[1];
+            let dx = to.x - from.x;
+            let dz = to.z - from.z;
+            let distance = (dx * dx + dz * dz).sqrt();
+            let steps = (distance / 2.5).ceil().max(1.0) as i32;
+            (0..=steps).any(|step| {
+                let t = step as f32 / steps as f32;
+                let cell = grid.world_to_grid(Vec3::new(from.x + dx * t, 0.0, from.z + dz * t));
+                cell.x == 5 && (0..8).contains(&cell.y)
+            })
+        })
+    };
+    assert!(
+        !blocked
+            .as_deref()
+            .is_some_and(|path| crosses_owned_footprint(&sys.grid, path)),
+        "without ignore, no optimized segment may cut through the owned footprint: {blocked:?}"
+    );
 
     sys.set_ignore_obstacle(Some(ObjectId(9)));
     let through = sys
@@ -669,8 +693,8 @@ fn ignore_obstacle_walks_through_owned_footprint() {
         )
         .expect("ignoreObstacle must walk the ignored footprint");
     assert!(
-        through.iter().any(|wp| sys.grid.world_to_grid(*wp).x == 5),
-        "path must step through ignored CELL_OBSTACLE, path={through:?}"
+        crosses_owned_footprint(&sys.grid, &through),
+        "an optimized segment must cross the ignored CELL_OBSTACLE footprint, path={through:?}"
     );
     sys.set_ignore_obstacle(None);
 }
@@ -1336,7 +1360,10 @@ fn leftover_off_map_start_gate_matches_leftover_ai_path() {
         &Coord3D::new(-100.0, -100.0, 5.0),
         &Coord3D::new(-50.0, -25.0, 9.0),
     ));
-    assert!(!leftover_should_force_direct_path_for_off_map_start(
+    // C++ W3DTerrainLogic::getMaximumPathfindExtent starts at zero and
+    // scans loaded boundaries. After reset there are none; Region3D uses
+    // strict bounds, so even the origin is outside that empty extent.
+    assert!(leftover_should_force_direct_path_for_off_map_start(
         &Coord3D::new(0.0, 0.0, 5.0),
         &Coord3D::new(-50.0, -25.0, 9.0),
     ));
@@ -1423,7 +1450,10 @@ fn compute_assigned_unit_path_leftover_installs_compute_quick_path() {
     let i = src
         .find("fn compute_assigned_unit_path")
         .expect("compute_assigned_unit_path");
-    let w = &src[i..src.len().min(i + 3500)];
+    let w = src[i..]
+        .split("\n    pub(in super::super) fn apply_computed_unit_path(")
+        .next()
+        .expect("compute path function body");
     assert!(
         w.contains("leftover_should_force_direct_path_for_off_map_start")
             && w.contains("leftover_should_use_direct_path_for_line_passable_non_final_goal")
@@ -1431,8 +1461,8 @@ fn compute_assigned_unit_path_leftover_installs_compute_quick_path() {
         "live compute_assigned_unit_path must leftover-install computeQuickPath"
     );
     assert!(
-        w.contains("is_safe_path") && w.contains("ChaseTarget"),
-        "non-final hops must include requestSafePath and attack-pursue"
+        w.contains("u.is_final_goal") && w.contains("request_is_final && hop_i + 1 == goal_count"),
+        "computePath must use the stored final-goal flag for the final hop (C++ AIUpdate.cpp:1692)"
     );
     let pf = include_str!("../system_routes.rs");
     assert!(

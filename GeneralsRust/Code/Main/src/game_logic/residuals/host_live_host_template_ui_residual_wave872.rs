@@ -2,11 +2,6 @@
 //! last_ui_state after boot UI dual-read; refresh producers after barracks ensure;
 //! stamp sim timing after shell budget tick. playable_claim stays false.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
-static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
-static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
@@ -41,10 +36,6 @@ pub enum ResidualHostTemplateUiAction {
     DispatchSource = 5,
 }
 
-fn residual_action_store(a: ResidualHostTemplateUiAction) {
-    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
-}
-
 fn cnc_source() -> &'static str {
     // 2026-08-15: scan engine plus presentation_frame split.
     super::engine_scan_src()
@@ -55,8 +46,6 @@ pub fn honesty_host_template_ui_method_names_residual_wave872() -> bool {
     let ok = residual_name_index(names, "host_stamp_known_template_name").is_some()
         && residual_name_index(names, "host_ensure_golden_ranger_template").is_some()
         && residual_name_index(names, "Wave 872").is_some();
-    residual_action_store(ResidualHostTemplateUiAction::MethodNames);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -64,8 +53,6 @@ pub fn honesty_host_template_ui_nav_commands_residual_wave872() -> bool {
     let steps = LIVE_HOST_TEMPLATE_UI_NAV_STEPS_WAVE872;
     let ok = residual_name_index(steps, "LIVE_HOST_TEMPLATE_UI").is_some()
         && residual_name_index(steps, "STAMP_KNOWN_TEMPLATE_ON_INSERT").is_some();
-    residual_action_store(ResidualHostTemplateUiAction::NavCommands);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -78,8 +65,6 @@ pub fn honesty_host_template_ui_residual_pack_wave872() -> bool {
         && cnc.contains("Wave 584")
         && cnc.contains("Wave 583")
         && cnc.contains("Wave 834");
-    residual_action_store(ResidualHostTemplateUiAction::SourceMarkers);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -87,9 +72,7 @@ pub fn simulate_live_host_template_ui_honesty() -> bool {
     let a = honesty_host_template_ui_method_names_residual_wave872();
     let b = honesty_host_template_ui_nav_commands_residual_wave872();
     let c = honesty_host_template_ui_residual_pack_wave872();
-    residual_action_store(ResidualHostTemplateUiAction::DispatchSource);
     let ok = a && b && c;
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 

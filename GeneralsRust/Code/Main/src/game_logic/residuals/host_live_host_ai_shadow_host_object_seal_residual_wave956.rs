@@ -4,11 +4,6 @@
 //! save snapshot, and presentation build route host map access through host_* APIs.
 //! playable_claim stays false.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
-static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
-static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
@@ -42,10 +37,6 @@ pub enum ResidualHostAiShadowHostObjectSealAction {
     DispatchSource = 5,
 }
 
-fn residual_action_store(a: ResidualHostAiShadowHostObjectSealAction) {
-    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
-}
-
 fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
@@ -67,7 +58,12 @@ fn non_comment_prod(src: &str) -> String {
 }
 
 fn ai_source() -> &'static str {
-    include_str!("../../ai.rs")
+    // Gameplay methods live in the combat module after the AI split.
+    concat!(
+        include_str!("../../ai/combat.rs"),
+        "\n",
+        include_str!("../../ai.rs")
+    )
 }
 fn shadow_source() -> &'static str {
     crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
@@ -80,8 +76,6 @@ pub fn honesty_host_ai_shadow_host_object_seal_method_names_residual_wave956() -
     let names = LIVE_HOST_AI_SHADOW_HOST_OBJECT_SEAL_METHOD_NAMES_WAVE956;
     let ok = residual_name_index(names, "host_objects").is_some()
         && residual_name_index(names, "Wave 956").is_some();
-    residual_action_store(ResidualHostAiShadowHostObjectSealAction::MethodNames);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -89,8 +83,6 @@ pub fn honesty_host_ai_shadow_host_object_seal_nav_commands_residual_wave956() -
     let steps = LIVE_HOST_AI_SHADOW_HOST_OBJECT_SEAL_NAV_STEPS_WAVE956;
     let ok = residual_name_index(steps, "LIVE_HOST_AI_SHADOW_HOST_OBJECT_SEAL").is_some()
         && residual_name_index(steps, "SHADOW_HOST_OBJECTS").is_some();
-    residual_action_store(ResidualHostAiShadowHostObjectSealAction::NavCommands);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -153,8 +145,6 @@ pub fn honesty_host_ai_shadow_host_object_seal_residual_pack_wave956() -> bool {
         && (build.contains("host_objects()") || pf.contains("host_objects()"))
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
-    residual_action_store(ResidualHostAiShadowHostObjectSealAction::SourceMarkers);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -162,9 +152,7 @@ pub fn simulate_live_host_ai_shadow_host_object_seal_honesty() -> bool {
     let a = honesty_host_ai_shadow_host_object_seal_method_names_residual_wave956();
     let b = honesty_host_ai_shadow_host_object_seal_nav_commands_residual_wave956();
     let c = honesty_host_ai_shadow_host_object_seal_residual_pack_wave956();
-    residual_action_store(ResidualHostAiShadowHostObjectSealAction::DispatchSource);
     let ok = a && b && c;
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 

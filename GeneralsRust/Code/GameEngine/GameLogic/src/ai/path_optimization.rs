@@ -52,7 +52,10 @@ impl PathOptimizer {
                 count += 1;
                 if cur_layer == PathfindLayerEnum::Ground {
                     if layers[node_idx] != cur_layer {
-                        let _layer = layers[node_idx];
+                        // C++ Path::optimize updates the passability layer when
+                        // the scan enters a bridge node (AIPathfind.cpp:480).
+                        layer = layers[node_idx];
+                        cur_layer = layer;
                         if count > self.allowed_bridge_steps {
                             break;
                         }

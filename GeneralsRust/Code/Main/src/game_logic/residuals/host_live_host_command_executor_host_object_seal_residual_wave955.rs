@@ -3,11 +3,6 @@
 //! Authority command apply still borrows Main GameLogic, but routes through
 //! host_* APIs (not presentation dual-read). playable_claim stays false.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
-static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
-static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
@@ -41,10 +36,6 @@ pub enum ResidualHostCommandExecutorHostObjectSealAction {
     DispatchSource = 5,
 }
 
-fn residual_action_store(a: ResidualHostCommandExecutorHostObjectSealAction) {
-    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
-}
-
 fn cnc_source() -> &'static str {
     // 2026-08-15: scan engine plus presentation_frame split.
     super::engine_scan_src()
@@ -73,8 +64,6 @@ pub fn honesty_host_command_executor_host_object_seal_method_names_residual_wave
     let ok = residual_name_index(names, "host_objects").is_some()
         && residual_name_index(names, "Wave 955").is_some()
         && residual_name_index(names, "CommandExecutor").is_some();
-    residual_action_store(ResidualHostCommandExecutorHostObjectSealAction::MethodNames);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -82,8 +71,6 @@ pub fn honesty_host_command_executor_host_object_seal_nav_commands_residual_wave
     let steps = LIVE_HOST_COMMAND_EXECUTOR_HOST_OBJECT_SEAL_NAV_STEPS_WAVE955;
     let ok = residual_name_index(steps, "LIVE_HOST_COMMAND_EXECUTOR_HOST_OBJECT_SEAL").is_some()
         && residual_name_index(steps, "NO_GET_OBJECT_IN_COMMAND_EXECUTOR").is_some();
-    residual_action_store(ResidualHostCommandExecutorHostObjectSealAction::NavCommands);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -101,8 +88,6 @@ pub fn honesty_host_command_executor_host_object_seal_residual_pack_wave955() ->
         && prod.contains("host_objects()")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
-    residual_action_store(ResidualHostCommandExecutorHostObjectSealAction::SourceMarkers);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -110,9 +95,7 @@ pub fn simulate_live_host_command_executor_host_object_seal_honesty() -> bool {
     let a = honesty_host_command_executor_host_object_seal_method_names_residual_wave955();
     let b = honesty_host_command_executor_host_object_seal_nav_commands_residual_wave955();
     let c = honesty_host_command_executor_host_object_seal_residual_pack_wave955();
-    residual_action_store(ResidualHostCommandExecutorHostObjectSealAction::DispatchSource);
     let ok = a && b && c;
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 

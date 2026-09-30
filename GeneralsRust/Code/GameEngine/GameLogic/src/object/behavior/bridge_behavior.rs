@@ -12,7 +12,7 @@ use std::f32::consts::TAU;
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::ai::{the_ai, pathfinding_system::PathfindLayerEnum as AiPathfindLayerEnum};
+use crate::ai::the_ai;
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, AudioEventRTS, BehaviorModuleData, Bool, Bridge, Coord3D, FXList, Int, KindOf,
@@ -715,12 +715,17 @@ impl BridgeBehavior {
             bridge_info.to_left,
         ];
 
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinding) = ai_guard.pathfinding_system() {
                 if let Ok(mut pathfinding_guard) = pathfinding.write() {
-                    let layer =
-                        AiPathfindLayerEnum::from(terrain_layer_to_logic_layer(bridge.get_layer()));
-                    pathfinding_guard.set_bridge_passable(&polygon, layer, passable);
+                    // C++ BridgeBehavior.cpp updates its exact bridge layer ID. Do not
+                    // flatten bridge state into cells on the ground terrain map.
+                    pathfinding_guard.set_bridge_passable(
+                        &polygon,
+                        crate::common::PathfindLayerEnum::from_u32(bridge.get_layer() as u32),
+                        passable,
+                    );
                 }
             }
         }

@@ -382,66 +382,66 @@ impl Object {
             self.queue_leftover_projectileless_flight_damage(name, target_id);
         }
         super::combat::queue_projectile(super::combat::PendingProjectile {
-
-                shooter_id,
-                shooter_pos,
-                source_context: Some(super::combat::ProjectileLaunchContext {
-                    source_team: self.team,
-                    source_owner_player_id: self.owner_player_id,
-                    source_veterancy: veterancy,
-                    source_orientation: self.get_orientation(),
-                    source_velocity: self.movement.velocity,
-                }),
-                // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
-                target_id: if at_self { None } else { Some(target_id) },
-                target_pos: if at_self { Some(shooter_pos) } else { None },
-                damage: weapon_damage,
-                speed: weapon_speed,
-                splash_radius: weapon_splash,
-                is_homing: weapon_homing,
-                damage_type: weapon_dtype,
-                death_type: crate::game_logic::host_armor_residual::resolve_host_death_type(
-                    name,
-                    weapon_dtype,
-                ),
-                projectile_object_name,
-                projectile_lifecycle: None,
-                fire_fx_name,
-                fire_ocl_name,
-                detonation_fx_name,
-                detonation_ocl_name,
-                exhaust_name,
-                secondary_damage,
-                secondary_damage_radius,
-                shock_wave_amount,
-                shock_wave_radius,
-                shock_wave_taper_off,
-                radius_damage_affects,
-                projectile_collides,
-                // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
-                scatter_radius,
-                scatter_table_offset,
-                min_weapon_speed: speed_peel.min_weapon_speed,
-                scale_weapon_speed: speed_peel.scale_weapon_speed,
-                attack_range: if speed_peel.attack_range > 0.0 {
-                    speed_peel.attack_range
-                } else {
-                    fallback_range
-                },
-                min_attack_range: if speed_peel.min_attack_range > 0.0 {
-                    speed_peel.min_attack_range
-                } else {
-                    fallback_min_range
-                },
-                historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
-                historic_bonus_time_frames: historic_bonus.time_frames,
-                historic_bonus_count: historic_bonus.count,
-                historic_bonus_radius: historic_bonus.radius,
-                historic_bonus_weapon: historic_bonus.bonus_weapon,
-                die_on_detonate: name
-                    .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
-                    .unwrap_or(false),
-            });
+            shooter_id,
+            shooter_pos,
+            source_context: Some(super::combat::ProjectileLaunchContext {
+                source_team: self.team,
+                source_owner_player_id: self.owner_player_id,
+                source_veterancy: veterancy,
+                source_orientation: self.get_orientation(),
+                source_velocity: self.movement.velocity,
+            }),
+            // C++ DamageDealtAtSelfPosition: damageID=INVALID, damagePos=source.
+            target_id: if at_self { None } else { Some(target_id) },
+            target_pos: if at_self { Some(shooter_pos) } else { None },
+            damage: weapon_damage,
+            speed: weapon_speed,
+            speed_unit: super::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
+            splash_radius: weapon_splash,
+            is_homing: weapon_homing,
+            damage_type: weapon_dtype,
+            death_type: crate::game_logic::host_armor_residual::resolve_host_death_type(
+                name,
+                weapon_dtype,
+            ),
+            projectile_object_name,
+            projectile_lifecycle: None,
+            fire_fx_name,
+            fire_ocl_name,
+            detonation_fx_name,
+            detonation_ocl_name,
+            exhaust_name,
+            secondary_damage,
+            secondary_damage_radius,
+            shock_wave_amount,
+            shock_wave_radius,
+            shock_wave_taper_off,
+            radius_damage_affects,
+            projectile_collides,
+            // C++ ScatterRadius + ScatterRadiusVsInfantry residual.
+            scatter_radius,
+            scatter_table_offset,
+            min_weapon_speed: speed_peel.min_weapon_speed,
+            scale_weapon_speed: speed_peel.scale_weapon_speed,
+            attack_range: if speed_peel.attack_range > 0.0 {
+                speed_peel.attack_range
+            } else {
+                fallback_range
+            },
+            min_attack_range: if speed_peel.min_attack_range > 0.0 {
+                speed_peel.min_attack_range
+            } else {
+                fallback_min_range
+            },
+            historic_weapon_key: fire_weapon_name.clone().unwrap_or_default(),
+            historic_bonus_time_frames: historic_bonus.time_frames,
+            historic_bonus_count: historic_bonus.count,
+            historic_bonus_radius: historic_bonus.radius,
+            historic_bonus_weapon: historic_bonus.bonus_weapon,
+            die_on_detonate: name
+                .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
+                .unwrap_or(false),
+        });
 
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);

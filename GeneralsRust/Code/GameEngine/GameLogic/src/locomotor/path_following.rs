@@ -10,11 +10,11 @@
 //!
 //! Matches C++ AIStates.cpp::AIInternalMoveToState::update() lines 1743-1920
 
-use crate::ai::the_ai;
 use crate::ai::pathfinding_system::{
     GridCoord, MovementCapabilities, Path, PathRequest, PathResult, PathfindLayerEnum,
     PathfindingSystem,
 };
+use crate::ai::the_ai;
 use crate::common::{
     Coord3D, INVALID_ID, LOGICFRAMES_PER_SECOND, MODELCONDITION_OVER_WATER, ObjectID, Real,
 };
@@ -327,7 +327,8 @@ impl PathFollowingController {
         }
 
         let mut straight_line = false;
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pf_guard) = pathfinder.read() {
                     straight_line = pf_guard.is_line_passable_for_surfaces(
@@ -571,13 +572,7 @@ pub fn update_movement_with_pathfinding(
     {
         OBJECT_REGISTRY.with_object_mut(unit_id, |guard| {
             if let Some(terrain) = TheTerrainLogic::get() {
-                let mut next_layer = match layer {
-                    PathfindLayerEnum::Ground => crate::common::PathfindLayerEnum::Ground,
-                    PathfindLayerEnum::Air => crate::common::PathfindLayerEnum::Top,
-                    PathfindLayerEnum::Water => crate::common::PathfindLayerEnum::Water,
-                    PathfindLayerEnum::Tunnel => crate::common::PathfindLayerEnum::Ground,
-                    PathfindLayerEnum::Invalid => crate::common::PathfindLayerEnum::Ground,
-                };
+                let mut next_layer: crate::common::PathfindLayerEnum = layer.into();
                 if next_layer != crate::common::PathfindLayerEnum::Ground
                     && !terrain.object_interacts_with_bridge_layer(guard, next_layer, true)
                 {

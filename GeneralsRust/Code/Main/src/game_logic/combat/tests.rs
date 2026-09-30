@@ -27,7 +27,6 @@ mod tests {
         COMBAT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-
     fn make_obj(
         name: &str,
         id: ObjectId,
@@ -69,6 +68,7 @@ mod tests {
             target_pos: Some(target_pos),
             damage: 25.0,
             speed: 1.0,
+            speed_unit: ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 8.0,
             is_homing: false,
             damage_type: DamageType::Explosive,
@@ -146,7 +146,6 @@ mod tests {
             "expiry must detonate at its in-flight pose rather than the distant target"
         );
     }
-
 
     #[test]
     fn retail_missile_fuel_detonation_and_target_loss_use_distinct_authored_paths() {
@@ -1184,6 +1183,7 @@ mod tests {
             target_pos: Some(Vec3::new(10.0, 0.0, 0.0)),
             damage: 10.0,
             speed: 100.0,
+            speed_unit: ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 0.0,
             is_homing: false,
             damage_type: DamageType::Explosive,
@@ -1963,6 +1963,7 @@ mod tests {
             target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
             damage: 10.0,
             speed: 200.0,
+            speed_unit: ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 0.0,
             is_homing: false,
             damage_type: DamageType::Bullet,
@@ -2035,6 +2036,7 @@ mod tests {
             target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
             damage: 50.0,
             speed: 300.0,
+            speed_unit: ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 10.0,
             is_homing: false,
             damage_type: DamageType::Explosive,
@@ -2088,6 +2090,7 @@ mod tests {
             target_pos: Some(Vec3::new(375.0, 0.0, 0.0)),
             damage: 50.0,
             speed: 300.0,
+            speed_unit: ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 10.0,
             is_homing: false,
             damage_type: DamageType::Explosive,
@@ -2151,6 +2154,7 @@ mod tests {
             target_pos: Some(target_pos),
             damage: 40.0,
             speed,
+            speed_unit: ProjectileSpeedUnit::DistancePerLogicFrame,
             splash_radius: 0.0,
             is_homing: false,
             damage_type: DamageType::Bullet,
@@ -2186,6 +2190,214 @@ mod tests {
         }
     }
 
+    fn parse_test_weapon_speed() -> game_engine::common::ini::ini_weapon::WeaponTemplate {
+        let mut properties = HashMap::new();
+        properties.insert("WeaponSpeed".to_string(), "300.0".to_string());
+        properties.insert(
+            "ProjectileObject".to_string(),
+            "FrameSpeedTestProjectile".to_string(),
+        );
+        game_engine::common::ini::ini_weapon::IniWeapon::parse_weapon_template_block(
+            game_engine::common::ascii_string::AsciiString::from("FrameSpeedTestWeapon"),
+            properties,
+        )
+        .expect("parse actual WeaponSpeed field")
+    }
+
+    #[test]
+    fn parsed_weapon_speed_advances_one_cpp_logic_frame_distance() {
+        let _combat_serial = combat_test_guard();
+        clear_pending_projectile_queue_for_test();
+        let parsed = parse_test_weapon_speed();
+        assert_eq!(
+            parsed.projectile_speed, 10.0,
+            "300 units/sec parses as 10 units/frame"
+        );
+
+        let destination = Vec3::new(1_000.0, 0.0, 0.0);
+        let mut pending = lifecycle_test_pending_projectile(
+            parsed.effects.projectile_object.as_str(),
+            None,
+            destination,
+        );
+        pending.speed = parsed.projectile_speed;
+        pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
+        queue_projectile_direct(pending);
+
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        drain_pending_projectiles(&mut combat, &objects);
+        let projectile = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("parsed finite-speed shot materializes");
+        assert_eq!(
+            projectile.speed, 300.0,
+            "runtime velocity is distance/second"
+        );
+
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let projectile = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("projectile remains in flight");
+        assert!(
+            (projectile.position.x - 10.0).abs() < 1e-4,
+            "C++ advances 10 world units at one logic frame; got {}",
+            projectile.position.x
+        );
+    }
+
+    #[test]
+    fn parsed_weapon_speed_uses_frame_units_for_authored_dumb_path() {
+        let _combat_serial = combat_test_guard();
+        clear_pending_projectile_queue_for_test();
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let parsed = parse_test_weapon_speed();
+        let start = Vec3::ZERO;
+        let destination = Vec3::new(1_000.0, 0.0, 0.0);
+        let projectile_name = "RangerFlashBangGrenade";
+        let crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(authored) =
+            crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
+                projectile_name,
+            )
+            .expect("retail grenade authors DumbProjectileBehavior")
+        else {
+            panic!("retail grenade must use DumbProjectileBehavior");
+        };
+        // C++ DumbProjectileBehavior.cpp:428 uses ceil(curve length /
+        // m_flightPathSpeed), where Weapon.h:486 defines that speed in
+        // distance per logic frame. Construct the curve directly here instead
+        // of calling the Rust path builder under test.
+        let to_cpp =
+            |position: Vec3| gamelogic::common::Coord3D::new(position.x, position.z, position.y);
+        let highest = crate::game_logic::weapon_bootstrap::estimate_highest_intervening_terrain(
+            start,
+            destination,
+        );
+        let curve = gamelogic::weapon::bezier::BezierSegment::create_projectile_arc(
+            to_cpp(start),
+            to_cpp(destination),
+            authored.first_height,
+            authored.second_height,
+            authored.first_percent_indent,
+            authored.second_percent_indent,
+            highest,
+        );
+        let expected_segments =
+            (curve.get_approximate_length() / parsed.projectile_speed).ceil() as usize;
+
+        let mut pending = lifecycle_test_pending_projectile(projectile_name, None, destination);
+        pending.shooter_pos = start;
+        pending.speed = parsed.projectile_speed;
+        pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
+        queue_projectile_direct(pending);
+
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        drain_pending_projectiles(&mut combat, &objects);
+        let projectile = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("DumbProjectile materializes");
+        assert_eq!(projectile.speed, 300.0);
+        assert_eq!(projectile.flight_runtime.path_speed_per_frame, 10.0);
+        assert_eq!(projectile.flight_runtime.path_segments, expected_segments);
+        assert_eq!(projectile.flight_runtime.path.len(), expected_segments);
+        let first_path_position = projectile.flight_runtime.path[0];
+
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        let stepped = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("authored projectile remains in flight");
+        assert_eq!(stepped.flight_runtime.step, 1);
+        assert_eq!(stepped.position, first_path_position);
+    }
+
+    #[test]
+    fn parsed_minimum_weapon_speed_scales_in_logic_frames_before_materialization() {
+        let _combat_serial = combat_test_guard();
+        clear_pending_projectile_queue_for_test();
+        let mut parsed = parse_test_weapon_speed();
+        parsed.min_weapon_speed = 2.5;
+        parsed.scale_weapon_speed = true;
+        parsed.range = 375.0;
+        parsed.min_range = 50.0;
+
+        let destination = Vec3::new(50.0, 0.0, 0.0);
+        let mut pending = lifecycle_test_pending_projectile(
+            parsed.effects.projectile_object.as_str(),
+            None,
+            destination,
+        );
+        pending.speed = parsed.projectile_speed;
+        pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
+        pending.min_weapon_speed = parsed.min_weapon_speed;
+        pending.scale_weapon_speed = parsed.scale_weapon_speed;
+        pending.attack_range = parsed.range;
+        pending.min_attack_range = parsed.min_range;
+        queue_projectile_direct(pending);
+
+        let mut combat = CombatSystem::new();
+        let objects = HashMap::new();
+        drain_pending_projectiles(&mut combat, &objects);
+        let projectile = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("scaled finite-speed shot materializes");
+        assert_eq!(projectile.speed, 75.0, "minimum speed is 2.5 units/frame");
+    }
+
+    #[test]
+    fn materialized_missile_close_distance_uses_normalized_weapon_speed() {
+        let _combat_serial = combat_test_guard();
+        clear_pending_projectile_queue_for_test();
+        crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let parsed = parse_test_weapon_speed();
+        let destination = Vec3::new(8.0, 0.0, 0.0);
+        let mut pending = lifecycle_test_pending_projectile("PatriotMissile", None, destination);
+        pending.speed = parsed.projectile_speed;
+        pending.speed_unit = ProjectileSpeedUnit::DistancePerLogicFrame;
+        queue_projectile_direct(pending);
+
+        let mut combat = CombatSystem::new();
+        let mut objects = HashMap::new();
+        drain_pending_projectiles(&mut combat, &objects);
+        let projectile_id = combat
+            .projectiles_snapshot()
+            .into_iter()
+            .next()
+            .expect("missile materializes")
+            .id;
+        let projectile = combat.projectile_mut(projectile_id).unwrap();
+        assert_eq!(projectile.speed, 300.0);
+        let Some(crate::game_logic::weapon_bootstrap::HostProjectileFlight::Missile(missile)) =
+            projectile.flight.as_mut()
+        else {
+            panic!("Patriot missile must use MissileAIUpdate");
+        };
+        missile.lock_distance = 1_000.0;
+        projectile.flight_runtime.missile_armed = true;
+        projectile.flight_runtime.missile_phase =
+            crate::game_logic::weapon_bootstrap::HostMissilePhase::Attack;
+
+        let _ = combat.update_projectiles(1.0 / 30.0, &mut objects);
+        assert_eq!(
+            combat.projectile_count(),
+            0,
+            "10 units/frame close threshold reaches an 8-unit target in one logic frame"
+        );
+        let impacts = combat.take_impact_fx();
+        assert_eq!(impacts.len(), 1);
+        assert_eq!(impacts[0].position, destination);
+    }
+
     #[test]
     fn projectileless_finite_speed_queues_leftover_delayed_damage() {
         let _combat_serial = combat_test_guard();
@@ -2194,10 +2406,11 @@ mod tests {
         clear_live_projectileless_delayed_for_test();
         crate::game_logic::host_historic_bonus::set_logic_frame(20);
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
+        let parsed = parse_test_weapon_speed();
         const NAME: &str = "Hq0c9b4CombatRifleDelayed";
         let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
             let mut template = gamelogic::weapon::WeaponTemplate::new(NAME.to_string());
-            template.weapon_speed = 10.0;
+            template.weapon_speed = parsed.projectile_speed;
             template.projectile_name.clear();
             template.primary_damage = 40.0;
             store.add_weapon_template(template);
@@ -2219,7 +2432,7 @@ mod tests {
         let hp0 = objects.get(&ObjectId(502)).unwrap().health.current;
         let mut combat = CombatSystem::new();
         queue_projectile_direct(projectileless_pending(
-            10.0,
+            parsed.projectile_speed,
             Vec3::new(100.0, 0.0, 0.0),
             NAME,
         ));
@@ -2235,7 +2448,9 @@ mod tests {
         );
         assert_eq!(live_projectileless_delayed_count_for_test(), 1);
 
-        apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 20, None);
+        // C++ Weapon.cpp:1006: 100 units / parsed 10 units/frame = 10 frames.
+        // Damage must still be pending immediately before frame 20 + 10.
+        apply_ready_projectileless_delayed_damage(&mut combat, &mut objects, 29, None);
         let hp_mid = objects.get(&ObjectId(502)).unwrap().health.current;
         assert_eq!(hp_mid, hp0, "damage waits travel frames");
 

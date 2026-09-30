@@ -508,20 +508,11 @@ impl PathfindingGrid {
         )
     }
 
-    /// C++ air early-out of `isDoingGroundMovement` (AIUpdate.cpp:2347-2361).
-    /// `UNIT_PRESENT` uses this. Close-enough uses `is_doing_ground_movement_full`.
-    /// Unmanned-helipad, a set with no member, HELD, and allow-to-fall stay on the full test.
+    /// C++ `AIUpdateInterface::isDoingGroundMovement` (AIUpdate.cpp:2339-2380).
+    /// Occupancy and path-goal stamping both use the full predicate: no current
+    /// locomotor, HELD, and airborne allow-to-fall objects are not ground movers.
     pub fn is_doing_ground_movement(obj: &Object) -> bool {
-        use crate::game_logic::object::LOCO_SURFACE_AIR;
-        if obj.locomotor_surfaces != 0 {
-            if obj.locomotor_surfaces == LOCO_SURFACE_AIR {
-                return false;
-            }
-            if (obj.locomotor_surfaces & LOCO_SURFACE_AIR) != 0 {
-                return false;
-            }
-        }
-        true
+        Self::is_doing_ground_movement_full(obj)
     }
 
     /// Full C++ `AIUpdateInterface::isDoingGroundMovement` (AIUpdate.cpp:2339-2380).
@@ -679,7 +670,6 @@ impl PathfindingGrid {
             }
         }
     }
-
 
     pub fn goal_aircraft(&self, pos: GridPos) -> u32 {
         self.bit_index(pos)
@@ -2061,8 +2051,8 @@ impl PathfindingGrid {
                 return true;
             }
         }
-        let occupied_by_ignored = ignore_obstacle
-            .is_some_and(|id| id != 0 && self.dynamic_pos_unit(cell) == id);
+        let occupied_by_ignored =
+            ignore_obstacle.is_some_and(|id| id != 0 && self.dynamic_pos_unit(cell) == id);
         if !allow_pinched && self.is_pinched(cell) && !occupied_by_ignored {
             return false;
         }

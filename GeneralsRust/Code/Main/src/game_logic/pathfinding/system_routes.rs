@@ -19,15 +19,7 @@ impl PathfindingSystem {
             } else {
                 SURFACE_GROUND
             });
-        self.find_path_ex_surfaces(
-            start,
-            goal,
-            objects,
-            aircraft,
-            surfaces,
-            false,
-            mover,
-        )
+        self.find_path_ex_surfaces(start, goal, objects, aircraft, surfaces, false, mover)
     }
 
     /// Live path: crate `AStarPathfinder::find_path_ex` (AIPathfind.cpp:6438).
@@ -158,6 +150,7 @@ impl PathfindingSystem {
                 match self.find_path_via_crate(
                     start_grid,
                     goal_grid,
+                    start,
                     surfaces,
                     is_crusher,
                     start_layer,
@@ -189,6 +182,7 @@ impl PathfindingSystem {
                         self.find_path_via_crate(
                             start_grid,
                             retry_grid,
+                            start,
                             surfaces,
                             is_crusher,
                             start_layer,
@@ -198,14 +192,9 @@ impl PathfindingSystem {
                 }
             }
         };
-        // Ground: keep crate/grid terrain-layer Y (hq-gd0jd). Do not lerp start→goal.
-        // Aircraft: first/last stay at dest altitude; detours keep radial-offset Y
-        // (hq-zqfpa). Do not flatten every node to start.y then overwrite first.
-        if !aircraft {
-            if let Some(first) = path.first_mut() {
-                *first = start;
-            }
-        }
+        // Ground crate paths already start at raw `start` before optimization,
+        // matching C++ prependCells → optimizeGroundPath order. Aircraft paths
+        // were built directly with the requested start altitude above.
         // C++ checkDestination: snapped dest is the final position. Do not
         // restore the raw click (that walks units into building footprints).
         Some(path)
@@ -403,6 +392,7 @@ impl PathfindingSystem {
             self.find_path_via_crate(
                 start,
                 goal_cell,
+                from,
                 surfaces,
                 is_crusher,
                 start_layer,
@@ -584,7 +574,7 @@ impl PathfindingSystem {
             w
         };
         if let Some(path) =
-            self.find_path_via_crate(start, dest, surfaces, is_crusher, layer, layer)
+            self.find_path_via_crate(start, dest, from, surfaces, is_crusher, layer, layer)
         {
             if path.len() >= 2 {
                 return Some(path);
@@ -786,8 +776,15 @@ impl PathfindingSystem {
         // validated safe cell. No straight-line fail-open exists in C++
         // (AIUpdate findSafePath) — a direct from→goal segment would march
         // back inside both repulsor radii.
-        let path =
-            self.find_path_via_crate(start, dest, surfaces, is_crusher, start_layer, dest_layer)?;
+        let path = self.find_path_via_crate(
+            start,
+            dest,
+            from,
+            surfaces,
+            is_crusher,
+            start_layer,
+            dest_layer,
+        )?;
         if path.len() < 2 {
             return None;
         }
@@ -826,6 +823,17 @@ impl PathfindingSystem {
             0
         };
         let seeker_player = self.seeker_player;
+        let ignored_obstacle = self.ignore_obstacle_id.map(|id| id.0).filter(|id| *id != 0);
+        let is_ignored_owned_obstacle = |cell: GridPos, layer: PathfindLayerEnum| {
+            layer == PathfindLayerEnum::Ground
+                && ignored_obstacle.is_some_and(|ignored_id| {
+                    self.grid.cell_type(cell) == PathfindCellType::Obstacle
+                        && self
+                            .grid
+                            .obstacle_owner(cell)
+                            .is_some_and(|(owner_id, _, _)| owner_id == ignored_id)
+                })
+        };
         let start_layer = self.grid.layer_for_destination(from);
         let tunnel = !self.grid.valid_movement_position(
             start,
@@ -847,7 +855,8 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 start_layer,
-            );
+            )
+            || is_ignored_owned_obstacle(goal_grid, start_layer);
         let mut closest_cell: Option<(GridPos, PathfindLayerEnum, f32)> = None;
         let mut closest_screen_sqr = f32::MAX;
         let mut found_goal_cell = false;
@@ -917,7 +926,8 @@ impl PathfindingSystem {
                 seeker_player,
                 crusher_level,
                 layer,
-            ) {
+            ) || is_ignored_owned_obstacle(cell, layer)
+            {
                 let dx = (goal_grid.x - cx).abs() as f32;
                 let dy = (goal_grid.y - cy).abs() as f32;
                 let dist_screen = dx * dx + dy * dy;
@@ -925,7 +935,8 @@ impl PathfindingSystem {
                     closest_screen_sqr = dist_screen;
                 }
                 // pathCostMultiplier: 0.2 approach, 0.0 null-findPath fallback.
-                let cost_term = (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR * path_cost_multiplier;
+                let cost_term =
+                    (g as f32) * (g as f32) * COST_TO_DISTANCE_FACTOR_SQR * path_cost_multiplier;
                 let dist_sqr = dist_screen + cost_term;
                 let better = match closest_cell {
                     None => true,
@@ -962,6 +973,7 @@ impl PathfindingSystem {
                 if !self
                     .grid
                     .cell_passable_for_layer(nc, layer, surfaces, is_crusher)
+                    && !is_ignored_owned_obstacle(nc, layer)
                     && !(self.grid.is_obstacle_fence(nc) && is_crusher)
                 {
                     continue;
@@ -992,6 +1004,7 @@ impl PathfindingSystem {
         if let Some(path) = self.find_path_via_crate(
             start,
             to_cell,
+            from,
             surfaces,
             is_crusher,
             start_layer,
@@ -1510,5 +1523,72 @@ impl PathfindingSystem {
         }
 
         results
+    }
+}
+
+#[cfg(test)]
+mod closest_path_ignored_footprint_tests {
+    use super::*;
+    use crate::game_logic::{KindOf, Object, ObjectId, Team, ThingTemplate};
+
+    #[test]
+    fn ignored_victim_footprint_is_a_closest_path_goal() {
+        let mut system = PathfindingSystem::new(240.0, 120.0);
+        let start = Vec3::new(20.0, 0.0, 50.0);
+        let goal = Vec3::new(170.0, 0.0, 50.0);
+        let mut mover_template = ThingTemplate::new("ContactPathMover");
+        mover_template.add_kind_of(KindOf::Infantry);
+        let mut mover = Object::new(mover_template, ObjectId(1), Team::USA);
+        mover.set_position(start);
+        mover.owner_player_id = Some(0);
+        mover.locomotor_surfaces = SURFACE_GROUND;
+        mover.selection_radius = 1.0;
+
+        let mut victim_template = ThingTemplate::new("ContactPathVictim");
+        victim_template.add_kind_of(KindOf::Structure);
+        let mut victim = Object::new(victim_template, ObjectId(9), Team::GLA);
+        victim.set_position(goal);
+        victim.owner_player_id = Some(1);
+        victim.selection_radius = 25.0;
+
+        let mut objects = HashMap::new();
+        objects.insert(mover.id, mover);
+        objects.insert(victim.id, victim);
+        system.apply_structure_static_blocks(&objects);
+        system.grid.update_dynamic_obstacles(&objects);
+        system.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
+        system.apply_seeker_human_flag();
+
+        let goal_cell = system.grid.world_to_grid(goal);
+        assert_eq!(
+            system.grid.obstacle_owner(goal_cell).map(|(id, _, _)| id),
+            Some(9),
+            "the test goal must be inside the target's stamped footprint"
+        );
+
+        let without_ignore = system
+            .find_closest_path(start, goal, SURFACE_GROUND, false, true, 0.2)
+            .expect("ordinary closest path can stop beside the target");
+        assert_ne!(
+            system.grid.world_to_grid(*without_ignore.last().unwrap()),
+            goal_cell,
+            "without ignoreObstacle, closest path must stop outside the victim"
+        );
+
+        system.set_ignore_obstacle(Some(ObjectId(9)));
+        let through_victim = system
+            .find_closest_path(start, goal, SURFACE_GROUND, false, true, 0.2)
+            .expect("ignoreObstacle must admit the victim's target cell");
+        assert_eq!(
+            through_victim.last().copied(),
+            Some(goal),
+            "contact closest path must reach the registered victim position"
+        );
+        assert!(through_victim.iter().any(|point| {
+            system
+                .grid
+                .obstacle_owner(system.grid.world_to_grid(*point))
+                .is_some_and(|(id, _, _)| id == 9)
+        }));
     }
 }

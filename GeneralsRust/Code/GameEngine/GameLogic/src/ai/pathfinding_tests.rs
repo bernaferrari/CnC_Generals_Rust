@@ -127,6 +127,108 @@ mod tests {
     }
 
     #[test]
+    fn loaded_terrain_initializes_the_owned_pathfinder_map() {
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        let mut map_data = crate::system::map_loader::MapData::new();
+        map_data.width = 8;
+        map_data.height = 6;
+        map_data.heightmap = vec![0; 48];
+        map_data.boundaries = vec![crate::common::ICoord2D::new(8, 6)];
+        let mut water = crate::polygon_trigger::PolygonTrigger::new(
+            1,
+            crate::common::AsciiString::from("owner-water"),
+            Vec::new(),
+        );
+        water.set_water_area(true);
+        for (x, y) in [(0, 0), (80, 0), (80, 60), (0, 60)] {
+            water.add_point(crate::common::ICoord3D::new(x, y, 100));
+        }
+        map_data.polygon_triggers.push(water);
+        terrain.load_map_data(map_data);
+
+        let ai = crate::ai::AI::new();
+        let classic = ai.pathfinder().expect("world owns classic Pathfinder");
+        {
+            let mut classic = classic.write().expect("write classic Pathfinder");
+            classic.rebuild_from_terrain(&terrain);
+            assert_eq!(classic.inner.width(), 8);
+            assert_eq!(classic.inner.height(), 6);
+            assert!(classic.inner.is_map_ready());
+        }
+        let facade = ai.pathfinding_system().expect("world pathfinding facade");
+        assert_eq!(
+            facade.read().expect("read facade").terrain_at(
+                &Coord3D::new(15.0, 15.0, 0.0),
+                crate::common::PathfindLayerEnum::Ground,
+            ),
+            Some(TerrainType::Water),
+        );
+    }
+
+    #[test]
+    fn owner_facade_keeps_bridge_layer_in_a_crossing_path() {
+        let ai = crate::ai::AI::new();
+        let owner = ai.pathfinder().expect("world owns classic Pathfinder");
+        {
+            let mut owner = owner.write().expect("write classic Pathfinder");
+            owner.reset_with_size(40, 40);
+            owner.add_bridge_ex(
+                (
+                    crate::ai::pathfind_complete::GridCoord::new(15, 13),
+                    crate::ai::pathfind_complete::GridCoord::new(25, 17),
+                ),
+                crate::common::INVALID_ID,
+                crate::ai::pathfind_complete::GridCoord::new(15, 15),
+                crate::ai::pathfind_complete::GridCoord::new(25, 15),
+            );
+            owner.inner.new_map();
+            for y in 0..40 {
+                owner.set_cell_type_at(
+                    &Coord3D::new(205.0, (y as f32 + 0.5) * 10.0, 0.0),
+                    crate::ai::pathfind_astar::PathfindCellType::Impassable,
+                );
+            }
+            owner.inner.recalculate_zones_from_cells();
+            assert_eq!(
+                owner.inner.get_cell_type_at_cell(
+                    crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                    20,
+                    15,
+                ),
+                Some(crate::ai::pathfind_astar::PathfindCellType::Impassable),
+                "the ground barrier must survive cell mutation before AStar starts",
+            );
+        }
+
+        let request = PathRequest {
+            requester: 9,
+            start: Coord3D::new(55.0, 155.0, 0.0),
+            goal: Coord3D::new(355.0, 155.0, 0.0),
+            capabilities: MovementCapabilities::ground(),
+            unit_size: 1.0,
+            priority: 100,
+            allow_partial: false,
+            frame_requested: 0,
+            move_allies: false,
+            ignore_obstacle_id: None,
+        };
+        let facade = ai.pathfinding_system().expect("world pathfinding facade");
+        let result = facade
+            .write()
+            .expect("write facade")
+            .find_path_immediate(&request);
+        let PathResult::Success(path) = result else {
+            panic!("the intact bridge should be the sole crossing of the ground barrier");
+        };
+        assert!(
+            path.waypoints
+                .iter()
+                .any(|waypoint| waypoint.layer == PathfindLayerEnum::Top),
+            "the facade must retain the bridge's C++ layer ID in path waypoints"
+        );
+    }
+
+    #[test]
     fn test_grid_coordinate_conversion() {
         let world_pos = Coord3D::new(25.0, 35.0, 5.0);
         let grid = GridCoord::from_world(&world_pos, PathfindLayerEnum::Ground);

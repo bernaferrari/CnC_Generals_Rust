@@ -1,8 +1,6 @@
 //! C++ support-state dispatcher and per-object update loop.
 use super::super::super::*;
-use super::guard_states::{
-    GUARD_CHASE_PHASE_INNER, GUARD_RETURN_CLOSE_SQ, host_guard_xy_dist_sq,
-};
+use super::guard_states::{GUARD_CHASE_PHASE_INNER, GUARD_RETURN_CLOSE_SQ, host_guard_xy_dist_sq};
 use super::special_abilities::{LeftoverSaTick, clear_raising_flag_model};
 
 impl GameLogic {
@@ -59,6 +57,12 @@ impl GameLogic {
         object_ids: &[ObjectId],
         dt: f32,
     ) {
+        // Object::set_ai_state records DockUpdate's synchronous cancellation
+        // callback as an epoch. Reconcile it at this regular mutable world
+        // update boundary so a retasked active docker is released even when
+        // no later selector or dock claimant touches that module.
+        self.sync_host_dock_queue_cancellations();
+        self.apply_pending_host_dock_cancellation_effects();
         self.update_leftover_laser_guided_channels(dt);
         self.expire_leftover_disable_fx();
         // C++ OpenContain::update zeros m_playerEnteredMask every logic frame

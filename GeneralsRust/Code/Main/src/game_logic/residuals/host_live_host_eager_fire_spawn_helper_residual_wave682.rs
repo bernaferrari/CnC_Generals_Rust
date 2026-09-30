@@ -186,6 +186,7 @@ mod tests {
             target_pos: Some(Vec3::new(20.0, 0.0, 0.0)),
             damage: 10.0,
             speed: 100.0,
+            speed_unit: combat::ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 0.0,
             is_homing: false,
             damage_type: DamageType::Bullet,

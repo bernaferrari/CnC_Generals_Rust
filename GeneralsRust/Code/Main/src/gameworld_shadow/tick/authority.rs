@@ -10,7 +10,7 @@
 use super::*;
 
 use crate::game_logic::game_logic::gameworld_authority::{
-    current_gameworld_authority, publish_gameworld_authority, GameWorldAuthority,
+    GameWorldAuthority, current_gameworld_authority, publish_gameworld_authority,
 };
 
 static SHADOW_ENABLED_CACHE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
@@ -305,8 +305,8 @@ pub fn ensure_gate_production_authority() {
 mod scoped_publication_tests {
     use super::*;
 
-    use crate::game_logic::ObjectId;
     use crate::game_logic::GameLogic;
+    use crate::game_logic::ObjectId;
     use crate::game_logic::combat::{self, DamageType, PendingProjectile};
     use crate::game_logic::host_fire_spawn_log;
     use crate::game_logic::host_usa_pilot::HostDeathType;
@@ -434,6 +434,7 @@ mod scoped_publication_tests {
             target_pos: Some(glam::Vec3::new(50.0, 0.0, 0.0)),
             damage: 12.0,
             speed: 100.0,
+            speed_unit: combat::ProjectileSpeedUnit::DistancePerSecond,
             splash_radius: 0.0,
             is_homing: false,
             damage_type: DamageType::Bullet,
@@ -514,7 +515,10 @@ mod scoped_publication_tests {
         // World B constructed later overwrites the thread snapshot with its
         // default-off fresh-instance barrier.
         let _b = GameLogic::new();
-        assert_eq!(current_gameworld_authority(), GameWorldAuthority::DEFAULT_OFF);
+        assert_eq!(
+            current_gameworld_authority(),
+            GameWorldAuthority::DEFAULT_OFF
+        );
         assert!(!gameworld_damage_authority_enabled());
 
         // A's host frame window: deep readers resolve A, not B's leftover —
@@ -528,7 +532,10 @@ mod scoped_publication_tests {
         end_shadow_coupled_tick();
 
         // Window closed: the foreign world's published snapshot is back.
-        assert_eq!(current_gameworld_authority(), GameWorldAuthority::DEFAULT_OFF);
+        assert_eq!(
+            current_gameworld_authority(),
+            GameWorldAuthority::DEFAULT_OFF
+        );
         assert!(!gameworld_damage_authority_enabled());
 
         publish_gameworld_authority(base);

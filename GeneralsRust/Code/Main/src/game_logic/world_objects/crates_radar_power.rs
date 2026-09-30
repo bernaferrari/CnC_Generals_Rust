@@ -1016,21 +1016,33 @@ impl GameLogic {
     /// `disabled_underpowered` on all KINDOF_POWERED objects depending on
     /// whether their owning player has sufficient power.
     ///   C++ Energy::getEnergySupplyRatio: if consumption==0 return production
-    ///   (0.0 with no plants). calcTimeToBuild clamps that to [0,1] and applies
-    ///   LowEnergyPenaltyModifier / Min 0.5 / Max 0.8. A 0/0 grid is 50% speed.
+    ///   (0.0 with no plants). calcTimeToBuild clamps excess to 1.0, applies
+    ///   the loaded GameData values, then uses 0.01 only for a non-positive rate.
     pub(in super::super) fn compute_player_power_factors(
         &self,
     ) -> std::collections::HashMap<u32, f32> {
-        // C++ ThingTemplate.cpp:1541-1555 calcTimeToBuild uses
-        // TheGlobalData->m_LowEnergyPenaltyModifier (GameData.ini retail 1.0).
-        let low_energy_penalty_modifier = game_engine::common::ini::get_global_data()
-            .map(|data| data.read().low_energy_penalty_modifier)
-            .filter(|modifier| *modifier > 0.0)
-            .unwrap_or(
+        // C++ ThingTemplate.cpp:1545-1554 reads these exact values from
+        // TheGlobalData. An existing GlobalData is authoritative even when a
+        // parsed value is zero; CPP's later <=0 safeguard handles that rate.
+        // Retail residuals apply only when no GlobalData exists.
+        let (
+            low_energy_penalty_modifier,
+            min_low_energy_production_speed,
+            max_low_energy_production_speed,
+        ) = game_engine::common::ini::get_global_data()
+            .map(|data| {
+                let data = data.read();
+                (
+                    data.low_energy_penalty_modifier,
+                    data.min_low_energy_production_speed,
+                    data.max_low_energy_production_speed,
+                )
+            })
+            .unwrap_or((
                 crate::game_logic::host_structure_economy_residual::LOW_ENERGY_PENALTY_MODIFIER,
-            );
-        const MIN_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.5;
-        const MAX_LOW_ENERGY_PRODUCTION_SPEED: f32 = 0.8;
+                crate::game_logic::host_structure_economy_residual::MIN_LOW_ENERGY_PRODUCTION_SPEED,
+                crate::game_logic::host_structure_economy_residual::MAX_LOW_ENERGY_PRODUCTION_SPEED,
+            ));
 
         let mut factors = std::collections::HashMap::new();
         for player in self.players.values() {
@@ -1042,16 +1054,20 @@ impl GameLogic {
             } else if player.power_consumed == 0 {
                 player.power_produced as f32
             } else {
-                (player.power_produced as f32 / player.power_consumed as f32).min(1.0)
+                player.power_produced as f32 / player.power_consumed as f32
             };
-            let factor = if energy_ratio >= 1.0 {
-                1.0
-            } else {
-                let energy_short = (1.0 - energy_ratio) * low_energy_penalty_modifier;
-                let mut rate = (1.0 - energy_short).max(MIN_LOW_ENERGY_PRODUCTION_SPEED);
-                rate = rate.min(MAX_LOW_ENERGY_PRODUCTION_SPEED);
-                rate
-            };
+            // C++ clamps excess supply to 100%, applies Min even at full
+            // power, and only applies Max while energy is below 100%.
+            let energy_percent = energy_ratio.min(1.0);
+            let energy_short = (1.0 - energy_percent) * low_energy_penalty_modifier;
+            let mut rate = (1.0 - energy_short).max(min_low_energy_production_speed);
+            if energy_percent < 1.0 {
+                rate = rate.min(max_low_energy_production_speed);
+            }
+            if rate <= 0.0 {
+                rate = 0.01;
+            }
+            let factor = rate;
             factors.insert(player.id, factor);
         }
         factors

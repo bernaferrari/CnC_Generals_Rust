@@ -57,12 +57,27 @@ pub enum TerrainType {
 
 /// Movement layers for different unit types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum PathfindLayerEnum {
     Invalid = 0,
-    Ground = 1, // Ground units
-    Air = 2,    // Aircraft
-    Water = 3,  // Naval units
-    Tunnel = 4, // Underground units
+    Ground = 1,
+    Top = 2,
+    Bridge1 = 3,
+    Bridge2 = 4,
+    Bridge3 = 5,
+    Bridge4 = 6,
+    Bridge5 = 7,
+    Bridge6 = 8,
+    Bridge7 = 9,
+    Bridge8 = 10,
+    Bridge9 = 11,
+    Bridge10 = 12,
+    Bridge11 = 13,
+    Bridge12 = 14,
+    Wall = 15,
+    Tunnel = 16,
+    Water = 17,
+    Air = 18,
 }
 
 fn classic_layer_from_common(
@@ -73,22 +88,81 @@ fn classic_layer_from_common(
     crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32)
 }
 
-fn classic_ground_layer_from_facade(
+fn classic_layer_from_facade(
     layer: PathfindLayerEnum,
 ) -> crate::ai::pathfind_astar::PathfindLayerEnum {
+    crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32)
+}
+
+fn facade_layer_from_classic(
+    layer: crate::ai::pathfind_astar::PathfindLayerEnum,
+) -> PathfindLayerEnum {
     match layer {
-        PathfindLayerEnum::Invalid => crate::ai::pathfind_astar::PathfindLayerEnum::Invalid,
-        _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Top => PathfindLayerEnum::Top,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer3 => PathfindLayerEnum::Bridge1,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer4 => PathfindLayerEnum::Bridge2,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer5 => PathfindLayerEnum::Bridge3,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer6 => PathfindLayerEnum::Bridge4,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer7 => PathfindLayerEnum::Bridge5,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer8 => PathfindLayerEnum::Bridge6,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer9 => PathfindLayerEnum::Bridge7,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer10 => PathfindLayerEnum::Bridge8,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer11 => PathfindLayerEnum::Bridge9,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer12 => PathfindLayerEnum::Bridge10,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer13 => PathfindLayerEnum::Bridge11,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Layer14 => PathfindLayerEnum::Bridge12,
+        crate::ai::pathfind_astar::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
+    }
+}
+
+fn facade_ground_layer_from_common(layer: crate::common::PathfindLayerEnum) -> PathfindLayerEnum {
+    match layer {
+        crate::common::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
+        _ => PathfindLayerEnum::Ground,
     }
 }
 
 impl From<crate::common::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::common::PathfindLayerEnum) -> Self {
-        match layer {
-            crate::common::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
-            // This grid is stored on the ground layer only. C++ bridge/wall
-            // decks and the leftover air/water/tunnel values must hit those cells.
-            _ => PathfindLayerEnum::Ground,
+        PathfindLayerEnum::from_u32(layer as u32)
+    }
+}
+
+impl From<PathfindLayerEnum> for crate::common::PathfindLayerEnum {
+    fn from(layer: PathfindLayerEnum) -> Self {
+        if layer == PathfindLayerEnum::Invalid {
+            crate::common::PathfindLayerEnum::Ground
+        } else {
+            crate::common::PathfindLayerEnum::from_u32(layer as u32)
+        }
+    }
+}
+
+impl PathfindLayerEnum {
+    fn from_u32(value: u32) -> Self {
+        match value {
+            0 => Self::Invalid,
+            1 => Self::Ground,
+            2 => Self::Top,
+            3 => Self::Bridge1,
+            4 => Self::Bridge2,
+            5 => Self::Bridge3,
+            6 => Self::Bridge4,
+            7 => Self::Bridge5,
+            8 => Self::Bridge6,
+            9 => Self::Bridge7,
+            10 => Self::Bridge8,
+            11 => Self::Bridge9,
+            12 => Self::Bridge10,
+            13 => Self::Bridge11,
+            14 => Self::Bridge12,
+            15 => Self::Wall,
+            16 => Self::Tunnel,
+            17 => Self::Water,
+            18 => Self::Air,
+            _ => Self::Invalid,
         }
     }
 }
@@ -744,7 +818,10 @@ impl PathfindingSystem {
                 GridCoord::new(width / 2, height / 2, PathfindLayerEnum::Ground),
             )
         } else {
-            (GridCoord::new(0, 0, PathfindLayerEnum::Ground), GridCoord::new(-1, -1, PathfindLayerEnum::Ground))
+            (
+                GridCoord::new(0, 0, PathfindLayerEnum::Ground),
+                GridCoord::new(-1, -1, PathfindLayerEnum::Ground),
+            )
         };
 
         Self {
@@ -767,16 +844,14 @@ impl PathfindingSystem {
         if self.classic_pathfinder.is_some() || self.bounds.1.x < self.bounds.0.x {
             return;
         }
-        // Initialize grid cells
-        for layer in 0..5u8 {
-            let layer_enum = match layer {
-                1 => PathfindLayerEnum::Ground,
-                2 => PathfindLayerEnum::Air,
-                3 => PathfindLayerEnum::Water,
-                4 => PathfindLayerEnum::Tunnel,
-                _ => continue,
-            };
-
+        // Initialize movement surfaces only. Bridge layers are allocated from
+        // bridge objects and are not synthetic grids.
+        for layer_enum in [
+            PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Air,
+            PathfindLayerEnum::Water,
+            PathfindLayerEnum::Tunnel,
+        ] {
             for x in self.bounds.0.x..=self.bounds.1.x {
                 for y in self.bounds.0.y..=self.bounds.1.y {
                     let coord = GridCoord::new(x, y, layer_enum);
@@ -812,7 +887,10 @@ impl PathfindingSystem {
         self.path_cache.clear();
         self.flow_fields.clear();
         self.current_frame = 0;
-        self.bounds = (GridCoord::new(0, 0, PathfindLayerEnum::Ground), GridCoord::new(-1, -1, PathfindLayerEnum::Ground));
+        self.bounds = (
+            GridCoord::new(0, 0, PathfindLayerEnum::Ground),
+            GridCoord::new(-1, -1, PathfindLayerEnum::Ground),
+        );
     }
 
     /// Public line-clear check for path validation.
@@ -823,22 +901,17 @@ impl PathfindingSystem {
             }
             return false;
         }
-        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
-            if let Some(pathfinder) = ai_guard.pathfinder() {
-                if let Ok(pf) = pathfinder.read() {
-                    return pf.is_line_clear_between(from, to);
-                }
-            }
-        }
         self.is_line_clear(from, to)
     }
 
     /// Check if the cell at a world position is clear (matches C++ CELL_CLEAR usage).
     pub fn is_cell_clear_at(&self, pos: &Coord3D, layer: crate::common::PathfindLayerEnum) -> bool {
         if let Some(pathfinder) = &self.classic_pathfinder {
-            return pathfinder.read().ok().and_then(|pf| {
-                pf.get_cell_type_at_layer(pos, classic_layer_from_common(layer))
-            }) == Some(crate::ai::pathfind_astar::PathfindCellType::Clear);
+            return pathfinder
+                .read()
+                .ok()
+                .and_then(|pf| pf.get_cell_type_at_layer(pos, classic_layer_from_common(layer)))
+                == Some(crate::ai::pathfind_astar::PathfindCellType::Clear);
         }
         let coord = GridCoord::from_world(pos, PathfindLayerEnum::from(layer));
         if coord.x < self.bounds.0.x
@@ -856,60 +929,50 @@ impl PathfindingSystem {
 
     /// Request a path (async)
     pub fn request_path(&mut self, request: PathRequest) {
-        // Prefer classic AIPathfind for fidelity.
-        let pathfinder = self.classic_pathfinder.clone().or_else(|| {
-            let ai_store = crate::ai::the_ai();
-            ai_store.read().ok().and_then(|ai_guard| ai_guard.pathfinder())
-        });
-        if let Some(pathfinder) = pathfinder {
-                if let Ok(pf) = pathfinder.read() {
-                    let classic_request = ClassicPathRequest {
-                        object_id: request.requester,
-                        from: request.start,
-                        to: request.goal,
-                        surfaces: request.capabilities.surface_mask,
-                        is_crusher: request.capabilities.crusher,
-                        unit_radius: request.unit_size,
-                        allow_partial: request.allow_partial,
-                        move_allies: request.move_allies,
-                        ignore_obstacle_id: request.ignore_obstacle_id,
-                        is_human: false,
-                    };
-                    let result = pf.find_path_result(classic_request);
-                    if result.success {
-                        let converted_layers: Vec<PathfindLayerEnum> = result
-                            .layers
-                            .iter()
-                            .map(|layer| match layer {
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Invalid => {
-                                    PathfindLayerEnum::Invalid
-                                }
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Ground => {
-                                    PathfindLayerEnum::Ground
-                                }
-                                _ => PathfindLayerEnum::Ground,
-                            })
-                            .collect();
-                        let path = self.build_path_from_positions_with_layers(
-                            &result.waypoints,
-                            &converted_layers,
-                            request.capabilities.layer,
-                            result.total_cost as f32,
-                        );
-                        self.completed
-                            .insert(request.requester, PathResult::Success(path));
-                    } else {
-                        self.completed.insert(
-                            request.requester,
-                            PathResult::Failed("No path found".to_string()),
-                        );
-                    }
-                    return;
+        // Production facades carry their owning Classic Pathfinder explicitly.
+        if let Some(pathfinder) = self.classic_pathfinder.clone() {
+            if let Ok(pf) = pathfinder.read() {
+                let classic_request = ClassicPathRequest {
+                    object_id: request.requester,
+                    from: request.start,
+                    to: request.goal,
+                    surfaces: request.capabilities.surface_mask,
+                    is_crusher: request.capabilities.crusher,
+                    unit_radius: request.unit_size,
+                    allow_partial: request.allow_partial,
+                    move_allies: request.move_allies,
+                    ignore_obstacle_id: request.ignore_obstacle_id,
+                    is_human: false,
+                };
+                let result = pf.find_path_result(classic_request);
+                if result.success {
+                    let converted_layers: Vec<PathfindLayerEnum> = result
+                        .layers
+                        .iter()
+                        .copied()
+                        .map(facade_layer_from_classic)
+                        .collect();
+                    let path = self.build_path_from_positions_with_layers(
+                        &result.waypoints,
+                        &converted_layers,
+                        request.capabilities.layer,
+                        result.total_cost as f32,
+                    );
+                    self.completed
+                        .insert(request.requester, PathResult::Success(path));
+                } else {
+                    self.completed.insert(
+                        request.requester,
+                        PathResult::Failed("No path found".to_string()),
+                    );
                 }
-                if self.classic_pathfinder.is_some() {
-                    self.completed.insert(request.requester, PathResult::Failed("Pathfinder unavailable".to_string()));
-                    return;
-                }
+                return;
+            }
+            self.completed.insert(
+                request.requester,
+                PathResult::Failed("Pathfinder unavailable".to_string()),
+            );
+            return;
         }
 
         // Check cache first
@@ -955,8 +1018,12 @@ impl PathfindingSystem {
                         crate::ai::pathfind_astar::PathfindCellType::Water => TerrainType::Water,
                         crate::ai::pathfind_astar::PathfindCellType::Cliff
                         | crate::ai::pathfind_astar::PathfindCellType::BridgeImpassable
-                        | crate::ai::pathfind_astar::PathfindCellType::Impassable => TerrainType::Impassable,
-                        crate::ai::pathfind_astar::PathfindCellType::Obstacle => TerrainType::Obstacle,
+                        | crate::ai::pathfind_astar::PathfindCellType::Impassable => {
+                            TerrainType::Impassable
+                        }
+                        crate::ai::pathfind_astar::PathfindCellType::Obstacle => {
+                            TerrainType::Obstacle
+                        }
                         _ => TerrainType::Clear,
                     })
             });
@@ -987,13 +1054,17 @@ impl PathfindingSystem {
             if !result.success {
                 return PathResult::Failed("No path found".to_string());
             }
-            let layers: Vec<_> = result.layers.iter().map(|layer| match layer {
-                crate::ai::pathfind_astar::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
-                crate::ai::pathfind_astar::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
-                _ => PathfindLayerEnum::Ground,
-            }).collect();
+            let layers: Vec<_> = result
+                .layers
+                .iter()
+                .copied()
+                .map(facade_layer_from_classic)
+                .collect();
             let path = self.build_path_from_positions_with_layers(
-                &result.waypoints, &layers, request.capabilities.layer, result.total_cost as f32,
+                &result.waypoints,
+                &layers,
+                request.capabilities.layer,
+                result.total_cost as f32,
             );
             return PathResult::Success(path);
         }
@@ -1120,6 +1191,30 @@ impl PathfindingSystem {
 
     /// Set cell terrain type
     pub fn set_terrain(&mut self, pos: &Coord3D, layer: PathfindLayerEnum, terrain: TerrainType) {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            let cell = match terrain {
+                TerrainType::Clear | TerrainType::Rough => {
+                    crate::ai::pathfind_astar::PathfindCellType::Clear
+                }
+                TerrainType::VeryRough | TerrainType::Cliff => {
+                    crate::ai::pathfind_astar::PathfindCellType::Cliff
+                }
+                TerrainType::Water | TerrainType::DeepWater => {
+                    crate::ai::pathfind_astar::PathfindCellType::Water
+                }
+                TerrainType::Rubble => crate::ai::pathfind_astar::PathfindCellType::Rubble,
+                TerrainType::Obstacle => crate::ai::pathfind_astar::PathfindCellType::Obstacle,
+                TerrainType::Impassable => crate::ai::pathfind_astar::PathfindCellType::Impassable,
+            };
+            if let Ok(mut pf) = pathfinder.write() {
+                pf.set_cell_type_at_layer(
+                    pos,
+                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                    cell,
+                );
+            }
+            return;
+        }
         let coord = GridCoord::from_world(pos, layer);
         if let Some(cell) = self.grid.get_mut(&coord) {
             cell.terrain = terrain;
@@ -1131,36 +1226,19 @@ impl PathfindingSystem {
     pub fn set_bridge_passable(
         &mut self,
         polygon: &[Coord3D; 4],
-        layer: PathfindLayerEnum,
+        layer: crate::common::PathfindLayerEnum,
         passable: bool,
     ) {
         if let Some(pathfinder) = &self.classic_pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
-                let min_x = polygon.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
-                let max_x = polygon.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
-                let min_y = polygon.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
-                let max_y = polygon.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
-                let target = if passable {
-                    crate::ai::pathfind_astar::PathfindCellType::Clear
-                } else {
-                    crate::ai::pathfind_astar::PathfindCellType::BridgeImpassable
-                };
-                let min_cell_x = (min_x / PATHFIND_CELL_SIZE).floor() as i32;
-                let max_cell_x = (max_x / PATHFIND_CELL_SIZE).floor() as i32;
-                let min_cell_y = (min_y / PATHFIND_CELL_SIZE).floor() as i32;
-                let max_cell_y = (max_y / PATHFIND_CELL_SIZE).floor() as i32;
-                for x in min_cell_x..=max_cell_x {
-                    for y in min_cell_y..=max_cell_y {
-                        let coord = GridCoord::new(x, y, layer);
-                        let center = coord.to_world(0.0);
-                        if point_inside_polygon_2d(&center, polygon) {
-                            pf.set_cell_type_at(&center, target);
-                        }
-                    }
-                }
+                pf.change_bridge_state(
+                    crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                    passable,
+                );
             }
             return;
         }
+        let layer = facade_ground_layer_from_common(layer);
         let mut min_x = polygon[0].x;
         let mut max_x = polygon[0].x;
         let mut min_y = polygon[0].y;
@@ -1213,7 +1291,11 @@ impl PathfindingSystem {
         if let Some(pathfinder) = &self.classic_pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
                 for pos in positions {
-                    pf.set_cell_type_at(pos, crate::ai::pathfind_astar::PathfindCellType::Obstacle);
+                    pf.set_cell_type_at_layer(
+                        pos,
+                        crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                        crate::ai::pathfind_astar::PathfindCellType::Obstacle,
+                    );
                 }
             }
             return;
@@ -1238,10 +1320,14 @@ impl PathfindingSystem {
         if let Some(pathfinder) = &self.classic_pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
                 for pos in positions {
-                    if pf.get_cell_type_at_layer(pos, crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32))
+                    if pf.get_cell_type_at_layer(pos, classic_layer_from_facade(layer))
                         == Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
                     {
-                        pf.set_cell_type_at(pos, crate::ai::pathfind_astar::PathfindCellType::Clear);
+                        pf.set_cell_type_at_layer(
+                            pos,
+                            crate::path::PathfindLayerEnum::from_u32(layer as u32),
+                            crate::ai::pathfind_astar::PathfindCellType::Clear,
+                        );
                     }
                 }
             }

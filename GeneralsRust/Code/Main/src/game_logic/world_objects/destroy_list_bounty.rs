@@ -316,6 +316,9 @@ impl GameLogic {
             }
 
             if let Some(obj) = self.objects.remove(&event.id) {
+                // A DockUpdate queue is module-owned; discard it with the
+                // owning dock Object rather than retaining a dead ObjectId.
+                self.remove_host_dock_approach_queue(event.id);
                 // C++ contain onRemoving when the occupant dies: leave the
                 // garrison list and free this unit's FIREPOINT/STATION slot.
                 if let Some(cid) = obj.contained_by {
