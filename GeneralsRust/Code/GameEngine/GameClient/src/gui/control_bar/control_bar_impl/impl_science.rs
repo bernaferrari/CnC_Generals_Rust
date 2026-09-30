@@ -182,21 +182,14 @@ fn leftover_animate_windows_enabled() -> bool {
         .unwrap_or(true)
 }
 
-static LAST_SCIENCE_TRANSITION_GROUP: std::sync::Mutex<Option<&'static str>> =
-    std::sync::Mutex::new(None);
-
-fn leftover_transition_group(group: &'static str) {
+fn leftover_transition_group(group: &'static str) -> bool {
     // C++ ControlBar.cpp:2929-2930 gates GenExpFade on m_animateWindows.
     // ControlBarArrow (1658) only needs TheTransitionHandler + input enabled.
     if group == "GenExpFade" && !leftover_animate_windows_enabled() {
-        return;
+        return false;
     }
     with_window_manager(|manager| manager.transition_set_group(group, false));
-    if group == "GenExpFade" {
-        if let Ok(mut slot) = LAST_SCIENCE_TRANSITION_GROUP.lock() {
-            *slot = Some(group);
-        }
-    }
+    true
 }
 
 /// Retail ControlBar.wnd authored screen rects for the windows C++
@@ -290,13 +283,6 @@ fn leftover_ensure_named_window(name: &str) {
             let _ = win.borrow_mut().hide(true);
         }
     });
-}
-
-fn leftover_take_last_science_transition_group() -> Option<&'static str> {
-    LAST_SCIENCE_TRANSITION_GROUP
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
 }
 
 fn leftover_display_size() -> (i32, i32) {
@@ -477,7 +463,13 @@ impl ControlBar {
             leftover_hide_window(GEN_EXP_PARENT, false);
             leftover_hide_window("GeneralsExpPoints.wnd", false);
         }
-        leftover_transition_group("GenExpFade");
+        let transition_requested = leftover_transition_group("GenExpFade");
+        #[cfg(test)]
+        if transition_requested {
+            self.last_science_transition_group = Some("GenExpFade");
+        }
+        #[cfg(not(test))]
+        let _ = transition_requested;
     }
 
     pub fn hide_purchase_science(&mut self) {
@@ -1624,9 +1616,9 @@ impl ControlBar {
             if current_button < self.special_power_shortcuts.len() {
                 let mut cmd = Self::command_from_logic_button(logic_button);
                 if let Some(common_bar) = get_ini_control_bar() {
-                    cmd = Self::command_from_set_slot(&common_bar, Some(logic_button));
+                    cmd = self.command_from_set_slot(&common_bar, Some(logic_button));
                 } else {
-                    Self::apply_need_special_power_science(&mut cmd, logic_button);
+                    self.apply_need_special_power_science(&mut cmd, logic_button);
                 }
                 self.special_power_shortcuts[current_button].command_name =
                     logic_button.get_name().to_string();
@@ -2160,7 +2152,6 @@ mod science_vec_gate_tests {
     fn show_purchase_science_unhides_gen_exp_parent_and_sets_fade() {
         // C++ ControlBar.cpp:2918-2933 showPurchaseScience — winHide(FALSE)
         // on GeneralsExpPoints.wnd:GenExpParent + setGroup("GenExpFade").
-        let _ = leftover_take_last_science_transition_group();
         let mut bar = ControlBar::new();
         bar.show_purchase_science();
         assert!(
@@ -2172,10 +2163,7 @@ mod science_vec_gate_tests {
             "showPurchaseScience must winHide(FALSE) GenExpParent"
         );
         assert!(bar.science_state.is_visible);
-        assert_eq!(
-            leftover_take_last_science_transition_group(),
-            Some("GenExpFade")
-        );
+        assert_eq!(bar.last_science_transition_group.take(), Some("GenExpFade"));
 
         bar.hide_purchase_science();
         assert!(

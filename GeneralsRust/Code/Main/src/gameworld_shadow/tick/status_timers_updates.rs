@@ -75,7 +75,6 @@ impl GameWorldShadow {
         if e.float_update_active {
             use crate::game_logic::host_float_update::{
                 FLOAT_PITCH_PHASE, FLOAT_SWAY_AMP, FLOAT_YAW_PHASE, leftover_water_surface_y,
-                publish_sway,
             };
             let angle = frame as f32;
             e.float_yaw = (angle * FLOAT_YAW_PHASE).sin() * FLOAT_SWAY_AMP;
@@ -87,9 +86,6 @@ impl GameWorldShadow {
                 {
                     e.transform.position.y = wy;
                 }
-            }
-            if let Some(hid) = hid {
-                publish_sway(hid, e.float_yaw, e.float_pitch);
             }
             changed = true;
         }

@@ -14,6 +14,7 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 /// Populate multi-select buttons by intersecting command-set names
 /// (host/presentation path — no OBJECT_REGISTRY).
 pub(super) fn populate_multi_select_commands_from_sets(
+    bar: &ControlBar,
     context: &mut ControlBarContext,
     command_set_names: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -51,7 +52,7 @@ pub(super) fn populate_multi_select_commands_from_sets(
     if !saw_first {
         return Ok(());
     }
-    push_common_slots(context, &common_bar, common_slots);
+    push_common_slots(bar, context, &common_bar, common_slots);
     Ok(())
 }
 
@@ -62,6 +63,7 @@ pub(super) fn populate_multi_select_commands_from_sets(
 /// - removes slots that diverge on subsequent objects
 /// - keeps `ATTACK_MOVE` if any selected unit contributes it in that slot
 pub(super) fn populate_multi_select_commands(
+    bar: &ControlBar,
     context: &mut ControlBarContext,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Some(control_bar) = get_control_bar_bridge() else {
@@ -108,7 +110,7 @@ pub(super) fn populate_multi_select_commands(
     if !saw_first_drawable {
         return Ok(());
     }
-    push_common_slots(context, &common_bar, common_slots);
+    push_common_slots(bar, context, &common_bar, common_slots);
     Ok(())
 }
 
@@ -171,6 +173,7 @@ fn intersect_command_set_into_slots(
 }
 
 fn push_common_slots(
+    bar: &ControlBar,
     context: &mut ControlBarContext,
     common_bar: &game_engine::common::ini::ini_command_button::ControlBar,
     common_slots: Vec<Option<gamelogic::command_button::CommandButton>>,
@@ -180,7 +183,7 @@ fn push_common_slots(
         let button = common_slots.get(slot).and_then(|b| b.as_ref());
         context
             .available_commands
-            .push(ControlBar::command_from_set_slot(common_bar, button));
+            .push(bar.command_from_set_slot(common_bar, button));
     }
 }
 

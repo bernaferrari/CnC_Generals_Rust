@@ -276,6 +276,9 @@ pub struct CommandButton {
     pub overlay_image: Option<String>,
     pub button_enabled: bool,
     pub button_hidden: bool,
+    /// Host CanMake ordinal captured from the bar that bound this window.
+    /// None preserves the authored-only and crate Player/Object paths.
+    pub presentation_can_make_status: Option<u32>,
 }
 
 /// Production item in queue
@@ -334,6 +337,7 @@ impl Default for CommandButton {
             overlay_image: None,
             button_enabled: true,
             button_hidden: false,
+            presentation_can_make_status: None,
         }
     }
 }

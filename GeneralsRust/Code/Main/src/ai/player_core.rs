@@ -4,14 +4,6 @@ impl AIPlayer {
     /// Create new AI player
     pub fn new(player_id: u32, team: Team, difficulty: AIDifficulty) -> Self {
         let personality = AIPersonality::for_team(team);
-        // C++ AIPlayer.cpp:71 p->setCanBuildUnits(false) on leftover PlayerList.
-        if let Ok(list) = gamelogic::player::player_list().read() {
-            if let Some(player_arc) = list.get_player(player_id as i32).cloned() {
-                if let Ok(mut player) = player_arc.write() {
-                    player.set_can_build_units(false);
-                }
-            }
-        }
         Self {
             player_id,
             team,

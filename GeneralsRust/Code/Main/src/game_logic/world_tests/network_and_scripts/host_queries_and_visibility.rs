@@ -1561,9 +1561,11 @@ fn guard_state_engages_nearby_enemy() {
         guard.guard_position = Some(Vec3::new(0.0, 0.0, 0.0));
         guard.guard_radius = 100.0;
     }
+    let scan_deadline = game_logic.frame;
     game_logic
-        .guard_next_enemy_scan
-        .insert(guard_id, game_logic.frame);
+        .unit_ai_runtime_mut(guard_id)
+        .expect("unit")
+        .set_guard_scan_deadline(Some(scan_deadline));
     game_logic.update_ai(&[guard_id, enemy_id], 1.0 / 60.0);
 
     let guard = game_logic
@@ -1682,7 +1684,10 @@ fn process_ai_behavior_hunt_seeks_map_wide_not_100_circle() {
         let unit = game_logic.host_object(unit_id).expect("unit should exist");
         (unit.get_position(), unit.team, unit.can_attack())
     };
-    game_logic.hunt_next_enemy_scan.insert(unit_id, 30);
+    game_logic
+        .unit_ai_runtime_mut(unit_id)
+        .expect("unit")
+        .set_hunt_scan_deadline(Some(30));
 
     let command = game_logic.process_ai_behavior(
         unit_id,

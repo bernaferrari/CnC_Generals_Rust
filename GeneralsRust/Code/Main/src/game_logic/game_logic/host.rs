@@ -26,14 +26,6 @@ pub struct GameLogic {
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
     pub team_common_attack_targets: std::collections::HashMap<String, ObjectId>,
-    /// C++ AIGuardIdleState::m_nextEnemyScanTime residual.
-    pub(crate) guard_next_enemy_scan: HashMap<ObjectId, u32>,
-    /// C++ AIHuntState::m_nextEnemyScanTime residual.
-    pub(crate) hunt_next_enemy_scan: HashMap<ObjectId, u32>,
-    /// C++ AIGuardIdleState::m_guardeePos residual.
-    pub(crate) guard_guardee_pos: HashMap<ObjectId, glam::Vec3>,
-    /// C++ doQuickExit temporary-state deadline (10 * LOGICFRAMES_PER_SECOND).
-    pub(crate) quick_exit_until: HashMap<ObjectId, u32>,
     /// Crate move/attack machines for this world only. ObjectIDs are not unique
     /// across games, so this is not a process map.
     pub(crate) host_move_attack_machines:
@@ -92,9 +84,9 @@ pub struct GameLogic {
     /// Recorder playback handoff and CRC cadence for this game only. Created
     /// inertly; live callback binding occurs when the host drives this world.
     pub(crate) replay_pending: crate::command_system::ReplayPendingState,
-    /// C++ `getFrameObjectsChangedTriggerAreas`. Instance atomic so a `&self`
-    /// guard scan can store it. `Cell` is `!Sync` and this type is `Arc<Mutex<_>>`.
-    pub(crate) frame_objects_changed_trigger_areas: std::sync::atomic::AtomicU32,
+    /// C++ `getFrameObjectsChangedTriggerAreas`: a synchronous, instance-owned
+    /// stamp. Guard queries borrow `&self`; the stamp has no concurrent readers.
+    pub(crate) frame_objects_changed_trigger_areas: std::cell::Cell<u32>,
 
     /// Next unused sequence for an actual accepted WeaponSet discharge.
     ///

@@ -545,6 +545,18 @@ impl ControlBar {
     }
 
     /// C++ ControlBar::setControlCommand (ControlBar.cpp:2403-2480).
+    /// C++ help text reads current CanMake facts on every command update.
+    /// Mutate only the bound window's typed value; its command strings stay put.
+    fn refresh_window_presentation_can_make(&self, window: &mut GameWindow) {
+        if let Some(command) = window
+            .user_data
+            .as_mut()
+            .and_then(|data| data.downcast_mut::<CommandButton>())
+        {
+            command.presentation_can_make_status = self.presentation_can_make_status(&command.object);
+        }
+    }
+
     fn set_control_command(&self, win: &Rc<RefCell<GameWindow>>, cmd: &CommandButton) {
         let mapped_image = if cmd.button_image.is_empty() {
             None
@@ -586,7 +598,10 @@ impl ControlBar {
             {
                 button.set_overlay_image(None::<String>);
             }
-            window.set_user_data(cmd.clone());
+            let mut bound_command = cmd.clone();
+            bound_command.presentation_can_make_status =
+                self.presentation_can_make_status(&cmd.object);
+            window.set_user_data(bound_command);
             self.leftover_apply_command_bar_border(&mut window, cmd);
             if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
                 window.widget_mut()

@@ -444,6 +444,7 @@ impl PresentationFrame {
         // Freeze the FOW runtime-active probe once per frame (one lock, no
         // per-object visible/explored set materialization in the loop below).
         let direct_shroud_frame_facts = DirectShroudFrameFacts::freeze(local_player_id);
+        let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
         let mut objects = Vec::with_capacity(logic.host_objects().len());
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
         for obj in logic.host_objects().values() {
@@ -709,12 +710,7 @@ impl PresentationFrame {
                     p
                 },
                 orientation: obj.get_orientation(),
-                float_yaw: {
-                    let yaw = obj.float_update.as_ref().map(|f| f.yaw).unwrap_or(0.0);
-                    let pitch = obj.float_update.as_ref().map(|f| f.pitch).unwrap_or(0.0);
-                    crate::game_logic::host_float_update::publish_sway(obj.id.0, yaw, pitch);
-                    yaw
-                },
+                float_yaw: obj.float_update.as_ref().map(|f| f.yaw).unwrap_or(0.0),
                 float_pitch: obj.float_update.as_ref().map(|f| f.pitch).unwrap_or(0.0),
                 topple_lean_radians: obj.presentation_topple_lean_radians(),
                 topple_dir_x: obj.presentation_topple_dir().0,
@@ -962,10 +958,9 @@ impl PresentationFrame {
                 projectile_clip_statuses,
                 ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
                 ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
-                weapon_ready_percent: {
-                    let now = crate::game_logic::host_historic_bonus::logic_frame() as f32 / 30.0;
-                    obj.get_most_percent_ready_to_fire_any_weapon(now)
-                },
+                weapon_ready_percent: obj.get_most_percent_ready_to_fire_any_weapon(
+                    weapon_ready_time_seconds,
+                ),
                 weapon_can_target_air: obj
                     .weapon
                     .as_ref()

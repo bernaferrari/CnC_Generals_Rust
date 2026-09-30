@@ -61,6 +61,12 @@ impl SubsystemInterface for ControlBar {
         self.displayed_ocl_timer_seconds = 0;
         self.presentation_money = None;
         self.presentation_power = (0, 0);
+        self.presentation_can_make.clear();
+        self.presentation_unlocked_sciences.clear();
+        #[cfg(test)]
+        {
+            self.last_science_transition_group = None;
+        }
         self.last_displayed_money = -1;
 
         Ok(())

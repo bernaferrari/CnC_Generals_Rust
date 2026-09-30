@@ -51,10 +51,6 @@ impl GameLogic {
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
-            guard_next_enemy_scan: HashMap::new(),
-            hunt_next_enemy_scan: HashMap::new(),
-            guard_guardee_pos: HashMap::new(),
-            quick_exit_until: HashMap::new(),
             host_move_attack_machines: HashMap::new(),
 
             enable_repulsors: false,
@@ -74,7 +70,7 @@ impl GameLogic {
             next_formation_id: 1,
             frame: 0,
             replay_pending: crate::command_system::ReplayPendingState::default(),
-            frame_objects_changed_trigger_areas: std::sync::atomic::AtomicU32::new(0),
+            frame_objects_changed_trigger_areas: std::cell::Cell::new(0),
             next_weapon_discharge_sequence: 1,
             weapon_discharge_log:
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
@@ -752,7 +748,6 @@ impl GameLogic {
         self.drawable_tint_envelopes.clear();
         self.objects.clear();
         self.host_move_attack_machines.clear();
-        self.hunt_next_enemy_scan.clear();
         self.host_view_dirty.clear();
         self.vision_last_looks.clear();
         self.vision_last_reveal_all.clear();

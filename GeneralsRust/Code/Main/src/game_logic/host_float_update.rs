@@ -14,43 +14,11 @@
 //! remapped to host Y-up on GameClient drawables and unit meshes.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 
 /// C++ sway coefficients residual.
 pub const FLOAT_YAW_PHASE: f32 = 0.0291;
 pub const FLOAT_PITCH_PHASE: f32 = 0.0515;
 pub const FLOAT_SWAY_AMP: f32 = 0.05;
-
-static LIVE_SWAY: LazyLock<Mutex<HashMap<u32, (f32, f32)>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Publish last FloatUpdate yaw/pitch for live drawable / mesh apply.
-pub fn publish_sway(object_id: u32, yaw: f32, pitch: f32) {
-    let Ok(mut map) = LIVE_SWAY.lock() else {
-        return;
-    };
-    if yaw.abs() <= 1.0e-8 && pitch.abs() <= 1.0e-8 {
-        map.remove(&object_id);
-    } else {
-        map.insert(object_id, (yaw, pitch));
-    }
-}
-
-/// Last published sway for a host object (0,0 if none).
-pub fn sway_for(object_id: u32) -> (f32, f32) {
-    LIVE_SWAY
-        .lock()
-        .ok()
-        .and_then(|map| map.get(&object_id).copied())
-        .unwrap_or((0.0, 0.0))
-}
-
-pub fn clear_published_sway() {
-    if let Ok(mut map) = LIVE_SWAY.lock() {
-        map.clear();
-    }
-}
 
 /// Leftover `TerrainLogic::isUnderwater` waterZ at host map XZ (Y-up height).
 ///
@@ -153,7 +121,6 @@ impl HostFloatUpdateRegistry {
     }
     pub fn clear(&mut self) {
         *self = Self::default();
-        clear_published_sway();
     }
     pub fn record_install(&mut self) {
         self.installed = self.installed.saturating_add(1);
@@ -192,10 +159,5 @@ mod tests {
         assert_eq!(d.snap_height_y(Some(12.0)), Some(12.0));
         let mx = instance_matrix_yup(0.3, d.yaw, d.pitch);
         assert!(mx.is_finite());
-        publish_sway(7, d.yaw, d.pitch);
-        let (y, p) = sway_for(7);
-        assert!((y - d.yaw).abs() < 1.0e-6);
-        assert!((p - d.pitch).abs() < 1.0e-6);
-        clear_published_sway();
     }
 }

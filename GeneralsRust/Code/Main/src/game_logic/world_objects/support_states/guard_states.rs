@@ -67,14 +67,7 @@ pub(crate) fn host_guardee_moved_beyond_return_threshold(
     prev: glam::Vec3,
     now: glam::Vec3,
 ) -> bool {
-    let cell = crate::game_logic::host_repair::PATHFIND_CELL_SIZE_F;
-    let limit_sqr = 4.0 * cell * cell;
-    let dx = prev.x - now.x;
-    if dx * dx > limit_sqr {
-        return true;
-    }
-    let dz = prev.z - now.z;
-    dz * dz > limit_sqr
+    crate::game_logic::object::unit_ai_runtime::guard_anchor_moved(prev, now)
 }
 
 fn host_guard_area_stamp_expired(frame: u32, changed: u32, scan_rate: u32) -> bool {
@@ -164,12 +157,12 @@ impl GameLogic {
                 self.objects.iter().map(|(id, obj)| (*id, obj.get_position())),
             ) {
                 self.frame_objects_changed_trigger_areas
-                    .store(self.frame, std::sync::atomic::Ordering::Relaxed);
+                    .set(self.frame);
             }
             if host_guard_area_stamp_expired(
                 self.frame,
                 self.frame_objects_changed_trigger_areas
-                    .load(std::sync::atomic::Ordering::Relaxed),
+                    .get(),
                 self.host_guard_enemy_scan_rate(),
             ) {
                 return None;
@@ -372,7 +365,9 @@ impl GameLogic {
         }
         self.stop_attack_decision_aware(object_id);
         // C++ Return/Idle onEnter re-seeds m_nextEnemyScanTime / m_nextReturnScanTime.
-        self.guard_next_enemy_scan.remove(&object_id);
+        if let Some(runtime) = self.unit_ai_runtime_mut(object_id) {
+            runtime.set_guard_scan_deadline(None);
+        }
         // C++ AIGuardInnerState::onExit / AttackAggressor::onExit:
         // getTeam()->setTeamTargetObject(NULL).
         self.set_host_team_common_target(object_id, None);
@@ -576,21 +571,11 @@ impl GameLogic {
         }
         .max(1);
         let now = self.frame;
-        match self.guard_next_enemy_scan.get(&object_id).copied() {
-            Some(next) if now < next => return false,
-            None => {
-                let offset = gamelogic::helpers::game_logic_random_value(0, rate);
-                let next = now.saturating_add(offset);
-                if now < next {
-                    self.guard_next_enemy_scan.insert(object_id, next);
-                    return false;
-                }
-            }
-            Some(_) => {}
-        }
-        self.guard_next_enemy_scan
-            .insert(object_id, now.saturating_add(rate));
-        true
+        self.unit_ai_runtime_mut(object_id).is_some_and(|runtime| {
+            runtime.guard_scan_due(now, rate, |rate| {
+                gamelogic::helpers::game_logic_random_value(0, rate)
+            })
+        })
     }
 
     /// C++ EnterGuard / HijackGuard: board instead of shooting.

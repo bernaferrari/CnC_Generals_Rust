@@ -439,7 +439,10 @@ impl GameLogic {
                         );
                         unit.record_host_movement();
                     }
-                    self.quick_exit_until.insert(uid, self.frame.saturating_add(300));
+                    let deadline = self.frame.saturating_add(300);
+                    if let Some(runtime) = self.unit_ai_runtime_mut(uid) {
+                        runtime.set_quick_exit_deadline(Some(deadline));
+                    }
                 }
                 self.register_ground_path_goal(uid, door_end);
             }

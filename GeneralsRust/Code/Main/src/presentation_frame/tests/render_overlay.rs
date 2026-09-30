@@ -16,6 +16,8 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         team_color: [1.0, 1.0, 1.0, 1.0],
         position: Vec3::new(10.0, 0.0, 20.0),
         orientation: 0.0,
+        float_yaw: 0.0,
+        float_pitch: 0.0,
         topple_lean_radians: 0.0,
         topple_dir_x: 1.0,
         topple_dir_y: 0.0,
@@ -208,6 +210,8 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         team_color: [1.0, 1.0, 1.0, 1.0],
         position: glam::Vec3::ZERO,
         orientation: 0.0,
+        float_yaw: 0.0,
+        float_pitch: 0.0,
         topple_lean_radians: 0.0,
         topple_dir_x: 1.0,
         topple_dir_y: 0.0,
@@ -472,18 +476,37 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
         object.status.stealthed = true;
         object.status.detected = false;
     }
+    // C++ StealthUpdate advances its owned phase during update; freezing a
+    // presentation alone must never synthesize another pulse from frame time.
     logic.frame = 0;
+    logic.update_stealth_and_detection();
+    let opacity_a = logic.host_object(id).unwrap().camo_friendly_opacity;
+    let phase_a = logic.host_object(id).unwrap().camo_opacity_pulse_phase;
     let a = PresentationFrame::build_from_logic(&logic, 0)
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
         .expect("frame 0");
-    logic.frame = 8;
+    assert!((a.presentation_opacity - opacity_a).abs() < 1e-5);
+    let repeated = PresentationFrame::build_from_logic(&logic, 0)
+        .unit_render_inputs()
+        .into_iter()
+        .find(|u| u.id == id)
+        .expect("repeated frame 0");
+    assert_eq!(repeated.presentation_opacity, a.presentation_opacity);
+    assert_eq!(logic.host_object(id).unwrap().camo_opacity_pulse_phase, phase_a);
+    for frame in 1..=8 {
+        logic.frame = frame;
+        logic.update_stealth_and_detection();
+    }
+    let opacity_b = logic.host_object(id).unwrap().camo_friendly_opacity;
+    assert!(logic.host_object(id).unwrap().camo_opacity_pulse_phase > phase_a);
     let b = PresentationFrame::build_from_logic(&logic, 0)
         .unit_render_inputs()
         .into_iter()
         .find(|u| u.id == id)
         .expect("frame 8");
+    assert!((b.presentation_opacity - opacity_b).abs() < 1e-5);
     assert!(
         (a.presentation_opacity - b.presentation_opacity).abs() > 0.01,
         "friendly stealth must shimmer, not sit at a static min"
@@ -1550,19 +1573,64 @@ fn apply_events_routes_upgrade_and_owner_to_hud() {
 }
 
 #[test]
-fn apply_events_queues_audio_for_destroy_and_attack() {
-    crate::game_logic::host_attack_log::clear();
-    crate::game_logic::host_attack_log::record(
-        crate::game_logic::ObjectId(1),
-        Some(crate::game_logic::ObjectId(2)),
-    );
-    let _ = crate::game_logic::host_attack_log::drain();
-    let mut logic = crate::game_logic::GameLogic::new();
-    // inject destroy event via construction of frame with attack only
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
-    let n = frame.apply_events_to_audio(&mut logic);
-    assert!(n >= 1, "expected audio queue from AttackTargeted, n={n}");
-    assert!(logic.queued_audio_event_count_for_test() >= 1);
+fn apply_events_queues_authored_fire_audio_without_inventing_attack_or_death_sounds() {
+    use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("PresentationAudioSource");
+    template.set_health(100.0);
+    template.add_kind_of(KindOf::Vehicle);
+    logic.templates.insert(template.name.clone(), template);
+    let frozen_position = glam::Vec3::new(23.0, 7.0, 41.0);
+    let source = logic
+        .create_object("PresentationAudioSource", Team::USA, frozen_position)
+        .expect("owned audio source");
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+
+    // These pre-existing residual drains are outside this fixture's frozen
+    // events. Clear their per-thread test leftovers before asserting exact
+    // projection counts; neither one carries attack/death sound policy.
+    crate::game_logic::host_economy_log::clear();
+    crate::game_logic::host_disable_timers_log::clear();
+    frame.events = vec![
+        PresentationEvent::AttackTargeted {
+            attacker: source,
+            target: Some(ObjectId(2)),
+        },
+        PresentationEvent::ObjectDestroyed {
+            id: ObjectId(2),
+            team: Team::GLA,
+        },
+    ];
+
+    // C++ CommandXlat.cpp:495-510 selects authored VoiceAttack/VoiceAttackAir
+    // on an order. ActiveBody.cpp:297-315 invokes authored DamageFX, and
+    // FXList.cpp:74-99 plays its Sound nuggets. Neither observation invents
+    // a generic attack or death sound in this presentation event projection.
+    assert!(frame.collect_audio_events().is_empty());
+    assert_eq!(frame.apply_events_to_audio(&mut logic), 0);
+    assert!(logic.queued_audio_events.is_empty());
+
+    // C++ FiringTracker.cpp:138-155 attaches the weapon's concrete FireSound
+    // to its object; loop refresh is a distinct event from an attack order.
+    const AUTHORED_FIRE_SOUND: &str = "PresentationFixtureAuthoredFireLoop";
+    frame.events.push(PresentationEvent::WeaponFireLoopStarted {
+        unit: source,
+        sound: AUTHORED_FIRE_SOUND.into(),
+    });
+    logic
+        .host_object_mut(source)
+        .expect("live source")
+        .set_position(glam::Vec3::new(91.0, 2.0, 13.0));
+
+    assert_eq!(frame.apply_events_to_audio(&mut logic), 1);
+    assert_eq!(logic.queued_audio_events.len(), 1);
+    let queued = &logic.queued_audio_events[0];
+    assert_eq!(queued.event_type, AUTHORED_FIRE_SOUND);
+    assert_eq!(queued.object_id, Some(source));
+    assert_eq!(queued.position, Some(frozen_position));
+    assert!(queued.is_looping);
+    assert!(!queued.stop);
 }
 
 #[test]
@@ -1778,6 +1846,9 @@ fn presentation_freezes_can_make_cameos_residual() {
     logic.templates.insert("TestBarracks".into(), bar);
     // ensure building type barracks
     let mut burton = ThingTemplate::new("AmericaInfantryColonelBurton");
+    // C++ Player::canBuildMoreOfType reads the authored template cap, not
+    // the unit name. Bare ThingTemplate defaults to 0 (unlimited).
+    burton.max_simultaneous_of_type = 1;
     burton
         .add_kind_of(KindOf::Infantry)
         .add_kind_of(KindOf::Hero)
@@ -1839,6 +1910,11 @@ fn presentation_freezes_can_make_cameos_residual() {
         logic.can_make_unit(bid, "AmericaInfantryColonelBurton"),
         CANMAKE_MAXED_OUT_FOR_PLAYER,
         "direct maxed after enqueue"
+    );
+    assert_eq!(
+        logic.can_make_unit(bid, "AmericaInfantryRanger"),
+        CANMAKE_OK,
+        "an uncapped unit remains available when the capped unit is queued"
     );
     assert!(
         logic.get_player(0).is_some(),

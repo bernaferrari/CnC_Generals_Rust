@@ -1707,9 +1707,9 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
             health_box_offset: object.health_box_offset,
             last_fire_frame: object.last_fire_frame,
             is_recruitable: object.is_recruitable,
-            guard_next_enemy_scan: game_logic.guard_next_enemy_scan.get(id).copied(),
-            quick_exit_until: game_logic.quick_exit_until.get(id).copied(),
-            hunt_next_enemy_scan: game_logic.hunt_next_enemy_scan.get(id).copied(),
+            guard_next_enemy_scan: object.unit_ai_runtime.guard_scan_deadline(),
+            quick_exit_until: object.unit_ai_runtime.quick_exit_deadline(),
+            hunt_next_enemy_scan: object.unit_ai_runtime.hunt_scan_deadline(),
             ignore_collisions_until_frame: object.ignore_collisions_until_frame,
             do_final_position: object.do_final_position,
             final_position: object.final_position.to_array(),
@@ -1743,14 +1743,12 @@ fn capture(game_logic: &GameLogic) -> ObjectXferPersistPayload {
 }
 
 fn reset_object_xfer(game_logic: &mut GameLogic) {
-    game_logic.guard_next_enemy_scan.clear();
-    game_logic.quick_exit_until.clear();
-    game_logic.hunt_next_enemy_scan.clear();
     let ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
     for id in ids {
         let Some(object) = game_logic.host_object_mut(id) else {
             continue;
         };
+        object.unit_ai_runtime.clear_saved_deadlines();
         object.status.disabled_held = false;
         object.single_use_command_used = false;
         object.ai_attitude = 0;
@@ -1887,14 +1885,10 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectXferPersistPayload) 
                 }
             }
         }
-        if let Some(next) = entry.guard_next_enemy_scan {
-            game_logic.guard_next_enemy_scan.insert(id, next);
-        }
-        if let Some(until) = entry.quick_exit_until {
-            game_logic.quick_exit_until.insert(id, until);
-        }
-        if let Some(next) = entry.hunt_next_enemy_scan {
-            game_logic.hunt_next_enemy_scan.insert(id, next);
+        if let Some(runtime) = game_logic.unit_ai_runtime_mut(id) {
+            runtime.set_guard_scan_deadline(entry.guard_next_enemy_scan);
+            runtime.set_quick_exit_deadline(entry.quick_exit_until);
+            runtime.set_hunt_scan_deadline(entry.hunt_next_enemy_scan);
         }
     }
 }
@@ -2030,8 +2024,18 @@ mod tests {
             object.is_recruitable = false;
             object.ignore_collisions_until_frame = 88;
         }
-        source.guard_next_enemy_scan.insert(id, 310);
-        source.hunt_next_enemy_scan.insert(id, 640);
+        source
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_guard_scan_deadline(Some(310));
+        source
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(640));
+        source
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_quick_exit_deadline(Some(930));
 
         let builder = super::super::SnapshotBuilder::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
@@ -2089,8 +2093,25 @@ mod tests {
             "m_isRecruitable=false must survive load"
         );
         assert_eq!(loaded.ignore_collisions_until_frame, 88);
-        assert_eq!(restored.guard_next_enemy_scan.get(&id).copied(), Some(310));
-        assert_eq!(restored.hunt_next_enemy_scan.get(&id).copied(), Some(640));
+        assert_eq!(
+            restored
+                .unit_ai_runtime(id)
+                .and_then(|runtime| runtime.guard_scan_deadline()),
+            Some(310)
+        );
+        assert_eq!(
+            restored
+                .unit_ai_runtime(id)
+                .and_then(|runtime| runtime.hunt_scan_deadline()),
+            Some(640)
+        );
+        assert_eq!(
+            restored
+                .unit_ai_runtime(id)
+                .and_then(|runtime| runtime.quick_exit_deadline()),
+            Some(930),
+            "quick-exit deadline must survive SnapshotBuilder/OXOB restore"
+        );
     }
 
     #[test]
@@ -2128,8 +2149,18 @@ mod tests {
             object.is_recruitable = false;
             object.ignore_collisions_until_frame = 44;
         }
-        logic.guard_next_enemy_scan.insert(id, 12);
-        logic.hunt_next_enemy_scan.insert(id, 24);
+        logic
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_guard_scan_deadline(Some(12));
+        logic
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(24));
+        logic
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_quick_exit_deadline(Some(930));
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
         let object = logic.host_object(id).expect("unit");
         assert!(!object.status.disabled_held);
@@ -2161,8 +2192,24 @@ mod tests {
             "absent OXOB resets m_isRecruitable to leftover default true"
         );
         assert_eq!(object.ignore_collisions_until_frame, 0);
-        assert!(logic.guard_next_enemy_scan.is_empty());
-        assert!(logic.hunt_next_enemy_scan.is_empty());
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
+        );
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
+        );
+        assert!(
+            logic
+                .host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none())
+        );
     }
 
     #[test]
@@ -2367,8 +2414,14 @@ mod tests {
             object.wander_offset_increment = 0.15;
             object.wander_offset_increasing = true;
         }
-        source.guard_next_enemy_scan.insert(id, 90);
-        source.hunt_next_enemy_scan.insert(id, 120);
+        source
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_guard_scan_deadline(Some(90));
+        source
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(120));
 
         let mut bytes = Vec::new();
         append_to_lifecycle_tail(&mut bytes, &source);
@@ -2389,8 +2442,12 @@ mod tests {
             object.locomotor_surfaces = 0x40;
             object.cur_locomotor_name = Some("CreateTime".to_string());
         }
-        dest.guard_next_enemy_scan.insert(dest_id, 1);
-        dest.hunt_next_enemy_scan.insert(dest_id, 2);
+        dest.unit_ai_runtime_mut(dest_id)
+            .expect("unit")
+            .set_guard_scan_deadline(Some(1));
+        dest.unit_ai_runtime_mut(dest_id)
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(2));
         apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply");
 
         let loaded = dest.host_object(dest_id).expect("loaded");
@@ -2436,12 +2493,14 @@ mod tests {
         assert!((loaded.wander_offset_increment - 0.15).abs() < 0.001);
         assert!(loaded.wander_offset_increasing);
         assert_eq!(
-            dest.guard_next_enemy_scan.get(&dest_id).copied(),
+            dest.unit_ai_runtime(dest_id)
+                .and_then(|runtime| runtime.guard_scan_deadline()),
             Some(90),
             "AIGuardIdleState scan clock must survive load"
         );
         assert_eq!(
-            dest.hunt_next_enemy_scan.get(&dest_id).copied(),
+            dest.unit_ai_runtime(dest_id)
+                .and_then(|runtime| runtime.hunt_scan_deadline()),
             Some(120),
             "AIHuntState scan clock must survive load"
         );
@@ -2713,8 +2772,12 @@ mod tests {
             object.is_recruitable = false;
             object.ignore_collisions_until_frame = 11;
         }
-        dest.guard_next_enemy_scan.insert(dest_id, 4);
-        dest.hunt_next_enemy_scan.insert(dest_id, 5);
+        dest.unit_ai_runtime_mut(dest_id)
+            .expect("unit")
+            .set_guard_scan_deadline(Some(4));
+        dest.unit_ai_runtime_mut(dest_id)
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(5));
         apply_from_lifecycle_tail(&bytes, &mut dest).expect("apply v3");
 
         let loaded = dest.host_object(dest_id).expect("loaded");
@@ -2723,7 +2786,15 @@ mod tests {
         assert_eq!(loaded.last_fire_frame, 0);
         assert!(loaded.is_recruitable);
         assert_eq!(loaded.ignore_collisions_until_frame, 0);
-        assert!(dest.guard_next_enemy_scan.is_empty());
-        assert!(dest.hunt_next_enemy_scan.is_empty());
+        assert!(
+            dest.host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
+        );
+        assert!(
+            dest.host_objects()
+                .values()
+                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
+        );
     }
 }

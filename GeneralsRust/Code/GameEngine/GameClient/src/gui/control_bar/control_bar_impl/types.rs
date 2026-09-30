@@ -289,6 +289,10 @@ pub struct ControlBar {
     last_displayed_money: i32,
     /// Presentation CanMake residual (template → CANMAKE_* ordinal).
     presentation_can_make: Vec<(String, u32)>,
+    /// Frozen science ownership used when the live host has no crate Player.
+    presentation_unlocked_sciences: Vec<String>,
+    #[cfg(test)]
+    last_science_transition_group: Option<&'static str>,
     /// C++ ControlBar::init runs switchToContext(CB_CONTEXT_NONE) once
     /// (ControlBar.cpp:1262); the port latches the same one-shot entry
     /// evaluation for the first live update tick after reset.

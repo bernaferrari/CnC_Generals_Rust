@@ -2,6 +2,7 @@
 //!
 //! Order: freeze → sync-time → updateViews (Drawable::draw) → particles → drawViews (GPU).
 
+#[cfg(test)]
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -54,7 +55,9 @@ impl ViewAabb {
 static SYNC_TIME_MS: AtomicU32 = AtomicU32::new(0);
 static LAST_DISPLAY_CLIENT_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CPU_PHASE_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
+#[cfg(test)]
 static PHASE_LOG: Mutex<Vec<ClientDrawPhase>> = Mutex::new(Vec::new());
+#[cfg(test)]
 static DRAW_ID_LOG: Mutex<Vec<u32>> = Mutex::new(Vec::new());
 
 pub fn extra_freeze_from_engine() -> bool {
@@ -121,24 +124,35 @@ pub fn run_dual_world_cpu_phases() {
     }
     let freeze = compute_w3d_display_freeze(extra_freeze_from_engine(), client_frame);
     let frame_time = advance_visual_sync(freeze);
+    #[cfg(test)]
     let mut phases = Vec::new();
+    #[cfg(test)]
     phases.push(ClientDrawPhase::SyncTime);
 
     let region = with_tactical_view_ref(view_aabb_from_tactical);
-    let drawn = if should_draw_drawables(frame_time) {
-        draw_logic_drawables_in_region(region)
-    } else {
-        Vec::new()
-    };
+    #[cfg(test)]
+    let mut drawn = Vec::new();
+    if should_draw_drawables(frame_time) {
+        draw_logic_drawables_in_region(
+            region,
+            #[cfg(test)]
+            &mut drawn,
+        );
+    }
+    #[cfg(test)]
     phases.push(ClientDrawPhase::UpdateViews);
 
     update_particles_after_transforms();
+    #[cfg(test)]
     phases.push(ClientDrawPhase::ParticleUpdate);
+    #[cfg(test)]
     phases.push(ClientDrawPhase::DrawViews);
 
+    #[cfg(test)]
     if let Ok(mut log) = PHASE_LOG.lock() {
         *log = phases;
     }
+    #[cfg(test)]
     if let Ok(mut log) = DRAW_ID_LOG.lock() {
         *log = drawn;
     }
@@ -153,10 +167,9 @@ fn update_particles_after_transforms() {
     }
 }
 
-fn draw_logic_drawables_in_region(region: ViewAabb) -> Vec<u32> {
+fn draw_logic_drawables_in_region(region: ViewAabb, #[cfg(test)] drawn: &mut Vec<u32>) {
     use gamelogic::drawable::Drawable as LogicDrawable;
 
-    let mut drawn = Vec::new();
     for object in OBJECT_REGISTRY.get_all_objects() {
         let Some(drawable) = object.read().ok().and_then(|obj| obj.get_drawable()) else {
             continue;
@@ -168,11 +181,12 @@ fn draw_logic_drawables_in_region(region: ViewAabb) -> Vec<u32> {
         if !region.contains([pos.x, pos.y, pos.z]) {
             continue;
         }
+        #[cfg(test)]
         let id = guard.get_drawable_id();
         guard.draw(None);
+        #[cfg(test)]
         drawn.push(id);
     }
-    drawn
 }
 
 fn view_aabb_from_tactical(view: &crate::display::view::View) -> ViewAabb {

@@ -4,6 +4,8 @@
 mod tests {
     use super::*;
 
+    include!("presentation_input_owner_tests.rs");
+
     fn named_window(name: &str) -> Rc<RefCell<GameWindow>> {
         let window = Rc::new(RefCell::new(GameWindow::new()));
         window.borrow_mut().set_name(name);

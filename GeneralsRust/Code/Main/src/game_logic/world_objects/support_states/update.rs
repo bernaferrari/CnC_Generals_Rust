@@ -2,7 +2,6 @@
 use super::super::super::*;
 use super::guard_states::{
     GUARD_CHASE_PHASE_INNER, GUARD_RETURN_CLOSE_SQ, host_guard_xy_dist_sq,
-    host_guardee_moved_beyond_return_threshold,
 };
 use super::special_abilities::{LeftoverSaTick, clear_raising_flag_model};
 
@@ -124,47 +123,7 @@ impl GameLogic {
             }
             self.expire_temporary_stealth_grant(object_id);
             self.cancel_replaced_ability_channels(object_id, &ai_state);
-            let mut quick_exit_finished = false;
-            let quick_until = self.quick_exit_until.get(&object_id).copied();
-            if let Some(until) = quick_until {
-                let arrived = self.objects.get(&object_id).is_some_and(|u| {
-                    u.movement.path.last().is_some_and(|end| {
-                        let p = u.get_position();
-                        let dx = p.x - end.x;
-                        let dz = p.z - end.z;
-                        dx * dx + dz * dz < 1.0
-                    })
-                });
-                let path_gone = self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|u| u.movement.path.len() < 2);
-                if self.frame >= until || arrived || path_gone {
-                    self.quick_exit_until.remove(&object_id);
-                    if let Some(u) = self.objects.get_mut(&object_id) {
-                        u.movement.path.clear();
-                        u.movement.target_position = None;
-                        u.can_path_through_units = false;
-                        u.adjust_destinations = true;
-                        u.set_ai_state(AIState::GuardingObject);
-                    }
-                    quick_exit_finished = true;
-                    if let Some(gid) = guard_target {
-                        let nemesis = self.objects.get(&gid).and_then(|g| {
-                            let tunnel = g.is_tunnel_network_style_container()
-                                || crate::game_logic::host_tunnel_network::is_tunnel_network_template(
-                                    &g.template_name,
-                                );
-                            tunnel.then_some(g.tunnel_system_key())
-                        });
-                        if let Some(key) = nemesis {
-                            if let Some(enemy) = self.resolved_tunnel_nemesis(key) {
-                                let _ = self.engage_guard_target(object_id, enemy, false);
-                            }
-                        }
-                    }
-                }
-            }
+            let quick_exit_finished = self.finish_quick_exit_if_due(object_id, guard_target);
             let ai_state = if quick_exit_finished {
                 self.objects
                     .get(&object_id)
@@ -341,9 +300,11 @@ impl GameLogic {
                         .get(&object_id)
                         .map(|o| o.thing.template.hijack_guard)
                         .unwrap_or(false);
-                    let on_quick_exit =
-                        self.quick_exit_until.get(&object_id).is_some_and(|&until| {
-                            self.frame < until
+                    let on_quick_exit = self
+                        .unit_ai_runtime(object_id)
+                        .and_then(|runtime| runtime.quick_exit_deadline())
+                        .is_some_and(|until| {
+                            self.frame <= until
                                 && self.objects.get(&object_id).is_some_and(|u| {
                                     u.can_path_through_units
                                         && !u.adjust_destinations
@@ -428,14 +389,10 @@ impl GameLogic {
                         }
                     }
 
-                    if !self.guard_guardee_pos.contains_key(&object_id) {
-                        self.guard_guardee_pos.insert(object_id, guard_anchor);
-                    }
-                    let drifted = self.guard_guardee_pos.get(&object_id).is_some_and(|prev| {
-                        host_guardee_moved_beyond_return_threshold(*prev, guard_anchor)
-                    });
+                    let drifted = self
+                        .unit_ai_runtime_mut(object_id)
+                        .is_some_and(|runtime| runtime.observe_guard_anchor(guard_anchor));
                     if drifted {
-                        self.guard_guardee_pos.insert(object_id, guard_anchor);
                         if can_move && !picking_crate && !on_quick_exit && !quick_exit_finished {
                             if self.path_approach_with_state(
                                 object_id,
