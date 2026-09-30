@@ -127,7 +127,8 @@ pub struct UnitRenderInput {
     /// reads never advance locomotor state or consume client randomness.
     pub physics_visual_local: Option<glam::Mat4>,
     #[cfg(feature = "game_client")]
-    pub specialized_draw: Option<std::rc::Rc<game_client::core::PresentationSpecializedDrawSnapshot>>,
+    pub specialized_draw:
+        Option<std::rc::Rc<game_client::core::PresentationSpecializedDrawSnapshot>>,
     /// Frozen C++ `Drawable::updateDrawableClipStatus` payloads.  They retain
     /// concrete WeaponSet slot identity rather than collapsing to the active
     /// weapon, because C++ broadcasts every slot to every Draw module.

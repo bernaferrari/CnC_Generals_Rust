@@ -1752,8 +1752,8 @@ impl GameLogic {
     /// Fail-closed vs full SpectreGunshipUpdate gattling-strafe / howitzer projectile.
     pub(in super::super) fn update_spectre_orbit_fields(&mut self) {
         use crate::game_logic::special_power_strikes::{
-            spectre_voice_rapid_fire_crossings, HostSpectreOrbitDamageStream,
-            SPECTRE_VOICE_RAPID_FIRE_SLOT,
+            HostSpectreOrbitDamageStream, SPECTRE_VOICE_RAPID_FIRE_SLOT,
+            spectre_voice_rapid_fire_crossings,
         };
         self.apply_pending_special_power_overrides();
         // C++ cease fire on isEffectivelyDead / cleanUp when the gunship is gone.
@@ -1801,9 +1801,11 @@ impl GameLogic {
         let object_positions = self.spectre_orbit_filtered_positions();
         let blast_positions = self.spectre_orbit_blast_positions();
 
-        let plans = self
-            .special_power_strikes
-            .plan_due_orbit_ticks(self.frame, &object_positions, &blast_positions);
+        let plans = self.special_power_strikes.plan_due_orbit_ticks(
+            self.frame,
+            &object_positions,
+            &blast_positions,
+        );
         let frame = self.frame;
 
         for plan in plans {
@@ -2147,7 +2149,9 @@ impl GameLogic {
             .saturating_add(SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES);
         let frame = self.frame;
         for (source, team, pos) in pending {
-            let gunship_id = self.spectre_orbit_bound_gunship_id(source).unwrap_or(source);
+            let gunship_id = self
+                .spectre_orbit_bound_gunship_id(source)
+                .unwrap_or(source);
             let gunship_pos = self
                 .objects
                 .get(&gunship_id)
@@ -2211,7 +2215,8 @@ impl GameLogic {
                 // past spawn AND while the shell is descending.
                 let spawn_frame = exp.saturating_sub(SPECTRE_HOWITZER_SHELL_MAX_LIFESPAN_FRAMES);
                 let descending = o.movement.velocity.y < 0.0;
-                if frame >= spawn_frame.saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES)
+                if frame
+                    >= spawn_frame.saturating_add(SPECTRE_HOWITZER_HEIGHT_DIE_INITIAL_DELAY_FRAMES)
                     && descending
                     && o.get_position().y <= SPECTRE_HOWITZER_HEIGHT_DIE_TARGET_HEIGHT
                 {
@@ -2229,7 +2234,8 @@ impl GameLogic {
             // for a natural detonation; it stays reserved for damage kills.
             let detonation_pos = self.objects.get(&id).map(|o| o.get_position());
             if let Some(pos) = detonation_pos {
-                let _ = crate::game_logic::dispatch_fx_list_at_pos(SPECTRE_HOWITZER_DETONATION_FX, pos);
+                let _ =
+                    crate::game_logic::dispatch_fx_list_at_pos(SPECTRE_HOWITZER_DETONATION_FX, pos);
                 // C++ Weapon.cpp:897-941 handleProjectileDetonation — the FX
                 // also registers in the host particle registry (visual parity).
                 let _ = self.combat_particles.spawn_named(

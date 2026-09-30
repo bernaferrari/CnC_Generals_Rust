@@ -606,11 +606,9 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
                 .host_trigger_world
                 .lock()
                 .unwrap_or_else(|e| e.into_inner());
-            return Ok(
-                super::helpers::host_team_some_inside_some_outside(
-                    &world, &team_name, &trigger, 1,
-                ) || super::helpers::host_team_all_inside(&world, &team_name, &trigger, 1),
-            );
+            return Ok(super::helpers::host_team_some_inside_some_outside(
+                &world, &team_name, &trigger, 1,
+            ) || super::helpers::host_team_all_inside(&world, &team_name, &trigger, 1));
         }
 
         let factory = get_team_factory();

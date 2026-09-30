@@ -226,7 +226,6 @@ impl TeamFactory {
             // waypoints; last name match sets m_homeLocation / m_hasHomeLocation.
             apply_team_home_from_dict(&mut prototype, dict);
 
-
             if dict.get_type(key_team_max_instances()).is_some() {
                 prototype.set_max_instances(dict.get_int(key_team_max_instances()));
             }
@@ -501,7 +500,6 @@ impl TeamFactory {
         }
     }
 
-
     /// Find team by ID
     pub fn find_team_by_id(&self, team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
         self.teams.get(&team_id).cloned()
@@ -711,10 +709,8 @@ impl TeamFactory {
         }
         // Live host AIPlayer queues are not leftover IntegratedAiPlayer.
         // C++ Player::preTeamDestroy walks every player; drain on the host tick.
-        self.host_pre_team_destroy.push((
-            team_id,
-            team_name.as_deref().unwrap_or("").to_string(),
-        ));
+        self.host_pre_team_destroy
+            .push((team_id, team_name.as_deref().unwrap_or("").to_string()));
 
         if let Some(team_arc) = &team_arc {
             if let Ok(list) = player_list().read() {
@@ -776,7 +772,10 @@ impl TeamFactory {
         }
     }
 
-    fn resolve_owning_player(&self, owner_name: &str) -> Option<Arc<RwLock<crate::player::Player>>> {
+    fn resolve_owning_player(
+        &self,
+        owner_name: &str,
+    ) -> Option<Arc<RwLock<crate::player::Player>>> {
         let list = player_list().read().ok()?;
         if owner_name.is_empty() {
             list.get_neutral_player()
@@ -820,11 +819,9 @@ pub(super) fn resolve_team_home_waypoint_location(name: &str) -> Option<Coord3D>
 fn leftover_resolve_team_home_waypoint(
     name: &str,
 ) -> Option<game_engine::common::system::geometry::Coord3D> {
-    resolve_team_home_waypoint_location(name).map(|loc| {
-        game_engine::common::system::geometry::Coord3D::new(loc.x, loc.y, loc.z)
-    })
+    resolve_team_home_waypoint_location(name)
+        .map(|loc| game_engine::common::system::geometry::Coord3D::new(loc.x, loc.y, loc.z))
 }
-
 
 fn apply_team_home_from_dict(prototype: &mut TeamPrototype, dict: &Dict) {
     if dict.get_type(key_team_home()).is_none() {
@@ -835,7 +832,6 @@ fn apply_team_home_from_dict(prototype: &mut TeamPrototype, dict: &Dict) {
         prototype.set_home_location(loc);
     }
 }
-
 
 fn execute_pending_team_create_action_scripts(script_names: Vec<String>) {
     if script_names.is_empty() {

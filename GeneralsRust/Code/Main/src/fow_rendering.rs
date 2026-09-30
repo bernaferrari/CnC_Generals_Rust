@@ -53,10 +53,6 @@ fn shroud_runtime_active(
     shroud_mgr.has_any_visible_object(player_id) || shroud_mgr.has_any_explored_object(player_id)
 }
 
-/// FOW visibility state for rendering an object
-///
-/// Snapshot-friendly (Copy + Serialize) so `PresentationFrame` can own unit FOW
-/// without re-locking the shroud manager mid-render.
 /// Serialize remaining legacy fixtures which still mutate engine singletons.
 #[cfg(test)]
 pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
@@ -65,6 +61,8 @@ pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
+/// Frozen per-object visibility consumed by rendering.
+/// `PresentationFrame` owns this value, so rendering need not query live shroud.
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ObjectVisibility {
     /// Alpha blend factor (0.0 = hidden, 1.0 = fully visible)

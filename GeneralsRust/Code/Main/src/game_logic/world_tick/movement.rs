@@ -15,29 +15,30 @@ impl GameLogic {
         target_position: Vec3,
         ai_state_override: Option<AIState>,
     ) -> bool {
-        let (start_pos, is_aircraft, quick, surfaces, is_crusher) = match self.objects.get(&object_id) {
-            Some(obj) => {
-                let surfaces = if obj.locomotor_surfaces != 0 {
-                    obj.locomotor_surfaces
-                } else {
-                    Object::default_locomotor_surfaces_for_template(&obj.thing.template)
-                };
-                let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
-                    && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
-                let aircraft = quick
-                    && (obj.is_kind_of(KindOf::Aircraft)
-                        || obj.object_type == crate::game_logic::ObjectType::Aircraft)
-                    && !obj.is_kind_of(KindOf::Projectile);
-                (
-                    obj.get_position(),
-                    aircraft,
-                    quick,
-                    surfaces,
-                    obj.crusher_level > 0,
-                )
-            }
-            None => return false,
-        };
+        let (start_pos, is_aircraft, quick, surfaces, is_crusher) =
+            match self.objects.get(&object_id) {
+                Some(obj) => {
+                    let surfaces = if obj.locomotor_surfaces != 0 {
+                        obj.locomotor_surfaces
+                    } else {
+                        Object::default_locomotor_surfaces_for_template(&obj.thing.template)
+                    };
+                    let quick = (surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0
+                        && !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
+                    let aircraft = quick
+                        && (obj.is_kind_of(KindOf::Aircraft)
+                            || obj.object_type == crate::game_logic::ObjectType::Aircraft)
+                        && !obj.is_kind_of(KindOf::Projectile);
+                    (
+                        obj.get_position(),
+                        aircraft,
+                        quick,
+                        surfaces,
+                        obj.crusher_level > 0,
+                    )
+                }
+                None => return false,
+            };
 
         let decision_auth = crate::gameworld_shadow::gameworld_ai_decision_authority_live();
         let apply_state = |logic: &mut Self, state: AIState| {
@@ -70,9 +71,8 @@ impl GameLogic {
         let saved_adjust = self.pathfinding_system.adjusts_goal();
         if let Some(unit) = self.objects.get(&object_id) {
             let projectile = unit.is_kind_of(KindOf::Projectile);
-            self.pathfinding_system.set_adjust_goal(
-                unit.is_final_goal && unit.adjust_destinations && !projectile,
-            );
+            self.pathfinding_system
+                .set_adjust_goal(unit.is_final_goal && unit.adjust_destinations && !projectile);
         }
         let path = self.pathfinding_system.find_path_ex_surfaces(
             start_pos,
@@ -84,7 +84,6 @@ impl GameLogic {
             Some(object_id),
         );
         self.pathfinding_system.set_adjust_goal(saved_adjust);
-        
 
         let mut need_closest = path.is_none();
         let mut state_to_apply: Option<AIState> = None;
@@ -448,31 +447,31 @@ impl GameLogic {
                             dx * dx + dy * dy + dz * dz < 0.25
                         });
                     if !already_there {
-                    let projectile = obj.is_kind_of(KindOf::Projectile);
-                    if aircraft && !projectile {
-                        match self.pathfinding_system.find_path_ex_surfaces(
-                            from,
-                            goal,
-                            &self.objects,
-                            true,
-                            surfaces,
-                            is_crusher,
-                            Some(id),
-                        ) {
-                            Some(path) if path.len() >= 2 => {
-                                repaths.push((id, path, false));
-                                quick_retry.push((id, obj.retry_path));
+                        let projectile = obj.is_kind_of(KindOf::Projectile);
+                        if aircraft && !projectile {
+                            match self.pathfinding_system.find_path_ex_surfaces(
+                                from,
+                                goal,
+                                &self.objects,
+                                true,
+                                surfaces,
+                                is_crusher,
+                                Some(id),
+                            ) {
+                                Some(path) if path.len() >= 2 => {
+                                    repaths.push((id, path, false));
+                                    quick_retry.push((id, obj.retry_path));
+                                }
+                                _ => quick_miss.push(id),
                             }
-                            _ => quick_miss.push(id),
-                        }
-                    } else {
-                        let path = crate::game_logic::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
+                        } else {
+                            let path = crate::game_logic::pathfinding::PathfindingSystem::leftover_compute_quick_path_nodes(
                             from,
                             goal,
                         );
-                        repaths.push((id, path, false));
-                        quick_retry.push((id, obj.retry_path));
-                    }
+                            repaths.push((id, path, false));
+                            quick_retry.push((id, obj.retry_path));
+                        }
                     }
                 } else if self
                     .pathfinding_system
@@ -513,14 +512,10 @@ impl GameLogic {
                             .and_then(|pid| self.players.get(&pid))
                             .map(|player| player.is_local)
                             .unwrap_or(true);
-                        if let Some(path) = self.pathfinding_system.find_closest_path(
-                            from,
-                            goal,
-                            surfaces,
-                            is_crusher,
-                            is_human,
-                            0.0,
-                        ) {
+                        if let Some(path) = self
+                            .pathfinding_system
+                            .find_closest_path(from, goal, surfaces, is_crusher, is_human, 0.0)
+                        {
                             repaths.push((id, path, false));
                             closest_paths.push(id);
                         } else {
@@ -545,27 +540,19 @@ impl GameLogic {
                                 .and_then(|pid| self.players.get(&pid))
                                 .map(|player| player.is_local)
                                 .unwrap_or(true);
-                            if let Some(path) = self.pathfinding_system.find_closest_path(
-                                from,
-                                goal,
-                                surfaces,
-                                is_crusher,
-                                is_human,
-                                0.0,
-                            ) {
+                            if let Some(path) = self
+                                .pathfinding_system
+                                .find_closest_path(from, goal, surfaces, is_crusher, is_human, 0.0)
+                            {
                                 repaths.push((id, path, false));
                                 closest_paths.push(id);
                             } else {
                                 drop_paths.push(id);
                             }
                         }
-                        None => concessions.push((
-                            id,
-                            true,
-                            surfaces,
-                            is_crusher,
-                            obj.selection_radius,
-                        )),
+                        None => {
+                            concessions.push((id, true, surfaces, is_crusher, obj.selection_radius))
+                        }
                     }
                 } else {
                     let cell = self.pathfinding_system.grid.world_to_grid(goal);
@@ -598,14 +585,10 @@ impl GameLogic {
                                 .and_then(|pid| self.players.get(&pid))
                                 .map(|player| player.is_local)
                                 .unwrap_or(true);
-                            if let Some(path) = self.pathfinding_system.find_closest_path(
-                                from,
-                                goal,
-                                surfaces,
-                                is_crusher,
-                                is_human,
-                                0.0,
-                            ) {
+                            if let Some(path) = self
+                                .pathfinding_system
+                                .find_closest_path(from, goal, surfaces, is_crusher, is_human, 0.0)
+                            {
                                 repaths.push((id, path, false));
                                 closest_paths.push(id);
                             } else {
@@ -723,9 +706,10 @@ impl GameLogic {
                 }
                 continue;
             }
-            let keep_path = self.objects.get(&id).is_some_and(|obj| {
-                obj.movement.path.is_empty() || obj.move_away_frames > 0
-            });
+            let keep_path = self
+                .objects
+                .get(&id)
+                .is_some_and(|obj| obj.movement.path.is_empty() || obj.move_away_frames > 0);
             if keep_path {
                 continue;
             }
@@ -764,7 +748,6 @@ impl GameLogic {
             obj.retry_path = false;
             obj.set_status_moving(false);
             obj.record_host_movement();
-
         }
 
         for &id in object_ids {
@@ -930,8 +913,8 @@ impl GameLogic {
                         && !self.pathfinding_system.grid.is_pinched(cell);
                     let in_move = obj.status.moving || has_move_goal;
                     if in_move && unpinched_cliff {
-                        let climb =
-                            1u128 << crate::game_logic::host_enum_table_residual::climbing_model_bit();
+                        let climb = 1u128
+                            << crate::game_logic::host_enum_table_residual::climbing_model_bit();
                         let rappel = 1u128
                             << crate::game_logic::host_enum_table_residual::rappelling_model_bit();
                         if obj.moving_backwards {
@@ -1061,8 +1044,7 @@ impl GameLogic {
                             let last = *obj.movement.path.last().unwrap();
                             let plant_ok =
                                 z_motive || horiz(current_pos, last) <= close_enough_sanity;
-                            if obj.host_locomotor_distance_to_goal(current_pos, last)
-                                < close_enough
+                            if obj.host_locomotor_distance_to_goal(current_pos, last) < close_enough
                                 && plant_ok
                             {
                                 obj.movement.current_path_index += 1;
@@ -1095,7 +1077,11 @@ impl GameLogic {
                                         if crate_leg {
                                             obj.requested_victim_id = None;
                                         }
-                                        let resume = if crate_leg { obj.requested_destination } else { None };
+                                        let resume = if crate_leg {
+                                            obj.requested_destination
+                                        } else {
+                                            None
+                                        };
                                         if let Some(dest) = resume {
                                             obj.movement.target_position = Some(dest);
                                             obj.set_status_moving(true);
@@ -1186,11 +1172,13 @@ impl GameLogic {
                             obj.maintain_pos_valid = false;
                             let mut desired_angle = (-direction.z).atan2(direction.x);
                             // C++ legs wander (Locomotor.cpp:1618). Climb never does.
-                            let wander_enabled = !matches!(
-                                obj.loco_appearance,
-                                LocomotorAppearance::Climber
-                            ) && (obj.wander_width_factor != 0.0
-                                || matches!(obj.loco_appearance, LocomotorAppearance::LegsTwo));
+                            let wander_enabled =
+                                !matches!(obj.loco_appearance, LocomotorAppearance::Climber)
+                                    && (obj.wander_width_factor != 0.0
+                                        || matches!(
+                                            obj.loco_appearance,
+                                            LocomotorAppearance::LegsTwo
+                                        ));
                             if wander_enabled {
                                 let actual = obj.movement.velocity.length();
                                 desired_angle += obj.tick_wander_angle_offset(actual);
@@ -1221,7 +1209,9 @@ impl GameLogic {
                                     & gamelogic::ai::pathfind_complete::SURFACE_AIR)
                                     != 0;
                                 if air
-                                    && Object::height_treats_as_airborne(current_pos.y - ground_y - deck_drop)
+                                    && Object::height_treats_as_airborne(
+                                        current_pos.y - ground_y - deck_drop,
+                                    )
                                 {
                                     loco_blocked = false;
                                 }
@@ -1245,8 +1235,7 @@ impl GameLogic {
                                         flat_target,
                                         obj.effective_turn_rate() * dt,
                                     );
-                                    if turning == crate::game_logic::PhysicsTurningType::TurnNone
-                                    {
+                                    if turning == crate::game_logic::PhysicsTurningType::TurnNone {
                                         blocked_out = false;
                                         if obj.num_frames_blocked > 1 {
                                             obj.num_frames_blocked = 1;
@@ -1303,7 +1292,10 @@ impl GameLogic {
                                         [obj.movement.current_path_index.saturating_sub(1)..],
                                 )
                             };
-                            let airborne = !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(obj);
+                            let airborne =
+                                !crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(
+                                    obj,
+                                );
                             let mut on_path_dist = if obj.host_uses_close_enough_dist_3d() {
                                 // Leftover unused `get_locomotor_distance_to_goal`
                                 // FROM_CENTER_3D to last node (AIUpdate.cpp:2448-2456).
@@ -1416,19 +1408,23 @@ impl GameLogic {
                                             let _ =
                                                 obj.loco_maintain_current_position(surface_y, dt);
                                         } else {
-                                            plant_goal =
-                                                obj.movement.path.last().copied();
+                                            plant_goal = obj.movement.path.last().copied();
                                             if matches!(obj.ai_state, AIState::AttackMoving) {
                                                 obj.movement.path.clear();
                                                 obj.movement.current_path_index = 0;
                                                 obj.movement.target_position = None;
-                                                let crate_leg = obj.requested_victim_id.is_some_and(|id| {
-                                                    self.host_money_crates.get(id).is_some()
-                                                });
+                                                let crate_leg =
+                                                    obj.requested_victim_id.is_some_and(|id| {
+                                                        self.host_money_crates.get(id).is_some()
+                                                    });
                                                 if crate_leg {
                                                     obj.requested_victim_id = None;
                                                 }
-                                                let resume = if crate_leg { obj.requested_destination } else { None };
+                                                let resume = if crate_leg {
+                                                    obj.requested_destination
+                                                } else {
+                                                    None
+                                                };
                                                 if let Some(dest) = resume {
                                                     obj.movement.target_position = Some(dest);
                                                     obj.set_status_moving(true);
@@ -1578,7 +1574,12 @@ impl GameLogic {
                                     obj.effective_turn_rate() / frames,
                                     |pos| {
                                         let host = Vec3::new(pos.x, pos.z, -pos.y);
-                                        valid_movement_terrain_at(grid, surfaces, host, obj.pathfind_layer)
+                                        valid_movement_terrain_at(
+                                            grid,
+                                            surfaces,
+                                            host,
+                                            obj.pathfind_layer,
+                                        )
                                     },
                                 ) {
                                     // C++ rotateTowardsPosition (full maxTurnRate,
@@ -1754,8 +1755,7 @@ impl GameLogic {
                                 // C++ PhysicsUpdate.cpp:649 after setStatus. One step.
                                 let posed = obj.get_position();
                                 let projectile = obj.is_kind_of(KindOf::Projectile)
-                                    || obj.object_type
-                                        == crate::game_logic::ObjectType::Projectile;
+                                    || obj.object_type == crate::game_logic::ObjectType::Projectile;
                                 let stepped = if obj.is_braking && projectile {
                                     posed
                                 } else if obj.is_braking {
@@ -1798,19 +1798,23 @@ impl GameLogic {
                                         obj.ignored_obstacle_id = None;
                                         obj.set_locomotor_goal_none();
                                     } else {
-                                        plant_goal =
-                                            obj.movement.path.last().copied();
+                                        plant_goal = obj.movement.path.last().copied();
                                         if matches!(obj.ai_state, AIState::AttackMoving) {
                                             obj.movement.path.clear();
                                             obj.movement.current_path_index = 0;
                                             obj.movement.target_position = None;
-                                            let crate_leg = obj.requested_victim_id.is_some_and(|id| {
-                                                self.host_money_crates.get(id).is_some()
-                                            });
+                                            let crate_leg =
+                                                obj.requested_victim_id.is_some_and(|id| {
+                                                    self.host_money_crates.get(id).is_some()
+                                                });
                                             if crate_leg {
                                                 obj.requested_victim_id = None;
                                             }
-                                            let resume = if crate_leg { obj.requested_destination } else { None };
+                                            let resume = if crate_leg {
+                                                obj.requested_destination
+                                            } else {
+                                                None
+                                            };
                                             if let Some(dest) = resume {
                                                 obj.movement.target_position = Some(dest);
                                                 obj.set_status_moving(true);
@@ -1836,12 +1840,13 @@ impl GameLogic {
                                     // top-of-loop; reaching the lead's vicinity
                                     // counts as at least the current node.
                                     let reached_pos = obj.get_position();
-                                    obj.movement.current_path_index = Self::advance_path_index_by_projection(
-                                        &obj.movement.path,
-                                        obj.movement.current_path_index,
-                                        reached_pos,
-                                    )
-                                    .max(obj.movement.current_path_index + 1);
+                                    obj.movement.current_path_index =
+                                        Self::advance_path_index_by_projection(
+                                            &obj.movement.path,
+                                            obj.movement.current_path_index,
+                                            reached_pos,
+                                        )
+                                        .max(obj.movement.current_path_index + 1);
                                     obj.refresh_follow_path_extra_distance();
                                     let mut next =
                                         obj.movement.path[obj.movement.current_path_index];
@@ -1908,7 +1913,11 @@ impl GameLogic {
                                         if crate_leg {
                                             obj.requested_victim_id = None;
                                         }
-                                        let resume = if crate_leg { obj.requested_destination } else { None };
+                                        let resume = if crate_leg {
+                                            obj.requested_destination
+                                        } else {
+                                            None
+                                        };
                                         if let Some(dest) = resume {
                                             obj.movement.target_position = Some(dest);
                                             obj.set_status_moving(true);
@@ -1930,7 +1939,6 @@ impl GameLogic {
                                     }
                                 }
                             }
-
                         }
                     } else {
                         leftover_settle_final_position_on_object(obj);
@@ -2077,9 +2085,10 @@ impl GameLogic {
         }) else {
             return;
         };
-        let new_cell = self.pathfinding_system.grid.update_ground_goal_cell(
-            uid, player, radius, false, old, last,
-        );
+        let new_cell = self
+            .pathfinding_system
+            .grid
+            .update_ground_goal_cell(uid, player, radius, false, old, last);
         if let Some(unit) = self.objects.get_mut(&unit_id) {
             unit.pathfind_goal_cell = new_cell;
         }
@@ -2110,7 +2119,6 @@ impl GameLogic {
         unit.set_status_moving(true);
         adjusts
     }
-
 
     pub(crate) fn apply_arrival_goal_snap(&mut self, id: ObjectId, goal: Option<Vec3>) {
         let _ = goal;
@@ -2157,13 +2165,17 @@ impl GameLogic {
             obj.do_final_position = false;
         }
         let new_cell = self.pathfinding_system.grid.update_ground_goal_cell(
-            uid, player, selection_radius, immobile, stored, final_pos,
+            uid,
+            player,
+            selection_radius,
+            immobile,
+            stored,
+            final_pos,
         );
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.pathfind_goal_cell = new_cell;
         }
     }
-
 
     /// C++ `applyMotiveForce(0)` at locoUpdate_moveTowardsPosition entry.
     /// Host collide/friction need the motive window even when GW owns pose.
@@ -2243,8 +2255,8 @@ impl GameLogic {
             // swaps STUNNED_FLAILING for STUNNED.
             if obj.shock_stun_frames > 0 {
                 obj.shock_grounded_once = true;
-                obj.model_condition_bits &=
-                    !(1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_STUNNED_FLAILING);
+                obj.model_condition_bits &= !(1u128
+                    << crate::game_logic::host_enum_table_residual::MC_BIT_STUNNED_FLAILING);
                 obj.model_condition_bits |=
                     1u128 << crate::game_logic::host_enum_table_residual::MC_BIT_STUNNED;
             }
@@ -2318,7 +2330,6 @@ impl GameLogic {
             &mut self.objects,
             self.frame,
             Some(&self.players),
-            Some(&self.team_factory),
         );
         self.execute_pending_weapon_fire_ocls();
     }
@@ -2332,6 +2343,7 @@ impl GameLogic {
             Some(&mut self.countermeasures),
             self.frame,
             Some(&self.players),
+            Some(&self.team_factory),
         );
         self.flush_projectile_impact_fx();
         hits
@@ -2343,8 +2355,7 @@ fn adjusts_destination_now(obj: &crate::game_logic::Object) -> bool {
         return false;
     }
     let landed_chinook = obj.chinook_ai.as_ref().is_some_and(|ai| {
-        ai.flight_status
-            == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
+        ai.flight_status == crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
     });
     !landed_chinook
         && !(obj.chinook_ai.is_some() && obj.allow_invalid_position)
@@ -3083,7 +3094,10 @@ mod tests {
             logic.update_movement_for_test(&[ObjectId(9511)], 1.0 / 30.0);
         }
         let obj = logic.objects.get(&ObjectId(9511)).expect("truck");
-        let cell = logic.pathfinding_system.grid.world_to_grid(obj.get_position());
+        let cell = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(obj.get_position());
         assert!(
             cell.x >= 2,
             "unstunned vehicle should enter the higher cells, cell={cell:?} pos={:?}",
@@ -3124,7 +3138,9 @@ mod tests {
 
     #[test]
     fn airborne_freefall_is_disabled_without_parachuting() {
-        use crate::game_logic::host_enum_table_residual::{MC_BIT_FREEFALL, host_model_condition_has};
+        use crate::game_logic::host_enum_table_residual::{
+            MC_BIT_FREEFALL, host_model_condition_has,
+        };
         let mut logic = GameLogic::new();
         let mut wreck_t = ThingTemplate::new("Wreck");
         wreck_t.add_kind_of(KindOf::Vehicle);
@@ -3147,7 +3163,10 @@ mod tests {
         logic.update_movement_for_test(&[ObjectId(9513), ObjectId(9514)], 1.0 / 30.0);
         let wreck = logic.objects.get(&ObjectId(9513)).expect("wreck");
         assert!(wreck.status.disabled_freefall);
-        assert!(host_model_condition_has(wreck.model_condition_bits, MC_BIT_FREEFALL));
+        assert!(host_model_condition_has(
+            wreck.model_condition_bits,
+            MC_BIT_FREEFALL
+        ));
         assert!(wreck.get_position().y > 1.0);
         let chute = logic.objects.get(&ObjectId(9514)).expect("chute");
         assert!(
@@ -3211,7 +3230,6 @@ mod tests {
         assert!(!obj.pending_ground_collide);
         assert!((obj.health.current - 200.0).abs() < 0.01);
     }
-
 
     #[test]
     fn march_applies_locomotor_physics_options() {
@@ -3488,8 +3506,7 @@ mod tests {
                 logic.pathfinding_system.grid.grid_size(),
             )
         };
-        let (_, center) =
-            crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
+        let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
         let cell = logic
             .pathfinding_system
             .grid
@@ -3754,7 +3771,13 @@ mod tests {
             jet.is_blocked_and_stuck = true;
         }
         let stamp = logic.objects.get(&jet_id).expect("jet").path_timestamp;
-        let kept = logic.objects.get(&jet_id).expect("jet").movement.path.clone();
+        let kept = logic
+            .objects
+            .get(&jet_id)
+            .expect("jet")
+            .movement
+            .path
+            .clone();
         assert!(logic.assign_unit_path(jet_id, jet_dest, &[]));
         let jet = logic.objects.get(&jet_id).expect("jet");
         assert_eq!(jet.movement.current_path_index, 1);
@@ -3832,8 +3855,6 @@ mod tests {
             assert_eq!(unit.locomotor_goal_angle, 1.5);
         }
     }
-
-
 
     #[test]
     fn stuck_failed_search_snaps_and_waits_one_second() {
@@ -3939,11 +3960,9 @@ mod tests {
         here.num_frames_blocked = 4;
         here.is_blocked_and_stuck = true;
         logic.objects.insert(ObjectId(9713), here);
-        assert!(!logic.assign_unit_path_for_test(
-            ObjectId(9713),
-            Vec3::new(10.05, 0.0, 10.0),
-            &[],
-        ));
+        assert!(
+            !logic.assign_unit_path_for_test(ObjectId(9713), Vec3::new(10.05, 0.0, 10.0), &[],)
+        );
         let here = logic.objects.get(&ObjectId(9713)).expect("here");
         assert_eq!(here.movement.path, kept);
         assert!(!here.do_final_position);
@@ -3968,7 +3987,9 @@ mod tests {
 
     #[test]
     fn unpinched_pathfinder_cliff_sets_climb_or_rappel() {
-        use crate::game_logic::host_enum_table_residual::{climbing_model_bit, rappelling_model_bit};
+        use crate::game_logic::host_enum_table_residual::{
+            climbing_model_bit, rappelling_model_bit,
+        };
         let mut unit = Object::new(ThingTemplate::new("Infantry"), ObjectId(9721), Team::USA);
         unit.cell_is_cliff = true;
         unit.stamp_internal_move_cliff_model(true);
@@ -4001,7 +4022,6 @@ mod tests {
         let goal = Vec3::new(80.0, 30.0, 40.0);
         unit.requested_destination = Some(goal);
         unit.path_timestamp = 100;
-
 
         logic.objects.insert(id, unit);
         logic.frame = 50;
@@ -4079,7 +4099,14 @@ mod tests {
         logic.frame = 5;
         logic.update_movement(&[id], 1.0 / 30.0);
         assert_eq!(
-            logic.objects.get(&id).unwrap().movement.path.last().copied(),
+            logic
+                .objects
+                .get(&id)
+                .unwrap()
+                .movement
+                .path
+                .last()
+                .copied(),
             Some(old)
         );
         logic.frame = 20;
@@ -4112,7 +4139,11 @@ mod tests {
         logic.objects.insert(ObjectId(9726), keep);
         logic.update_movement(&[ObjectId(9726)], 1.0 / 30.0);
         assert_eq!(
-            logic.objects.get(&ObjectId(9726)).unwrap().locomotor_goal_type,
+            logic
+                .objects
+                .get(&ObjectId(9726))
+                .unwrap()
+                .locomotor_goal_type,
             crate::game_logic::object::LocoGoalType::PositionExplicit
         );
         let mut clear_tmpl = ThingTemplate::new("Ranger");
@@ -4128,7 +4159,11 @@ mod tests {
         logic.objects.insert(ObjectId(9727), clear);
         logic.update_movement(&[ObjectId(9727)], 1.0 / 30.0);
         assert_eq!(
-            logic.objects.get(&ObjectId(9727)).unwrap().locomotor_goal_type,
+            logic
+                .objects
+                .get(&ObjectId(9727))
+                .unwrap()
+                .locomotor_goal_type,
             crate::game_logic::object::LocoGoalType::None
         );
     }
@@ -4173,14 +4208,14 @@ mod tests {
         logic.objects.insert(ObjectId(9729), clear);
         logic.update_movement(&[ObjectId(9729)], 1.0 / 30.0);
         assert_eq!(
-            logic.objects.get(&ObjectId(9729)).unwrap().locomotor_goal_type,
+            logic
+                .objects
+                .get(&ObjectId(9729))
+                .unwrap()
+                .locomotor_goal_type,
             crate::game_logic::object::LocoGoalType::PositionExplicit
         );
     }
-
-
-
-
 
     #[test]
     fn entering_move_clears_blocked_frames() {
@@ -4200,7 +4235,6 @@ mod tests {
         );
         assert!(unit.is_blocked_and_stuck);
     }
-
 
     #[test]
     fn fast_attack_approach_and_safe_repath_wait_two_seconds() {
@@ -4329,20 +4363,21 @@ mod tests {
         if let Some(t) = logic.objects.get_mut(&threat) {
             t.set_position(Vec3::ZERO);
         }
-        let _ = logic
-            .pathfinding_system
-            .queue_path(crate::game_logic::pathfinding::PendingHostPath {
-                unit_id: id,
-                start: Vec3::new(10.0, 0.0, 0.0),
-                destination: Vec3::new(40.0, 0.0, 0.0),
-                waypoints: Vec::new(),
-                aircraft: false,
-                surfaces: 0,
-                is_crusher: false,
-                ignore_obstacle: None,
-                adjust_destinations: true,
-                restore_adjust_on_install: false,
-            });
+        let _ =
+            logic
+                .pathfinding_system
+                .queue_path(crate::game_logic::pathfinding::PendingHostPath {
+                    unit_id: id,
+                    start: Vec3::new(10.0, 0.0, 0.0),
+                    destination: Vec3::new(40.0, 0.0, 0.0),
+                    waypoints: Vec::new(),
+                    aircraft: false,
+                    surfaces: 0,
+                    is_crusher: false,
+                    ignore_obstacle: None,
+                    adjust_destinations: true,
+                    restore_adjust_on_install: false,
+                });
         logic.process_pathfind_queue();
         let obj = logic.objects.get(&id).expect("ranger");
         assert!(!obj.waiting_for_path);
@@ -4383,23 +4418,27 @@ mod tests {
         unit.movement.path = vec![Vec3::new(999.0, 0.0, 999.0)];
         unit.set_position(Vec3::new(0.0, 20.0, 0.0));
         logic.objects.insert(id, unit);
-        let _ = logic
-            .pathfinding_system
-            .queue_path(crate::game_logic::pathfinding::PendingHostPath {
-                unit_id: id,
-                start: Vec3::new(0.0, 20.0, 0.0),
-                destination: Vec3::new(80.0, 20.0, 0.0),
-                waypoints: Vec::new(),
-                aircraft: true,
-                surfaces: 0,
-                is_crusher: false,
-                ignore_obstacle: None,
-                adjust_destinations: true,
-                restore_adjust_on_install: false,
-            });
+        let _ =
+            logic
+                .pathfinding_system
+                .queue_path(crate::game_logic::pathfinding::PendingHostPath {
+                    unit_id: id,
+                    start: Vec3::new(0.0, 20.0, 0.0),
+                    destination: Vec3::new(80.0, 20.0, 0.0),
+                    waypoints: Vec::new(),
+                    aircraft: true,
+                    surfaces: 0,
+                    is_crusher: false,
+                    ignore_obstacle: None,
+                    adjust_destinations: true,
+                    restore_adjust_on_install: false,
+                });
         logic.process_pathfind_queue();
         let obj = logic.objects.get(&id).expect("jet");
-        assert!(!obj.is_approach_path, "an airborne approach is not findClosestPath");
+        assert!(
+            !obj.is_approach_path,
+            "an airborne approach is not findClosestPath"
+        );
         assert!(
             !obj.movement.path.is_empty(),
             "airborne falls through to computePath"
@@ -4411,19 +4450,6 @@ mod tests {
             "the normal path install replaced the old path"
         );
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     #[test]
     fn blocked_speed_cap_resets_after_the_move() {
@@ -4470,7 +4496,6 @@ mod tests {
             "DISABLED_EMP must not run the turret"
         );
     }
-
 
     #[test]
     fn no_goal_tread_maintains_and_clears_braking() {
@@ -4521,7 +4546,6 @@ mod tests {
             obj.num_frames_blocked
         );
     }
-
 
     #[test]
     fn blocked_rotator_still_accumulates_frames() {
@@ -5496,7 +5520,10 @@ mod tests {
             (pos.x - stop.x).abs() < 1.0e-3 && (pos.z - stop.z).abs() < 1.0e-3,
             "setFinalPosition must not teleport the unit, pos={pos:?}"
         );
-        assert!(!obj.do_final_position, "setFinalPosition stores the point and leaves the slide off");
+        assert!(
+            !obj.do_final_position,
+            "setFinalPosition stores the point and leaves the slide off"
+        );
         assert_eq!(obj.final_position, goal);
     }
     #[test]
@@ -6273,7 +6300,10 @@ mod tests {
         logic.objects.insert(id, unit);
         // Seal the goal node's column: patchPath's reverse walk stops at the
         // first blocked suffix node and returns None before any A* splice.
-        let start_cell = logic.pathfinding_system.grid.world_to_grid(Vec3::new(5.0, 0.0, 5.0));
+        let start_cell = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(5.0, 0.0, 5.0));
         seal_column(&mut logic, start_cell.x + 9);
 
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
@@ -6290,7 +6320,10 @@ mod tests {
         assert_eq!(obj.locomotor_goal_type, LocoGoalType::None);
         assert!(!obj.is_blocked && !obj.is_blocked_and_stuck);
         assert_eq!(obj.num_frames_blocked, 0);
-        assert!(!obj.do_final_position, "concede setFinalPosition leaves the slide off");
+        assert!(
+            !obj.do_final_position,
+            "concede setFinalPosition leaves the slide off"
+        );
         assert!(
             obj.final_position.x.is_finite() && obj.final_position.z.is_finite(),
             "final position must be a snapped cell"
@@ -6364,12 +6397,18 @@ mod tests {
         logic.objects.insert(id, unit);
         // Goal-node column seal: patchPath's reverse walk hits the blocked
         // suffix node and returns None before any A* splice.
-        let start_cell = logic.pathfinding_system.grid.world_to_grid(Vec3::new(5.0, 0.0, 5.0));
+        let start_cell = logic
+            .pathfinding_system
+            .grid
+            .world_to_grid(Vec3::new(5.0, 0.0, 5.0));
         seal_column(&mut logic, start_cell.x + 9);
 
         logic.update_movement_for_test(&[id], 1.0 / 30.0);
         let obj = logic.objects.get(&id).expect("unit");
-        assert!(obj.movement.path.is_empty(), "slow-blocked unit still concedes");
+        assert!(
+            obj.movement.path.is_empty(),
+            "slow-blocked unit still concedes"
+        );
         assert_eq!(obj.queue_for_path_frames, 30);
         assert!(
             !obj.can_path_through_units,

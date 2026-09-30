@@ -847,10 +847,7 @@ fn host_flag_window(flag_frame: u32, now: u32) -> bool {
 impl HostTriggerWorld {
     /// Install map-authored trigger geometry for this world. The caller owns
     /// map-load ordering; no terrain singleton lookup is performed here.
-    pub fn set_trigger_areas(
-        &mut self,
-        triggers: &[crate::polygon_trigger::PolygonTrigger],
-    ) {
+    pub fn set_trigger_areas(&mut self, triggers: &[crate::polygon_trigger::PolygonTrigger]) {
         self.triggers.clear();
         self.triggers.extend_from_slice(triggers);
         self.geometry_installed = true;
@@ -1135,11 +1132,7 @@ pub fn sync_host_trigger_flags_from_snapshot(world: &mut HostTriggerWorld, frame
     }
 }
 
-pub fn host_object_did_enter_or_exit(
-    world: &HostTriggerWorld,
-    object_id: u32,
-    now: u32,
-) -> bool {
+pub fn host_object_did_enter_or_exit(world: &HostTriggerWorld, object_id: u32, now: u32) -> bool {
     world.did_enter_or_exit(object_id, now)
 }
 
@@ -1937,11 +1930,7 @@ fn host_command_identity_token(name: &str) -> String {
         .to_ascii_lowercase()
 }
 
-pub fn host_team_did_enter_or_exit(
-    world: &HostTriggerWorld,
-    team_name: &str,
-    now: u32,
-) -> bool {
+pub fn host_team_did_enter_or_exit(world: &HostTriggerWorld, team_name: &str, now: u32) -> bool {
     world.team_did_enter_or_exit(team_name, now)
 }
 

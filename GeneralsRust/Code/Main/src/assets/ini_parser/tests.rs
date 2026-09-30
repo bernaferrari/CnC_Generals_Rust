@@ -76,9 +76,14 @@ fn locomotor_rows_accept_all_source_set_tokens_and_reject_unknown() {
         .expect_err("missing source locomotor set must fail");
     assert!(error.to_string().contains("missing Locomotor set token"));
 
-    let duplicate = "Object Loco\n Locomotor = SET_NORMAL Ground\n Locomotor = SET_NORMAL Wheels\nEnd\n";
+    let duplicate =
+        "Object Loco\n Locomotor = SET_NORMAL Ground\n Locomotor = SET_NORMAL Wheels\nEnd\n";
     let mut parser = IniParser::new();
-    assert!(parser.parse_ini_content(duplicate, "duplicate.ini").is_err());
+    assert!(
+        parser
+            .parse_ini_content(duplicate, "duplicate.ini")
+            .is_err()
+    );
     let mut parser = IniParser::new();
     parser
         .parse_ini_content_with_overrides(duplicate, "duplicate_override.ini", true)
@@ -498,7 +503,6 @@ End
     assert!(authored_draw_adjusts_height_by_construction(&dest));
 }
 
-
 #[test]
 fn live_draw_playback_isolated_between_game_instances_with_equal_object_ids() {
     use crate::assets::{LiveDrawPlayback, LiveDrawPlaybackKey};
@@ -535,9 +539,10 @@ End
     // The two independent worlds intentionally allocate the same numeric id.
     let make_world = || {
         let mut world = GameLogic::new();
-        world
-            .templates
-            .insert("TransitionPlayProbe".into(), ThingTemplate::new("TransitionPlayProbe"));
+        world.templates.insert(
+            "TransitionPlayProbe".into(),
+            ThingTemplate::new("TransitionPlayProbe"),
+        );
         let id = world
             .create_object("TransitionPlayProbe", Team::USA, glam::Vec3::ZERO)
             .expect("fixture object");
@@ -551,33 +556,41 @@ End
     // only immutable, Send-safe world/object identities.
     let mut playback = HashMap::<LiveDrawPlaybackKey, LiveDrawPlayback>::new();
     let identity_for = |world: &GameLogic, id| {
-        let generation = world.objects.get(&id).expect("fixture object").visual_object_generation;
-        world.live_draw_playback_identity(id, generation)
+        let object = world.objects.get(&id).expect("fixture object");
+        world.live_draw_playback_identity(object)
     };
     let identity_a = identity_for(&world_a, id_a);
     let identity_b = identity_for(&world_b, id_b);
 
-    let standing = definition.select_draw_models_for_conditions(0).expect("standing destination");
-    let selected_a = definition.apply_live_draw_transition_playback(&mut playback, &identity_a, standing);
+    let standing = definition
+        .select_draw_models_for_conditions(0)
+        .expect("standing destination");
+    let selected_a =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_a, standing);
     assert_eq!(selected_a[0].model_key, "ProbeIdle");
     assert!(!selected_a[0].is_transition);
     let moving_a = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("moving destination");
-    let selected_a = definition.apply_live_draw_transition_playback(&mut playback, &identity_a, moving_a);
+    let selected_a =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_a, moving_a);
     assert_eq!(selected_a[0].model_key, "ProbeStandToMove");
     assert!(selected_a[0].is_transition);
     let completion_a = identity_a.completion_target(selected_a[0].module_index);
     assert_eq!(completion_a.object_id(), id_a.0);
     assert_eq!(completion_a.world_epoch(), identity_a.world_epoch());
-    assert_eq!(completion_a.object_generation(), identity_a.object_generation());
+    assert_eq!(
+        completion_a.object_generation(),
+        identity_a.object_generation()
+    );
 
     // B's first selected state has no prior B state, so A's standing state
     // cannot trigger the authored transition despite the shared ObjectId.
     let moving_b = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("moving destination");
-    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    let selected_b =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
     assert_eq!(selected_b[0].model_key, "ProbeMove");
     assert!(!selected_b[0].is_transition);
 
@@ -589,33 +602,51 @@ End
     let moving_b = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("B moving destination");
-    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    let selected_b =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
     assert_eq!(selected_b[0].model_key, "ProbeMove");
     assert!(!selected_b[0].is_transition);
     let moving_a = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("A moving destination");
-    let selected_a = definition.apply_live_draw_transition_playback(&mut playback, &identity_a, moving_a);
+    let selected_a =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_a, moving_a);
     assert_eq!(selected_a[0].model_key, "ProbeMove");
     assert!(!selected_a[0].is_transition);
 
     // World reset advances only A's identity epoch. B's active transition
     // remains pending, and an old A completion cannot mutate a new A identity.
-    let standing_b = definition.select_draw_models_for_conditions(0).expect("B standing destination");
+    let standing_b = definition
+        .select_draw_models_for_conditions(0)
+        .expect("B standing destination");
     let _ = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, standing_b);
     let moving_b = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("B moving destination");
-    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    let selected_b =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
     assert!(selected_b[0].is_transition);
     let completion_b = identity_b.completion_target(selected_b[0].module_index);
     world_a.reset();
     let moving_b = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("B moving destination after other-world reset");
-    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    let selected_b =
+        definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
     assert!(selected_b[0].is_transition);
     assert!(playback.contains_key(&completion_b.playback_key()));
+    let old_a_key = identity_a.playback_key(0);
+    drop(identity_a);
+    drop(completion_a);
+    playback.retain(|key, _| key.is_alive());
+    assert!(
+        !playback.contains_key(&old_a_key),
+        "reset retires A after frozen owners drop"
+    );
+    assert!(
+        playback.contains_key(&completion_b.playback_key()),
+        "A reset preserves B"
+    );
 
     // Re-admitting B's same numeric id assigns a new generation. A late
     // completion for the retired identity cannot finish the replacement.
@@ -624,11 +655,8 @@ End
         .get(&id_b)
         .expect("world B object")
         .visual_object_generation;
-    let replacement = crate::game_logic::Object::new(
-        ThingTemplate::new("TransitionPlayProbe"),
-        id_b,
-        Team::USA,
-    );
+    let replacement =
+        crate::game_logic::Object::new(ThingTemplate::new("TransitionPlayProbe"), id_b, Team::USA);
     world_b.admit_host_object(replacement);
     let new_identity = identity_for(&world_b, id_b);
     assert_ne!(old_generation, new_identity.object_generation());
@@ -636,13 +664,26 @@ End
         .get_mut(&completion_b.playback_key())
         .expect("old B transition state")
         .animation_complete = true;
-    let standing_b = definition.select_draw_models_for_conditions(0).expect("replacement standing destination");
-    let _ = definition.apply_live_draw_transition_playback(&mut playback, &new_identity, standing_b);
+    let standing_b = definition
+        .select_draw_models_for_conditions(0)
+        .expect("replacement standing destination");
+    let _ =
+        definition.apply_live_draw_transition_playback(&mut playback, &new_identity, standing_b);
     let moving_b = definition
         .select_draw_models_for_conditions(model_condition_bit("MOVING"))
         .expect("replacement moving destination");
-    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &new_identity, moving_b);
+    let selected_b =
+        definition.apply_live_draw_transition_playback(&mut playback, &new_identity, moving_b);
     assert!(selected_b[0].is_transition);
+    let old_b_key = completion_b.playback_key();
+    drop(identity_b);
+    drop(completion_b);
+    playback.retain(|key, _| key.is_alive());
+    assert!(
+        !playback.contains_key(&old_b_key),
+        "replacement retires the prior B generation"
+    );
+    assert!(playback.contains_key(&new_identity.playback_key(0)));
 
     assert!(world_a.objects.is_empty(), "reset clears only world A");
     assert_eq!(world_b.objects.len(), 1);

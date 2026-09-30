@@ -35,7 +35,9 @@ fn renderability_matches_visibility_contract() {
 
 #[test]
 fn force_visibility_update_is_safe_to_call() {
-    FOWRenderingBridge::force_visibility_update(&mut gamelogic::system::shroud_manager::ShroudManager::new());
+    FOWRenderingBridge::force_visibility_update(
+        &mut gamelogic::system::shroud_manager::ShroudManager::new(),
+    );
     let _ = FOWRenderingBridge::get_object_visibility_with_stealth(None, 0, ObjectId(300));
 }
 

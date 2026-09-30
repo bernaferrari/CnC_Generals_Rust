@@ -2220,7 +2220,15 @@ impl CnCGameEngine {
                 // Fail-closed id-only residual.
                 info!("Player {} has been defeated", player_id);
             }
-            fow_rendering::reveal_entire_map_for_player(&mut self.game_logic.engine_stores.shroud().lock().unwrap_or_else(|e| e.into_inner()), player_id);
+            fow_rendering::reveal_entire_map_for_player(
+                &mut self
+                    .game_logic
+                    .engine_stores
+                    .shroud()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner()),
+                player_id,
+            );
             script_events::push_event(ScriptEvent::PlayerDefeated { player_id });
             script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
             // C++ VictoryConditions.cpp:201-214 — first local defeat
@@ -2291,7 +2299,15 @@ impl CnCGameEngine {
             }
 
             if matches!(event.state, AllianceState::AlliedDefeat) {
-                fow_rendering::reveal_entire_map_for_player(&mut self.game_logic.engine_stores.shroud().lock().unwrap_or_else(|e| e.into_inner()), event.player_id);
+                fow_rendering::reveal_entire_map_for_player(
+                    &mut self
+                        .game_logic
+                        .engine_stores
+                        .shroud()
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner()),
+                    event.player_id,
+                );
                 script_events::push_event(ScriptEvent::RevealMapForPlayer {
                     player_id: event.player_id,
                 });

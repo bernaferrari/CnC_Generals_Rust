@@ -21,10 +21,10 @@ impl ScriptEvaluator {
 
         if dual_world_registry_unavailable() {
             // C++ evaluateNamedInsideArea: getUnitNamed + pointInTrigger. No dead/inert filter.
-            return Ok(
-                crate::scripting::host_script_named_unit_in_named_area(unit_name, area_name)
-                    .unwrap_or(false),
-            );
+            return Ok(crate::scripting::host_script_named_unit_in_named_area(
+                unit_name, area_name,
+            )
+            .unwrap_or(false));
         }
 
         let trigger = match self.get_trigger_area(area_name) {
@@ -85,19 +85,21 @@ impl ScriptEvaluator {
         };
 
         if dual_world_registry_unavailable() {
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::conditions::host_team_some_inside_some_outside(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                ) || crate::scripting::conditions::host_team_all_inside(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::conditions::host_team_some_inside_some_outside(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                    ) || crate::scripting::conditions::host_team_all_inside(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                    )
+                })
+                .unwrap_or(false));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {
@@ -145,14 +147,16 @@ impl ScriptEvaluator {
         };
 
         if dual_world_registry_unavailable() {
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::conditions::host_team_all_inside(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::conditions::host_team_all_inside(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                    )
+                })
+                .unwrap_or(false));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {
@@ -173,8 +177,10 @@ impl ScriptEvaluator {
         condition: &Condition,
     ) -> GameLogicResult<bool> {
         // C++ evaluateTeamOutsideAreaEntirely = !(entirely || partially).
-        Ok(!(self.evaluate_team_inside_area_entirely_condition(condition)?
-            || self.evaluate_team_inside_area_partially_condition(condition)?))
+        Ok(
+            !(self.evaluate_team_inside_area_entirely_condition(condition)?
+                || self.evaluate_team_inside_area_partially_condition(condition)?),
+        )
     }
 
     fn evaluate_named_entered_area_condition(
@@ -201,14 +207,16 @@ impl ScriptEvaluator {
             let Some(object_id) = crate::scripting::host_script_named_unit_id(unit_name) else {
                 return Ok(false);
             };
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::host_object_did_enter(
-                    world,
-                    object_id,
-                    &trigger,
-                    world.current_frame(),
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::host_object_did_enter(
+                        world,
+                        object_id,
+                        &trigger,
+                        world.current_frame(),
+                    )
+                })
+                .unwrap_or(false));
         }
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
@@ -245,14 +253,16 @@ impl ScriptEvaluator {
             let Some(object_id) = crate::scripting::host_script_named_unit_id(unit_name) else {
                 return Ok(false);
             };
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::host_object_did_exit(
-                    world,
-                    object_id,
-                    &trigger,
-                    world.current_frame(),
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::host_object_did_exit(
+                        world,
+                        object_id,
+                        &trigger,
+                        world.current_frame(),
+                    )
+                })
+                .unwrap_or(false));
         }
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
@@ -290,15 +300,17 @@ impl ScriptEvaluator {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::conditions::host_team_did_all_enter(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                    world.current_frame(),
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::conditions::host_team_did_all_enter(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                        world.current_frame(),
+                    )
+                })
+                .unwrap_or(false));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {
@@ -345,15 +357,17 @@ impl ScriptEvaluator {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::conditions::host_team_did_partial_enter(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                    world.current_frame(),
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::conditions::host_team_did_partial_enter(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                        world.current_frame(),
+                    )
+                })
+                .unwrap_or(false));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {
@@ -396,15 +410,17 @@ impl ScriptEvaluator {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::conditions::host_team_did_all_exit(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                    world.current_frame(),
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::conditions::host_team_did_all_exit(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                        world.current_frame(),
+                    )
+                })
+                .unwrap_or(false));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {
@@ -451,15 +467,17 @@ impl ScriptEvaluator {
             return Ok(false);
         };
         if dual_world_registry_unavailable() {
-            return Ok(self.with_host_trigger_world(|world| {
-                crate::scripting::conditions::host_team_did_partial_exit(
-                    world,
-                    &team_name,
-                    &trigger,
-                    which_to_consider,
-                    world.current_frame(),
-                )
-            }).unwrap_or(false));
+            return Ok(self
+                .with_host_trigger_world(|world| {
+                    crate::scripting::conditions::host_team_did_partial_exit(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                        world.current_frame(),
+                    )
+                })
+                .unwrap_or(false));
         }
 
         for team_arc in self.resolve_team_instances(&team_name) {

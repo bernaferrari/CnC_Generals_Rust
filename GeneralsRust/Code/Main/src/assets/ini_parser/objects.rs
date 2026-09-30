@@ -1,4 +1,5 @@
 use super::*;
+use crate::assets::{LiveDrawPlayback, LiveDrawPlaybackIdentity, LiveDrawPlaybackKey};
 /// Represents a drawable object definition from INI files
 /// Matches C++ ObjectDefinition structure
 #[derive(Debug, Clone)]
@@ -384,7 +385,7 @@ impl ObjectDefinition {
     /// Apply live TransitionState playback using state owned by the caller's
     /// RenderPipeline. The immutable world/object identity prevents equal ids
     /// in concurrent worlds or reused generations from sharing a timeline.
-    pub fn apply_live_draw_transition_playback(
+    pub(crate) fn apply_live_draw_transition_playback(
         &self,
         playback_by_module: &mut HashMap<LiveDrawPlaybackKey, LiveDrawPlayback>,
         identity: &LiveDrawPlaybackIdentity,
@@ -400,11 +401,11 @@ impl ObjectDefinition {
                 playback_by_module
                     .get(&identity.playback_key(model.module_index))
                     .map(|playback| {
-                    (
-                        model.module_index,
-                        playback.current_index,
-                        playback.animation_complete,
-                    )
+                        (
+                            model.module_index,
+                            playback.current_index,
+                            playback.animation_complete,
+                        )
                     })
             })
             .collect();

@@ -685,6 +685,7 @@ impl RenderPipeline {
             let imported = match (&identity.animation, &saved.animation) {
                 (None, None) => {
                     Self::notify_unplayable_transition_complete(
+                        &mut self.live_draw_playback,
                         completion_target,
                         draw_model,
                     );
@@ -803,7 +804,11 @@ impl RenderPipeline {
             state.force_bind_pose = true;
             state.animation = None;
             state.recoil_slots = std::array::from_fn(|_| Vec::new());
-            Self::notify_unplayable_transition_complete(completion_target, draw_model);
+            Self::notify_unplayable_transition_complete(
+                &mut self.live_draw_playback,
+                completion_target,
+                draw_model,
+            );
             return (None, 0.0, Vec::new());
         }
 
@@ -828,20 +833,32 @@ impl RenderPipeline {
                 &draw_model.recoil_kinematics,
                 &discharges,
             );
-            Self::notify_unplayable_transition_complete(completion_target, draw_model);
+            Self::notify_unplayable_transition_complete(
+                &mut self.live_draw_playback,
+                completion_target,
+                draw_model,
+            );
             return (None, 0.0, controls);
         };
         let Some(animation_binding) =
             Self::cached_draw_animation_binding(model, expected.hierarchy_animation.as_str())
         else {
             discard_unvisualizable_discharges(state, &discharges);
-            Self::notify_unplayable_transition_complete(completion_target, draw_model);
+            Self::notify_unplayable_transition_complete(
+                &mut self.live_draw_playback,
+                completion_target,
+                draw_model,
+            );
             return (None, 0.0, Vec::new());
         };
         let Some((num_frames, frame_rate)) = model.animation_binding_metadata(&animation_binding)
         else {
             discard_unvisualizable_discharges(state, &discharges);
-            Self::notify_unplayable_transition_complete(completion_target, draw_model);
+            Self::notify_unplayable_transition_complete(
+                &mut self.live_draw_playback,
+                completion_target,
+                draw_model,
+            );
             return (None, 0.0, Vec::new());
         };
         let animation_binding_key = animation_binding.state_key();

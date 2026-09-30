@@ -3,9 +3,7 @@ use super::*;
 impl Object {
     pub(crate) fn attach_host_trigger_world(
         &mut self,
-        world: &std::sync::Arc<
-            std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
-        >,
+        world: &std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
     ) {
         self.host_trigger_world = std::sync::Arc::downgrade(world);
     }
@@ -40,18 +38,9 @@ impl Object {
                 Some(self.team_instance_name.as_str())
             };
             if let Some(world) = self.host_trigger_world.upgrade() {
-                let mut world = world
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
+                let mut world = world.lock().unwrap_or_else(|e| e.into_inner());
                 let frame = world.current_frame();
-                world.update_object_flags(
-                    self.id.0,
-                    position.x,
-                    position.z,
-                    frame,
-                    skip,
-                    team,
-                );
+                world.update_object_flags(self.id.0, position.x, position.z, frame, skip, team);
             }
         }
     }

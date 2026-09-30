@@ -79,7 +79,8 @@ impl ScriptEngine {
             // C++ ScriptEngine.cpp:5514-5518 appends MSG_CLEAR_GAME_DATA.
             // It does not call TheGameLogic::clearGameData() directly.
             log::info!("End game timer expired, appending MSG_CLEAR_GAME_DATA");
-            if let Ok(mut stream) = game_engine::common::message_stream::get_message_stream().write()
+            if let Ok(mut stream) =
+                game_engine::common::message_stream::get_message_stream().write()
             {
                 stream.append_message(
                     game_engine::common::message_stream::GameMessageType::ClearGameData,
@@ -230,11 +231,9 @@ impl ScriptEngine {
             }
         };
 
-
         for i in 0..Self::MAX_PLAYER_COUNT {
             // Match C++: `m_currentPlayer` is the nth player for the side index.
-            self.lock_inner_mut().current_player =
-                player_names.get(i).cloned().flatten();
+            self.lock_inner_mut().current_player = player_names.get(i).cloned().flatten();
 
             // Every side list remains searchable through the lexical active
             // store while an individual script is detached for dispatch.

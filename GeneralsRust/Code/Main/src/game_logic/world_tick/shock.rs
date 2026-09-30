@@ -744,14 +744,11 @@ impl GameLogic {
                 glam::Vec3::new(target_pos.x + stand, src.y, target_pos.z)
             } else {
                 let scale = stand / center;
-                glam::Vec3::new(
-                    target_pos.x + dx * scale,
-                    src.y,
-                    target_pos.z + dz * scale,
-                )
+                glam::Vec3::new(target_pos.x + dx * scale, src.y, target_pos.z + dz * scale)
             }
         } else {
-            let stand = crate::game_logic::weapon_bootstrap::effective_minimum_attack_range(min_range);
+            let stand =
+                crate::game_logic::weapon_bootstrap::effective_minimum_attack_range(min_range);
             if stand <= 0.0 || center < 1e-3 {
                 glam::Vec3::new(target_pos.x + stand, src.y, target_pos.z)
             } else {
@@ -926,7 +923,9 @@ impl GameLogic {
             .get(&attacker_id)
             .and_then(|attacker| {
                 attacker.selected_weapon_slot().and_then(|slot| {
-                    attacker.weapon_slot(slot).map(|weapon| weapon.can_target_air)
+                    attacker
+                        .weapon_slot(slot)
+                        .map(|weapon| weapon.can_target_air)
                 })
             })
             .unwrap_or(false);
@@ -965,7 +964,8 @@ impl GameLogic {
                     || crate::game_logic::host_deliver_payload::is_off_map_default_residual(
                         obj.get_position(),
                     ) != attacker_off_map
-                    || ((obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target) && !can_air)
+                    || ((obj.is_kind_of(KindOf::Aircraft) || obj.status.airborne_target)
+                        && !can_air)
                 {
                     return None;
                 }

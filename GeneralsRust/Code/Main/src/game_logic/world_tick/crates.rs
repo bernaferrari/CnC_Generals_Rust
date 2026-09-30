@@ -1663,7 +1663,14 @@ impl GameLogic {
         else {
             return false;
         };
-        self.partition_manager.reveal_map_for_player(&mut self.engine_stores.shroud().lock().unwrap_or_else(|e| e.into_inner()), player_id);
+        self.partition_manager.reveal_map_for_player(
+            &mut self
+                .engine_stores
+                .shroud()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+            player_id,
+        );
         true
     }
     pub fn execute_heal_crate_behavior(&mut self, picker_id: ObjectId) -> usize {

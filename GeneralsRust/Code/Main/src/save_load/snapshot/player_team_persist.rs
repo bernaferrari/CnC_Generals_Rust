@@ -1200,8 +1200,13 @@ mod tests {
     use crate::game_logic::{ObjectId, Player, Team};
     use game_engine::common::system::xfer::Xfer as CommonXfer;
 
+    static SNAPSHOT_TEST_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn players_and_team_factory_chunks_round_trip_sciences_relations_and_script_latches() {
+        let _serial = SNAPSHOT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         let mut players = PlayersChunkPersist::default();
         let mut player = PlayerRuntimePersist {
             player_id: 1,
@@ -1327,6 +1332,9 @@ mod tests {
 
     #[test]
     fn stamp_and_apply_restore_live_science_hide_and_team_relation() {
+        let _serial = SNAPSHOT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
         let mut logic = GameLogic::new();
         let mut usa = Player::new(1, Team::USA, "USA", true);
         usa.set_science_availability("SCIENCE_PaladinTank", "Hidden");
@@ -1360,5 +1368,77 @@ mod tests {
         assert!(player.units_should_hunt);
         assert_eq!(player.selected_objects, vec![ObjectId(11), ObjectId(22)]);
         assert!(player.did_preorder);
+    }
+
+    #[test]
+    fn team_factory_snapshot_captures_and_restores_the_world_owned_factory() {
+        let _serial = SNAPSHOT_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let source = GameLogic::new();
+        let mut destination = GameLogic::new();
+
+        for (factory_handle, priority, active) in [
+            (&source.team_factory, 42, true),
+            (&destination.team_factory, 3, false),
+        ] {
+            let mut factory = factory_handle.lock().expect("world team factory");
+            let mut prototype = gamelogic::team::TeamPrototype::new("SnapshotTeam".into());
+            prototype.set_production_priority(priority);
+            factory.replace_team_prototype(prototype);
+            let team = factory
+                .create_inactive_team("SnapshotTeam")
+                .expect("snapshot team instance");
+            let mut team = team.write().expect("snapshot team");
+            if active {
+                team.set_active();
+            }
+            team.set_state(gamelogic::common::AsciiString::from("SourceState"));
+        }
+
+        stamp_from_live(&source);
+        let mut bytes = Cursor::new(Vec::<u8>::new());
+        {
+            let mut xfer = CommonXferSave::new(&mut bytes, 1);
+            write_team_factory_block(&mut xfer).expect("write source factory chunk");
+        }
+        let parsed = parse_team_factory_block(&bytes.into_inner()).expect("parse factory chunk");
+        assert_eq!(parsed.prototypes[0].production_priority, 42);
+        assert_eq!(parsed.teams[0].state, "SourceState");
+        let source_team_id = parsed.teams[0].team_id;
+
+        // Snapshot staging remains process-global for compatibility; this
+        // test verifies the authoritative factory target is the destination
+        // world's explicit owner.
+        *PENDING_PLAYERS.lock().expect("pending players") = None;
+        *PENDING_TEAMS.lock().expect("pending teams") = Some(parsed);
+        apply_pending(&mut destination);
+
+        let source_factory = source.team_factory.lock().expect("source factory");
+        assert_eq!(
+            source_factory
+                .find_team_prototype("SnapshotTeam")
+                .expect("source prototype")
+                .get_production_priority(),
+            42,
+            "restoring another world must not mutate the source factory"
+        );
+        let destination_factory = destination
+            .team_factory
+            .lock()
+            .expect("destination factory");
+        assert_eq!(
+            destination_factory
+                .find_team_prototype("SnapshotTeam")
+                .expect("destination prototype")
+                .get_production_priority(),
+            42
+        );
+        let restored = destination_factory
+            .find_team_by_id(source_team_id)
+            .expect("destination team instance");
+        let restored = restored.read().expect("restored team");
+        assert!(restored.is_active());
+        assert_eq!(restored.get_state().to_string(), "SourceState");
     }
 }

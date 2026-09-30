@@ -23,8 +23,9 @@ pub(in super::super) enum SimulationStepOutcome {
 fn host_stream_contains_clear_game_data() -> bool {
     let stream = game_engine::common::message_stream::get_message_stream();
     let stream = stream.read().unwrap_or_else(|e| e.into_inner());
-    stream
-        .contains_message_of_type(&game_engine::common::message_stream::GameMessageType::ClearGameData)
+    stream.contains_message_of_type(
+        &game_engine::common::message_stream::GameMessageType::ClearGameData,
+    )
 }
 
 /// Residual-gate skip counters — test seam only.
@@ -63,8 +64,14 @@ pub(in super::super) mod residual_gate_seam {
     }
 
     residual_gate_counters!(
-        (NUKE_RADIATION_FIELDS, "spawn_nuke_radiation_field_objects_for_new_fields"),
-        (ANTHRAX_TOXIN_FIELDS, "spawn_anthrax_toxin_field_objects_for_new_fields"),
+        (
+            NUKE_RADIATION_FIELDS,
+            "spawn_nuke_radiation_field_objects_for_new_fields"
+        ),
+        (
+            ANTHRAX_TOXIN_FIELDS,
+            "spawn_anthrax_toxin_field_objects_for_new_fields"
+        ),
         (PARADROPS, "update_paradrops"),
         (DELIVER_PAYLOADS, "update_deliver_payloads"),
         (AMBUSHES, "update_ambushes"),
@@ -77,16 +84,31 @@ pub(in super::super) mod residual_gate_seam {
         (OVERLORD_SHELLS, "update_overlord_shell_projectiles"),
         (MARAUDER_SHELLS, "update_marauder_shell_projectiles"),
         (FIRE_BASE_SHELLS, "update_fire_base_shell_projectiles"),
-        (RPG_TROOPER_MISSILES, "update_rpg_trooper_missile_projectiles"),
-        (TANK_HUNTER_MISSILES, "update_tank_hunter_missile_projectiles"),
-        (MISSILE_DEFENDER_MISSILES, "update_missile_defender_missile_projectiles"),
+        (
+            RPG_TROOPER_MISSILES,
+            "update_rpg_trooper_missile_projectiles"
+        ),
+        (
+            TANK_HUNTER_MISSILES,
+            "update_tank_hunter_missile_projectiles"
+        ),
+        (
+            MISSILE_DEFENDER_MISSILES,
+            "update_missile_defender_missile_projectiles"
+        ),
         (SCORPION_SHELLS, "update_scorpion_shell_projectiles"),
         (RAPTOR_MISSILES, "update_raptor_missile_projectiles"),
         (MIG_MISSILES, "update_mig_missile_projectiles"),
         (HUMVEE_TOW_MISSILES, "update_humvee_tow_missile_projectiles"),
         (DRAGON_FLAME_MISSILES, "update_dragon_flame_projectiles"),
-        (TECHNICAL_RPG_MISSILES, "update_technical_rpg_missile_projectiles"),
-        (TECHNICAL_CANNON_SHELLS, "update_technical_cannon_shell_projectiles"),
+        (
+            TECHNICAL_RPG_MISSILES,
+            "update_technical_rpg_missile_projectiles"
+        ),
+        (
+            TECHNICAL_CANNON_SHELLS,
+            "update_technical_cannon_shell_projectiles"
+        ),
         (CLEANUP_AREA_ORDERS, "update_cleanup_area_orders"),
         (CLEANUP_STREAM_MISSILES, "update_cleanup_stream_projectiles"),
         (HELIX_NAPALM_FIRESTORMS, "update_helix_napalm_firestorms"),
@@ -225,8 +247,7 @@ impl GameLogic {
         // draws are sequential). Every logic draw below — helpers bridge,
         // thing factory, geometry, logical-audio — resolves this instance,
         // never the process-global fallback.
-        let logic_rng: *mut game_engine::common::random_value::RandomState =
-            &mut self.logic_random;
+        let logic_rng: *mut game_engine::common::random_value::RandomState = &mut self.logic_random;
         game_engine::common::random_value::with_logic_rng_owner(
             // SAFETY: `logic_rng` aliases `self.logic_random` for this call
             // only; the TLS slot is unpublished by the private Drop guard at
@@ -460,14 +481,12 @@ impl GameLogic {
                     self.update_construction(&object_ids, dt);
                 }
                 super::HostSleepyKind::SellList => {
-                    if !crate::gameworld_shadow::gameworld_movement_authority_live()
-                    {
+                    if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                         self.update_sell_list();
                     }
                 }
                 super::HostSleepyKind::DozerBoredRepair => {
-                    if !crate::gameworld_shadow::gameworld_movement_authority_live()
-                    {
+                    if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                         self.update_dozer_bored_repair();
                     }
                 }
@@ -1749,9 +1768,7 @@ mod tests {
             &mut logic.logic_random,
             || {
                 (0..4)
-                    .map(|_| {
-                        game_engine::common::random_value::get_game_logic_random_value(0, 999)
-                    })
+                    .map(|_| game_engine::common::random_value::get_game_logic_random_value(0, 999))
                     .collect()
             },
         );
@@ -1791,9 +1808,7 @@ mod tests {
             &mut logic.logic_random,
             || {
                 (0..4)
-                    .map(|_| {
-                        game_engine::common::random_value::get_game_logic_random_value(0, 999)
-                    })
+                    .map(|_| game_engine::common::random_value::get_game_logic_random_value(0, 999))
                     .collect()
             },
         );
@@ -1837,7 +1852,12 @@ mod tests {
         );
 
         let mut logic = GameLogic::new();
-        logic.add_player(crate::game_logic::Player::new(1, crate::game_logic::Team::USA, "USA", true));
+        logic.add_player(crate::game_logic::Player::new(
+            1,
+            crate::game_logic::Team::USA,
+            "USA",
+            true,
+        ));
         let mut tpl = crate::game_logic::ThingTemplate::new("VisionProbeC17");
         tpl.sight_range = 100.0;
         tpl.shroud_clearing_range = 240.0;
@@ -1872,14 +1892,16 @@ mod tests {
                 .snapshot_grid_for_player(1)
                 .expect("shroud grid initialized");
             assert!(
-                cells
-                    .iter()
-                    .any(|&c| c == ShroudState::Visible as u8),
+                cells.iter().any(|&c| c == ShroudState::Visible as u8),
                 "looker circle must reveal cells on the shroud grid"
             );
         }
         // Freeze the same world after releasing its mutable vision borrow.
-        let grid = FOWRenderingBridge::snapshot_terrain_grid(logic.engine_stores.shroud().lock().ok().as_deref(), 1, false);
+        let grid = FOWRenderingBridge::snapshot_terrain_grid(
+            logic.engine_stores.shroud().lock().ok().as_deref(),
+            1,
+            false,
+        );
         assert!(grid.active, "membership present: snapshot must be active");
         assert!(
             grid.to_r8_texture().iter().any(|&v| v != 255),

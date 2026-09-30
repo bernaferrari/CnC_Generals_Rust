@@ -223,8 +223,7 @@ impl GameLogic {
                                     && obj.owner_player_id.is_none_or(|id| p.id != id)
                             })
                             .or_else(|| self.players.values().find(|p| p.team == apparent));
-                        if let (Some(src), Some(tgt)) = (me.owner_player_id, other.map(|p| p.id))
-                        {
+                        if let (Some(src), Some(tgt)) = (me.owner_player_id, other.map(|p| p.id)) {
                             Self::object_relationship_from_owners(
                                 &self.team_factory,
                                 &self.players,
@@ -254,25 +253,28 @@ impl GameLogic {
                             .is_some_and(|member| member.status.stealthed)
                     })
                 {
-                    let hidden_garrison = occupants.first().and_then(|id| self.objects.get(id)).is_some_and(|member| {
-                        if member.status.detected {
-                            return false;
-                        }
-                        let Some(src) = me.owner_player_id else {
-                            return false;
-                        };
-                        let Some(tgt) = member.owner_player_id else {
-                            return false;
-                        };
-                        Self::object_relationship_from_owners(
-                            &self.team_factory,
-                            &self.players,
-                            Some(src),
-                            "",
-                            Some(tgt),
-                            "",
-                        ) == gamelogic::common::Relationship::Enemies
-                    });
+                    let hidden_garrison = occupants
+                        .first()
+                        .and_then(|id| self.objects.get(id))
+                        .is_some_and(|member| {
+                            if member.status.detected {
+                                return false;
+                            }
+                            let Some(src) = me.owner_player_id else {
+                                return false;
+                            };
+                            let Some(tgt) = member.owner_player_id else {
+                                return false;
+                            };
+                            Self::object_relationship_from_owners(
+                                &self.team_factory,
+                                &self.players,
+                                Some(src),
+                                "",
+                                Some(tgt),
+                                "",
+                            ) == gamelogic::common::Relationship::Enemies
+                        });
                     if hidden_garrison {
                         continue;
                     }
@@ -527,9 +529,10 @@ impl GameLogic {
             )
         });
         if let Some((true, true, ultra, pos, radius, old, immobile, uid, player)) = prep {
-            let new_cell = self.pathfinding_system.grid.update_ground_goal_cell(
-                uid, player, radius, immobile, old, pos,
-            );
+            let new_cell = self
+                .pathfinding_system
+                .grid
+                .update_ground_goal_cell(uid, player, radius, immobile, old, pos);
             let goal = if !ultra && new_cell.0 >= 0 && new_cell.1 >= 0 && self.frame <= 1 {
                 let grid = &self.pathfinding_system.grid;
                 let (_, center) =
@@ -557,9 +560,10 @@ impl GameLogic {
                 }
             }
             if let Some((pos2, radius, old, immobile, uid, player)) = snapped {
-                let cell2 = self.pathfinding_system.grid.update_ground_goal_cell(
-                    uid, player, radius, immobile, old, pos2,
-                );
+                let cell2 = self
+                    .pathfinding_system
+                    .grid
+                    .update_ground_goal_cell(uid, player, radius, immobile, old, pos2);
                 if let Some(obj) = self.objects.get_mut(&unit_id) {
                     obj.pathfind_goal_cell = cell2;
                 }
@@ -638,7 +642,9 @@ impl GameLogic {
                 .get(&unit_id)
                 .and_then(|o| o.contained_by)
                 .and_then(|cid| self.objects.get(&cid))
-                .is_some_and(|c| c.passengers_allowed_to_fire || (c.is_garrison_contain() && !c.is_subdued()));
+                .is_some_and(|c| {
+                    c.passengers_allowed_to_fire || (c.is_garrison_contain() && !c.is_subdued())
+                });
             if !container_may_fire {
                 return None;
             }
@@ -646,7 +652,6 @@ impl GameLogic {
         if attacking && (auto_idle & AUTO_ACQUIRE_IDLE_NOT_WHILE_ATTACKING) != 0 {
             return None;
         }
-
 
         // C++ AIUpdate.cpp:4520-4535 — team common victim before mood scan rate.
         if called_by_ai && attitude >= 0 {
@@ -1914,11 +1919,7 @@ mod common_target_parity {
         let jet_id = ObjectId(9);
         logic.objects.insert(
             jet_id,
-            Object::new(
-                ThingTemplate::new("TestStealthFighter"),
-                jet_id,
-                Team::GLA,
-            ),
+            Object::new(ThingTemplate::new("TestStealthFighter"), jet_id, Team::GLA),
         );
         logic
             .host_object_mut(jet_id)
@@ -1979,8 +1980,7 @@ mod common_target_parity {
             .expect("ranger");
         let radius = logic.host_object(id).expect("ranger").selection_radius;
         let cell_size = logic.pathfinding_system.grid.grid_size();
-        let (_, center) =
-            crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
+        let (_, center) = crate::game_logic::PathfindingGrid::radius_and_center(radius, cell_size);
         let cell = logic
             .pathfinding_system
             .grid
@@ -2001,7 +2001,10 @@ mod common_target_parity {
         assert_eq!(stored, (cell.x, cell.y));
         assert_eq!(logic.pathfinding_system.grid.ground_goal_unit(cell), id.0);
         let mask = logic.pathfinding_system.grid.ground_goal_mask(cell);
-        assert_ne!(mask, 0, "setGoalUnit must set the player bit path cost reads");
+        assert_ne!(
+            mask, 0,
+            "setGoalUnit must set the player bit path cost reads"
+        );
         logic
             .pathfinding_system
             .grid
@@ -2016,7 +2019,6 @@ mod common_target_parity {
             (snapped_pos.x - expected.x).abs() < 0.01 && (snapped_pos.z - expected.z).abs() < 0.01,
             "frame <= 1 must setPosition to the stored goal cell"
         );
-
 
         if let Some(o) = logic.host_object_mut(id) {
             o.set_ai_state(crate::game_logic::AIState::Moving);
@@ -2106,7 +2108,6 @@ mod common_target_parity {
         );
     }
 
-
     #[test]
     fn ground_movement_keeps_the_cpp_exceptions() {
         use crate::game_logic::PathfindingGrid;
@@ -2144,7 +2145,6 @@ mod common_target_parity {
         tank.allow_to_fall = false;
         assert!(PathfindingGrid::is_doing_ground_movement_full(&tank));
     }
-
 }
 
 #[cfg(test)]

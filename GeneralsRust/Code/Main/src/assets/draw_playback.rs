@@ -19,6 +19,7 @@ pub(crate) struct LiveDrawPlayback {
 #[derive(Debug, Clone)]
 pub(crate) struct LiveDrawPlaybackIdentity {
     world: std::sync::Arc<()>,
+    object: std::sync::Arc<()>,
     world_epoch: u64,
     object_id: u32,
     object_generation: u64,
@@ -27,12 +28,14 @@ pub(crate) struct LiveDrawPlaybackIdentity {
 impl LiveDrawPlaybackIdentity {
     pub(crate) fn new(
         world: std::sync::Arc<()>,
+        object: std::sync::Arc<()>,
         world_epoch: u64,
         object_id: u32,
         object_generation: u64,
     ) -> Self {
         Self {
             world,
+            object,
             world_epoch,
             object_id,
             object_generation,
@@ -59,6 +62,7 @@ impl LiveDrawPlaybackIdentity {
     pub(crate) fn playback_key(&self, module_index: u32) -> LiveDrawPlaybackKey {
         LiveDrawPlaybackKey {
             world: std::sync::Arc::downgrade(&self.world),
+            object: std::sync::Arc::downgrade(&self.object),
             world_epoch: self.world_epoch,
             object_id: self.object_id,
             object_generation: self.object_generation,
@@ -70,6 +74,7 @@ impl LiveDrawPlaybackIdentity {
 impl PartialEq for LiveDrawPlaybackIdentity {
     fn eq(&self, other: &Self) -> bool {
         std::sync::Arc::ptr_eq(&self.world, &other.world)
+            && std::sync::Arc::ptr_eq(&self.object, &other.object)
             && self.object_id == other.object_id
             && self.world_epoch == other.world_epoch
             && self.object_generation == other.object_generation
@@ -81,6 +86,7 @@ impl Eq for LiveDrawPlaybackIdentity {}
 impl std::hash::Hash for LiveDrawPlaybackIdentity {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::sync::Arc::as_ptr(&self.world).hash(state);
+        std::sync::Arc::as_ptr(&self.object).hash(state);
         self.world_epoch.hash(state);
         self.object_id.hash(state);
         self.object_generation.hash(state);
@@ -92,6 +98,7 @@ impl std::hash::Hash for LiveDrawPlaybackIdentity {
 #[derive(Debug, Clone)]
 pub(crate) struct LiveDrawPlaybackKey {
     world: std::sync::Weak<()>,
+    object: std::sync::Weak<()>,
     world_epoch: u64,
     object_id: u32,
     object_generation: u64,
@@ -101,6 +108,7 @@ pub(crate) struct LiveDrawPlaybackKey {
 impl PartialEq for LiveDrawPlaybackKey {
     fn eq(&self, other: &Self) -> bool {
         std::sync::Weak::ptr_eq(&self.world, &other.world)
+            && std::sync::Weak::ptr_eq(&self.object, &other.object)
             && self.world_epoch == other.world_epoch
             && self.object_id == other.object_id
             && self.object_generation == other.object_generation
@@ -109,13 +117,14 @@ impl PartialEq for LiveDrawPlaybackKey {
 }
 impl Eq for LiveDrawPlaybackKey {}
 impl LiveDrawPlaybackKey {
-    pub(crate) fn world_is_alive(&self) -> bool {
-        self.world.strong_count() != 0
+    pub(crate) fn is_alive(&self) -> bool {
+        self.world.strong_count() != 0 && self.object.strong_count() != 0
     }
 }
 impl std::hash::Hash for LiveDrawPlaybackKey {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.world.as_ptr().hash(state);
+        self.object.as_ptr().hash(state);
         self.world_epoch.hash(state);
         self.object_id.hash(state);
         self.object_generation.hash(state);

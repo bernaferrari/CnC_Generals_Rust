@@ -209,8 +209,7 @@ impl RenderPipeline {
             } else {
                 Vec::new()
             };
-        self.live_draw_playback
-            .retain(|key, _| key.world_is_alive());
+        self.live_draw_playback.retain(|key, _| key.is_alive());
 
         #[cfg(feature = "game_client")]
         if let (Some(bundle), Some(frame)) =
@@ -274,6 +273,10 @@ impl RenderPipeline {
             ) {
                 complete(&mut u, frame);
             }
+            // Presentation froze the exact destination models; apply the
+            // drawable runtime at collection before borrowing any per-input
+            // specialized draw payloads.
+            u.apply_live_draw_transition_playback(&mut self.live_draw_playback);
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
             #[cfg(feature = "game_client")]
             let specialized_draw = u.specialized_draw.as_deref();
@@ -300,8 +303,6 @@ impl RenderPipeline {
             // Wave 499: defector_flash folded into selection_flash_intensity(); poison via apply_poison_tint.
             let team_color = u.team_color;
             let selection_flash_color = u.selection_flash_color_rgba();
-
-            u.apply_live_draw_transition_playback(&mut self.live_draw_playback);
 
             // `UnitRenderInput::from_renderable` normalizes old snapshots to
             // one module. Keep the same compatibility at this boundary for

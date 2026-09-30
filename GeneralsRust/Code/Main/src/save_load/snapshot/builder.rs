@@ -48,8 +48,7 @@ impl SnapshotBuilder {
     fn create_world_snapshot_impl(
         &self,
         game_logic: &GameLogic,
-        #[cfg(feature = "game_client")]
-        client: Option<&game_client::core::game_client::GameClient>,
+        #[cfg(feature = "game_client")] client: Option<&game_client::core::game_client::GameClient>,
     ) -> SaveLoadResult<WorldSnapshot> {
         log::info!("Creating world snapshot from game state");
 
@@ -207,7 +206,9 @@ impl SnapshotBuilder {
         &self,
         game_logic: &GameLogic,
     ) -> SaveLoadResult<gamelogic::system::shroud_manager::ShroudSnapshot> {
-        game_logic.engine_stores.shroud()
+        game_logic
+            .engine_stores
+            .shroud()
             .lock()
             .map(|manager| manager.snapshot_state())
             .map_err(|_| {
@@ -300,7 +301,9 @@ impl SnapshotBuilder {
             || !snapshot.shroud.pending_full_reveal_players.is_empty()
             || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
         {
-            game_logic.engine_stores.shroud()
+            game_logic
+                .engine_stores
+                .shroud()
                 .lock()
                 .map_err(|_| {
                     SaveLoadError::Corrupted(
@@ -1122,25 +1125,25 @@ impl SnapshotBuilder {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .capture()
-                .into_iter()
-                .map(|entry| ObjectTriggerPersistSnapshot {
-                    object_id: ObjectId(entry.object_id),
-                    i_x: entry.i_x,
-                    i_y: entry.i_y,
-                    entered_or_exited_frame: entry.entered_or_exited_frame,
-                    slots: entry
-                        .slots
-                        .into_iter()
-                        .map(|slot| ObjectTriggerSlotSnapshot {
-                            trigger_id: slot.trigger_id,
-                            trigger_name: slot.trigger_name,
-                            is_inside: slot.is_inside,
-                            entered: slot.entered,
-                            exited: slot.exited,
-                        })
-                        .collect(),
-                })
-                .collect();
+            .into_iter()
+            .map(|entry| ObjectTriggerPersistSnapshot {
+                object_id: ObjectId(entry.object_id),
+                i_x: entry.i_x,
+                i_y: entry.i_y,
+                entered_or_exited_frame: entry.entered_or_exited_frame,
+                slots: entry
+                    .slots
+                    .into_iter()
+                    .map(|slot| ObjectTriggerSlotSnapshot {
+                        trigger_id: slot.trigger_id,
+                        trigger_name: slot.trigger_name,
+                        is_inside: slot.is_inside,
+                        entered: slot.entered,
+                        exited: slot.exited,
+                    })
+                    .collect(),
+            })
+            .collect();
         let mut seen: HashSet<ObjectId> = entries.iter().map(|entry| entry.object_id).collect();
         let mut ids: Vec<ObjectId> = game_logic.host_objects().keys().copied().collect();
         ids.sort();

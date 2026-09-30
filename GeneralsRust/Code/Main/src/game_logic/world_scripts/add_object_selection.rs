@@ -16,7 +16,12 @@ impl GameLogic {
     /// A new admission receives fresh runtime identity, even when the incoming
     /// object was cloned. Temporary extraction/reinsertion uses the live map.
     pub(crate) fn admit_host_object(&mut self, mut object: Object) {
+        // A cloned Object may still hold a weak handle to its source world's
+        // trigger owner. Rebind it on admission without touching pose/flags;
+        // load restoration and the C++ cell no-op depend on preserving those.
+        object.attach_host_trigger_world(&self.host_trigger_world);
         object.visual_object_generation = self.allocate_visual_object_generation();
+        object.visual_draw_identity_token = std::sync::Arc::new(());
         object.unit_ai_runtime = Default::default();
         self.objects.insert(object.id, object);
     }

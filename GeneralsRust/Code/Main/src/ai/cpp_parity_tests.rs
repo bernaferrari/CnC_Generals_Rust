@@ -2966,7 +2966,6 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
     player.resources.supplies = 1_000;
     logic.add_player(player);
 
-
     let mut dozer_template = crate::game_logic::ThingTemplate::new("WiggleDozer");
     dozer_template
         .add_kind_of(crate::game_logic::KindOf::Vehicle)
@@ -2987,7 +2986,9 @@ fn obstructed_pad_wiggles_to_first_legal_spiral_spot() {
     blocker_template
         .add_kind_of(crate::game_logic::KindOf::Structure)
         .add_kind_of(crate::game_logic::KindOf::Immobile);
-    logic.templates.insert("WiggleBlocker".into(), blocker_template);
+    logic
+        .templates
+        .insert("WiggleBlocker".into(), blocker_template);
 
     let pad = Vec3::new(150.0, 0.0, 150.0);
     let _dozer_id = logic
@@ -3072,12 +3073,8 @@ fn evaluate_attack_opportunities_moves_scriptless_ready_team_on_known_enemy() {
     let mut order = AIWorkOrder::new("Ai4Infantry".into(), 1, 100);
     order.num_completed = 1;
     order.observed_unit_ids.push(usa_unit);
-    ai.team_ready_queue.push_back(AITeamQueue::new(
-        "Ai4Rangers".into(),
-        vec![order],
-        false,
-        0,
-    ));
+    ai.team_ready_queue
+        .push_back(AITeamQueue::new("Ai4Rangers".into(), vec![order], false, 0));
 
     let count_before = ai.activity_count;
     ai.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
@@ -3136,12 +3133,8 @@ fn evaluate_attack_opportunities_stays_noop_without_team_or_enemy() {
     let mut order = AIWorkOrder::new("Ai5Infantry".into(), 1, 100);
     order.num_completed = 1;
     order.observed_unit_ids.push(usa_unit);
-    ai2.team_ready_queue.push_back(AITeamQueue::new(
-        "Ai5Rangers".into(),
-        vec![order],
-        false,
-        0,
-    ));
+    ai2.team_ready_queue
+        .push_back(AITeamQueue::new("Ai5Rangers".into(), vec![order], false, 0));
     ai2.evaluate_attack_opportunities(&mut logic, 1.0 + AIPlayer::ATTACK_RECHECK_SECONDS);
     assert!(!ai2.attack_in_progress, "no known enemy → no-op");
     assert_eq!(ai2.activity_count, 0);
@@ -3522,7 +3515,10 @@ fn check_queued_teams_disbands_expired_incomplete_team() {
     }
 
     let mut ai = AIPlayer::new_with_team_factory(
-        1, Team::USA, AIDifficulty::Medium, logic.team_factory.clone(),
+        1,
+        Team::USA,
+        AIDifficulty::Medium,
+        logic.team_factory.clone(),
     );
     let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
     order.num_completed = 0;
@@ -3549,32 +3545,6 @@ fn check_queued_teams_disbands_expired_incomplete_team() {
         ai.leftover_team_instance_gone(inst_id),
         "non-singleton leftover instance must be deleted on disband"
     );
-}
-
-#[test]
-fn check_queued_teams_zero_idle_frames_never_expires() {
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
-        let mut proto = gamelogic::team::TeamPrototype::new("HQ_80_Never".into());
-        proto.set_initial_idle_frames(0);
-        tf.replace_team_prototype(proto);
-    }
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
-    let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
-    order.num_completed = 0;
-    ai.team_queue.push_back(AITeamQueue::new(
-        "HQ_80_Never".into(),
-        vec![order],
-        false,
-        0,
-    ));
-    let mut logic = crate::game_logic::GameLogic::new();
-    ai.check_queued_teams(&mut logic, 999.0);
-    assert_eq!(
-        ai.team_queue.len(),
-        1,
-        "InitialIdleFrames < 1 is unlimited; team must not expire"
-    );
-    assert!(ai.team_ready_queue.is_empty());
 }
 
 #[test]
@@ -4172,4 +4142,5 @@ fn find_supply_center_halves_cash_floor_then_stops_at_one_hundred() {
     assert_eq!(ai.find_supply_center(&logic, 140), Some(id));
 }
 
+mod queue_lifecycle;
 mod safety;

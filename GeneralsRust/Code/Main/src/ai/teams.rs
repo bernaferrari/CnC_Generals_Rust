@@ -356,7 +356,8 @@ impl AIPlayer {
     pub(super) fn disband_queued_team(&self, game_logic: &mut GameLogic, team: &AITeamQueue) {
         let default_name =
             game_logic.default_host_team_instance_name(Some(self.player_id), self.team);
-        let mut member_ids: HashSet<u32> = self.leftover_instance_member_ids(team.team_id)
+        let mut member_ids: HashSet<u32> = self
+            .leftover_instance_member_ids(team.team_id)
             .into_iter()
             .collect();
         for order in &team.work_orders {
@@ -452,11 +453,14 @@ impl AIPlayer {
     }
 
     /// C++ `TeamInQueue::m_team = TheTeamFactory->createInactiveTeam(...)`.
-    pub(super) fn bind_inactive_team_handle(&self, team: &mut AITeamQueue) {
+    pub(super) fn bind_inactive_team_handle(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        team: &mut AITeamQueue,
+    ) {
         if team.team_id.is_some() {
             return;
         }
-        team.team_id = self.team_factory
+        team.team_id = team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.create_inactive_team(&team.name))
@@ -577,7 +581,8 @@ impl AIPlayer {
             }
         }
 
-        let on_create = self.team_factory
+        let on_create = self
+            .team_factory
             .lock()
             .ok()
             .and_then(|factory| {
@@ -1578,7 +1583,8 @@ impl AIPlayer {
             if self.team_queue.iter().any(|t| t.name == cand.name) {
                 continue;
             }
-            let instances = self.team_factory
+            let instances = self
+                .team_factory
                 .lock()
                 .ok()
                 .map(|factory| factory.find_team_instances(&cand.name))
@@ -1620,7 +1626,8 @@ impl AIPlayer {
             return false;
         };
         let mut order = AIWorkOrder::new(thing.clone(), 1, 100);
-        let home = self.leftover_instance_first_member_pos(game_logic, inst_id)
+        let home = self
+            .leftover_instance_first_member_pos(game_logic, inst_id)
             .unwrap_or_else(|| self.team_home_or_base(&team_name));
         if let Some(unit_id) = self.try_to_recruit(game_logic, &team_name, &thing, home, None) {
             order.num_completed = 1;
@@ -1905,8 +1912,9 @@ impl AIPlayer {
 
     pub(super) fn recruit_waiting_work_orders(&mut self, game_logic: &mut GameLogic) {
         let max_dist = Self::aidata_max_recruit_distance();
+        let team_factory = self.team_factory.clone();
         for team in self.team_queue.iter_mut() {
-            self.bind_inactive_team_handle(team);
+            Self::bind_inactive_team_handle(&team_factory, team);
         }
         let mut assigned: HashSet<ObjectId> = HashSet::new();
         for team in self.team_queue.iter().chain(self.team_ready_queue.iter()) {
@@ -1922,7 +1930,8 @@ impl AIPlayer {
                 let home = self.team_home_or_base(&team.name);
                 let dest_name = team.name.clone();
                 let dest_id = team.team_id;
-                let has_home = self.team_factory
+                let has_home = self
+                    .team_factory
                     .lock()
                     .ok()
                     .and_then(|f| {
@@ -2040,7 +2049,8 @@ impl AIPlayer {
             return false;
         }
 
-        let team_id = self.team_factory
+        let team_id = self
+            .team_factory
             .lock()
             .ok()
             .and_then(|mut factory| factory.create_inactive_team(team_name))
@@ -2154,7 +2164,7 @@ impl AIPlayer {
             return false;
         }
         let mut q = AITeamQueue::new(team_name.to_string(), orders, false, 0);
-        self.bind_inactive_team_handle(&mut q);
+        Self::bind_inactive_team_handle(&self.team_factory, &mut q);
         self.team_ready_queue.push_back(q);
         self.activity_count = self.activity_count.saturating_add(1);
         true

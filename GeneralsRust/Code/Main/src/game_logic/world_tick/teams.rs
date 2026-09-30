@@ -1276,9 +1276,10 @@ impl GameLogic {
             return false;
         };
         let cell_type = self.pathfinding_system.grid.locomotor_cell_type(pos, layer);
-        let surfaces = crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
-            cell_type,
-        );
+        let surfaces =
+            crate::game_logic::locomotor_bootstrap::valid_locomotor_surfaces_for_cell_type(
+                cell_type,
+            );
         let Some(unit) = self.objects.get_mut(&unit_id) else {
             return false;
         };
@@ -1720,6 +1721,7 @@ impl GameLogic {
             .into_iter()
             .map(ObjectId)
             .collect();
+        let team_factory = self.team_factory.clone();
         for id in ids {
             if let Some(obj) = self.host_object_mut(id) {
                 obj.team_instance_name = dest.to_string();
@@ -1727,7 +1729,7 @@ impl GameLogic {
                     obj.owner_player_id = Some(pid);
                 }
                 // C++ obj->setTeam(teamDest) applies dest proto attitude.
-                obj.apply_named_team_ai_profile(&self.team_factory, true);
+                obj.apply_named_team_ai_profile(&team_factory, true);
             }
             self.activate_leftover_team_for_host_object(id);
         }
@@ -2116,11 +2118,7 @@ impl GameLogic {
         let Some(pos) = crate_pos else {
             return false;
         };
-        if self
-            .objects
-            .get(&unit_id)
-            .is_none_or(|u| !u.can_move())
-        {
+        if self.objects.get(&unit_id).is_none_or(|u| !u.can_move()) {
             return false;
         }
         let (

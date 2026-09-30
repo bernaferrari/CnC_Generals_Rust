@@ -1683,7 +1683,12 @@ impl GameLogic {
             |mob_id, mob_team, tgt_id, tgt_team| {
                 Self::angry_mob_relationship_enemies_from_maps(
                     &self.team_factory,
-                    players, objects, mob_id, mob_team, tgt_id, tgt_team,
+                    players,
+                    objects,
+                    mob_id,
+                    mob_team,
+                    tgt_id,
+                    tgt_team,
                 )
             },
         );

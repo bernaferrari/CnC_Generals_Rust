@@ -13,9 +13,7 @@ impl ScriptEvaluator {
 
     pub fn new_with_host_trigger_world(
         engine: ScriptEngineHandle,
-        host_trigger_world: std::sync::Arc<
-            std::sync::Mutex<crate::scripting::HostTriggerWorld>,
-        >,
+        host_trigger_world: std::sync::Arc<std::sync::Mutex<crate::scripting::HostTriggerWorld>>,
     ) -> Self {
         Self {
             engine,
@@ -434,7 +432,6 @@ impl ScriptEvaluator {
                 Ok(crate::helpers::TheVictoryConditions::is_local_allied_defeat())
             }
 
-
             // Multiplayer: local player individually defeated (not whole alliance)
             // C++: TheVictoryConditions->isLocalDefeat() && !TheVictoryConditions->isLocalAlliedDefeat()
             ConditionType::MultiplayerPlayerDefeat => {
@@ -670,10 +667,8 @@ impl ScriptEvaluator {
                 let count = if let Some(sum) = crate::scripting::host_query_player_template_count(
                     &player_name,
                     &{
-                        let mut names: Vec<String> = types
-                            .iter()
-                            .map(|name| name.to_string())
-                            .collect();
+                        let mut names: Vec<String> =
+                            types.iter().map(|name| name.to_string()).collect();
                         if names.is_empty() {
                             names.push(type_name);
                         }
@@ -693,7 +688,9 @@ impl ScriptEvaluator {
                     let mut count = 0;
                     for obj_id in player_guard.get_object_ids() {
                         let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                            .or_else(|| {
+                                crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+                            })
                         else {
                             continue;
                         };
@@ -1246,7 +1243,6 @@ impl ScriptEvaluator {
                     return Ok(ok);
                 }
 
-
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
                     None => return Ok(false),
@@ -1352,15 +1348,16 @@ impl ScriptEvaluator {
                     })
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
-                if let Some(ok) = crate::scripting::host_eval_skirmish_supplies_value_within_distance(
-                    &player_name,
-                    distance,
-                    area_name,
-                    threshold,
-                ) {
+                if let Some(ok) =
+                    crate::scripting::host_eval_skirmish_supplies_value_within_distance(
+                        &player_name,
+                        distance,
+                        area_name,
+                        threshold,
+                    )
+                {
                     return Ok(ok);
                 }
-
 
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
@@ -1684,7 +1681,6 @@ impl ScriptEvaluator {
                     });
                 }
 
-
                 // C++ counts neutral player objects with DISABLED_UNMANNED
                 let Ok(list) = player_list().read() else {
                     return Ok(false);
@@ -1712,7 +1708,6 @@ impl ScriptEvaluator {
                     }
                 }
                 let comparison = comparison_param.get_int() as u32;
-
 
                 let target_count = count_param.get_int();
                 match comparison {
@@ -1962,7 +1957,6 @@ impl ScriptEvaluator {
                 ) {
                     return Ok(ok);
                 }
-
 
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
@@ -2222,7 +2216,9 @@ impl ScriptEvaluator {
                     let mut current_count = 0i32;
                     for obj_id in player_guard.get_object_ids() {
                         let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+                            .or_else(|| {
+                                crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+                            })
                         else {
                             continue;
                         };
@@ -2276,8 +2272,7 @@ impl ScriptEvaluator {
                         return Ok(true);
                     }
                 }
-                condition.custom_frame =
-                    frame.saturating_add(2 * LOGICFRAMES_PER_SECOND as u32);
+                condition.custom_frame = frame.saturating_add(2 * LOGICFRAMES_PER_SECOND as u32);
 
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
@@ -2303,7 +2298,8 @@ impl ScriptEvaluator {
                         .unwrap_or(false)
                 } else {
                     crate::ai::integration::with_ai_integration(|manager| {
-                        manager.with_ai_player(player_id, |ai| ai.is_supply_source_safe(min_supplies))
+                        manager
+                            .with_ai_player(player_id, |ai| ai.is_supply_source_safe(min_supplies))
                     })
                     .flatten()
                     .unwrap_or(false)

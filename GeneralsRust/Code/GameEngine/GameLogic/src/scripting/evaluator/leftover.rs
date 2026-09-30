@@ -134,7 +134,9 @@ impl ScriptEvaluator {
             return None;
         }
         if let Some(trigger) = self
-            .with_evaluation_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
+            .with_evaluation_engine_ref(|engine| {
+                engine.get_qualified_trigger_area_by_name(area_name)
+            })
             .flatten()
         {
             return Some(trigger);

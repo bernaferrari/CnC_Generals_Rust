@@ -12,7 +12,8 @@ use super::*;
 pub struct GameLogic {
     /// Client tint history is scoped to this instance, including synthetic render IDs.
     #[cfg(feature = "game_client")]
-    pub(crate) host_physics_visuals: std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
+    pub(crate) host_physics_visuals:
+        std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
     pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
     /// Created inertly and installed as the active bundle at the world-start
@@ -25,13 +26,12 @@ pub struct GameLogic {
     /// Trigger membership for this host world. Objects keep only a weak
     /// handle so pose changes update this owner's slots without selecting an
     /// ambient game instance.
-    pub(crate) host_trigger_world: std::sync::Arc<
-        std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
-    >,
+    pub(crate) host_trigger_world:
+        std::sync::Arc<std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>>,
     /// Team prototypes, instances, ID counters, and deletion notifications for
     /// this match. C++ exposes this through `TheTeamFactory`; Rust keeps the
     /// mutable simulation data on the owning host world.
-    pub(super) team_factory: gamelogic::team::TeamFactoryHandle,
+    pub(crate) team_factory: gamelogic::team::TeamFactoryHandle,
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
@@ -100,9 +100,8 @@ pub struct GameLogic {
     /// Host guard scans compare polygon occupants synchronously on this world.
     /// Ephemeral comparison state; reset/recreation discards it, not saved
     /// Object trigger membership or ENTERED/EXITED flags.
-    pub(in crate::game_logic) host_guard_area_occupancy: std::cell::RefCell<
-        HashMap<String, std::collections::BTreeSet<u32>>,
-    >,
+    pub(in crate::game_logic) host_guard_area_occupancy:
+        std::cell::RefCell<HashMap<String, std::collections::BTreeSet<u32>>>,
 
     /// Next unused sequence for an actual accepted WeaponSet discharge.
     ///
@@ -1371,14 +1370,14 @@ impl GameLogic {
     /// generation. Mutable playback remains owned by the RenderPipeline.
     pub(crate) fn live_draw_playback_identity(
         &self,
-        object_id: ObjectId,
-        object_generation: u64,
+        object: &Object,
     ) -> crate::assets::LiveDrawPlaybackIdentity {
         crate::assets::LiveDrawPlaybackIdentity::new(
             Arc::clone(&self.live_draw_playback_world),
+            Arc::clone(&object.visual_draw_identity_token),
             self.visual_world_epoch,
-            object_id.0,
-            object_generation,
+            object.id.0,
+            object.visual_object_generation,
         )
     }
 

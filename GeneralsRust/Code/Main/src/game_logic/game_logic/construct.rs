@@ -39,10 +39,9 @@ impl GameLogic {
         let world_max = Vec3::new(world_width * 0.5, 0.0, world_height * 0.5);
 
         let host_trigger_world = Arc::new(Mutex::new(Default::default()));
-        let mission_hooks = MissionScriptHooks::new_with_host_trigger_world(Arc::clone(
-            &host_trigger_world,
-        ))
-        .expect("Mission script runtime init failed");
+        let mission_hooks =
+            MissionScriptHooks::new_with_host_trigger_world(Arc::clone(&host_trigger_world))
+                .expect("Mission script runtime init failed");
         let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
         let mut instance = Self {
@@ -1329,6 +1328,12 @@ impl GameLogic {
 mod ownership_tests {
     use super::*;
 
+    fn retained_home_waypoint(_: &str) -> Option<game_engine::common::system::geometry::Coord3D> {
+        Some(game_engine::common::system::geometry::Coord3D::new(
+            17.0, 3.0, 29.0,
+        ))
+    }
+
     #[test]
     fn constructing_candidate_does_not_publish_it() {
         let mut live = GameLogic::initialize();
@@ -1370,5 +1375,24 @@ mod ownership_tests {
             &gamelogic::system::engine_stores::active(),
             &live_stores
         ));
+    }
+
+    #[test]
+    fn constructing_world_does_not_replace_team_home_waypoint_resolver() {
+        use game_engine::common::well_known_keys::key_team_home;
+
+        game_engine::common::rts::team::set_team_home_waypoint_resolver(retained_home_waypoint);
+        let _world = GameLogic::new();
+
+        let mut dict = game_engine::common::dict::Dict::new();
+        dict.set_ascii_string(key_team_home(), "ExistingResolverSentinel");
+        let info = game_engine::common::rts::team::TeamTemplateInfo::from_dict(&dict);
+        game_engine::common::rts::team::clear_team_home_waypoint_resolver();
+
+        assert!(info.has_home_location);
+        assert_eq!(
+            info.home_location,
+            game_engine::common::system::geometry::Coord3D::new(17.0, 3.0, 29.0)
+        );
     }
 }

@@ -79,10 +79,8 @@ impl MissionScriptRuntime {
     ) -> GameLogicResult<Self> {
         let _ = initialize_script_engine();
         let engine = get_script_engine();
-        let evaluator = ScriptEvaluator::new_with_host_trigger_world(
-            engine.clone(),
-            host_trigger_world,
-        );
+        let evaluator =
+            ScriptEvaluator::new_with_host_trigger_world(engine.clone(), host_trigger_world);
         Ok(Self {
             evaluator,
             scripts: Vec::new(),

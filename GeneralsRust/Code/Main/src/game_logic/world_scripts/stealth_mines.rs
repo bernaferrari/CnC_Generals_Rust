@@ -3051,10 +3051,13 @@ impl GameLogic {
                 {
                     obj.set_ai_state(AIState::Moving);
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
-                        let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
-                            &AIState::Moving,
+                        let ordinal =
+                            crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(
+                                &AIState::Moving,
+                            );
+                        crate::game_logic::host_ai_decision_log::record_set_state(
+                            clearer_id, ordinal,
                         );
-                        crate::game_logic::host_ai_decision_log::record_set_state(clearer_id, ordinal);
                     }
                     obj.movement.target_position = Some(mine_pos);
                     crate::game_logic::host_move_log::record(
