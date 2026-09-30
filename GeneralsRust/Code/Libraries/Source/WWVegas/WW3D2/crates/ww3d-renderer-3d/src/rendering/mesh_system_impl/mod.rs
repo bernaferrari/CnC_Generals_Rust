@@ -262,6 +262,10 @@ pub struct MeshModelClass {
     // Legacy DX8 polygon renderer list removed; WGPU path is authoritative
     pub polygon_renderer_list: Vec<Arc<DX8PolygonRendererClass>>, // deprecated, kept until full cleanup
     pub material_passes: Vec<MaterialPassClass>,
+    /// WGPU draw batches for per-polygon material state. The authored pass
+    /// list above remains one entry per W3D material pass, preserving the
+    /// original pass count and MeshClass polygon-count semantics.
+    pub material_batches: Vec<MeshMaterialBatch>,
     pub vertex_buffer: Option<wgpu::Buffer>,
     pub index_buffer: Option<wgpu::Buffer>,
     pub vertex_count: u32,
@@ -269,6 +273,13 @@ pub struct MeshModelClass {
     pub w3d_attributes: u32,       // Equivalent to C++ W3dAttributes
     pub user_text: Option<String>, // Equivalent to C++ user text buffer
     revision: u64,
+}
+
+/// A subset of source triangles drawn with one resolved material state.
+#[derive(Debug, Clone)]
+pub struct MeshMaterialBatch {
+    pub material_pass: MaterialPassClass,
+    pub face_indices: Vec<u32>,
 }
 
 #[derive(Debug, Clone)]

@@ -25,15 +25,30 @@ pub fn ensure_control_bar_wnd_draw_callbacks() {
     });
 }
 
-/// Feed the draw-time marker position into the scheme manager's stability
-/// latch (C++ ControlBar.cpp:1222-1225 captures the marker base at init;
-/// the port latches on the first stable observation window instead).
-fn capture_marker_base_once(
-    manager: &mut game_engine::common::ini::ControlBarSchemeManager,
-    pos_x: i32,
-    pos_y: i32,
-) {
-    manager.note_marker_observation(pos_x, pos_y);
+/// C++ W3DControlBar.cpp reads BackgroundMarker for both scheme layers.
+/// During `draw_all`, the window manager is mutably borrowed, so a fresh
+/// global lookup can fail closed; the callback window's parent owns the
+/// sibling marker in the same WND hierarchy.
+fn background_marker_screen_position(window: &GameWindow) -> Option<(i32, i32)> {
+    if window
+        .get_name()
+        .eq_ignore_ascii_case("ControlBar.wnd:BackgroundMarker")
+    {
+        return Some(window.get_screen_position());
+    }
+    let parent = window.get_parent()?;
+    let background = parent
+        .borrow()
+        .children()
+        .iter()
+        .find(|child| {
+            child
+                .borrow()
+                .get_name()
+                .eq_ignore_ascii_case("ControlBar.wnd:BackgroundMarker")
+        })
+        .cloned()?;
+    Some(background.borrow().get_screen_position())
 }
 
 pub fn w3d_command_bar_background_draw(window: &GameWindow, _inst_data: &WindowInstanceData) {
@@ -43,19 +58,13 @@ pub fn w3d_command_bar_background_draw(window: &GameWindow, _inst_data: &WindowI
         return;
     };
 
-    // C++ W3DControlBar.cpp:612-633: the callback IS assigned on
-    // ControlBar.wnd:BackgroundMarker, so read the marker screen position
-    // from the callback window itself (the by-name re-lookup C++ performs is
-    // a same-window idiom; in the port's runtime-host draw context the
-    // current WM instance can differ from the wire-time one, where the
-    // by-name lookup misses).
-    let (pos_x, pos_y) = window.get_screen_position();
-    {
-        let mut manager = manager_handle.write();
-        capture_marker_base_once(&mut manager, pos_x, pos_y);
-    }
-
+    let Some((pos_x, pos_y)) = background_marker_screen_position(window) else {
+        return;
+    };
     let manager = manager_handle.read();
+    if !manager.marker_base_captured() {
+        return;
+    }
     let base_pos = manager.get_background_marker_pos();
     let offset = ICoord2D {
         x: pos_x - base_pos.x,
@@ -71,20 +80,62 @@ pub fn w3d_command_bar_foreground_draw(window: &GameWindow, _inst_data: &WindowI
     let Some(manager_handle) = get_control_bar_scheme_manager() else {
         return;
     };
-    // C++ captures BOTH marker base positions from the BackgroundMarker
-    // window at init (ControlBar.cpp:1222-1225), so only the background draw
-    // feeds the latch; the foreground just reads its latched base. (This
-    // callback's window is ForegroundMarker, whose position must not reset
-    // the shared observation state.)
-    let (pos_x, pos_y) = window.get_screen_position();
+    let Some((pos_x, pos_y)) = background_marker_screen_position(window) else {
+        return;
+    };
 
     let manager = manager_handle.read();
+    if !manager.marker_base_captured() {
+        return;
+    }
     let base_pos = manager.get_foreground_marker_pos();
     let offset = ICoord2D {
         x: pos_x - base_pos.x,
         y: pos_y - base_pos.y,
     };
     manager.draw_foreground(offset);
+}
+
+#[cfg(test)]
+mod marker_tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[test]
+    fn both_scheme_layers_follow_background_marker_when_bar_moves() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        parent.borrow_mut().set_position(0, 332).unwrap();
+        let background = Rc::new(RefCell::new(GameWindow::new()));
+        background
+            .borrow_mut()
+            .set_name("ControlBar.wnd:BackgroundMarker");
+        background.borrow_mut().set_position(6, 144).unwrap();
+        background.borrow_mut().set_parent(Some(&parent));
+        parent.borrow_mut().add_child(background.clone());
+        let foreground = Rc::new(RefCell::new(GameWindow::new()));
+        foreground
+            .borrow_mut()
+            .set_name("ControlBar.wnd:ForegroundMarker");
+        foreground.borrow_mut().set_position(0, 144).unwrap();
+        foreground.borrow_mut().set_parent(Some(&parent));
+        parent.borrow_mut().add_child(foreground.clone());
+
+        assert_eq!(
+            background_marker_screen_position(&foreground.borrow()),
+            Some((6, 476)),
+            "C++ foreground callback also reads BackgroundMarker"
+        );
+        parent.borrow_mut().set_position(0, 432).unwrap();
+        assert_eq!(
+            background_marker_screen_position(&background.borrow()),
+            Some((6, 576))
+        );
+        assert_eq!(
+            background_marker_screen_position(&foreground.borrow()),
+            Some((6, 576))
+        );
+    }
 }
 
 pub fn w3d_command_bar_top_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {

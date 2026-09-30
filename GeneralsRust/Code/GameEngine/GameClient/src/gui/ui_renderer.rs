@@ -64,12 +64,90 @@ fn composite_glyph_pixel(dst: &mut [u8], src: [u8; 4]) {
     let dst_a = dst[3] as f32 / 255.0;
     let out_a = src_a + dst_a * (1.0 - src_a);
     for channel in 0..3 {
-        let color = (src[channel] as f32 * src_a
-            + dst[channel] as f32 * dst_a * (1.0 - src_a))
-            / out_a;
+        let color =
+            (src[channel] as f32 * src_a + dst[channel] as f32 * dst_a * (1.0 - src_a)) / out_a;
         dst[channel] = color.round() as u8;
     }
     dst[3] = (out_a * 255.0).round() as u8;
+}
+
+struct TextCanvas {
+    pixels: Vec<u8>,
+    relative_quad: UIRect,
+}
+
+// CPU placement is shared by texture upload and the raster regressions.
+fn prepare_text_canvas(
+    layout: &TextLayout,
+    wrap_mode: Wrap,
+    pixels: Vec<(i32, i32, [u8; 4])>,
+    ink_bounds: [i32; 4],
+    logical_size: (i32, i32),
+) -> TextCanvas {
+    let [min_x, min_y, max_x, max_y] = ink_bounds;
+    let canvas_width = layout.bounds.width.ceil().clamp(1.0, 2048.0) as u32;
+    let canvas_height = layout.bounds.height.ceil().clamp(1.0, 512.0) as u32;
+    // C++ Get_Text_Extents uses advances and CharHeight, not cropped ink.
+    // Preserve the raster's bearings within that logical cell. DisplayString
+    // has already centered the cell when this layout is Left/Top.
+    let (text_width, text_height) = logical_size;
+
+    // Alignment is computed against the authored bounds (C++
+    // `text_x += (width / 2) - (text_width / 2)`), so overflowing text
+    // spills out of the rect instead of being squeezed or clipped.
+    let bounds_width = layout.bounds.width.ceil() as i32;
+    let bounds_height = layout.bounds.height.ceil() as i32;
+    let x_offset = match layout.alignment {
+        TextAlignment::Left => 0,
+        TextAlignment::Center => bounds_width / 2 - text_width / 2,
+        TextAlignment::Right => bounds_width - text_width,
+        TextAlignment::Justify => 0,
+    };
+    let y_offset = match layout.vertical_alignment {
+        VerticalAlignment::Top => 0,
+        VerticalAlignment::Middle => bounds_height / 2 - text_height / 2,
+        VerticalAlignment::Bottom => bounds_height - text_height,
+    };
+
+    // The atlas canvas covers bounds ∪ placed-glyph-extent, like C++
+    // Store_GDI_Char which measures each glyph's real bitmap
+    // (GetTextExtentPoint32W) instead of guessing an advance. Wrapped
+    // layouts stay bounds-fitted — wrapping is their contract.
+    let (canvas_origin_x, canvas_origin_y, quad_width, quad_height) = if wrap_mode == Wrap::Word {
+        (0, 0, canvas_width, canvas_height)
+    } else {
+        let left = (min_x + x_offset).min(0);
+        let top = (min_y + y_offset).min(0);
+        let right = (max_x + x_offset + 1).max(canvas_width as i32);
+        let bottom = (max_y + y_offset + 1).max(canvas_height as i32);
+        let width = (right - left).clamp(1, 2048);
+        let height = (bottom - top).clamp(1, 512);
+        (left, top, width as u32, height as u32)
+    };
+    let canvas_width = quad_width;
+    let canvas_height = quad_height;
+    let mut canvas = vec![0u8; canvas_width as usize * canvas_height as usize * 4];
+
+    for (x, y, src) in pixels {
+        let dst_x = x + x_offset - canvas_origin_x;
+        let dst_y = y + y_offset - canvas_origin_y;
+        if dst_x < 0 || dst_y < 0 || dst_x >= canvas_width as i32 || dst_y >= canvas_height as i32 {
+            continue;
+        }
+
+        let pixel_index = (dst_y as usize * canvas_width as usize + dst_x as usize) * 4;
+        let dst = &mut canvas[pixel_index..pixel_index + 4];
+        composite_glyph_pixel(dst, src);
+    }
+    TextCanvas {
+        pixels: canvas,
+        relative_quad: UIRect::new(
+            canvas_origin_x as f32,
+            canvas_origin_y as f32,
+            canvas_width as f32,
+            canvas_height as f32,
+        ),
+    }
 }
 
 /// Vertex data for UI rendering
@@ -184,6 +262,14 @@ struct UIFrameBuffers {
 }
 
 impl UIFrameBuffers {
+    fn try_push_draw_command(&mut self, command: UIDrawCommand) -> bool {
+        if self.draw_commands.len() >= UIRenderer::MAX_DRAW_COMMANDS_PER_FRAME {
+            return false;
+        }
+        self.draw_commands.push(command);
+        true
+    }
+
     fn clear_scratch(&mut self) {
         self.vertex_data.clear();
         self.index_data.clear();
@@ -408,7 +494,10 @@ impl UIRenderer {
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("UI Pipeline Layout"),
-            bind_group_layouts: &[Some(&uniform_bind_group_layout), Some(&texture_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&uniform_bind_group_layout),
+                Some(&texture_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -967,10 +1056,13 @@ impl UIRenderer {
         });
     }
     fn push_draw_command(&mut self, command: UIDrawCommand) {
-        if self.frame_buffers.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME {
-            return;
-        }
-        self.frame_buffers.draw_commands.push(command);
+        let _ = self.frame_buffers.try_push_draw_command(command);
+    }
+
+    fn vertex_budget_allows(current: usize, incoming: usize) -> bool {
+        current
+            .checked_add(incoming)
+            .is_some_and(|total| total <= Self::MAX_UI_VERTICES)
     }
 
     /// Add a rectangle draw command
@@ -1317,11 +1409,7 @@ impl UIRenderer {
         // C++ `Create_GDI_Font` aliases the "Generals" family to Arial
         // (render2dsentence.cpp:1481-1486); no font family named "Generals"
         // exists in the database, so resolve it before matching.
-        let font_name = if font_name.eq_ignore_ascii_case("Generals") {
-            "Arial"
-        } else {
-            font_name
-        };
+        let font_name = super::font::resolved_font_family(font_name);
         if layout.text.is_empty() || layout.bounds.width <= 0.0 || layout.bounds.height <= 0.0 {
             return Ok(());
         }
@@ -1343,8 +1431,6 @@ impl UIRenderer {
 
         let canvas_width = layout.bounds.width.ceil().max(1.0).min(2048.0) as u32;
         let canvas_height = layout.bounds.height.ceil().max(1.0).min(512.0) as u32;
-        let mut canvas = vec![0u8; canvas_width as usize * canvas_height as usize * 4];
-
         let metrics = Metrics::new(layout.font_size.max(1.0), (layout.font_size * 1.2).max(1.0));
         let wrap_mode = if layout.word_wrap && !layout.single_line {
             Wrap::Word
@@ -1381,6 +1467,8 @@ impl UIRenderer {
         let mut min_y = i32::MAX;
         let mut max_x = i32::MIN;
         let mut max_y = i32::MIN;
+        let mut logical_width = 0;
+        let mut logical_height = 0;
 
         {
             let runtime = &mut *self
@@ -1393,6 +1481,10 @@ impl UIRenderer {
             text_buffer.set_wrap(wrap_mode);
             text_buffer.set_text(&text, &attrs, Shaping::Advanced, None);
             text_buffer.shape_until_scroll(true);
+            for run in text_buffer.layout_runs() {
+                logical_width = logical_width.max(run.line_w.ceil() as i32);
+                logical_height = logical_height.max((run.line_top + run.line_height).ceil() as i32);
+            }
             text_buffer.draw(
                 &mut runtime.swash_cache,
                 text_color,
@@ -1414,69 +1506,18 @@ impl UIRenderer {
             return Ok(());
         }
 
-        let text_width = (max_x - min_x + 1).max(1);
-        let text_height = (max_y - min_y + 1).max(1);
-
-        // Alignment is computed against the authored bounds (C++
-        // `text_x += (width / 2) - (text_width / 2)`), so overflowing text
-        // spills out of the rect instead of being squeezed or clipped.
-        let bounds_width = layout.bounds.width.ceil() as i32;
-        let bounds_height = layout.bounds.height.ceil() as i32;
-        let x_offset = match layout.alignment {
-            TextAlignment::Left => 0,
-            TextAlignment::Center => (bounds_width - text_width) / 2,
-            TextAlignment::Right => bounds_width - text_width,
-            TextAlignment::Justify => 0,
-        };
-        let y_offset = match layout.vertical_alignment {
-            VerticalAlignment::Top => 0,
-            VerticalAlignment::Middle => (bounds_height - text_height) / 2,
-            VerticalAlignment::Bottom => bounds_height - text_height,
-        };
-
-        // The atlas canvas covers bounds ∪ placed-glyph-extent, like C++
-        // Store_GDI_Char which measures each glyph's real bitmap
-        // (GetTextExtentPoint32W) instead of guessing an advance. Wrapped
-        // layouts stay bounds-fitted — wrapping is their contract.
-        let (canvas_origin_x, canvas_origin_y, quad_width, quad_height) = if wrap_mode == Wrap::Word
-        {
-            (0, 0, canvas_width, canvas_height)
-        } else {
-            let left = x_offset.min(0);
-            let top = y_offset.min(0);
-            let right = (x_offset + text_width).max(canvas_width as i32);
-            let bottom = (y_offset + text_height).max(canvas_height as i32);
-            let width = (right - left).clamp(1, 2048);
-            let height = (bottom - top).clamp(1, 512);
-            (left, top, width as u32, height as u32)
-        };
-        let canvas_width = quad_width;
-        let canvas_height = quad_height;
-        let mut canvas = vec![0u8; canvas_width as usize * canvas_height as usize * 4];
-
-        for (x, y, src) in pixels {
-            let dst_x = x - min_x + x_offset - canvas_origin_x;
-            let dst_y = y - min_y + y_offset - canvas_origin_y;
-            if dst_x < 0
-                || dst_y < 0
-                || dst_x >= canvas_width as i32
-                || dst_y >= canvas_height as i32
-            {
-                continue;
-            }
-
-            let pixel_index = (dst_y as usize * canvas_width as usize + dst_x as usize) * 4;
-            let dst = &mut canvas[pixel_index..pixel_index + 4];
-            composite_glyph_pixel(dst, src);
-        }
-        let texture = self.create_texture_from_rgba(canvas_width, canvas_height, &canvas);
-        // Store offsets RELATIVE to layout.bounds (see hit path): position
-        // must come from the current draw's layout, not the rasterized one.
-        let rel_quad = UIRect::new(
-            canvas_origin_x as f32,
-            canvas_origin_y as f32,
-            canvas_width as f32,
-            canvas_height as f32,
+        let canvas = prepare_text_canvas(
+            layout,
+            wrap_mode,
+            pixels,
+            [min_x, min_y, max_x, max_y],
+            (logical_width, logical_height),
+        );
+        let rel_quad = canvas.relative_quad;
+        let texture = self.create_texture_from_rgba(
+            rel_quad.width as u32,
+            rel_quad.height as u32,
+            &canvas.pixels,
         );
         // A full shell draws more than 256 distinct labels. Evicting at 256
         // re-rasterizes the overflow every frame (~0.2ms each) and the menu
@@ -1527,8 +1568,10 @@ impl UIRenderer {
         let mut command_ranges: Vec<(u32, u32)> =
             Vec::with_capacity(self.frame_buffers.draw_commands.len());
         for command in &self.frame_buffers.draw_commands {
-            if self.frame_buffers.vertex_data.len() + command.vertices.len() > Self::MAX_UI_VERTICES
-            {
+            if !Self::vertex_budget_allows(
+                self.frame_buffers.vertex_data.len(),
+                command.vertices.len(),
+            ) {
                 log::error!(
                     "UI vertex flood ({} + {} > {}); dropping remaining commands",
                     self.frame_buffers.vertex_data.len(),
@@ -1617,9 +1660,7 @@ impl UIRenderer {
                             .is_none_or(|current| !Arc::ptr_eq(current, texture));
                         if texture_changed {
                             if !self.texture_bind_groups.contains_key(texture) {
-                                if self.texture_bind_groups.len()
-                                    >= TEXTURE_BIND_GROUP_CACHE_CAP
-                                {
+                                if self.texture_bind_groups.len() >= TEXTURE_BIND_GROUP_CACHE_CAP {
                                     self.texture_bind_groups.clear();
                                 }
                                 let texture_bind_group =
@@ -1882,6 +1923,183 @@ mod tests {
         assert_eq!(pixel, [85, 85, 85, 192]);
     }
 
+    fn rasterized_label(
+        text: &str,
+    ) -> (TextLayout, Vec<(i32, i32, [u8; 4])>, [i32; 4], (i32, i32)) {
+        rasterized_label_with_font(text, "Arial", false)
+    }
+
+    fn rasterized_label_with_font(
+        text: &str,
+        family: &str,
+        bold: bool,
+    ) -> (TextLayout, Vec<(i32, i32, [u8; 4])>, [i32; 4], (i32, i32)) {
+        let mut font_system = FontSystem::new();
+        for path in super::super::font::font_atlas_files() {
+            if let Ok(bytes) = std::fs::read(path) {
+                let source: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(bytes);
+                font_system
+                    .db_mut()
+                    .load_font_source(cosmic_text::fontdb::Source::Binary(source));
+            }
+        }
+        let layout = TextLayout {
+            text: text.to_string(),
+            font_size: 20.0,
+            color: [1.0; 4],
+            bounds: UIRect::new(30.0, 40.0, 240.0, 24.0),
+            alignment: TextAlignment::Left,
+            vertical_alignment: VerticalAlignment::Top,
+            word_wrap: false,
+            single_line: true,
+        };
+        let mut buffer = TextBuffer::new(&mut font_system, Metrics::new(20.0, 24.0));
+        let mut buffer = buffer.borrow_with(&mut font_system);
+        buffer.set_size(Some(240.0), Some(24.0));
+        buffer.set_wrap(Wrap::None);
+        buffer.set_text(
+            text,
+            &Attrs::new()
+                .family(Family::Name(super::super::font::resolved_font_family(
+                    family,
+                )))
+                .weight(if bold { Weight::BOLD } else { Weight::NORMAL }),
+            Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(true);
+        let size = buffer.layout_runs().fold((0, 0), |(w, h), run| {
+            (
+                w.max(run.line_w.ceil() as i32),
+                h.max((run.line_top + run.line_height).ceil() as i32),
+            )
+        });
+        let mut samples = Vec::new();
+        let mut bounds = [i32::MAX, i32::MAX, i32::MIN, i32::MIN];
+        buffer.draw(
+            &mut SwashCache::new(),
+            TextColor::rgba(255, 255, 255, 255),
+            |x, y, _, _, color| {
+                let rgba = color.as_rgba();
+                if rgba[3] != 0 {
+                    bounds[0] = bounds[0].min(x);
+                    bounds[1] = bounds[1].min(y);
+                    bounds[2] = bounds[2].max(x);
+                    bounds[3] = bounds[3].max(y);
+                    samples.push((x, y, rgba));
+                }
+            },
+        );
+        assert!(
+            !samples.is_empty(),
+            "a system font is needed for the real glyph raster regression"
+        );
+        (layout, samples, bounds, size)
+    }
+
+    fn nontransparent_positions(canvas: &TextCanvas) -> Vec<(i32, i32)> {
+        let width = canvas.relative_quad.width as usize;
+        canvas
+            .pixels
+            .chunks_exact(4)
+            .enumerate()
+            .filter_map(|(i, p)| {
+                (p[3] != 0).then_some((
+                    (i % width) as i32 + canvas.relative_quad.x as i32,
+                    (i / width) as i32 + canvas.relative_quad.y as i32,
+                ))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn label_raster_preserves_native_baseline_and_bearings() {
+        // C++ Store_GDI_Char keeps the native top bearing in the CharHeight cell.
+        // Compare real shaped glyph coordinates with the actual upload canvas.
+        for text in ["ABC", "gy", "ABCgy", "  W  "] {
+            let (layout, samples, bounds, size) = rasterized_label(text);
+            let mut expected: Vec<_> = samples.iter().map(|&(x, y, _)| (x, y)).collect();
+            expected.sort_unstable();
+            expected.dedup();
+            let canvas = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
+            let mut actual = nontransparent_positions(&canvas);
+            actual.sort_unstable();
+            assert_eq!(
+                actual, expected,
+                "{text:?} lost its font cell bearing or baseline"
+            );
+        }
+    }
+
+    #[test]
+    fn label_alignment_uses_advance_and_cell_height_not_ink() {
+        let (mut layout, samples, bounds, size) = rasterized_label("  Wgy  ");
+        layout.alignment = TextAlignment::Center;
+        layout.vertical_alignment = VerticalAlignment::Middle;
+        layout.bounds.height = 41.0;
+        let offset = (120 - size.0 / 2, 20 - size.1 / 2);
+        let mut expected: Vec<_> = samples
+            .iter()
+            .map(|&(x, y, _)| (x + offset.0, y + offset.1))
+            .collect();
+        expected.sort_unstable();
+        expected.dedup();
+        let canvas = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
+        let mut actual = nontransparent_positions(&canvas);
+        actual.sort_unstable();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn label_bearings_outside_layout_survive_and_cache_coordinates_stay_relative() {
+        let (mut layout, samples, bounds, size) = rasterized_label("ABCgy");
+        layout.bounds.width = 12.0;
+        layout.bounds.height = 9.0;
+        layout.alignment = TextAlignment::Right;
+        layout.vertical_alignment = VerticalAlignment::Bottom;
+        let offset = (12 - size.0, 9 - size.1);
+        let mut expected: Vec<_> = samples
+            .iter()
+            .map(|&(x, y, _)| (x + offset.0, y + offset.1))
+            .collect();
+        expected.sort_unstable();
+        expected.dedup();
+        let canvas = prepare_text_canvas(&layout, Wrap::None, samples.clone(), bounds, size);
+        assert!(canvas.relative_quad.x < 0.0 && canvas.relative_quad.y < 0.0);
+        let mut actual = nontransparent_positions(&canvas);
+        actual.sort_unstable();
+        assert_eq!(actual, expected);
+        layout.bounds.x += 70.0;
+        layout.bounds.y += 50.0;
+        let moved = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
+        assert_eq!(moved.relative_quad, canvas.relative_quad);
+        assert_eq!(moved.pixels, canvas.pixels);
+    }
+
+    #[test]
+    fn generals_bold_raster_and_measurement_resolve_the_arial_bold_face() {
+        let label = "fiftill";
+        let (layout, samples, bounds, size) = rasterized_label_with_font(label, "Generals", true);
+        let generals = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
+        let (layout, samples, bounds, size) = rasterized_label_with_font(label, "Arial", true);
+        let arial = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
+        assert_eq!(generals.pixels, arial.pixels);
+        let (layout, samples, bounds, size) = rasterized_label_with_font(label, "Arial", false);
+        let regular = prepare_text_canvas(&layout, Wrap::None, samples, bounds, size);
+        assert_ne!(
+            generals.pixels, regular.pixels,
+            "real raster must distinguish bold weight"
+        );
+        let generals = super::super::font::GameFont::new(super::super::font::FontDesc::new(
+            "Generals", 15, true,
+        ))
+        .unwrap();
+        let arial =
+            super::super::font::GameFont::new(super::super::font::FontDesc::new("Arial", 15, true))
+                .unwrap();
+        assert_eq!(generals.measure_text(label), arial.measure_text(label));
+    }
+
     fn queued_command() -> UIDrawCommand {
         UIDrawCommand {
             vertices: vec![UIVertex {
@@ -1895,6 +2113,28 @@ mod tests {
             scissor_rect: None,
             z_order: 0.0,
         }
+    }
+
+    #[test]
+    fn ui_draw_and_vertex_budgets_reject_a_flood_at_the_boundary() {
+        let mut buffers = UIFrameBuffers::default();
+        let mut command = queued_command();
+        command.vertices.clear();
+        command.indices.clear();
+        buffers
+            .draw_commands
+            .resize(UIRenderer::MAX_DRAW_COMMANDS_PER_FRAME - 1, command.clone());
+        assert!(buffers.try_push_draw_command(command.clone()));
+        assert!(!buffers.try_push_draw_command(command));
+        assert_eq!(
+            buffers.draw_commands.len(),
+            UIRenderer::MAX_DRAW_COMMANDS_PER_FRAME
+        );
+
+        let max = UIRenderer::MAX_UI_VERTICES;
+        assert!(UIRenderer::vertex_budget_allows(max - 1, 1));
+        assert!(!UIRenderer::vertex_budget_allows(max, 1));
+        assert!(!UIRenderer::vertex_budget_allows(usize::MAX, 1));
     }
 
     #[test]

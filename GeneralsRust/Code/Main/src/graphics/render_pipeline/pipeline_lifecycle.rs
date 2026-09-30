@@ -52,6 +52,7 @@ impl RenderPipeline {
 
         Ok(Self {
             forward_pass,
+            selection_renderer_cache: Default::default(),
             minimap_renderer: None, // Will be initialized when needed
             minimap_base_needs_refresh: false,
             heightmap_path_hint: None,
@@ -109,10 +110,30 @@ impl RenderPipeline {
         })
     }
 
+    /// Keep selection GPU resources on the same device as the scene renderer.
+    /// A new RenderPipeline starts empty; the cache also checks device/queue
+    /// identity if the forward pass is replaced during this instance's life.
+    pub(crate) fn selection_renderer(
+        &mut self,
+    ) -> Arc<crate::graphics::selection_renderer::SelectionRenderer> {
+        self.selection_renderer_cache.get_or_create(
+            Arc::clone(&self.forward_pass.device),
+            Arc::clone(&self.forward_pass.queue),
+        )
+    }
+
+    pub fn debug_selection_renderer_creations(&self) -> u64 {
+        self.selection_renderer_cache.creation_count()
+    }
+
+    pub fn debug_selection_renderer_build_time(&self) -> Duration {
+        self.selection_renderer_cache.build_time()
+    }
+
     /// Provide full presentation snapshot for the next collect_render_items pass.
     pub fn set_presentation_frame(
         &mut self,
-        frame: Option<crate::presentation_frame::PresentationFrame>,
+        frame: Option<Arc<crate::presentation_frame::PresentationFrame>>,
     ) {
         // Direct-host shroud state is meaningful only for this exact frozen
         // topology. Main installs its replacement sidecar immediately after
@@ -218,14 +239,32 @@ impl RenderPipeline {
 
     #[inline]
     pub fn presentation_frame(&self) -> Option<&crate::presentation_frame::PresentationFrame> {
-        self.presentation_frame.as_ref()
+        self.presentation_frame.as_deref()
+    }
+
+    /// Retain the same immutable snapshot for another presentation consumer.
+    #[inline]
+    pub fn presentation_frame_handle(
+        &self,
+    ) -> Option<Arc<crate::presentation_frame::PresentationFrame>> {
+        self.presentation_frame.clone()
+    }
+
+    /// Diagnostic identity check: render/UI consumers retain one frozen roster.
+    pub fn shares_presentation_frame(
+        &self,
+        frame: &Arc<crate::presentation_frame::PresentationFrame>,
+    ) -> bool {
+        self.presentation_frame
+            .as_ref()
+            .is_some_and(|installed| Arc::ptr_eq(installed, frame))
     }
 
     #[inline]
     pub fn presentation_frame_mut(
         &mut self,
     ) -> Option<&mut crate::presentation_frame::PresentationFrame> {
-        self.presentation_frame.as_mut()
+        self.presentation_frame.as_mut().map(Arc::make_mut)
     }
 
     #[cfg(feature = "game_client")]

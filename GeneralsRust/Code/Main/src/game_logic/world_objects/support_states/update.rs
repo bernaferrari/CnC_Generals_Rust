@@ -16,12 +16,9 @@ impl GameLogic {
         owner_player_id: Option<u32>,
         position: glam::Vec3,
     ) {
-        let Some(center_id) = self.preferred_or_allied_supply_center(
-            object_id,
-            team,
-            owner_player_id,
-            position,
-        ) else {
+        let Some(center_id) =
+            self.preferred_or_allied_supply_center(object_id, team, owner_player_id, position)
+        else {
             return;
         };
         self.set_ai_state_decision_aware(object_id, AIState::ReturningResources);
@@ -54,13 +51,10 @@ impl GameLogic {
             obj.ignored_obstacle_id = None;
             obj.set_target(None);
             if obj.ai_state != AIState::Idle {
-            obj.set_ai_state(AIState::Idle);
+                obj.set_ai_state(AIState::Idle);
             }
         }
     }
-
-
-
     pub(in super::super::super) fn update_support_states(
         &mut self,
         object_ids: &[ObjectId],
@@ -129,50 +123,7 @@ impl GameLogic {
                 continue;
             }
             self.expire_temporary_stealth_grant(object_id);
-
-            if ai_state != AIState::SpecialAbility {
-                let leftover_laser_persist = self
-                    .hero_abilities
-                    .leftover_channel(object_id)
-                    .is_some_and(|ch| {
-                        ch.kind
-                            == crate::game_logic::host_hero_abilities::LeftoverSaKind::LaserGuided
-                            && ai_state == AIState::Attacking
-                            && self
-                                .objects
-                                .get(&object_id)
-                                .is_some_and(|o| o.target == Some(ch.target_id))
-                    });
-                if leftover_laser_persist {
-                    // C++ triggerAbilityEffect aiAttackObject(..., CMD_FROM_AI)
-                    // must not onExit the PersistentPrepTime channel.
-                } else {
-                    self.pending_special_abilities.remove(&object_id);
-                    // An explicit replacement order must cancel an in-flight HDB
-                    // channel without overwriting that new order's target/state.
-                    // The normal packed completion path below remains responsible
-                    // for putting a completed channel back to Idle.
-                    if let Some(object) = self.objects.get_mut(&object_id) {
-                        if object.hacker_disable_channel.is_some() {
-                            object.hacker_disable_channel = None;
-                            object.set_status_using_ability(false);
-                        }
-                    }
-                    self.abort_leftover_sa_channel_on_new_order(object_id);
-                }
-            }
-            // C++ SpecialAbilityUpdate::update: any non-AI command source
-            // immediately onExit. Leftover capture must not keep
-            // IS_USING_ABILITY / capture_channel after a player move.
-            if ai_state != AIState::Capturing {
-                let has_capture = self
-                    .objects
-                    .get(&object_id)
-                    .is_some_and(|o| o.capture_channel.is_some());
-                if has_capture {
-                    self.abort_capture_channel_on_new_order(object_id);
-                }
-            }
+            self.cancel_replaced_ability_channels(object_id, &ai_state);
             let mut quick_exit_finished = false;
             let quick_until = self.quick_exit_until.get(&object_id).copied();
             if let Some(until) = quick_until {
@@ -390,21 +341,26 @@ impl GameLogic {
                         .get(&object_id)
                         .map(|o| o.thing.template.hijack_guard)
                         .unwrap_or(false);
-                    let on_quick_exit = self.quick_exit_until.get(&object_id).is_some_and(|&until| {
-                        self.frame < until
-                            && self.objects.get(&object_id).is_some_and(|u| {
-                                u.can_path_through_units
-                                    && !u.adjust_destinations
-                                    && u.ignored_obstacle_id.is_none()
-                                    && u.movement.path.len() >= 2
-                            })
-                    });
-                    if can_attack && !on_quick_exit && self.try_guard_last_attacker(object_id, team) {
+                    let on_quick_exit =
+                        self.quick_exit_until.get(&object_id).is_some_and(|&until| {
+                            self.frame < until
+                                && self.objects.get(&object_id).is_some_and(|u| {
+                                    u.can_path_through_units
+                                        && !u.adjust_destinations
+                                        && u.ignored_obstacle_id.is_none()
+                                        && u.movement.path.len() >= 2
+                                })
+                        });
+                    if can_attack && !on_quick_exit && self.try_guard_last_attacker(object_id, team)
+                    {
                         continue;
                     }
                     let returning = inner > 0.0
                         && host_guard_xy_dist_sq(position, guard_anchor) > inner * inner;
-                    if self.guard_acquire_scan_due(object_id, returning) && can_attack && !on_quick_exit {
+                    if self.guard_acquire_scan_due(object_id, returning)
+                        && can_attack
+                        && !on_quick_exit
+                    {
                         if let Some(team_id) = self.host_team_common_target(object_id) {
                             if self.engage_guard_target(object_id, team_id, false) {
                                 continue;
@@ -550,11 +506,12 @@ impl GameLogic {
                         continue;
                     };
 
-                    let bridge_or_hole = self.objects.get(&repair_target_id).is_some_and(|target| {
-                        target.is_kind_of(KindOf::Bridge)
-                            || target.is_kind_of(KindOf::BridgeTower)
-                            || target.is_rebuild_hole
-                    });
+                    let bridge_or_hole =
+                        self.objects.get(&repair_target_id).is_some_and(|target| {
+                            target.is_kind_of(KindOf::Bridge)
+                                || target.is_kind_of(KindOf::BridgeTower)
+                                || target.is_rebuild_hole
+                        });
                     if bridge_or_hole
                         || !repair_target_alive
                         || !repair_target_is_structure
@@ -626,12 +583,10 @@ impl GameLogic {
                         dozer.set_locomotor_goal_none();
                     }
 
-
                     if self.objects.get(&repair_target_id).is_some_and(|target| {
                         target.health.maximum > 0.0
                             && target.health.current >= target.health.maximum
                     }) {
-
                         let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
                         self.queue_radar_message_at(
                             msg,
@@ -646,7 +601,6 @@ impl GameLogic {
                     if let Some(obj) = self.objects.get_mut(&object_id) {
                         obj.set_actively_constructing(true);
                     }
-
 
                     // Dozer structure-repair residual: heal HP over time while in range.
                     // C++ DozerAIUpdate.cpp:694-699 percent heal, no 8.75 HP/s floor.
@@ -704,7 +658,6 @@ impl GameLogic {
                         self.record_structure_repair_residual_heal();
                     }
                     if target_full {
-
                         // C++ DOZER:RepairComplete residual.
                         let msg = localization::localize("DOZER:RepairComplete", "Repair complete");
                         self.queue_radar_message_at(
@@ -744,7 +697,7 @@ impl GameLogic {
                                 obj.stop_moving();
                                 obj.ignored_obstacle_id = None;
                                 if obj.ai_state != AIState::Idle {
-                                obj.set_ai_state(AIState::Idle);
+                                    obj.set_ai_state(AIState::Idle);
                                 }
                             }
                         }
@@ -757,7 +710,7 @@ impl GameLogic {
                             obj.ignored_obstacle_id = None;
                             obj.set_target(None);
                             if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(AIState::Idle);
+                                obj.set_ai_state(AIState::Idle);
                             }
                         }
                         continue;
@@ -792,7 +745,7 @@ impl GameLogic {
                             obj.ignored_obstacle_id = None;
                             obj.set_target(None);
                             if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(AIState::Idle);
+                                obj.set_ai_state(AIState::Idle);
                             }
                         }
                         continue;
@@ -814,7 +767,7 @@ impl GameLogic {
                             obj.ignored_obstacle_id = None;
                             obj.set_target(None);
                             if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(AIState::Idle);
+                                obj.set_ai_state(AIState::Idle);
                             }
                         }
                         continue;
@@ -858,7 +811,7 @@ impl GameLogic {
                             obj.ignored_obstacle_id = None;
                             obj.set_target(None);
                             if obj.ai_state != AIState::Idle {
-                            obj.set_ai_state(AIState::Idle);
+                                obj.set_ai_state(AIState::Idle);
                             }
                         }
                         continue;
@@ -988,7 +941,7 @@ impl GameLogic {
                                 obj.stop_moving();
                                 obj.ignored_obstacle_id = None;
                                 if obj.ai_state != AIState::Idle {
-                                obj.set_ai_state(AIState::Idle);
+                                    obj.set_ai_state(AIState::Idle);
                                 }
                             }
                         }
@@ -1131,7 +1084,7 @@ impl GameLogic {
                                     veh.stop_moving();
                                     veh.target = None;
                                     if veh.ai_state != AIState::Idle {
-                                    veh.set_ai_state(AIState::Idle);
+                                        veh.set_ai_state(AIState::Idle);
                                     }
                                     veh.set_team_and_owner(inf_team, inf_owner);
                                     veh.set_private_captured(true);
@@ -2704,7 +2657,9 @@ impl GameLogic {
                                 }
                                 self.selected_objects.retain(|id| *id != special_target_id);
                                 for player in self.players.values_mut() {
-                                    player.selected_objects.retain(|id| *id != special_target_id);
+                                    player
+                                        .selected_objects
+                                        .retain(|id| *id != special_target_id);
                                 }
                             }
                             self.hero_abilities.record_snipe();
@@ -3304,8 +3259,7 @@ impl GameLogic {
                             // transfer a box once that claim is ClearToAct.
                             if !self.try_claim_dock(source_id, object_id) {
                                 let close = docker_r * 2.0;
-                                if !(can_move && position.distance(source_pos) > close + 1.0)
-                                {
+                                if !(can_move && position.distance(source_pos) > close + 1.0) {
                                     let (dx, dz) =
                                         crate::game_logic::host_supply_gather::warehouse_twitch_delta(
                                             crate::game_logic::host_supply_gather::twitch_seed(
@@ -3797,9 +3751,8 @@ impl GameLogic {
                                 .record_shoes_drop_off_boost(worker_shoes_boost);
                         }
                         if deposit_amount > 0 {
-                            let source_id = target_id.filter(|sid| {
-                                self.objects.get(sid).is_some_and(|s| s.is_alive())
-                            });
+                            let source_id = target_id
+                                .filter(|sid| self.objects.get(sid).is_some_and(|s| s.is_alive()));
                             if let Some(sid) = source_id {
                                 if let Some(object) = self.objects.get_mut(&object_id) {
                                     object.supply_truck_state = SupplyTruckState::Wanting;

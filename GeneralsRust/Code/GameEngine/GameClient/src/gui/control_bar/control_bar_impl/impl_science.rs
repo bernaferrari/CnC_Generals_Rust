@@ -799,15 +799,31 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn leftover_capture_default_control_bar_position(&mut self) {
-        if self.default_control_bar_captured {
+        let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) else {
             return;
-        }
-        if let Some(parent) = leftover_find_window(CONTROL_BAR_PARENT) {
-            let (x, y) = parent.borrow().get_position();
-            self.default_control_bar_x = x;
-            self.default_control_bar_y = y;
+        };
+        let (parent_x, parent_y) = parent.borrow().get_position();
+        if !self.default_control_bar_captured {
+            self.default_control_bar_x = parent_x;
+            self.default_control_bar_y = parent_y;
             self.default_control_bar_captured = true;
         }
+
+        // C++ ControlBar::init captures BackgroundMarker's screen position
+        // for both scheme layers before setLowControlBarConfig moves the
+        // parent. The scheme manager can be initialized after this ControlBar
+        // instance, so retry the one-time capture on each stage transition.
+        let Some(marker) = leftover_find_window("ControlBar.wnd:BackgroundMarker") else {
+            return;
+        };
+        let Some(manager) = game_engine::common::ini::get_control_bar_scheme_manager() else {
+            return;
+        };
+        let (marker_x, marker_y) = marker.borrow().get_screen_position();
+        manager.write().capture_marker_base_once(
+            marker_x + self.default_control_bar_x - parent_x,
+            marker_y + self.default_control_bar_y - parent_y,
+        );
     }
 
     fn leftover_set_up_down_images(&self) {

@@ -32,8 +32,8 @@ pub(super) fn raycast_frozen_bridge(
         // Deck height varies linearly from the first end to the second.
         // Solve ray.y(t) == deck_height(ray.xz(t)) for the plane hit.
         let rise = end.y - start.y;
-        let near_fraction = Vec2::new(near.x - start.x, near.z - start.z).dot(along)
-            / length_squared;
+        let near_fraction =
+            Vec2::new(near.x - start.x, near.z - start.z).dot(along) / length_squared;
         let ray_fraction_rate = Vec2::new(ray.x, ray.z).dot(along) / length_squared;
         let denominator = ray.y - rise * ray_fraction_rate;
         if !denominator.is_finite() || denominator.abs() <= PICK_RAY_EPSILON {
@@ -50,11 +50,14 @@ pub(super) fn raycast_frozen_bridge(
         (hit.is_finite()
             && (0.0..=1.0).contains(&length_fraction)
             && cross.abs() <= bridge.width * 0.5 * length_squared.sqrt())
-            .then_some(hit)
+        .then_some(hit)
     })
 }
 
-pub(super) fn higher_bridge_or_terrain(terrain: Option<Vec3>, bridge: Option<Vec3>) -> Option<Vec3> {
+pub(super) fn higher_bridge_or_terrain(
+    terrain: Option<Vec3>,
+    bridge: Option<Vec3>,
+) -> Option<Vec3> {
     match (terrain, bridge) {
         (Some(ground), Some(deck)) if deck.y > ground.y => Some(deck),
         (Some(ground), _) => Some(ground),
@@ -83,7 +86,7 @@ impl CnCGameEngine {
             let world_env = self
                 .render_pipeline
                 .presentation_frame()
-                .or(self.last_presentation_frame.as_ref())
+                .or(self.last_presentation_frame.as_deref())
                 .map(|frame| &frame.world_env);
             unproject_mouse_ray(
                 self.view_matrix,
@@ -97,9 +100,8 @@ impl CnCGameEngine {
                     .or_else(|| {
                         raycast_ground_plane_clamped(near, far, world_min, world_max, world_env)
                     });
-                let deck = world_env.and_then(|env| {
-                    raycast_frozen_bridge(near, far, &env.bridge_segments)
-                });
+                let deck = world_env
+                    .and_then(|env| raycast_frozen_bridge(near, far, &env.bridge_segments));
                 higher_bridge_or_terrain(ground, deck)
             })
         };

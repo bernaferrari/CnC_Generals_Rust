@@ -35,6 +35,71 @@ mod tests {
     }
 
     #[test]
+    fn low_stage_keeps_cpp_default_marker_base_before_first_draw() {
+        // Retail ControlBar.wnd at 640x480: the parent starts at 416/600 of
+        // the screen, while BackgroundMarker is at 595/600. C++ captures the
+        // marker's screen position during ControlBar::init, before Low moves
+        // the parent. Both scheme layers use that same original position.
+        let manager =
+            game_engine::common::ini::ini_control_bar_scheme::ensure_control_bar_scheme_manager();
+        manager.write().clear();
+        crate::gui::with_window_manager(|wm| {
+            wm.destroy_all_windows();
+            wm.set_screen_size(640, 480);
+            let parent = wm.create_window(None, 0, 332, 640, 148).unwrap();
+            parent.borrow_mut().set_name(CONTROL_BAR_PARENT);
+            let marker = wm.create_window(Some(&parent), 6, 144, 4, 4).unwrap();
+            marker
+                .borrow_mut()
+                .set_name("ControlBar.wnd:BackgroundMarker");
+        });
+        let (parent, marker) = crate::gui::with_window_manager_ref(|wm| {
+            (
+                wm.find_window_by_name(CONTROL_BAR_PARENT).unwrap(),
+                wm.find_window_by_name("ControlBar.wnd:BackgroundMarker")
+                    .unwrap(),
+            )
+        });
+        let default_marker = marker.borrow().get_screen_position();
+        assert_eq!(default_marker, (6, 476));
+
+        let mut bar = ControlBar::new();
+        bar.switch_control_bar_stage(ControlBarStage::Low);
+        assert_eq!(parent.borrow().get_position(), (0, 432));
+        assert_eq!(marker.borrow().get_screen_position(), (6, 576));
+
+        // These are draw callbacks at the collapsed position. The old Rust
+        // stability latch made this Low position the base after four draws,
+        // so restoring Default shifted scheme artwork upward by 100 pixels.
+        for _ in 0..4 {
+            let window = marker.borrow();
+            crate::gui::w3d_gadget_draw::w3d_command_bar_background_draw(
+                &window,
+                window.instance_data(),
+            );
+        }
+        let scheme = manager.read();
+        let background_base = scheme.get_background_marker_pos();
+        let foreground_base = scheme.get_foreground_marker_pos();
+        assert_eq!((background_base.x, background_base.y), default_marker);
+        assert_eq!((foreground_base.x, foreground_base.y), default_marker);
+        drop(scheme);
+        bar.switch_control_bar_stage(ControlBarStage::Default);
+        assert_eq!(parent.borrow().get_position(), (0, 332));
+        let restored_marker = marker.borrow().get_screen_position();
+        let restored_base = manager.read().get_background_marker_pos();
+        assert_eq!(
+            (
+                restored_marker.0 - restored_base.x,
+                restored_marker.1 - restored_base.y
+            ),
+            (0, 0),
+            "restoring Default must not send scheme artwork above the HUD"
+        );
+        manager.write().clear();
+    }
+
+    #[test]
     fn first_multi_selection_enables_shared_order_when_one_unit_can_act() {
         let mut control_bar = ControlBar::new();
         let mut attack_move = CommandButton::default();

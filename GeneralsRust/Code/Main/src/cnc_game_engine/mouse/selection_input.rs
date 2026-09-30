@@ -100,7 +100,7 @@ impl CnCGameEngine {
         let world_env = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref())
+            .or(self.last_presentation_frame.as_deref())
             .map(|frame| &frame.world_env);
         unproject_mouse_ray(
             self.view_matrix,
@@ -488,11 +488,7 @@ impl CnCGameEngine {
                     .iter()
                     .any(|o| o.id == id && frame.is_owned_by_local(o))
             });
-        if is_local_mine {
-            None
-        } else {
-            Some(id)
-        }
+        if is_local_mine { None } else { Some(id) }
     }
 
     /// C++ CommandXlat.cpp:3635-3713 double-click attack-move → MSG_DO_GUARD_POSITION.

@@ -1,5 +1,5 @@
-use super::*;
 use super::basic_core::ambient_sound_is_in_range;
+use super::*;
 use std::sync::Arc;
 
 use crate::helpers::TheInGameUI;
@@ -2237,6 +2237,50 @@ fn health_bar_requires_selected_and_show_object_health() {
     if let Some(data) = game_engine::common::ini::get_global_data() {
         data.write().show_object_health = false;
     }
+}
+
+#[test]
+fn presentation_health_region_reprojects_after_zoom_and_camera_motion() {
+    use crate::display::view::{Point3, with_tactical_view};
+    with_tactical_view(|view| {
+        view.set_width(640);
+        view.set_height(384);
+        view.set_origin(0, 0);
+        view.sync_pose_from_host(&Point3::origin(), 0.0, 0.7, 1.0);
+    });
+    let mut drawable = BasicDrawable::new(DrawableId(9907));
+    drawable.presentation_health_pct = 1.0;
+    drawable.set_presentation_health_box(100.0, 40.0);
+    drawable.draw_icon_ui();
+    let first = drawable
+        .overlay_data
+        .health_region
+        .expect("visible first region");
+    assert_eq!(first.width(), 100);
+
+    with_tactical_view(|view| {
+        view.sync_pose_from_host(&Point3::origin(), 0.0, 0.7, 0.5);
+    });
+    drawable.draw_icon_ui();
+    let zoomed = drawable
+        .overlay_data
+        .health_region
+        .expect("visible zoomed region");
+    assert_eq!(
+        zoomed.width(),
+        200,
+        "C++ reprojects and divides width by the current zoom on every draw"
+    );
+    assert_ne!(first, zoomed);
+
+    with_tactical_view(|view| {
+        view.sync_pose_from_host(&Point3::new(100_000.0, 100_000.0, 0.0), 0.0, 0.7, 1.0);
+    });
+    drawable.draw_icon_ui();
+    assert!(
+        drawable.overlay_data.health_region.is_none(),
+        "off-frustum draw must discard the previous health region"
+    );
 }
 
 #[test]

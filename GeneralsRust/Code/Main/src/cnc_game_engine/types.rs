@@ -81,7 +81,10 @@ pub(super) fn render_surface_extent(window: &Window) -> (u32, u32) {
 
 /// Convert winit's physical client extent to the display coordinates shared
 /// by mouse input, WND hit tests, selection overlays, and the WGPU viewport.
-pub(super) fn logical_surface_extent(size: winit::dpi::PhysicalSize<u32>, scale: f64) -> (u32, u32) {
+pub(super) fn logical_surface_extent(
+    size: winit::dpi::PhysicalSize<u32>,
+    scale: f64,
+) -> (u32, u32) {
     let scale = scale.max(0.0001);
     let w = ((size.width as f64) / scale).round().max(1.0) as u32;
     let h = ((size.height as f64) / scale).round().max(1.0) as u32;
@@ -95,9 +98,18 @@ mod cursor_extent_tests {
 
     #[test]
     fn cursor_display_bounds_scale_with_window_and_hidpi() {
-        assert_eq!(logical_surface_extent(PhysicalSize::new(640, 480), 1.0), (640, 480));
-        assert_eq!(logical_surface_extent(PhysicalSize::new(1280, 960), 1.0), (1280, 960));
-        assert_eq!(logical_surface_extent(PhysicalSize::new(1280, 960), 2.0), (640, 480));
+        assert_eq!(
+            logical_surface_extent(PhysicalSize::new(640, 480), 1.0),
+            (640, 480)
+        );
+        assert_eq!(
+            logical_surface_extent(PhysicalSize::new(1280, 960), 1.0),
+            (1280, 960)
+        );
+        assert_eq!(
+            logical_surface_extent(PhysicalSize::new(1280, 960), 2.0),
+            (640, 480)
+        );
     }
 }
 
@@ -1083,14 +1095,11 @@ pub struct CnCGameEngine {
     pub(crate) ui_sound_cache: HashMap<String, Arc<[u8]>>,
     /// Draw-module class names keyed by object template. Filled only when the
     /// asset manager actually has that definition, and cleared on world replace.
-    pub(crate) draw_module_name_cache: std::cell::RefCell<
-        HashMap<String, std::sync::Arc<Vec<String>>>,
-    >,
+    pub(crate) draw_module_name_cache:
+        std::cell::RefCell<HashMap<String, std::sync::Arc<Vec<String>>>>,
     /// Kind-name lists keyed by the KindOf bitset. The set does not change
     /// per object after spawn, so presents share one `Arc`.
-    pub(crate) kind_name_cache: std::cell::RefCell<
-        HashMap<u128, std::sync::Arc<Vec<String>>>,
-    >,
+    pub(crate) kind_name_cache: std::cell::RefCell<HashMap<u128, std::sync::Arc<Vec<String>>>>,
 
     // Game state machine - matches C++ GameEngine m_quitting and state management
     pub(crate) current_state: GameState,
@@ -1130,7 +1139,7 @@ pub struct CnCGameEngine {
     /// frame to the render pipeline does not clone the full height/blend data.
     pub(crate) presentation_terrain_cache: PresentationTerrainCache,
     /// Immutable presentation feed for client/render after last logic step.
-    pub(crate) last_presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    pub(crate) last_presentation_frame: Option<Arc<crate::presentation_frame::PresentationFrame>>,
     /// Runtime-only identity epoch for direct host Drawable associations.
     ///
     /// Object IDs are reused by reset, map install, and restore.  This epoch is

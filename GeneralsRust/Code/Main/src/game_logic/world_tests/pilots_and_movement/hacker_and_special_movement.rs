@@ -2685,3 +2685,72 @@ fn weapon_bonus_upgrade_sets_player_upgrade_condition() {
     logic.apply_upgrade_to_object(id, "Upgrade_GLAAPRockets");
     assert!(logic.objects.get(&id).unwrap().weapon_bonus_player_upgrade);
 }
+
+#[test]
+fn inactive_special_ability_update_preserves_other_module_packing_flag() {
+    use crate::game_logic::host_enum_table_residual::packing_model_bit;
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("OrdinaryPackingUnit");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("OrdinaryPackingUnit".into(), template);
+    let id = logic
+        .create_object("OrdinaryPackingUnit", Team::USA, Vec3::ZERO)
+        .expect("ordinary unit");
+    let packing = 1u128 << packing_model_bit();
+    logic.objects.get_mut(&id).unwrap().model_condition_bits |= packing;
+    assert!(logic.hero_abilities().leftover_channel(id).is_none());
+    assert!(!logic.pending_special_abilities.contains_key(&id));
+
+    logic.update_support_states(&[id], 1.0 / 30.0);
+
+    assert_ne!(
+        logic.objects[&id].model_condition_bits & packing,
+        0,
+        "inactive SpecialAbilityUpdate must not clear another module's PACKING bit"
+    );
+}
+
+#[test]
+fn active_special_ability_channel_still_cancels_on_replacement_order() {
+    use crate::game_logic::host_enum_table_residual::unpacking_model_bit;
+    use crate::game_logic::host_hero_abilities::{
+        LeftoverSaChannel, LeftoverSaKind, LeftoverSaPhase,
+    };
+    use crate::game_logic::{KindOf, ThingTemplate};
+
+    let mut logic = GameLogic::new();
+    let mut template = ThingTemplate::new("ActiveSpecialAbilityUnit");
+    template.add_kind_of(KindOf::Infantry).set_health(100.0);
+    logic
+        .templates
+        .insert("ActiveSpecialAbilityUnit".into(), template);
+    let id = logic
+        .create_object("ActiveSpecialAbilityUnit", Team::China, Vec3::ZERO)
+        .expect("active unit");
+    let unpacking = 1u128 << unpacking_model_bit();
+    {
+        let object = logic.objects.get_mut(&id).unwrap();
+        object.model_condition_bits |= unpacking;
+        object.set_ai_state(AIState::Moving);
+        object.set_status_using_ability(true);
+    }
+    logic.hero_abilities_mut().set_leftover_channel(
+        id,
+        LeftoverSaChannel::new(
+            LeftoverSaKind::StealCash,
+            id,
+            LeftoverSaPhase::Unpacking,
+            1000,
+        ),
+    );
+
+    logic.update_support_states(&[id], 1.0 / 30.0);
+
+    assert!(logic.hero_abilities().leftover_channel(id).is_none());
+    assert_eq!(logic.objects[&id].model_condition_bits & unpacking, 0);
+    assert!(!logic.objects[&id].status.using_ability);
+}

@@ -41,6 +41,8 @@ pub(super) struct RuntimeHostSnapshot {
     pub(super) victory_label: String,
     /// PresentationFrame installed for client/render residual.
     pub(super) presentation_frame_ok: bool,
+    /// Runtime-only proof that engine and renderer share the frozen allocation.
+    pub(super) presentation_frame_shared: bool,
     /// GameWorld observe-path presentation entity count (after coupled shadow tick).
     pub(super) gameworld_presentation_entities: u32,
     /// PresentationFrame.gameworld_overlay_stamped after last overlay call.
@@ -113,6 +115,9 @@ pub(super) struct RuntimeHostBridge {
     fallback_frame_luma: f32,
     last_published_frame: u32,
     last_capture_request_at: Option<Instant>,
+    /// Diagnostic host override; zero disables periodic PNG readback while
+    /// explicit capture requests and windowed rendering continue normally.
+    capture_interval_override: Option<Duration>,
     capture_request_in_flight: bool,
     capture_request_started_at: Option<Instant>,
     screenshot_enqueue_failed: bool,
@@ -276,6 +281,10 @@ impl RuntimeHostBridge {
             fallback_frame_luma,
             last_published_frame: 0,
             last_capture_request_at: None,
+            capture_interval_override: args
+                .get_option_value("gpui_capture_interval_ms")
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(Duration::from_millis),
             capture_request_in_flight: false,
             capture_request_started_at: None,
             screenshot_enqueue_failed: false,
@@ -355,6 +364,7 @@ impl RuntimeHostBridge {
             match_over: false,
             victory_label: String::new(),
             presentation_frame_ok: false,
+            presentation_frame_shared: false,
             gameworld_presentation_entities: 0,
             gameworld_overlay_stamped: 0,
             gameworld_appended: 0,
@@ -399,6 +409,10 @@ impl RuntimeHostBridge {
     pub(super) fn publish_status(&mut self, snapshot: &RuntimeHostSnapshot) {
         let mut payload = String::new();
         payload.push_str(&format!("state={}\n", snapshot.state));
+        payload.push_str(&format!(
+            "presentation_frame_shared={}\n",
+            snapshot.presentation_frame_shared
+        ));
         payload.push_str(&format!("ui_screen={}\n", snapshot.ui_screen));
         payload.push_str(&format!("skirmish_menu_ok={}\n", snapshot.skirmish_menu_ok));
         payload.push_str(&format!("paused={}\n", snapshot.paused));
@@ -583,8 +597,11 @@ impl RuntimeHostBridge {
             }
         }
 
-        let capture_interval = Self::capture_interval_for_state(state);
-        let should_request_capture = !self.capture_request_in_flight
+        let capture_interval = self
+            .capture_interval_override
+            .unwrap_or_else(|| Self::capture_interval_for_state(state));
+        let should_request_capture = !capture_interval.is_zero()
+            && !self.capture_request_in_flight
             && self
                 .last_capture_request_at
                 .map(|last| last.elapsed() >= capture_interval)

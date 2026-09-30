@@ -137,6 +137,8 @@ impl TerrainVisualImpl {
             terrain_sampler_mode: None,
             chunk_texture_bindings: HashMap::new(),
             active_chunk_texture_ids: None,
+            terrain_metrics_enabled: std::env::var_os("GENERALS_TERRAIN_METRICS").is_some(),
+            terrain_metrics_frame: 0,
             sun_direction: Vec3::new(0.0, -1.0, 0.0),
             sun_color: [1.0, 0.9, 0.8],
             ambient_color: [0.2, 0.2, 0.2],

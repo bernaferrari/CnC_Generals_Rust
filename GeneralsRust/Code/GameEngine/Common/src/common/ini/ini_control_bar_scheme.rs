@@ -747,13 +747,9 @@ pub struct ControlBarSchemeManager {
     active_scheme: Option<String>,
     background_marker_pos: ICoord2D,
     foreground_marker_pos: ICoord2D,
-    /// True once the init-time marker base position has been captured.
-    /// C++ ControlBar.cpp:1222-1225 captures at ControlBar::init when the
-    /// layout is final; the port's first draw can precede the final stage
-    /// placement, so the base latches after the marker position is stable.
+    /// C++ ControlBar.cpp:1222-1225 captures both marker bases at init,
+    /// before any stage moves the ControlBar parent.
     marker_base_captured: bool,
-    last_marker_pos: ICoord2D,
-    marker_stable_count: u32,
     multiplier_x: f32,
     multiplier_y: f32,
 }
@@ -767,22 +763,10 @@ impl ControlBarSchemeManager {
             active_scheme: None,
             background_marker_pos: ICoord2D { x: 0, y: 0 },
             marker_base_captured: false,
-            last_marker_pos: ICoord2D { x: 0, y: 0 },
-            marker_stable_count: 0,
             foreground_marker_pos: ICoord2D { x: 0, y: 0 },
             multiplier_x: 1.0,
             multiplier_y: 1.0,
         }
-    }
-
-    /// Set the background marker position (called from INI parsing)
-    pub fn set_background_marker_pos(&mut self, x: i32, y: i32) {
-        self.background_marker_pos = ICoord2D { x, y };
-    }
-
-    /// Set the foreground marker position (called from INI parsing)
-    pub fn set_foreground_marker_pos(&mut self, x: i32, y: i32) {
-        self.foreground_marker_pos = ICoord2D { x, y };
     }
 
     /// Get the background marker base position
@@ -800,33 +784,15 @@ impl ControlBarSchemeManager {
         self.marker_base_captured
     }
 
-    /// Mark the init-time marker base position as captured.
-    pub fn mark_marker_base_captured(&mut self) {
-        self.marker_base_captured = true;
-    }
-
-    /// Observe one draw-time marker position and latch the scheme marker
-    /// base once the position is stable. C++ captures the marker screen
-    /// position once at ControlBar::init (ControlBar.cpp:1222-1225), when
-    /// the layout is final; the port's first draws can precede the final
-    /// stage placement, so the base latches on the first stable observation
-    /// window instead. The draw-time offset (currentScreenPos - base) keeps
-    /// working for genuine moves after the latch.
-    pub fn note_marker_observation(&mut self, x: i32, y: i32) {
+    /// Capture both C++ marker bases from BackgroundMarker before the bar
+    /// moves. Repeated stage changes must preserve the first base.
+    pub fn capture_marker_base_once(&mut self, x: i32, y: i32) {
         if self.marker_base_captured {
             return;
         }
-        if self.last_marker_pos == (ICoord2D { x, y }) {
-            self.marker_stable_count += 1;
-            if self.marker_stable_count >= 3 {
-                self.background_marker_pos = ICoord2D { x, y };
-                self.foreground_marker_pos = ICoord2D { x, y };
-                self.marker_base_captured = true;
-            }
-        } else {
-            self.last_marker_pos = ICoord2D { x, y };
-            self.marker_stable_count = 0;
-        }
+        self.background_marker_pos = ICoord2D { x, y };
+        self.foreground_marker_pos = ICoord2D { x, y };
+        self.marker_base_captured = true;
     }
 
     /// Draw the background layers at the given offset
@@ -1015,9 +981,9 @@ impl ControlBarSchemeManager {
         self.schemes.clear();
         self.scheme_order.clear();
         self.active_scheme = None;
+        self.background_marker_pos = ICoord2D { x: 0, y: 0 };
+        self.foreground_marker_pos = ICoord2D { x: 0, y: 0 };
         self.marker_base_captured = false;
-        self.last_marker_pos = ICoord2D { x: 0, y: 0 };
-        self.marker_stable_count = 0;
     }
 
     /// Find the best scheme for a given resolution
@@ -1216,9 +1182,15 @@ parse_string_field!(parse_options_button_hightlited, options_button_hightlited);
 parse_string_field!(parse_options_button_pushed, options_button_pushed);
 parse_string_field!(parse_options_button_disabled, options_button_disabled);
 parse_string_field!(parse_idle_worker_button_enable, idle_worker_button_enable);
-parse_string_field!(parse_idle_worker_button_hightlited, idle_worker_button_hightlited);
+parse_string_field!(
+    parse_idle_worker_button_hightlited,
+    idle_worker_button_hightlited
+);
 parse_string_field!(parse_idle_worker_button_pushed, idle_worker_button_pushed);
-parse_string_field!(parse_idle_worker_button_disabled, idle_worker_button_disabled);
+parse_string_field!(
+    parse_idle_worker_button_disabled,
+    idle_worker_button_disabled
+);
 parse_string_field!(parse_buddy_button_enable, buddy_button_enable);
 parse_string_field!(parse_buddy_button_hightlited, buddy_button_hightlited);
 parse_string_field!(parse_buddy_button_pushed, buddy_button_pushed);
@@ -1899,6 +1871,25 @@ mod tests {
         let active = manager.get_active_scheme();
         assert!(active.is_some());
         assert_eq!(active.unwrap().screen_width, 1280);
+    }
+
+    #[test]
+    fn marker_base_is_captured_once_before_stage_motion() {
+        let mut manager = ControlBarSchemeManager::new();
+        manager.capture_marker_base_once(6, 476);
+        manager.capture_marker_base_once(6, 576);
+        assert!(manager.marker_base_captured());
+        assert_eq!(
+            manager.get_background_marker_pos(),
+            ICoord2D { x: 6, y: 476 }
+        );
+        assert_eq!(
+            manager.get_foreground_marker_pos(),
+            ICoord2D { x: 6, y: 476 }
+        );
+        manager.clear();
+        assert!(!manager.marker_base_captured());
+        assert_eq!(manager.get_background_marker_pos(), ICoord2D { x: 0, y: 0 });
     }
 
     #[test]

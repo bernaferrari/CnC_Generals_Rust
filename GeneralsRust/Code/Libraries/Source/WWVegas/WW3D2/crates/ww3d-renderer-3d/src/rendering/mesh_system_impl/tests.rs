@@ -1,3 +1,4 @@
+use super::render_manager::material_batch_index_data;
 use super::*;
 use crate::rendering::camera_system::CameraClass;
 use std::sync::Arc;
@@ -39,6 +40,51 @@ fn compute_pass_index_ranges_uses_vertex_count_for_non_indexed_meshes() {
 
     let ranges = compute_pass_index_ranges(&model, &[]);
     assert_eq!(ranges, vec![(0, 24)]);
+}
+
+#[test]
+fn material_batches_draw_each_authored_triangle_with_its_own_material() {
+    let mut model = MeshModelClass::new("per_face_materials");
+    model.triangles = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+        .into_iter()
+        .map(|vindex| W3dTriangleStruct {
+            vindex,
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            distance: 0.0,
+        })
+        .collect();
+    model.material_passes.push(MaterialPassClass::new());
+    model.material_batches = vec![
+        MeshMaterialBatch {
+            material_pass: MaterialPassClass::new(),
+            face_indices: vec![0, 2],
+        },
+        MeshMaterialBatch {
+            material_pass: MaterialPassClass::new(),
+            face_indices: vec![1],
+        },
+    ];
+
+    let (indices, ranges, passes) = material_batch_index_data(&model).unwrap();
+    assert_eq!(indices, vec![0, 1, 2, 6, 7, 8, 3, 4, 5]);
+    assert_eq!(ranges, vec![(0, 6), (6, 3)]);
+    assert_eq!(
+        passes
+            .iter()
+            .map(MaterialPassClass::get_pass_index)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert_eq!(
+        model.get_pass_count(),
+        1,
+        "GPU batches do not create authored passes"
+    );
 }
 
 #[test]

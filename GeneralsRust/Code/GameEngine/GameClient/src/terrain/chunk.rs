@@ -4,7 +4,7 @@
 //! This system divides the terrain into manageable pieces for culling, LOD,
 //! and streaming optimizations.
 
-use crate::fx_list::{do_the_dynamic_light, scene_dynamic_lights};
+use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light, scene_dynamic_lights};
 use crate::terrain::{
     HeightMap, TerrainConfig, TerrainError, TerrainLOD, TerrainModification, TerrainResult,
     TerrainVertex, calculate_terrain_lod,
@@ -140,6 +140,9 @@ pub struct TerrainChunk {
     /// Pre-dynamic VB diffuse (C++ `vbMirror`) used each `doTheDynamicLight` bake.
     pub base_colors: Vec<[f32; 4]>,
 
+    /// This chunk still holds pulse-lit CPU colors and needs one static restore.
+    dynamic_lit: bool,
+
     /// Index data for triangle rendering
     pub indices: Vec<u32>,
 
@@ -266,6 +269,7 @@ impl TerrainChunk {
             heights: Vec::new(),
             vertices: Vec::new(),
             base_colors: Vec::new(),
+            dynamic_lit: false,
             indices: Vec::new(),
             texture_weights: Vec::new(),
             dirty: true,
@@ -279,6 +283,15 @@ impl TerrainChunk {
 
     /// Generate geometry for this chunk based on heightmap
     pub fn generate_geometry(&mut self, resolution: u32) -> TerrainResult<()> {
+        let lights = scene_dynamic_lights();
+        self.generate_geometry_with_lights(resolution, &lights)
+    }
+
+    fn generate_geometry_with_lights(
+        &mut self,
+        resolution: u32,
+        lights: &[DisplayDynamicLight],
+    ) -> TerrainResult<()> {
         if self.heights.is_empty() {
             return Err(TerrainError::InvalidData(
                 "No heightmap data available".to_string(),
@@ -346,7 +359,7 @@ impl TerrainChunk {
         self.update_bounds();
 
         // C++ HeightMap::doTheDynamicLight bakes pulse lights into VB diffuse.
-        self.apply_dynamic_lights();
+        self.apply_dynamic_lights_with_lights(lights);
 
         // Update statistics
         self.stats.vertex_count = self.vertices.len() as u32;
@@ -362,6 +375,10 @@ impl TerrainChunk {
     /// Map coords are C++ Z-up: `(x, y, z) = (wgpu.x, wgpu.z, wgpu.y)`.
     pub fn apply_dynamic_lights(&mut self) {
         let lights = scene_dynamic_lights();
+        self.apply_dynamic_lights_with_lights(&lights);
+    }
+
+    fn apply_dynamic_lights_with_lights(&mut self, lights: &[DisplayDynamicLight]) {
         for (i, vertex) in self.vertices.iter_mut().enumerate() {
             let base = self
                 .base_colors
@@ -378,6 +395,7 @@ impl TerrainChunk {
             };
             vertex.color = bgra_u32_to_rgba_f32(packed);
         }
+        self.dynamic_lit = lights.iter().any(|light| light.enabled);
     }
 
     /// C++ HeightMap fragment: texture sample * vb.diffuse (already lit).
@@ -1480,6 +1498,8 @@ impl ChunkManager {
 
         let camera_position = self.camera_position;
         let view_frustum = self.view_frustum.clone();
+        let scene_lights = scene_dynamic_lights();
+        let lights_active = scene_lights.iter().any(|light| light.enabled);
 
         self.stats.visible_chunks = 0;
         self.stats.rendered_chunks = 0;
@@ -1518,13 +1538,16 @@ impl ChunkManager {
                     _ => 5,
                 };
 
-                if let Err(e) = chunk.generate_geometry(resolution) {
+                if let Err(e) = chunk.generate_geometry_with_lights(resolution, &scene_lights) {
                     log::warn!("Failed to generate geometry for chunk {}: {}", chunk.id, e);
                 } else {
                     self.stats.geometry_updates += 1;
                 }
-            } else if (chunk.visible || near_camera) && !chunk.vertices.is_empty() {
-                chunk.apply_dynamic_lights();
+            } else if (chunk.visible || near_camera)
+                && !chunk.vertices.is_empty()
+                && (lights_active || chunk.dynamic_lit)
+            {
+                chunk.apply_dynamic_lights_with_lights(&scene_lights);
             }
         }
 
@@ -1873,6 +1896,71 @@ mod tests {
             !shader.contains("final_color.rgb * cloud * noise"),
             "terrain FS must not multiply cloud+noise unconditionally"
         );
+        clear_scene_dynamic_lights();
+    }
+
+    #[test]
+    fn dynamic_light_expiry_restores_static_color_once_then_skips_quiet_frames() {
+        use crate::fx_list::{
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            drain_display_light_pulses,
+        };
+
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+
+        let mut chunk = TerrainChunk::new(1, Vec3::ZERO, 32.0);
+        chunk.heights = vec![vec![0.0; 2]; 2];
+        chunk.generate_geometry(3).unwrap();
+        for base in &mut chunk.base_colors {
+            *base = [0.2, 0.2, 0.2, 1.0];
+        }
+        chunk.apply_dynamic_lights();
+        let static_color = chunk.vertices[0].color;
+
+        let mut manager = ChunkManager::with_config(TerrainConfig {
+            lod_near_distance: 10_000.0,
+            ..TerrainConfig::default()
+        });
+        manager.chunks.insert(chunk.id, chunk);
+        assert!(create_display_light_pulse(DisplayLightPulse {
+            pos: [0.0, 0.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+            inner_radius: 10.0,
+            outer_radius: 80.0,
+            increase_frames: 0,
+            decay_frames: 0,
+        }));
+
+        manager.update().unwrap();
+        let lit_color = manager.get_chunk(1).unwrap().vertices[0].color;
+        assert!(lit_color[0] > lit_color[1] + 0.05, "{lit_color:?}");
+
+        clear_scene_dynamic_lights();
+        manager.set_camera(Vec3::new(5_000.0, 0.0, 5_000.0));
+        manager.set_view_frustum(ViewFrustum {
+            view_matrix: Mat4::from_translation(Vec3::new(-5_000.0, 0.0, -5_000.0)),
+            ..ViewFrustum::default()
+        });
+        manager.update().unwrap();
+        assert_eq!(manager.get_chunk(1).unwrap().vertices[0].color, lit_color);
+
+        manager.set_camera(Vec3::ZERO);
+        manager.set_view_frustum(ViewFrustum::default());
+        manager.update().unwrap();
+        assert_eq!(
+            manager.get_chunk(1).unwrap().vertices[0].color,
+            static_color
+        );
+
+        // A distinct value detects an unnecessary per-vertex repack on a
+        // subsequent empty-light frame without relying on elapsed time.
+        let sentinel = [0.123, 0.234, 0.345, 1.0];
+        manager.chunks.get_mut(&1).unwrap().vertices[0].color = sentinel;
+        manager.update().unwrap();
+        assert_eq!(manager.get_chunk(1).unwrap().vertices[0].color, sentinel);
+
+        let _ = drain_display_light_pulses();
         clear_scene_dynamic_lights();
     }
 

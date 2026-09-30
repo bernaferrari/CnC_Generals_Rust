@@ -863,7 +863,7 @@ impl RenderPipeline {
             .as_mut()
             .expect("initialized animation state");
         let should_animate = leftover_should_animate_for_presentation(
-            self.presentation_frame.as_ref(),
+            self.presentation_frame.as_deref(),
             object_id,
             draw_model.animations_require_power.get(),
         );

@@ -53,7 +53,6 @@ pub struct TerrainVisualImpl {
     /// this to report missing art instead of sampling hash placeholders.
     stand_in_source_tiles: Vec<bool>,
 
-
     /// Water rendering system
     water_system: WaterSystem,
 
@@ -66,7 +65,6 @@ pub struct TerrainVisualImpl {
     water_tracks: crate::terrain::WaterTracksRenderSystem,
     /// Last CPU flush from `WaterTracksRenderSystem::flush` (live water record).
     last_water_tracks_flush: crate::terrain::WaterTracksFlush,
-
 
     /// Sun direction for lighting
     sun_direction: Vec3,
@@ -184,7 +182,6 @@ pub struct TerrainVisualImpl {
     /// Uploaded C++ `WaterTracksRenderSystem::flush` geometry.
     water_track_meshes: Vec<GpuWaterPlane>,
 
-
     /// Cached GPU meshes for visible road surfaces.
     road_meshes: Vec<GpuRoadMesh>,
     /// Cached GPU meshes for W3D sectional/fixed bridges.
@@ -238,6 +235,10 @@ pub struct TerrainVisualImpl {
 
     /// Shared visible-terrain texture set used to keep adjacent chunks on the same slot map.
     active_chunk_texture_ids: Option<[TextureId; MAX_TEXTURES_PER_CHUNK]>,
+
+    /// Opt-in fixed-camera comparison with the C++ 32-cell terrain buffers.
+    terrain_metrics_enabled: bool,
+    terrain_metrics_frame: u32,
 
     /// Current oversize amount (in tiles).
     oversize_amount: i32,
@@ -298,6 +299,8 @@ struct GpuChunkMesh {
     index_buffer: Buffer,
     index_count: u32,
     revision: u64,
+    /// Preserve the final static restore if this mesh leaves the draw window.
+    uploaded_with_dynamic_lights: bool,
 }
 
 struct ChunkTextureBinding {
@@ -374,7 +377,6 @@ const DEFAULT_TERRAIN_COLORS: [[u8; 4]; 4] = [
     [80, 80, 80, 255],    // Missing/neutral (was snow-white scraps)
     [194, 162, 96, 255],  // Sand
 ];
-
 
 const NORMAL_DRAW_WIDTH: i32 = 129;
 const NORMAL_DRAW_HEIGHT: i32 = 129;

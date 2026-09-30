@@ -1051,9 +1051,18 @@ impl ListBox {
         if self.items.is_empty() {
             return 0;
         }
-        let visible = self.visible_rows();
-        let bottom = self.scroll_offset + visible.saturating_sub(1);
-        bottom.min(self.items.len() - 1) as i32
+        // C++ getListboxBottomEntry includes the row intersecting the bottom
+        // edge. listHeight accumulates cell height plus a one-pixel row border.
+        let mut used = 0u32;
+        let mut bottom = self.scroll_offset.min(self.items.len() - 1);
+        for index in self.scroll_offset..self.items.len() {
+            used = used.saturating_add(self.row_height(index).saturating_add(1));
+            bottom = index;
+            if used >= self.content_height() {
+                break;
+            }
+        }
+        bottom as i32
     }
 
     pub fn set_bottom_visible_entry(&mut self, index: i32) {
@@ -1071,8 +1080,16 @@ impl ListBox {
     }
 
     pub fn is_full(&self) -> bool {
-        let visible = self.visible_rows();
-        self.items.len().saturating_sub(self.scroll_offset) >= visible
+        if self.items.is_empty() {
+            return false;
+        }
+        // C++ GadgetListBoxIsFull tests the bottom row's cumulative
+        // listHeight against displayPos + displayHeight - 5, allowing its
+        // five-pixel edge tolerance even when the last row is partly shown.
+        let used = (self.scroll_offset..=self.get_bottom_visible_entry() as usize)
+            .map(|index| self.row_height(index).saturating_add(1))
+            .fold(0u32, u32::saturating_add);
+        used >= self.content_height().saturating_sub(5)
     }
 
     pub fn select_index(&mut self, index: usize, modifiers: KeyModifiers) -> bool {
@@ -1580,23 +1597,18 @@ impl Gadget for ListBox {
                     }];
                 }
                 if *button == MouseButton::Right {
-                    self.set_focus(true);
                     if self.audio_feedback {
                         if let Some(audio) = TheAudio::get() {
                             let event = AudioEventRts::new("GUIComboBoxClick");
                             audio.add_audio_event(&event);
                         }
                     }
-                    return vec![
-                        GadgetMessage::FocusChanged {
-                            gadget_id: self.id,
-                            has_focus: true,
-                        },
-                        GadgetMessage::Custom {
-                            gadget_id: self.id,
-                            data: "input_handled".to_string(),
-                        },
-                    ];
+                    // C++ GWM_RIGHT_DOWN consumes the input but calls
+                    // winSetFocus only on GWM_RIGHT_UP.
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "input_handled".to_string(),
+                    }];
                 }
                 Vec::new()
             }
@@ -1604,7 +1616,11 @@ impl Gadget for ListBox {
                 self.state = GadgetState::Normal;
                 if *button == MouseButton::Left {
                     self.set_focus(true);
-                    let mut messages = self.handle_click(*x, *y, KeyModifiers::none());
+                    // C++ subtracts the title height before walking row
+                    // heights. A click above the first row therefore still
+                    // resolves to row zero in the input path.
+                    let content_y = (*y).max(self.bounds.y + self.content_top_inset as i32);
+                    let mut messages = self.handle_click(*x, content_y, KeyModifiers::none());
                     messages.insert(
                         0,
                         GadgetMessage::FocusChanged {
@@ -1850,7 +1866,7 @@ mod tests {
     }
 
     #[test]
-    fn content_top_inset_keeps_title_area_out_of_row_hit_testing_like_cpp() {
+    fn content_top_inset_keeps_title_area_out_of_queries_but_input_selects_first_row_like_cpp() {
         let mut listbox = ListBox::new(7, 0, 0, 100, 60).with_item_height(10);
         listbox.add_item_with_id(42, "first");
         listbox.add_item_with_id(43, "second");
@@ -1865,16 +1881,16 @@ mod tests {
             y: 12,
             button: MouseButton::Left,
         });
-        assert!(title_click.is_empty());
-        assert!(listbox.selected_indices().is_empty());
+        assert_eq!(value_changed_integer(&title_click), Some(0));
+        assert_eq!(listbox.selected_indices(), &[0]);
 
         let content_click = listbox.handle_input(&InputEvent::MouseUp {
             x: 1,
             y: 13,
             button: MouseButton::Left,
         });
-        assert_eq!(value_changed_integer(&content_click), Some(0));
-        assert_eq!(listbox.selected_indices(), &[0]);
+        assert_eq!(value_changed_integer(&content_click), Some(-1));
+        assert!(listbox.selected_indices().is_empty());
     }
 
     #[test]
