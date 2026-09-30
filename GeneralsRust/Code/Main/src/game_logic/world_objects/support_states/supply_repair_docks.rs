@@ -2,6 +2,41 @@
 use super::super::super::*;
 
 impl GameLogic {
+    /// Warehouse stock/status/relationship portion of C++
+    /// ActionManager::canTransferSuppliesAt plus ResourceGatheringManager's
+    /// clear-approach gate. Caller-specific availability and shroud checks
+    /// remain outside this candidate selector.
+    pub(in super::super) fn supply_warehouse_available_for(
+        &self,
+        warehouse_id: ObjectId,
+        collector_id: ObjectId,
+    ) -> bool {
+        let Some((warehouse, collector)) = self
+            .objects
+            .get(&warehouse_id)
+            .zip(self.objects.get(&collector_id))
+        else {
+            return false;
+        };
+        if warehouse.thing.template.dock_kind != crate::game_logic::DockKind::SupplyWarehouse
+            || !warehouse.is_alive()
+            || warehouse.status.under_construction
+            || warehouse.status.sold
+            || warehouse.stored_resources.supplies == 0
+            || collector.thing.template.supply_truck_metadata.is_none()
+            || !collector.is_alive()
+            || collector.status.under_construction
+            || self.object_relationship(warehouse, collector)
+                == gamelogic::common::Relationship::Enemies
+        {
+            return false;
+        }
+        self.sync_host_dock_queue_cancellations_for_dock(warehouse_id);
+        self.host_dock_approach_queues
+            .borrow()
+            .is_clear_to_approach(warehouse_id, collector_id)
+    }
+
     /// Consume only cancellation epochs for docker IDs represented in this
     /// world's queues. Object setters record epochs synchronously; this owner
     /// reconciles queue state at observers and applies dock fields at its next

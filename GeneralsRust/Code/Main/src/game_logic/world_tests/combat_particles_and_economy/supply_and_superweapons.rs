@@ -244,11 +244,7 @@ fn supply_dock_command_paths_to_the_chosen_warehouse() {
     warehouse.dock_kind = DockKind::SupplyWarehouse;
     logic.templates.insert(warehouse.name.clone(), warehouse);
     let source = logic
-        .create_object(
-            "FiniteWarehouse",
-            Team::Neutral,
-            Vec3::new(80.0, 0.0, 0.0),
-        )
+        .create_object("FiniteWarehouse", Team::Neutral, Vec3::new(80.0, 0.0, 0.0))
         .expect("warehouse");
     let id = logic
         .create_object("AmericaSupplyTruck", Team::USA, Vec3::ZERO)
@@ -313,7 +309,6 @@ fn supply_truck_gather_credits_retail_value_per_box() {
         collector.supply_truck_next_dock_action_frame = 0;
         collector.set_stored_supplies(0);
     }
-
 
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
@@ -466,7 +461,6 @@ fn full_truck_returns_to_its_supply_center() {
             truck.waiting_for_path || !truck.movement.path.is_empty(),
             "a lost return route must be requested again"
         );
-
     }
 
     if let Some(truck) = logic.host_object_mut(id) {
@@ -760,6 +754,319 @@ fn supply_center_deposits_credit_center_owner_and_reject_allies() {
         !crate::game_logic::host_supply_gather::collector_carrying_from_boxes(
             collector.drawable_supply_boxes
         )
+    );
+}
+
+#[test]
+fn supply_wanting_skips_enemy_warehouse_even_when_players_share_faction() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata};
+    use gamelogic::common::Relationship;
+
+    let mut logic = GameLogic::new();
+    let mut collector_player = Player::new(0, Team::USA, "Collector", true);
+    collector_player.alliance_team = 1;
+    collector_player.set_map_relationship(1, Relationship::Allies);
+    logic.add_player(collector_player);
+    let mut enemy_player = Player::new(1, Team::USA, "SameFactionEnemy", false);
+    enemy_player.alliance_team = 2;
+    // C++ checks transferDest->getRelationship(collector), so set the
+    // warehouse owner's directional relationship explicitly.
+    enemy_player.set_map_relationship(0, Relationship::Enemies);
+    logic.add_player(enemy_player);
+    let mut legal_player = Player::new(2, Team::USA, "LegalSource", false);
+    legal_player.alliance_team = 1;
+    legal_player.set_map_relationship(0, Relationship::Allies);
+    logic.add_player(legal_player);
+
+    let mut truck = ThingTemplate::new("ParitySupplyTruck");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("ParitySupplyWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+
+    let enemy = logic
+        .create_object_for_player("ParitySupplyWarehouse", 1, Vec3::new(20.0, 0.0, 0.0))
+        .expect("enemy warehouse");
+    let legal = logic
+        .create_object_for_player("ParitySupplyWarehouse", 2, Vec3::new(120.0, 0.0, 0.0))
+        .expect("legal warehouse");
+    for id in [enemy, legal] {
+        logic
+            .host_object_mut(id)
+            .expect("warehouse")
+            .set_stored_supplies(750);
+    }
+    let collector = logic
+        .create_object_for_player("ParitySupplyTruck", 0, Vec3::ZERO)
+        .expect("collector");
+    {
+        let object = logic.host_object_mut(collector).expect("collector mut");
+        object.supply_truck_force_pending = true;
+        object.supply_truck_state = crate::game_logic::SupplyTruckState::Wanting;
+        object.set_ai_state(AIState::Idle);
+    }
+
+    logic.update_support_states(&[collector], 1.0 / 30.0);
+
+    let collector_after = logic.host_object(collector).expect("collector after");
+    assert_eq!(collector_after.target, Some(legal));
+    assert_eq!(
+        logic.host_object(enemy).unwrap().stored_resources.supplies,
+        750
+    );
+    assert_eq!(
+        logic.host_object(legal).unwrap().stored_resources.supplies,
+        750
+    );
+}
+
+#[test]
+fn supply_wanting_prefers_valid_dock_past_scan_limit_and_falls_back_when_empty() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "Collector", true));
+    let mut truck = ThingTemplate::new("PreferredParityTruck");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 100.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("PreferredParityWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+
+    let preferred = logic
+        .create_object(
+            "PreferredParityWarehouse",
+            Team::Neutral,
+            Vec3::new(300.0, 0.0, 0.0),
+        )
+        .expect("preferred warehouse");
+    let nearer = logic
+        .create_object(
+            "PreferredParityWarehouse",
+            Team::Neutral,
+            Vec3::new(20.0, 0.0, 0.0),
+        )
+        .expect("nearer warehouse");
+    for id in [preferred, nearer] {
+        logic
+            .host_object_mut(id)
+            .expect("warehouse")
+            .set_stored_supplies(750);
+    }
+    let collector = logic
+        .create_object_for_player("PreferredParityTruck", 0, Vec3::ZERO)
+        .expect("collector");
+    {
+        let object = logic.host_object_mut(collector).expect("collector mut");
+        object.preferred_dock_id = Some(preferred);
+        object.supply_truck_force_pending = true;
+        object.supply_truck_state = SupplyTruckState::Wanting;
+        object.set_ai_state(AIState::Idle);
+    }
+
+    logic.update_support_states(&[collector], 1.0 / 30.0);
+    assert_eq!(
+        logic.host_object(collector).unwrap().target,
+        Some(preferred),
+        "a legal preferred warehouse overrides the ordinary scan cap and nearer warehouse"
+    );
+
+    // An empty preference is invalid per ResourceGatheringManager's stock
+    // gate; the ordinary bounded nearest scan should then choose the nearer one.
+    logic
+        .host_object_mut(preferred)
+        .unwrap()
+        .set_stored_supplies(0);
+    {
+        let object = logic.host_object_mut(collector).unwrap();
+        object.set_target(None);
+        object.preferred_dock_id = Some(preferred);
+        object.supply_truck_force_pending = true;
+        object.supply_truck_state = SupplyTruckState::Wanting;
+        object.set_ai_state(AIState::Idle);
+    }
+    logic.update_support_states(&[collector], 1.0 / 30.0);
+    assert_eq!(logic.host_object(collector).unwrap().target, Some(nearer));
+}
+
+#[test]
+fn supply_wanting_falls_back_when_preferred_warehouse_approach_is_full() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "Collector", true));
+    let mut truck = ThingTemplate::new("BlockedPreferredTruck");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 100.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("BlockedPreferredWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let preferred = logic
+        .create_object(
+            "BlockedPreferredWarehouse",
+            Team::Neutral,
+            Vec3::new(300.0, 0.0, 0.0),
+        )
+        .expect("preferred warehouse");
+    let nearer = logic
+        .create_object(
+            "BlockedPreferredWarehouse",
+            Team::Neutral,
+            Vec3::new(430.0, 0.0, 0.0),
+        )
+        .expect("nearer warehouse");
+    for id in [preferred, nearer] {
+        logic
+            .host_object_mut(id)
+            .expect("warehouse")
+            .set_stored_supplies(750);
+    }
+
+    // Fill the preferred warehouse's nine authored approach positions with
+    // live dock sessions. C++ computeRelativeCost rejects this dock at
+    // isClearToApproach and then performs the normal distance-bounded scan.
+    for index in 0..9 {
+        let blocker = logic
+            .create_object(
+                "BlockedPreferredTruck",
+                Team::USA,
+                Vec3::new(500.0 + index as f32 * 20.0, 0.0, 0.0),
+            )
+            .expect("approach blocker");
+        {
+            let object = logic.host_object_mut(blocker).expect("blocker mut");
+            object.set_target(Some(preferred));
+            object.set_ai_state(AIState::Gathering);
+        }
+        assert!(!logic.try_claim_dock_for_test(preferred, blocker));
+    }
+
+    let collector = logic
+        .create_object_for_player("BlockedPreferredTruck", 0, Vec3::new(450.0, 0.0, 0.0))
+        .expect("collector");
+    {
+        let object = logic.host_object_mut(collector).expect("collector mut");
+        object.preferred_dock_id = Some(preferred);
+        object.supply_truck_force_pending = true;
+        object.supply_truck_state = SupplyTruckState::Wanting;
+        object.set_ai_state(AIState::Idle);
+    }
+
+    logic.update_support_states(&[collector], 1.0 / 30.0);
+
+    assert_eq!(logic.host_object(collector).unwrap().target, Some(nearer));
+}
+
+#[test]
+fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+    use gamelogic::common::Relationship;
+
+    let mut logic = GameLogic::new();
+    let mut collector_player = Player::new(0, Team::USA, "Collector", true);
+    collector_player.set_map_relationship(1, Relationship::Allies);
+    logic.add_player(collector_player);
+    let mut warehouse_player = Player::new(1, Team::China, "Warehouse", false);
+    warehouse_player.set_map_relationship(0, Relationship::Allies);
+    logic.add_player(warehouse_player);
+
+    let mut truck = ThingTemplate::new("TransitParityTruck");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("TransitParityWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let dock = logic
+        .create_object_for_player("TransitParityWarehouse", 1, Vec3::ZERO)
+        .expect("warehouse");
+    logic
+        .host_object_mut(dock)
+        .unwrap()
+        .set_stored_supplies(750);
+    let collector = logic
+        .create_object_for_player("TransitParityTruck", 0, Vec3::new(200.0, 0.0, 0.0))
+        .expect("collector");
+    {
+        let object = logic.host_object_mut(collector).unwrap();
+        object.set_target(Some(dock));
+        object.set_ai_state(AIState::Gathering);
+        object.supply_truck_state = SupplyTruckState::DockingWarehouse;
+        object.supply_truck_next_dock_action_frame = 0;
+    }
+    // The source is legal when the dock session is admitted and the truck
+    // starts travelling. C++ AIDock does not re-run ActionManager at action().
+    assert!(!logic.try_claim_dock_for_test(dock, collector));
+    logic
+        .players
+        .get_mut(&1)
+        .unwrap()
+        .set_map_relationship(0, Relationship::Enemies);
+    logic
+        .players
+        .get_mut(&0)
+        .unwrap()
+        .set_map_relationship(1, Relationship::Enemies);
+    // Complete the trip after the relationship changes, then exercise the
+    // dock action phase. The C++ action checks stock and proximity only.
+    logic
+        .host_object_mut(collector)
+        .unwrap()
+        .set_position(Vec3::new(1.0, 0.0, 0.0));
+
+    logic.update_support_states(&[collector, dock], 1.0 / 30.0);
+
+    assert_eq!(
+        logic
+            .host_object(collector)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        75
+    );
+    assert_eq!(
+        logic.host_object(dock).unwrap().stored_resources.supplies,
+        675
     );
 }
 
@@ -1145,17 +1452,16 @@ fn radar_scan_special_power_reveals_fow() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::host_radar_scan::{RADAR_SCAN_DURATION_FRAMES, RADAR_SCAN_RADIUS};
     use gamelogic::common::Coord3D;
-    use gamelogic::system::shroud_manager::get_shroud_manager;
 
-    // Isolate global shroud for this residual test.
+    let mut game_logic = GameLogic::new();
+    // Initialize and inspect the shroud owned by this world.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(512.0, 512.0);
     }
 
-    let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 1000;
     game_logic.add_player(player);
@@ -1187,7 +1493,7 @@ fn radar_scan_special_power_reveals_fow() {
 
     // Baseline: target shroud not visible.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1227,7 +1533,7 @@ fn radar_scan_special_power_reveals_fow() {
 
     // FOW observable: center cell visible after scan.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
@@ -1254,7 +1560,7 @@ fn radar_scan_special_power_reveals_fow() {
     );
     assert!(game_logic.radar_scans().expirations() >= 1);
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1266,8 +1572,8 @@ fn radar_scan_special_power_reveals_fow() {
         );
     }
 
-    // Cleanup global shroud for other tests.
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
+    // Clear only this world's fixture shroud.
+    if let Ok(mut shroud) = game_logic.engine_stores.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();
@@ -1339,17 +1645,16 @@ fn spy_satellite_special_power_reveals_fow() {
         SPY_SATELLITE_DURATION_FRAMES, SPY_SATELLITE_RADIUS,
     };
     use gamelogic::common::Coord3D;
-    use gamelogic::system::shroud_manager::get_shroud_manager;
 
-    // Isolate global shroud for this residual test.
+    let mut game_logic = GameLogic::new();
+    // Initialize and inspect the shroud owned by this world.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
     }
 
-    let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 1000;
     game_logic.add_player(player);
@@ -1384,7 +1689,7 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // Baseline: target shroud not visible.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1413,7 +1718,7 @@ fn spy_satellite_special_power_reveals_fow() {
         "scan must start at 0, not instant 300"
     );
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &near_center),
@@ -1442,7 +1747,7 @@ fn spy_satellite_special_power_reveals_fow() {
 
     // FOW observable: center cell visible after grow.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
@@ -1473,7 +1778,7 @@ fn spy_satellite_special_power_reveals_fow() {
     );
     assert!(game_logic.spy_satellites().expirations() >= 1);
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1485,8 +1790,8 @@ fn spy_satellite_special_power_reveals_fow() {
         );
     }
 
-    // Cleanup global shroud for other tests.
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
+    // Clear only this world's fixture shroud.
+    if let Ok(mut shroud) = game_logic.engine_stores.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();
@@ -1619,17 +1924,16 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
     use crate::command_system::{CommandType, GameCommand, PowerTarget, SpecialPowerType};
     use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DURATION_FRAMES;
     use gamelogic::common::Coord3D;
-    use gamelogic::system::shroud_manager::get_shroud_manager;
 
-    // Isolate global shroud for this residual test.
+    let mut game_logic = GameLogic::new();
+    // Initialize and inspect the shroud owned by this world.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
     }
 
-    let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 1000;
     game_logic.add_player(player);
@@ -1670,7 +1974,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // Baseline: enemy position shrouded, unit effectively stealthed.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1731,7 +2035,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 
     // FOW observable: enemy cell visible after spy vision residual.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &center),
@@ -1781,7 +2085,7 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         "vision_spied residual mark must clear after expiry"
     );
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = game_logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             !shroud.is_position_visible(0, &center),
@@ -1793,8 +2097,8 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
         );
     }
 
-    // Cleanup global shroud for other tests.
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
+    // Clear only this world's fixture shroud.
+    if let Ok(mut shroud) = game_logic.engine_stores.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();
@@ -1805,15 +2109,12 @@ fn cia_intelligence_special_power_reveals_enemy_units() {
 fn cia_intelligence_looker_follows_moving_enemy() {
     use crate::game_logic::host_cia_intelligence::CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS;
     use gamelogic::common::Coord3D;
-    use gamelogic::system::shroud_manager::get_shroud_manager;
 
     let mut logic = GameLogic::new();
-    // C++ clearGameData tears the per-world shroud down with the world
-    // (GameLogic::new() -> ShroudManager::reset_for_new_game drops the
-    // terrain grid).  A bigger map grid must therefore be initialized AFTER
-    // the world exists, like ThePlayerList's Shroud after newMap.
+    // Initialize the owning world's map grid, like C++ newMap.
+    // Constructors stay inert and never publish ambient shroud state.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(1024.0, 1024.0);
@@ -1839,7 +2140,7 @@ fn cia_intelligence_looker_follows_moving_enemy() {
     logic.update_cia_intelligence();
     let new_center = Coord3D::new(moved.x, moved.z, moved.y);
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let shroud = shroud_manager.lock().expect("shroud");
         assert!(
             shroud.is_position_visible(0, &new_center),
@@ -1850,7 +2151,7 @@ fn cia_intelligence_looker_follows_moving_enemy() {
         logic.cia_intelligence().is_position_in_active_spy(0, start)
             || CIA_INTELLIGENCE_DEFAULT_VISION_RADIUS > 0.0
     );
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
+    if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
         shroud.clear_all();
         shroud.init_shroud_grid(1.0, 1.0);
         shroud.clear_all();

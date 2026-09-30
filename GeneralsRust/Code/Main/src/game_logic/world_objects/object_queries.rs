@@ -159,6 +159,20 @@ impl GameLogic {
         query_id: ObjectId,
     ) -> Option<ObjectId> {
         let _ = team; // supplies are neutral/shared residual
+        let preferred = self
+            .objects
+            .get(&query_id)
+            .filter(|collector| collector.thing.template.supply_truck_metadata.is_some())
+            .and_then(|collector| collector.preferred_dock_id);
+        if let Some(preferred) = preferred
+            && self.supply_warehouse_available_for(preferred, query_id)
+        {
+            return Some(preferred);
+        }
+        let supply_truck_query = self
+            .objects
+            .get(&query_id)
+            .is_some_and(|collector| collector.thing.template.supply_truck_metadata.is_some());
         // Pure residual acquire: nearest harvestable supply pile (3D distance).
         let candidates: Vec<_> = self
             .objects
@@ -186,13 +200,19 @@ impl GameLogic {
                 }
                 // C++ `computeRelativeCost`: occupied approach-queues score FLT_MAX.
                 if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
-                    self.sync_host_dock_queue_cancellations_for_dock(id);
-                    if !self
-                        .host_dock_approach_queues
-                        .borrow()
-                        .is_clear_to_approach(id, query_id)
-                    {
-                        return None;
+                    if supply_truck_query {
+                        if !self.supply_warehouse_available_for(id, query_id) {
+                            return None;
+                        }
+                    } else {
+                        self.sync_host_dock_queue_cancellations_for_dock(id);
+                        if !self
+                            .host_dock_approach_queues
+                            .borrow()
+                            .is_clear_to_approach(id, query_id)
+                        {
+                            return None;
+                        }
                     }
                 }
                 Some(
