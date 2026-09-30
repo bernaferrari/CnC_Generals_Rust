@@ -52,6 +52,7 @@ impl TerrainVisualImpl {
         self.chunk_manager
             .load_heightmap(&heightmap, &self.config)?;
         self.height_map = Some(heightmap);
+        self.ranked_source_tile_classes = None;
         self.reset_draw_area_state();
         self.upload_extra_blend_overlay();
         self.apply_tree_world_bounds();
@@ -106,6 +107,7 @@ impl TerrainVisualImpl {
             .load_heightmap(&heightmap, &self.config)?;
 
         self.height_map = Some(heightmap);
+        self.ranked_source_tile_classes = None;
         self.reset_draw_area_state();
         self.upload_extra_blend_overlay();
         self.apply_tree_world_bounds();
@@ -238,7 +240,12 @@ impl TerrainVisualImpl {
     pub fn radar_terrain_color_at(&self, x: f32, y: f32) -> Option<[f32; 3]> {
         let height_map = self.height_map.as_ref()?;
         let tile_ndx = height_map.tile_ndx_at_world(x, y)?;
-        if self.stand_in_source_tiles.get(tile_ndx).copied().unwrap_or(true) {
+        if self
+            .stand_in_source_tiles
+            .get(tile_ndx)
+            .copied()
+            .unwrap_or(true)
+        {
             return None;
         }
         let tile = self.source_tiles.get(tile_ndx)?.as_ref()?;
@@ -636,8 +643,8 @@ impl TerrainVisualImpl {
             geometry_is_box,
             angle,
         });
-        self.tree_buffer.remove_trees_for_construction(
-            crate::terrain::TreeConstructionGeometry {
+        self.tree_buffer
+            .remove_trees_for_construction(crate::terrain::TreeConstructionGeometry {
                 position: Vec3::from_array(position),
                 major_radius,
                 minor_radius,
@@ -647,8 +654,7 @@ impl TerrainVisualImpl {
                     crate::terrain::TreeGeometryType::Cylinder
                 },
                 angle,
-            },
-        );
+            });
         self.tree_buffer.force_vertex_rebuild();
         self.terrain_props.retain(|prop| {
             !Self::point_inside_construction_footprint(
@@ -827,7 +833,11 @@ impl TerrainVisualImpl {
             let target = view.position();
             let forward = Vec3::new(target.x - eye.x, target.y - eye.y, target.z - eye.z);
             let len = forward.length();
-            let look_pitch = if len > 1.0e-5 { (forward.z / len).asin() } else { 0.0 };
+            let look_pitch = if len > 1.0e-5 {
+                (forward.z / len).asin()
+            } else {
+                0.0
+            };
             (view.angle(), look_pitch)
         })
     }
@@ -847,7 +857,8 @@ impl TerrainVisualImpl {
             return false;
         }
         // Synthetic 1×N gradient lives in slot 0 only when no real face loaded.
-        if index == 0 && is_synthetic_skybox_bind(self.last_skybox_face_bind.as_deref().unwrap_or(""))
+        if index == 0
+            && is_synthetic_skybox_bind(self.last_skybox_face_bind.as_deref().unwrap_or(""))
         {
             return false;
         }
@@ -902,10 +913,7 @@ impl TerrainVisualImpl {
             }
             match self.load_texture_from_path(device.as_ref(), texture_path) {
                 Ok(texture) => {
-                    info!(
-                        "Skybox face {} bound from '{}'",
-                        i, texture_path
-                    );
+                    info!("Skybox face {} bound from '{}'", i, texture_path);
                     loaded.push((*i, texture));
                 }
                 Err(err) => {
@@ -1414,7 +1422,6 @@ impl TerrainVisualImpl {
 
         ordered
     }
-
 }
 
 fn swapped_skybox_texture_extension(path: &Path) -> Option<PathBuf> {

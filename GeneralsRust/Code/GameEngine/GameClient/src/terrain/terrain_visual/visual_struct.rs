@@ -46,6 +46,11 @@ pub struct TerrainVisualImpl {
     source_tiles: Vec<Option<TileData>>,
     /// C++ `m_textureClasses` — firstTile/numTiles/name for getTextureClassFromNdx.
     source_tile_classes: Vec<TerrainSourceTileClass>,
+    /// Tile placement ranking, invalidated when the map or class metadata changes.
+    /// Texture IDs stay live so late asset hydration can change slot selection.
+    ranked_source_tile_classes: Option<Vec<usize>>,
+    #[cfg(test)]
+    texture_class_rank_builds: usize,
     /// Parallel to `source_tiles`: `true` where the tile was synthesized by
     /// `stand_in_tile_bgra` because the real `Art/Terrain` TGA did not
     /// resolve. C++ `WorldHeightMap::getTerrainColorAt` samples real tile

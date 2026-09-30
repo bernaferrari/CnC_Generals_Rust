@@ -29,6 +29,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.loaded_terrain_sources.clear();
         self.height_map = None;
         self.source_tile_classes.clear();
+        self.ranked_source_tile_classes = None;
 
         self.reset_draw_area_state();
         self.seismic_simulations.clear();
@@ -137,13 +138,11 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.sync_shroud_dest_texture();
         let water_elapsed = water_started.elapsed();
 
-
         let road_started = std::time::Instant::now();
         self.road_system.update()?;
         if let Some(height_map) = self.height_map.as_ref() {
             if self.road_system.needs_terrain_normal_reprojection() {
-                let (global_lights, ambient_color) =
-                    super::chunk::current_global_terrain_lights();
+                let (global_lights, ambient_color) = super::chunk::current_global_terrain_lights();
                 self.road_system.apply_terrain_heights_normals_and_diffuse(
                     |pos| height_map.get_height_at(pos.x, pos.z),
                     |pos| height_map.get_normal_at(pos.x, pos.z),
@@ -160,8 +159,6 @@ impl SubsystemInterface for TerrainVisualImpl {
             }
         }
         let road_elapsed = road_started.elapsed();
-
-
 
         let road_meshes_started = std::time::Instant::now();
         self.update_road_meshes()
@@ -258,7 +255,6 @@ impl TerrainVisual for TerrainVisualImpl {
         // earlier with a stale/identity frustum and left visible_chunks=0.
         let _ = self.chunk_manager.update();
 
-
         // Update uniforms
         if let (Some(queue), Some(uniform_buffer)) = (self.queue.as_ref(), &self.uniform_buffer) {
             let uniforms = TerrainUniforms {
@@ -268,12 +264,16 @@ impl TerrainVisual for TerrainVisualImpl {
                 camera_position: {
                     let global = game_engine::common::global_data::read();
                     let do_cloud = global.use_cloud_map
-                        && global.time_of_day
-                            != game_engine::common::global_data::TimeOfDay::Night;
+                        && global.time_of_day != game_engine::common::global_data::TimeOfDay::Night;
                     let do_noise = global.use_light_map;
-                    let mode = (if do_cloud { 1.0 } else { 0.0 })
-                        + (if do_noise { 2.0 } else { 0.0 });
-                    [camera_position.x, camera_position.y, camera_position.z, mode]
+                    let mode =
+                        (if do_cloud { 1.0 } else { 0.0 }) + (if do_noise { 2.0 } else { 0.0 });
+                    [
+                        camera_position.x,
+                        camera_position.y,
+                        camera_position.z,
+                        mode,
+                    ]
                 },
                 time: self.time,
                 sun_direction: self.sun_direction.to_array(),
