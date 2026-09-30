@@ -585,19 +585,27 @@ impl AIPlayer {
             }
             self.building_queue.push(building);
         }
-        self.compute_center_and_radius_of_base(game_logic);
+        self.compute_center_and_radius_of_base_in_view(game_logic);
         true
     }
 
     /// C++ `AIPlayer::computeCenterAndRadiusOfBase`.
     /// Leftover-calls leftover centroid + axis-abs + geom*0.4 hypot.
     pub fn compute_center_and_radius_of_base(&mut self, game_logic: &GameLogic) {
+        self.compute_center_and_radius_of_base_in_view(game_logic)
+    }
+
+    fn compute_center_and_radius_of_base_in_view(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut entries: Vec<(f32, f32, f32)> = Vec::new();
         for building in &self.building_queue {
             if building.template_name.is_empty() {
                 continue;
             }
-            let Some(template) = game_logic.templates.get(&building.template_name) else {
+            let Some(template) = game_logic.template(&building.template_name) else {
                 continue;
             };
             // C++ `getTemplateGeometryInfo().getBoundingCircleRadius()`:
@@ -662,8 +670,12 @@ impl AIPlayer {
         Some(pos)
     }
 
-    pub(super) fn template_is_command_center(game_logic: &GameLogic, template_name: &str) -> bool {
-        if let Some(template) = game_logic.templates.get(template_name) {
+    pub(super) fn template_is_command_center(
+        game_logic: &(impl AiReadSource + ?Sized),
+        template_name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
+        if let Some(template) = game_logic.template(template_name) {
             return template.is_kind_of(KindOf::CommandCenter);
         }
         template_name.contains("CommandCenter")
@@ -779,7 +791,11 @@ impl AIPlayer {
 
     /// C++ `Player::getSide()` — PlayerTemplate Side (`AmericaAirForceGeneral`),
     /// not the three-value host `Team` enum.
-    pub(super) fn live_player_side(&self, game_logic: &GameLogic) -> Option<String> {
+    pub(super) fn live_player_side(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> Option<String> {
+        let game_logic = &AiWorldView::new(game_logic);
         use crate::game_logic::host_faction_skirmish_residual::find_player_template_residual;
         // Residual Side matches C++ PlayerTemplate.ini (`AmericaAirForceGeneral`).
         // Prefer the bound identity so a leftover store that only copied
@@ -918,7 +934,11 @@ impl AIPlayer {
 
     /// C++ `doUpgradesAndSkills` SideInfo walk: leftover AIData, then residual
     /// general skillsets, then the three-faction hardcoded tables.
-    pub(super) fn live_side_skillsets(&self, game_logic: &GameLogic) -> [Vec<String>; 5] {
+    pub(super) fn live_side_skillsets(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> [Vec<String>; 5] {
+        let game_logic = &AiWorldView::new(game_logic);
         let side = self
             .live_player_side(game_logic)
             .or_else(|| self.side_info_name().map(str::to_string));
@@ -982,6 +1002,8 @@ impl AIPlayer {
 
     /// C++ `AISkirmishPlayer::buildAIBaseDefense(false)` — one front-fan slot.
     pub(super) fn queue_front_base_defense(&mut self, game_logic: Option<&GameLogic>) {
+        let game_logic = game_logic.map(AiWorldView::new);
+        let game_logic = game_logic.as_ref();
         let Some(defense) = self.base_defense_structure() else {
             return;
         };
@@ -996,10 +1018,12 @@ impl AIPlayer {
         game_logic: Option<&GameLogic>,
         flank: bool,
     ) -> bool {
+        let game_logic = game_logic.map(AiWorldView::new);
+        let game_logic = game_logic.as_ref();
         let Some(defense) = self.base_defense_structure() else {
             return false;
         };
-        self.build_script_base_defense_structure(game_logic, defense, flank)
+        self.build_script_base_defense_structure_in_view(game_logic, defense, flank)
     }
 
     /// C++ `AISkirmishPlayer::buildAIBaseDefenseStructure` — script
@@ -1007,6 +1031,16 @@ impl AIPlayer {
     pub fn build_script_base_defense_structure(
         &mut self,
         game_logic: Option<&GameLogic>,
+        thing_name: &str,
+        flank: bool,
+    ) -> bool {
+        let view = game_logic.map(AiWorldView::new);
+        self.build_script_base_defense_structure_in_view(view.as_ref(), thing_name, flank)
+    }
+
+    fn build_script_base_defense_structure_in_view(
+        &mut self,
+        game_logic: Option<&AiWorldView<'_>>,
         thing_name: &str,
         flank: bool,
     ) -> bool {
@@ -1025,7 +1059,7 @@ impl AIPlayer {
     /// center for front, else abort for flank.
     pub(super) fn approach_goal(
         &self,
-        game_logic: Option<&GameLogic>,
+        game_logic: Option<&AiWorldView<'_>>,
         flank: bool,
     ) -> Option<Vec3> {
         if let Some(gl) = game_logic {
@@ -1059,7 +1093,7 @@ impl AIPlayer {
     /// angle exceeds π/3.
     pub(super) fn place_next_base_defense_structure(
         &mut self,
-        game_logic: Option<&GameLogic>,
+        game_logic: Option<&AiWorldView<'_>>,
         thing_name: &str,
         flank: bool,
     ) -> Option<Vec3> {
@@ -1138,7 +1172,12 @@ impl AIPlayer {
     }
 
     /// If a queued front-defense pad is illegal, walk the C++ fan for a new pad.
-    pub(super) fn relocate_defense_if_illegal(&mut self, game_logic: &GameLogic, index: usize) {
+    pub(super) fn relocate_defense_if_illegal(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        index: usize,
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         let Some(building) = self.building_queue.get(index) else {
             return;
         };
@@ -1264,7 +1303,12 @@ impl AIPlayer {
         );
     }
 
-    pub(super) fn player_is_enemy(&self, _game_logic: &GameLogic, player: &Player) -> bool {
+    pub(super) fn player_is_enemy(
+        &self,
+        _game_logic: &(impl AiReadSource + ?Sized),
+        player: &Player,
+    ) -> bool {
+        let _game_logic = &AiWorldView::new(_game_logic);
         if player.team == self.team {
             return false;
         }
@@ -1279,14 +1323,24 @@ impl AIPlayer {
         true
     }
 
-    pub(super) fn player_has_any_objects(&self, game_logic: &GameLogic, team: Team) -> bool {
+    pub(super) fn player_has_any_objects(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team: Team,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .values()
             .any(|object| object.team == team && object.is_alive())
     }
 
-    pub(super) fn player_has_any_units(&self, game_logic: &GameLogic, team: Team) -> bool {
+    pub(super) fn player_has_any_units(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team: Team,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|object| {
             object.team == team
                 && object.is_alive()
@@ -1296,7 +1350,12 @@ impl AIPlayer {
         })
     }
 
-    pub(super) fn player_has_any_build_facility(&self, game_logic: &GameLogic, team: Team) -> bool {
+    pub(super) fn player_has_any_build_facility(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team: Team,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|object| {
             object.team == team
                 && object.is_alive()
@@ -1307,7 +1366,12 @@ impl AIPlayer {
         })
     }
 
-    pub(super) fn player_in_bad_shape(&self, game_logic: &GameLogic, player: &Player) -> bool {
+    pub(super) fn player_in_bad_shape(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        player: &Player,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         !self.player_has_any_units(game_logic, player.team)
             || !self.player_has_any_build_facility(game_logic, player.team)
     }

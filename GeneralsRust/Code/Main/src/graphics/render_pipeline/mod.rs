@@ -901,6 +901,7 @@ pub struct ForwardPass {
 
 pub(super) enum RenderModelLoadResult {
     Ready(Arc<W3DModel>),
+    Deferred,
     SkippedByBudget,
     Failed,
 }

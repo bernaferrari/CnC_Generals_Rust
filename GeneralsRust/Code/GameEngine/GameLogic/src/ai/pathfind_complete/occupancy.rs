@@ -730,7 +730,7 @@ impl PathfindingSystem {
         }
         let to = grid_path
             .last()
-            .map(|c| c.to_world(PathfindLayerEnum::Ground))
+            .map(|c| self.world_pos_for_coord(*c, PathfindLayerEnum::Ground))
             .unwrap_or(*from);
         let built = self.build_actual_path(
             grid_path,
@@ -772,7 +772,7 @@ impl PathfindingSystem {
         }
         let to = grid_path
             .last()
-            .map(|c| c.to_world(PathfindLayerEnum::Ground))
+            .map(|c| self.world_pos_for_coord(*c, PathfindLayerEnum::Ground))
             .unwrap_or(*from);
         let built =
             self.build_actual_path(grid_path, from, &to, SURFACE_GROUND, false, false, true);

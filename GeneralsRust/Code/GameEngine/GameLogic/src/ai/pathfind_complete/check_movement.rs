@@ -176,7 +176,7 @@ impl PathfindingSystem {
             return false;
         }
         // C++: no final destinations on cliffs.
-        let world = coord.to_world(layer);
+        let world = self.world_pos_for_coord(coord, layer);
         if self.get_cell_type(&world) == Some(PathfindCellType::Cliff) {
             return false;
         }

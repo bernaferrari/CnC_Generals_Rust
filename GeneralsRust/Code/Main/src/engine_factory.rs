@@ -765,7 +765,7 @@ pub struct DefaultAssetSubsystem {
     initialized: bool,
     next_asset_id: u32,
     assets: HashMap<u32, LoadedAsset>,
-    search_paths: Vec<PathBuf>,
+    live_asset_resolver: crate::assets::LiveAssetResolver,
     loaded_asset_paths: Vec<String>,
 }
 
@@ -781,7 +781,7 @@ impl DefaultAssetSubsystem {
             initialized: false,
             next_asset_id: 1,
             assets: HashMap::new(),
-            search_paths: Vec::new(),
+            live_asset_resolver: crate::assets::LiveAssetResolver::default(),
             loaded_asset_paths: Vec::new(),
         }
     }
@@ -790,10 +790,7 @@ impl DefaultAssetSubsystem {
     where
         I: IntoIterator<Item = PathBuf>,
     {
-        self.search_paths.clear();
-        for path in paths {
-            self.register_search_path(path);
-        }
+        self.live_asset_resolver.set_roots(paths);
     }
 
     pub fn register_search_path<P>(&mut self, path: P)
@@ -801,13 +798,15 @@ impl DefaultAssetSubsystem {
         P: Into<PathBuf>,
     {
         let path = path.into();
-        if !self.search_paths.iter().any(|existing| existing == &path) {
-            self.search_paths.push(path);
+        let mut roots = self.live_asset_resolver.roots().to_vec();
+        if !roots.contains(&path) {
+            roots.push(path);
+            self.live_asset_resolver.set_roots(roots);
         }
     }
 
     pub fn search_paths(&self) -> &[PathBuf] {
-        &self.search_paths
+        self.live_asset_resolver.roots()
     }
 
     pub fn loaded_asset_paths(&self) -> &[String] {
@@ -835,18 +834,22 @@ impl DefaultAssetSubsystem {
             return candidate.to_path_buf();
         }
 
-        if candidate.exists() {
-            return candidate.to_path_buf();
+        let mut candidates = vec![candidate.to_path_buf()];
+        candidates.extend(
+            self.live_asset_resolver
+                .roots()
+                .iter()
+                .map(|root| root.join(candidate)),
+        );
+        if let Some(resolved) = self
+            .live_asset_resolver
+            .first_existing_candidate(&candidates)
+        {
+            return resolved;
         }
 
-        for root in &self.search_paths {
-            let resolved = root.join(candidate);
-            if resolved.exists() {
-                return resolved;
-            }
-        }
-
-        self.search_paths
+        self.live_asset_resolver
+            .roots()
             .first()
             .cloned()
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))

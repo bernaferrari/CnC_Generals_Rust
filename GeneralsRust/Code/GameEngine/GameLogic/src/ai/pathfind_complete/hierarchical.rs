@@ -24,7 +24,7 @@ impl PathfindingSystem {
             if self.get_layer_for_coord(to_c) != layer {
                 return 1;
             }
-            let mut adjust = to_c.to_world(layer);
+            let mut adjust = self.world_pos_for_coord(to_c, layer);
             if self.try_adjust_cell(
                 cx,
                 cy,
@@ -65,7 +65,7 @@ impl PathfindingSystem {
         if !self.is_valid_coord(coord) {
             return false;
         }
-        let world = coord.to_world(layer);
+        let world = self.world_pos_for_coord(coord, layer);
         match self.get_cell_type(&world) {
             Some(PathfindCellType::Cliff)
             | Some(PathfindCellType::Water)
@@ -289,7 +289,7 @@ impl PathfindingSystem {
             return false;
         }
         // C++: no final destinations on cliffs.
-        let world = cell.to_world(layer);
+        let world = self.world_pos_for_coord(cell, layer);
         if self.get_cell_type(&world) == Some(PathfindCellType::Cliff) {
             return false;
         }
@@ -848,7 +848,7 @@ impl PathfindingSystem {
         {
             end
         } else {
-            dest_cell.to_world(PathfindLayerEnum::Ground)
+            self.world_pos_for_coord(dest_cell, PathfindLayerEnum::Ground)
         };
 
         let request = PathRequest {

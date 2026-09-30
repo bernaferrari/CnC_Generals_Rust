@@ -1,58 +1,6 @@
 use super::*;
 use crate::fow_rendering::ProjectedShroudSnapshot;
 
-const fn default_presentation_alliance_team() -> i32 {
-    -1
-}
-
-/// Snapshot-owned player roster residual (defeat/alliance UI / radar team).
-/// Fail-closed: not full Player science/upgrade/diplomacy matrix.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PresentationPlayerInfo {
-    pub id: u32,
-    pub name: String,
-    pub team: Team,
-    /// Skirmish alliance slot. This is distinct from faction `team` and lets
-    /// a frozen frame distinguish same-faction opponents from allied players.
-    #[serde(default = "default_presentation_alliance_team")]
-    pub alliance_team: i32,
-    pub is_alive: bool,
-    pub is_local: bool,
-    /// True when host AI manager owns this player (skirmish AI residual).
-    pub is_ai: bool,
-    /// Skirmish/UI color residual (RGB).
-    pub color_rgb: (u8, u8, u8),
-}
-
-/// Frozen script popup residual (C++ ScriptPopupMessageRequest parity).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PresentationPopupMessage {
-    pub message: String,
-    pub x_percent: i32,
-    pub y_percent: i32,
-    pub width: i32,
-    pub pause: bool,
-    pub pause_music: bool,
-}
-
-/// Frozen InGameUI PublicTimer superweapon countdown residual.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PresentationSuperweaponTimer {
-    pub name: String,
-    pub template_name: String,
-    pub icon: String,
-    /// Full recharge duration seconds residual.
-    pub recharge_time: f32,
-    /// Seconds remaining (0 = ready).
-    pub remaining: f32,
-    /// Science/prereq unlocked residual.
-    pub unlocked: bool,
-    /// Ready residual (unlocked && remaining <= 0).
-    pub ready: bool,
-    /// `SpecialPowerType` Debug name for shadow cooldown overlay.
-    pub power_key: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationFrame {
     pub frame: LogicFrame,
@@ -323,6 +271,35 @@ pub struct PresentationFrame {
     /// True when objects were rebuilt from GameWorld (Wave 196 engine primary path).
     #[serde(default)]
     pub gameworld_primary_objects: bool,
+}
+
+impl PresentationFrame {
+    /// Project frozen HUD-facing values into the shared presentation contract.
+    ///
+    /// This borrows the already frozen values: UI application cannot re-read simulation state, and
+    /// the aggregate's flat serde field order is unchanged.
+    pub fn hud_read_model(&self) -> generals_presentation::PresentationHudFrame<'_> {
+        generals_presentation::PresentationHudFrame {
+            total_play_time_seconds: self.total_play_time_seconds,
+            local_player_id: self.local_player_id,
+            local_team: self.local_team,
+            players: &self.players,
+            selected: &self.selected,
+            local_supplies: self.local_supplies,
+            local_power: self.local_power,
+            local_power_produced: self.local_power_produced,
+            local_power_consumed: self.local_power_consumed,
+            local_color_rgb: self.local_color_rgb,
+            local_is_alive: self.local_is_alive,
+            local_radar_count: self.local_radar_count,
+            local_radar_disabled: self.local_radar_disabled,
+            radar_ui_enabled: self.radar_ui_enabled,
+            radar_forced: self.radar_forced,
+            superweapon_timers: &self.superweapon_timers,
+            objectives: &self.objectives,
+            pending_popup_messages: &self.pending_popup_messages,
+        }
+    }
 }
 
 /// Whether presentation object rosters should be rebuilt from GameWorld (Wave 194).

@@ -105,7 +105,7 @@ impl PathfindingSystem {
     ) {
         let coord = GridCoord::new(cell_x, cell_y);
         let snapped = if center_in_cell {
-            coord.to_world(layer)
+            self.world_pos_for_coord(coord, layer)
         } else {
             // Corner-aligned: cell origin + small bias (C++ uses non-center footprint).
             Coord3D::new(
@@ -405,7 +405,7 @@ impl PathfindingSystem {
 
         while let Some(parent) = open.pop_front() {
             // C++ checkForAdjust(obj, locomotorSet, isHuman, x, y, layer, radius, center, &pos, groupDest)
-            let mut adjust_pos = parent.to_world(PathfindLayerEnum::Ground);
+            let mut adjust_pos = self.world_pos_for_coord(parent, PathfindLayerEnum::Ground);
             self.adjust_coord_to_cell(
                 parent.x,
                 parent.y,

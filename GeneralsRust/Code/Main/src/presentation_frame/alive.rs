@@ -393,7 +393,7 @@ impl PresentationFrame {
     /// Look up frozen player roster entry by id.
     #[inline]
     pub fn player_info(&self, id: u32) -> Option<&PresentationPlayerInfo> {
-        self.players.iter().find(|p| p.id == id)
+        self.hud_read_model().player_info(id)
     }
 
     /// Frozen player display name (defeat/alliance UI residual).

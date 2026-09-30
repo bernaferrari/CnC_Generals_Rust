@@ -117,7 +117,12 @@ mod face_material_tests {
 
     #[test]
     fn retail_command_center_preserves_its_polygon_texture_ids_when_available() {
-        let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("ABBtCmdHQ") else {
+        let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d_with_resolver(
+            "ABBtCmdHQ",
+            &mut crate::assets::LiveAssetResolver::new(
+                crate::assets::resolver::default_asset_roots(),
+            ),
+        ) else {
             eprintln!("skip: retail ABBtCmdHQ.W3D is not available on disk");
             return;
         };

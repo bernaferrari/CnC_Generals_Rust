@@ -266,7 +266,7 @@ impl PathfindingSystem {
                 if !self.is_valid_coord(coord) {
                     return 0; // off the map
                 }
-                let world = coord.to_world(layer);
+                let world = self.world_pos_for_coord(coord, layer);
                 let Some(ctype) = self.get_cell_type(&world) else {
                     return 0;
                 };

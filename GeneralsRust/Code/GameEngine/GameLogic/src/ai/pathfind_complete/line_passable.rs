@@ -50,16 +50,22 @@ impl PathfindingSystem {
         coord: GridCoord,
         layer: PathfindLayerEnum,
     ) -> Coord3D {
-        let mut pos = coord.to_world(layer);
-        if let Some(terrain) = TheTerrainLogic::get() {
-            let common_layer = match layer {
-                PathfindLayerEnum::Invalid => CommonPathfindLayerEnum::Invalid,
-                PathfindLayerEnum::Ground => CommonPathfindLayerEnum::Ground,
-                PathfindLayerEnum::Wall => CommonPathfindLayerEnum::Wall,
-                _ => CommonPathfindLayerEnum::Top,
-            };
-            pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
-        }
+        Self::cell_center_with_height(coord, layer, |x, y, common_layer| {
+            TheTerrainLogic::get()
+                .map(|terrain| terrain.get_layer_height(x, y, common_layer))
+                .unwrap_or(0.0)
+        })
+    }
+
+    /// Preserve the exact C++ bridge slot when sampling terrain, not generic Top.
+    pub(super) fn cell_center_with_height(
+        coord: GridCoord,
+        layer: PathfindLayerEnum,
+        sample: impl FnOnce(f32, f32, CommonPathfindLayerEnum) -> f32,
+    ) -> Coord3D {
+        let mut pos = coord.to_world(0.0);
+        let common_layer = CommonPathfindLayerEnum::from_u32(layer as u32);
+        pos.z = sample(pos.x, pos.y, common_layer);
         pos
     }
 

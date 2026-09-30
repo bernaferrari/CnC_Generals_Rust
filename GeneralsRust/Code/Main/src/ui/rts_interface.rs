@@ -12,6 +12,7 @@ use super::{
     UnitDisplayInfo,
 };
 use crate::game_logic::ObjectId;
+pub use generals_presentation::{UnitCommandAvailability, UnitCommandButton};
 
 /// RTS interface for unit commands and selection.
 ///
@@ -114,31 +115,6 @@ impl Renderable for RTSInterface {
 /// Unit command panel (context-sensitive command grid).
 ///
 /// Selection identity is presentation-fed so command enablement can use snapshot HP.
-/// Snapshot-owned command button residual for the unit command panel.
-///
-/// Fail-closed: not full CommandSet INI / WND button art parity.
-/// C++ `CommandAvailability` residual on the live GameHUD strip.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum UnitCommandAvailability {
-    Hidden,
-    Restricted,
-    NotReady,
-    CantAfford,
-    Active,
-    #[default]
-    Available,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct UnitCommandButton {
-    pub command_name: String,
-    pub enabled: bool,
-    pub exit_object_id: Option<u32>,
-    pub button_image: String,
-    pub overlay_image: Option<String>,
-    pub availability: UnitCommandAvailability,
-}
-
 pub struct UnitCommandPanel {
     visible: bool,
     selection_panel: ControlBarSelectionPanelState,

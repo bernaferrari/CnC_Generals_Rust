@@ -6,6 +6,7 @@
 
 //! High-level archive facade built on top of the modernized core BIG loader.
 
+use super::resolver::LiveAssetResolver;
 use anyhow::{Result, anyhow};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::archive_file_system as core;
@@ -23,6 +24,7 @@ use ww3d_renderer_3d::rendering::texture_system::ArchiveFileReader;
 /// Unity wrapper around the core archive system.
 pub struct ArchiveFileSystem {
     core: core::ArchiveFileSystem,
+    live_asset_resolver: LiveAssetResolver,
 }
 
 impl Default for ArchiveFileSystem {
@@ -36,6 +38,7 @@ impl ArchiveFileSystem {
     pub fn new() -> Self {
         Self {
             core: core::ArchiveFileSystem::new(),
+            live_asset_resolver: LiveAssetResolver::new(super::resolver::default_asset_roots()),
         }
     }
 
@@ -200,8 +203,46 @@ impl ArchiveFileSystem {
     pub async fn init(&mut self) -> Result<()> {
         self.add_default_search_paths();
         self.core.init().map_err(anyhow::Error::from)?;
+        let local_roots = self.core.search_paths().to_vec();
+        self.add_local_search_roots(local_roots);
         self.warn_if_base_archives_missing();
         Ok(())
+    }
+
+    /// Set the owner's ordered extracted/language/mod roots. Roots supplied by
+    /// archive initialization are appended after these explicit overrides.
+    pub fn set_local_search_roots(&mut self, roots: impl IntoIterator<Item = PathBuf>) {
+        self.live_asset_resolver.set_roots(roots);
+    }
+
+    pub fn add_local_search_roots(&mut self, roots: impl IntoIterator<Item = PathBuf>) {
+        let mut ordered = self.live_asset_resolver.roots().to_vec();
+        ordered.extend(roots);
+        self.live_asset_resolver.set_roots(ordered);
+    }
+
+    /// Resolve a local/extracted file with Windows-style case-insensitive path
+    /// matching. This is the local side of C++ FileSystem::openFile dispatch.
+    pub fn resolve_local_file(&self, filename: &str) -> Option<PathBuf> {
+        let relative = PathBuf::from(filename.replace('\\', "/"));
+        let candidates = if relative.is_absolute() {
+            vec![relative]
+        } else {
+            self.live_asset_resolver
+                .roots()
+                .iter()
+                .map(|root| root.join(&relative))
+                .collect()
+        };
+        self.live_asset_resolver
+            .first_existing_file_candidate(&candidates)
+    }
+
+    pub fn find_filesystem_w3d(&mut self, model_key: &str) -> Option<PathBuf> {
+        super::mesh_asset_resolve::find_filesystem_w3d_with_resolver(
+            model_key,
+            &mut self.live_asset_resolver,
+        )
     }
 
     fn warn_if_base_archives_missing(&self) {
@@ -289,6 +330,15 @@ impl ArchiveFileSystem {
     /// BIG-backed file reads are synchronous; keep that fact visible to render
     /// paths which need a model during the current frame.
     pub fn open_file_sync(&mut self, filename: &str) -> Result<Vec<u8>> {
+        if let Some(path) = self.resolve_local_file(filename) {
+            if let Ok(mut file) = std::fs::File::open(&path) {
+                let mut data = Vec::new();
+                file.read_to_end(&mut data).map_err(|e| {
+                    anyhow!("Failed to read local asset file '{}': {e}", path.display())
+                })?;
+                return Ok(data);
+            }
+        }
         let mut reader = self
             .core
             .open_file(filename, 0)
@@ -305,6 +355,11 @@ impl ArchiveFileSystem {
 
     /// Borrow a streaming reader for the specified archive entry.
     pub fn open_reader(&mut self, filename: &str) -> Result<Box<dyn Read + Send>> {
+        if let Some(path) = self.resolve_local_file(filename) {
+            if let Ok(file) = std::fs::File::open(&path) {
+                return Ok(Box::new(file));
+            }
+        }
         self.core
             .open_file(filename, 0)
             .map_err(anyhow::Error::from)
@@ -312,16 +367,13 @@ impl ArchiveFileSystem {
 
     /// Borrow a streaming reader usable inside async code via a blocking adapter.
     pub fn open_async_reader(&mut self, filename: &str) -> Result<BlockingAsyncReader> {
-        let reader = self
-            .core
-            .open_file(filename, 0)
-            .map_err(anyhow::Error::from)?;
+        let reader = self.open_reader(filename)?;
         Ok(BlockingAsyncReader::new(reader))
     }
 
     /// Check whether a virtual file exists.
     pub fn does_file_exist(&self, filename: &str) -> bool {
-        self.core.does_file_exist(filename)
+        self.resolve_local_file(filename).is_some() || self.core.does_file_exist(filename)
     }
 
     /// Resolve the archive that currently owns the provided file.
@@ -965,6 +1017,115 @@ mod tests {
         futures::executor::block_on(archive_system.init()).unwrap();
         let result = archive_system.open_async_reader("does/not/exist.txt");
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn interleaved_archive_owners_read_same_name_from_their_own_local_roots() {
+        use tokio::io::AsyncReadExt;
+
+        let first_root = tempfile::tempdir().unwrap();
+        let second_root = tempfile::tempdir().unwrap();
+        let unique = first_root.path().file_name().unwrap().to_string_lossy();
+        let virtual_path = format!("codex_asset_resolver_{unique}_shared.bin");
+        assert!(
+            !Path::new(&virtual_path).exists(),
+            "the fixture name must not be shadowed by the current directory"
+        );
+
+        let first_local = first_root.path().join(&virtual_path);
+        let second_local = second_root.path().join(&virtual_path);
+        std::fs::write(&first_local, b"first local owner").unwrap();
+        std::fs::write(&second_local, b"second local owner").unwrap();
+
+        let first_big = first_root.path().join("owner.big");
+        let second_big = second_root.path().join("owner.big");
+        create_single_file_big(&first_big, &virtual_path, b"first BIG").unwrap();
+        create_single_file_big(&second_big, &virtual_path, b"second BIG").unwrap();
+
+        let mut first = ArchiveFileSystem::new();
+        let mut second = ArchiveFileSystem::new();
+        first.set_local_search_roots(Vec::new());
+        second.set_local_search_roots(Vec::new());
+        first.load_big_file(&first_big).await.unwrap();
+        second.load_big_file(&second_big).await.unwrap();
+        assert_eq!(first.open_file_sync(&virtual_path).unwrap(), b"first BIG");
+        assert_eq!(second.open_file_sync(&virtual_path).unwrap(), b"second BIG");
+
+        first.set_local_search_roots([first_root.path().to_path_buf()]);
+        second.set_local_search_roots([second_root.path().to_path_buf()]);
+        assert!(first.does_file_exist(&virtual_path));
+        assert!(second.does_file_exist(&virtual_path));
+
+        assert_eq!(
+            first.open_file_sync(&virtual_path).unwrap(),
+            b"first local owner"
+        );
+        assert_eq!(
+            second.open_file_sync(&virtual_path).unwrap(),
+            b"second local owner"
+        );
+
+        let mut first_reader = first.open_reader(&virtual_path).unwrap();
+        let mut second_reader = second.open_reader(&virtual_path).unwrap();
+        let mut first_stream = Vec::new();
+        first_reader.read_to_end(&mut first_stream).unwrap();
+        let mut second_stream = Vec::new();
+        second_reader.read_to_end(&mut second_stream).unwrap();
+        assert_eq!(first_stream, b"first local owner");
+        assert_eq!(second_stream, b"second local owner");
+
+        let mut first_async_reader = first.open_async_reader(&virtual_path).unwrap();
+        let mut second_async_reader = second.open_async_reader(&virtual_path).unwrap();
+        let mut first_async = Vec::new();
+        first_async_reader
+            .read_to_end(&mut first_async)
+            .await
+            .unwrap();
+        let mut second_async = Vec::new();
+        second_async_reader
+            .read_to_end(&mut second_async)
+            .await
+            .unwrap();
+        assert_eq!(first_async, b"first local owner");
+        assert_eq!(second_async, b"second local owner");
+    }
+
+    #[test]
+    fn configured_local_roots_precede_a_working_directory_collision() {
+        // The default owner includes CWD in its roots. Reconfigured owners must
+        // not discover an extra implicit root ahead of their mod/language roots.
+        let cwd = std::env::current_dir().unwrap();
+        let cwd_fixture = tempfile::tempdir_in(&cwd).unwrap();
+        let relative = cwd_fixture
+            .path()
+            .strip_prefix(&cwd)
+            .unwrap()
+            .join("Owner.asset");
+        std::fs::write(cwd.join(&relative), b"working directory").unwrap();
+        let owner_root = tempfile::tempdir().unwrap();
+        let owner_file = owner_root.path().join(&relative);
+        std::fs::create_dir_all(owner_file.parent().unwrap()).unwrap();
+        std::fs::write(&owner_file, b"owning instance").unwrap();
+
+        let mut files = ArchiveFileSystem::new();
+        let virtual_path = relative.to_str().unwrap();
+        assert_eq!(
+            files.open_file_sync(virtual_path).unwrap(),
+            b"working directory"
+        );
+        files.set_local_search_roots([owner_root.path().to_path_buf()]);
+        assert_eq!(
+            files.open_file_sync(virtual_path).unwrap(),
+            b"owning instance"
+        );
+        files.set_local_search_roots(Vec::new());
+        assert!(!files.does_file_exist(virtual_path));
+        assert!(files.open_file_sync(virtual_path).is_err());
+        // An explicitly supplied absolute file remains a caller-owned input.
+        assert_eq!(
+            files.open_file_sync(owner_file.to_str().unwrap()).unwrap(),
+            b"owning instance"
+        );
     }
 
     #[test]

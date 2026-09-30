@@ -45,6 +45,10 @@ mod tests;
 pub use events::*;
 pub use floating_text::*;
 pub use frame::*;
+pub use generals_presentation::{
+    LogicFrame, PresentationHudFrame, PresentationPlayerInfo, PresentationPopupMessage,
+    PresentationSuperweaponTimer,
+};
 pub use lasers::*;
 pub use particles::*;
 pub use projectile::*;
@@ -80,4 +84,11 @@ pub const PRESENTATION_FRAME_SRC: &str = concat!(
     include_str!("unit_render.rs"),
     include_str!("weapon_visual_dispatch.rs"),
     include_str!("world_env.rs"),
+    include_str!("../../../GameEngine/Presentation/src/command.rs"),
+    include_str!("../../../GameEngine/Presentation/src/events.rs"),
+    include_str!("../../../GameEngine/Presentation/src/hud.rs"),
+    include_str!("../../../GameEngine/Presentation/src/objective.rs"),
+    include_str!("../../../GameEngine/Presentation/src/weapon_visual_dispatch.rs"),
+    include_str!("../../../GameEngine/GameDomain/src/lib.rs"),
+    include_str!("../../../GameEngine/GameDomain/src/difficulty.rs"),
 );

@@ -2252,7 +2252,14 @@ pub(crate) fn object_footprint_positions(obj: &Object) -> Option<Vec<Coord3D>> {
     let mut positions = Vec::with_capacity(cells.len());
     for (cx, cy) in cells {
         let coord = GridCoord::new(cx, cy);
-        let world = coord.to_world(PathfindLayerEnum::Ground);
+        let mut world = coord.to_world(0.0);
+        if let Some(terrain) = crate::helpers::TheTerrainLogic::get() {
+            world.z = terrain.get_layer_height(
+                world.x,
+                world.y,
+                crate::common::PathfindLayerEnum::Ground,
+            );
+        }
         positions.push(world);
     }
     Some(positions)
@@ -3132,7 +3139,7 @@ impl Pathfinder {
                     skip_count -= 1;
                     return 0;
                 }
-                let world = to_c.to_world(path_layer);
+                let world = self.inner.world_pos_for_coord(to_c, path_layer);
                 if self.inner.get_cell_type(&world) != Some(PathfindCellType::Obstacle) {
                     return 0;
                 }

@@ -105,16 +105,134 @@ def current_fragments(repo: Path, source: Path) -> list[Path]:
             target = (path.parent / value).resolve()
             if target.is_file():
                 pending.append(target)
-        content_without_explicit = PATH_MOD_RE.sub("", text)
-        child_root = path.parent if path.name == "mod.rs" else path.parent / path.stem
-        for name in MOD_RE.findall(content_without_explicit):
-            flat = child_root / f"{name}.rs"
-            nested = child_root / name / "mod.rs"
-            if flat.is_file():
-                pending.append(flat.resolve())
-            elif nested.is_file():
-                pending.append(nested.resolve())
+        pending.extend(rust_module_children(path, text))
     return sorted(candidates)
+
+
+def rust_module_children(path: Path, text: str) -> list[Path]:
+    """Resolve file-backed Rust modules declared directly by one source file."""
+    children: list[Path] = []
+    for value in PATH_MOD_RE.findall(text):
+        target = (path.parent / value).resolve()
+        if target.is_file():
+            children.append(target)
+
+    content_without_explicit = PATH_MOD_RE.sub("", text)
+    # A crate root's children live beside lib.rs/main.rs. A module file such as
+    # ai.rs instead owns ai/*.rs; mod.rs already is that directory's root.
+    if path.name in {"lib.rs", "main.rs", "mod.rs"}:
+        child_root = path.parent
+    else:
+        child_root = path.parent / path.stem
+    for name in MOD_RE.findall(content_without_explicit):
+        flat = child_root / f"{name}.rs"
+        nested = child_root / name / "mod.rs"
+        if flat.is_file():
+            children.append(flat.resolve())
+        elif nested.is_file():
+            children.append(nested.resolve())
+    return children
+
+
+def reachable_rust_sources(crate_root: Path) -> list[Path]:
+    """Return the Rust source tree reachable from a crate's declared lib root."""
+    pending = [crate_root.resolve()]
+    sources: set[Path] = set()
+    while pending:
+        path = pending.pop()
+        if path in sources or not path.is_file() or path.suffix != ".rs":
+            continue
+        sources.add(path)
+        pending.extend(rust_module_children(path, path.read_text(encoding="utf-8")))
+    return sorted(sources)
+
+
+def path_dependencies(manifest_data: dict[str, object]) -> list[tuple[str, Path]]:
+    """Find declared local path dependencies, including target-specific tables."""
+    found: list[tuple[str, Path]] = []
+
+    def inspect(table: object) -> None:
+        if not isinstance(table, dict):
+            return
+        for dependency_name, dependency in table.items():
+            if not isinstance(dependency, dict) or not isinstance(dependency.get("path"), str):
+                continue
+            found.append((str(dependency_name), Path(dependency["path"])))
+
+    for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+        inspect(manifest_data.get(key))
+    target_tables = manifest_data.get("target")
+    if isinstance(target_tables, dict):
+        for target in target_tables.values():
+            if isinstance(target, dict):
+                for key in ("dependencies", "dev-dependencies", "build-dependencies"):
+                    inspect(target.get(key))
+    return found
+
+
+def declared_dependency_sources(manifest: Path) -> dict[Path, tuple[Path, list[Path]]]:
+    """Map each source reachable through one direct local path dependency to its package."""
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    reachable: dict[Path, tuple[Path, list[Path]]] = {}
+    for _, dependency_path in path_dependencies(data):
+        package_root = (manifest.parent / dependency_path).resolve()
+        dependency_manifest = package_root / "Cargo.toml"
+        if not dependency_manifest.is_file():
+            continue
+        package_data = tomllib.loads(dependency_manifest.read_text(encoding="utf-8"))
+        lib_config = package_data.get("lib", {})
+        lib_relative = (
+            lib_config.get("path", "src/lib.rs")
+            if isinstance(lib_config, dict)
+            else "src/lib.rs"
+        )
+        lib_root = (package_root / lib_relative).resolve()
+        if not lib_root.is_file():
+            continue
+        package_sources = reachable_rust_sources(lib_root)
+        for source in package_sources:
+            reachable[source] = (package_root, package_sources)
+    return reachable
+
+
+def extracted_source_tree(
+    repo: Path,
+    original_manifest: Path | None,
+    requested: list[Path],
+) -> tuple[list[Path], list[Path], list[str]]:
+    """Validate explicit cross-crate sources and return their reachable package trees."""
+    if not requested:
+        return [], [], []
+    if original_manifest is None:
+        return [], [], ["cannot validate extracted sources: original package manifest not found"]
+
+    reachable = declared_dependency_sources(original_manifest)
+    included: set[Path] = set()
+    selected: set[Path] = set()
+    problems: list[str] = []
+    for source_arg in requested:
+        if source_arg.is_absolute():
+            problems.append(f"extracted source must be repository-relative: {source_arg}")
+            continue
+        source = (repo / source_arg).resolve()
+        try:
+            source.relative_to(repo)
+        except ValueError:
+            problems.append(f"extracted source escapes repository: {source_arg}")
+            continue
+        if not source.is_file() or source.suffix != ".rs":
+            problems.append(f"extracted source is not a Rust source file: {source_arg}")
+            continue
+        package_tree = reachable.get(source)
+        if package_tree is None:
+            problems.append(
+                "extracted source is not reachable from a declared local path dependency "
+                f"of the original package: {source_arg.as_posix()}"
+            )
+            continue
+        selected.add(source)
+        included.update(package_tree[1])
+    return sorted(included), sorted(selected), problems
 
 
 def nearest_package(path: Path, stop: Path) -> tuple[str | None, Path | None]:
@@ -147,7 +265,13 @@ def stale_source_references(repo: Path, rust_root: Path, source: Path) -> list[s
     return references
 
 
-def validate(repo: Path, rust_root: Path, source: Path, before_ref: str) -> dict[str, object]:
+def validate(
+    repo: Path,
+    rust_root: Path,
+    source: Path,
+    before_ref: str,
+    extracted_sources: list[Path] | None = None,
+) -> dict[str, object]:
     # macOS may spell the same temporary directory as /var/... and
     # /private/var/.... Canonicalize both anchors before relative-path checks.
     repo = repo.resolve()
@@ -155,7 +279,13 @@ def validate(repo: Path, rust_root: Path, source: Path, before_ref: str) -> dict
     relative = source.as_posix()
     before = git_text(repo, before_ref, relative)
     fragments = current_fragments(repo, source)
-    problems: list[str] = []
+    package, manifest = nearest_package(repo / source, rust_root)
+    extracted, selected_extracted, extracted_problems = extracted_source_tree(
+        repo, manifest, extracted_sources or []
+    )
+    original_fragments = fragments
+    fragments = sorted(set(fragments) | set(extracted))
+    problems: list[str] = list(extracted_problems)
     if not fragments:
         problems.append(f"split has no current Rust fragments for {relative}")
 
@@ -190,7 +320,14 @@ def validate(repo: Path, rust_root: Path, source: Path, before_ref: str) -> dict
         )
 
     before_tests = len(TEST_RE.findall(before))
-    after_tests = sum(len(TEST_RE.findall(text)) for text in after_texts)
+    # Only mapped source subtrees may satisfy this source's coverage count.
+    # Tests in unrelated siblings of a shared dependency cannot replace lost tests.
+    test_paths = set(original_fragments)
+    for extracted_source in selected_extracted:
+        test_paths.update(reachable_rust_sources(extracted_source))
+    after_tests = sum(
+        len(TEST_RE.findall(path.read_text(encoding="utf-8"))) for path in test_paths
+    )
     if after_tests < before_tests:
         problems.append(f"test attributes decreased: {before_tests} -> {after_tests}")
 
@@ -198,7 +335,7 @@ def validate(repo: Path, rust_root: Path, source: Path, before_ref: str) -> dict
     # A large source can already depend on separately tracked sibling modules.
     # Those declarations are part of the pre-split API baseline, not API growth
     # introduced by the split under validation.
-    for path in fragments:
+    for path in original_fragments:
         fragment_relative = path.relative_to(repo).as_posix()
         if fragment_relative == relative:
             continue
@@ -206,16 +343,18 @@ def validate(repo: Path, rust_root: Path, source: Path, before_ref: str) -> dict
         if baseline is not None:
             before_public.update(public_names(baseline))
     after_public: set[str] = set()
-    for text in after_texts:
-        after_public.update(public_names(text))
+    # The full extracted package tree contributes its tests and is checked for
+    # fragment hygiene, but public-API comparison is scoped to the files the
+    # caller explicitly maps from this original source. Sibling modules in a
+    # path dependency can own unrelated contracts and must not mask or invent
+    # API changes for the source being split.
+    api_paths = set(original_fragments) | set(selected_extracted)
+    for path in api_paths:
+        after_public.update(public_names(path.read_text(encoding="utf-8")))
     added_public = sorted(after_public - before_public)
     if added_public:
         problems.append("new public API names: " + ", ".join(added_public))
 
-    package, manifest = nearest_package(
-        fragments[0] if fragments else repo / source,
-        rust_root,
-    )
     commands = []
     if package:
         commands.extend(
@@ -235,6 +374,9 @@ def validate(repo: Path, rust_root: Path, source: Path, before_ref: str) -> dict
         "hard_limit": HARD_LIMIT,
         "module_root_limit": ROOT_LIMIT,
         "fragments": files,
+        "extracted_sources": [
+            path.relative_to(repo).as_posix() for path in selected_extracted
+        ],
         "tests": {"before": before_tests, "after": after_tests},
         "stale_source_references": stale_references,
         "public_api": {
@@ -257,6 +399,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("source", type=Path, help="repository-relative pre-split .rs path")
     parser.add_argument("--repo-root", type=Path, default=repo)
     parser.add_argument("--before-ref", default="HEAD")
+    parser.add_argument(
+        "--extracted-source",
+        action="append",
+        type=Path,
+        default=[],
+        metavar="PATH",
+        help="repo-relative Rust source moved into a reachable local path dependency; repeatable",
+    )
     parser.add_argument("--json", action="store_true")
     return parser.parse_args()
 
@@ -265,7 +415,9 @@ def main() -> int:
     args = parse_args()
     repo = args.repo_root.resolve()
     rust_root = repo / "GeneralsRust"
-    report = validate(repo, rust_root, args.source, args.before_ref)
+    report = validate(
+        repo, rust_root, args.source, args.before_ref, args.extracted_source
+    )
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:

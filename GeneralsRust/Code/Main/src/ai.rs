@@ -18,47 +18,8 @@ const MAX_STRUCTURES_TO_REPAIR: usize = 2;
 const HUGE_DIST: f32 = 1_000_000.0;
 /// C++ `TeamInQueue::isBuildTimeExpired` uses prototype `m_initialIdleFrames`.
 /// `< 1` means unlimited (never expires). No prototype → unlimited.
-
-/// AI difficulty levels affecting decision making and timing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum AIDifficulty {
-    Easy,
-    Medium,
-    Hard,
-    Brutal,
-}
-
-impl AIDifficulty {
-    /// Get build delay modifier for this difficulty
-    pub fn get_build_delay_modifier(&self) -> f32 {
-        match self {
-            AIDifficulty::Easy => 2.0,   // 2x slower building
-            AIDifficulty::Medium => 1.0, // Normal speed
-            AIDifficulty::Hard => 0.7,   // 30% faster
-            AIDifficulty::Brutal => 0.5, // 50% faster
-        }
-    }
-
-    /// Get resource bonus for this difficulty
-    pub fn get_resource_bonus(&self) -> f32 {
-        match self {
-            AIDifficulty::Easy => 0.8,   // 20% less resources
-            AIDifficulty::Medium => 1.0, // Normal resources
-            AIDifficulty::Hard => 1.2,   // 20% bonus
-            AIDifficulty::Brutal => 1.5, // 50% bonus
-        }
-    }
-
-    /// Get aggressive behavior factor
-    pub fn get_aggression_factor(&self) -> f32 {
-        match self {
-            AIDifficulty::Easy => 0.6,   // Less aggressive
-            AIDifficulty::Medium => 1.0, // Normal aggression
-            AIDifficulty::Hard => 1.4,   // More aggressive
-            AIDifficulty::Brutal => 1.8, // Very aggressive
-        }
-    }
-}
+// Canonical simulation configuration, also consumed by frozen presentation data.
+pub use generals_game_domain::AIDifficulty;
 
 /// AI personality types for different playstyles
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,6 +399,10 @@ pub enum AIBuildPhase {
     Expansion,        // Expanding economy
     MassProduction,   // Building large armies
 }
+
+mod world_commands;
+mod world_view;
+use world_view::{AiReadSource, AiWorldView};
 
 mod combat;
 mod destination_clearance;

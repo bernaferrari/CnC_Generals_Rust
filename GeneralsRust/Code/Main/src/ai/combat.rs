@@ -117,7 +117,12 @@ impl AIPlayer {
     }
 
     /// AIData wealth/poor rate residual: returns speed multiplier (>= rate means faster).
-    pub(super) fn resource_speed_rate(&self, game_logic: &GameLogic, for_structures: bool) -> f32 {
+    pub(super) fn resource_speed_rate(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        for_structures: bool,
+    ) -> f32 {
+        let game_logic = &AiWorldView::new(game_logic);
         let supplies = game_logic
             .get_player(self.player_id)
             .map(|p| p.resources.supplies)
@@ -142,10 +147,11 @@ impl AIPlayer {
     /// Base interval seconds scaled by difficulty and wealth/poor rates.
     pub(super) fn scaled_interval_seconds(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         base_seconds: f32,
         for_structures: bool,
     ) -> f32 {
+        let game_logic = &AiWorldView::new(game_logic);
         if base_seconds <= 0.0 {
             return 0.0;
         }
@@ -158,7 +164,11 @@ impl AIPlayer {
     }
 
     /// Calculate our military strength
-    pub(super) fn calculate_military_strength(&self, game_logic: &GameLogic) -> f32 {
+    pub(super) fn calculate_military_strength(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> f32 {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut strength = 0.0;
 
         for object in game_logic.host_objects().values() {
@@ -171,7 +181,12 @@ impl AIPlayer {
     }
 
     /// Estimate enemy military strength
-    pub(super) fn estimate_enemy_strength(&self, game_logic: &GameLogic, enemy_id: u32) -> f32 {
+    pub(super) fn estimate_enemy_strength(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        enemy_id: u32,
+    ) -> f32 {
+        let game_logic = &AiWorldView::new(game_logic);
         let enemy_team = if let Some(player) = game_logic.get_player(enemy_id) {
             player.team
         } else {
@@ -187,24 +202,6 @@ impl AIPlayer {
         }
 
         strength
-    }
-
-    /// Record C++ `AIAttackMoveState` / `AIInternalMoveToState::onEnter` on the
-    /// crate `AiStateMachine` (move/attack only; does not run the 48-state graph).
-    pub(super) fn dispatch_crate_attack_move(
-        machines: &mut std::collections::HashMap<u32, gamelogic::ai::state_machine::AiStateMachine>,
-        unit_id: ObjectId,
-        dest: Vec3,
-        focus: Option<ObjectId>,
-    ) {
-        let dest = gamelogic::common::types::Coord3D::new(dest.x, dest.y, dest.z);
-        let _ = gamelogic::ai::state_machine::dispatch_host_move_attack(
-            machines,
-            unit_id.0,
-            gamelogic::ai::state_machine::HostMoveAttackKind::AttackMoveTo,
-            Some(dest),
-            focus.map(|id| id.0),
-        );
     }
 
     /// AttackMove the given units toward the enemy base (OnCreate residual).
@@ -269,12 +266,7 @@ impl AIPlayer {
                     unit.is_attack_path = true;
                     unit.requested_destination = Some(enemy_base);
                 }
-                Self::dispatch_crate_attack_move(
-                    &mut game_logic.host_move_attack_machines,
-                    unit_id,
-                    enemy_base,
-                    focus_enemy,
-                );
+                game_logic.dispatch_ai_attack_move(unit_id, enemy_base, focus_enemy);
             } else {
                 if let Some(unit) = game_logic.host_object_mut(unit_id) {
                     unit.move_to(enemy_base);
@@ -282,12 +274,7 @@ impl AIPlayer {
                     unit.requested_destination = Some(enemy_base);
                 }
                 game_logic.set_ai_state_decision_aware_for_ai(unit_id, AIState::AttackMoving);
-                Self::dispatch_crate_attack_move(
-                    &mut game_logic.host_move_attack_machines,
-                    unit_id,
-                    enemy_base,
-                    focus_enemy,
-                );
+                game_logic.dispatch_ai_attack_move(unit_id, enemy_base, focus_enemy);
                 if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                     crate::game_logic::host_ai_decision_log::record_move_to(unit_id, enemy_base);
                 }
@@ -326,7 +313,8 @@ impl AIPlayer {
     /// Teams activate via `checkReadyTeams` (`AIPlayer.cpp:2729`) when idle (or
     /// after 60s) and later scripts can start another attack. The host latch
     /// must not survive the raid or AI attacks exactly once per game.
-    pub(super) fn clear_finished_attack(&mut self, game_logic: &GameLogic) {
+    pub(super) fn clear_finished_attack(&mut self, game_logic: &(impl AiReadSource + ?Sized)) {
+        let game_logic = &AiWorldView::new(game_logic);
         if !self.attack_in_progress {
             return;
         }
@@ -335,7 +323,11 @@ impl AIPlayer {
         }
     }
 
-    pub(super) fn raid_units_still_committed(&self, game_logic: &GameLogic) -> bool {
+    pub(super) fn raid_units_still_committed(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|object| {
             object.team == self.team
                 && object.is_alive()
@@ -444,10 +436,11 @@ impl AIPlayer {
     /// `NO_OBJECT_OVERLAP`, then wiggle if the sneak pad is illegal.
     pub(super) fn calc_closest_construction_zone_location(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         template_name: &str,
         seed: Vec3,
     ) -> Option<Vec3> {
+        let game_logic = &AiWorldView::new(game_logic);
         if game_logic.is_location_legal_to_build(self.team, seed, template_name) {
             return Some(seed);
         }
@@ -477,11 +470,12 @@ impl AIPlayer {
     /// Ground plane is host XZ (C++ samples XY).
     pub(super) fn compute_superweapon_target(
         &mut self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         enemy_team: Team,
         weapon_radius: f32,
         target_military_units: bool,
     ) -> Option<Vec3> {
+        let game_logic = &AiWorldView::new(game_logic);
         let radius = weapon_radius.max(1.0);
         let (mut min_x, mut min_z, mut max_x, mut max_z) =
             self.player_structure_bounds(game_logic, enemy_team);
@@ -627,9 +621,10 @@ impl AIPlayer {
     /// C++ `AISkirmishPlayer::computeSuperweaponTarget` cluster-mines branch.
     pub(super) fn compute_cluster_mines_target(
         &mut self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         enemy_team: Team,
     ) -> Option<Vec3> {
+        let game_logic = &AiWorldView::new(game_logic);
         let start_index = game_logic
             .get_player(self.player_id)
             .map(|p| p.start_position.max(0))
@@ -670,6 +665,15 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::repairStructure` (`AIPlayer.cpp:2254-2280`).
     pub fn repair_structure(&mut self, game_logic: &GameLogic, structure_id: ObjectId) {
+        self.repair_structure_in_view(game_logic, structure_id)
+    }
+
+    fn repair_structure_in_view(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        structure_id: ObjectId,
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
         let Some(structure) = game_logic.host_object(structure_id) else {
             return;
@@ -700,6 +704,16 @@ impl AIPlayer {
         unit_id: ObjectId,
         start_waypoint_id: u32,
     ) -> bool {
+        self.check_bridges_in_view(game_logic, unit_id, start_waypoint_id)
+    }
+
+    fn check_bridges_in_view(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        unit_id: ObjectId,
+        start_waypoint_id: u32,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let Some(unit) = game_logic.host_object(unit_id) else {
             return false;
         };
@@ -735,10 +749,7 @@ impl AIPlayer {
             let hop = Vec3::new(target.x, target.z, target.y);
             // Player path: live zone connectivity. Leftover empty zones
             // would report true and skip a destroyed span.
-            if game_logic
-                .pathfinding_system
-                .client_safe_quick_does_path_exist_for_crusher(unit_pos, hop, surfaces, is_crusher)
-            {
+            if game_logic.quick_path_exists(unit_pos, hop, surfaces, is_crusher) {
                 continue;
             }
             if let Some(pf_arc) = leftover_pf.as_ref() {
@@ -748,17 +759,14 @@ impl AIPlayer {
                     }
                     if let Some(bridge_id) = pf.find_broken_bridge(&loco, &from, &target) {
                         if bridge_id != 0 {
-                            self.repair_structure(game_logic, ObjectId(bridge_id));
+                            self.repair_structure_in_view(game_logic, ObjectId(bridge_id));
                             return true;
                         }
                     }
                 }
             }
-            if let Some(bridge_id) = game_logic
-                .pathfinding_system
-                .find_broken_bridge(unit_pos, hop)
-            {
-                self.repair_structure(game_logic, bridge_id);
+            if let Some(bridge_id) = game_logic.find_broken_bridge(unit_pos, hop) {
+                self.repair_structure_in_view(game_logic, bridge_id);
                 return true;
             }
         }
@@ -876,9 +884,10 @@ impl AIPlayer {
 
     pub(super) fn player_structure_bounds(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         enemy_team: Team,
     ) -> (f32, f32, f32, f32) {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut any = false;
         let mut min_x = 0.0;
         let mut min_z = 0.0;
@@ -915,12 +924,13 @@ impl AIPlayer {
     /// Host residual of C++ `AIPlayer::getPlayerSuperweaponValue`.
     pub(super) fn player_superweapon_value(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         enemy_team: Team,
         center: Vec3,
         radius: f32,
         include_military_units: bool,
     ) -> i32 {
+        let game_logic = &AiWorldView::new(game_logic);
         let radius = radius.max(4.0 * crate::game_logic::PATHFIND_CELL_SIZE_F_RESIDUAL);
         let rad_sqr = radius * radius;
         let mut cash = 0.0_f32;
@@ -975,7 +985,12 @@ impl AIPlayer {
     }
 
     /// Find center of enemy base
-    pub(super) fn find_enemy_base_center(&self, game_logic: &GameLogic, enemy_team: Team) -> Vec3 {
+    pub(super) fn find_enemy_base_center(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        enemy_team: Team,
+    ) -> Vec3 {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut center = Vec3::ZERO;
         let mut count = 0;
 
@@ -1000,7 +1015,12 @@ impl AIPlayer {
     }
 
     /// Update strategic phase based on game state
-    pub(super) fn update_strategy_phase(&mut self, game_logic: &GameLogic, current_time: f32) {
+    pub(super) fn update_strategy_phase(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        current_time: f32,
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         let game_time = current_time; // Game time in seconds
 
         match game_time {
@@ -1018,7 +1038,12 @@ impl AIPlayer {
     }
 
     /// Update build phase based on progress
-    pub(super) fn update_build_phase(&mut self, game_logic: &GameLogic, _current_time: f32) {
+    pub(super) fn update_build_phase(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        _current_time: f32,
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         // Count constructed buildings
         let built_buildings = self.building_queue.iter().filter(|b| b.is_built).count();
 

@@ -28,6 +28,24 @@ class ValidateRustSplitTests(unittest.TestCase):
         subprocess.run(["git", "commit", "-qm", "baseline"], cwd=root, check=True)
         return source
 
+    def make_extracted_dependency(self, root: Path, tests: str = "") -> Path:
+        dependency = root / "GeneralsRust/Code/GameEngine/Extracted"
+        (dependency / "src").mkdir(parents=True)
+        (dependency / "Cargo.toml").write_text(
+            '[package]\nname="extracted"\nversion="0.1.0"\n'
+        )
+        (dependency / "src/lib.rs").write_text(
+            "mod events;\npub use events::Stable;\n#[cfg(test)]\nmod tests;\n"
+        )
+        (dependency / "src/events.rs").write_text("pub struct Stable;\n")
+        (dependency / "src/tests.rs").write_text(tests)
+        main_manifest = root / "GeneralsRust/Code/Main/Cargo.toml"
+        main_manifest.write_text(
+            '[package]\nname="fixture"\nversion="0.1.0"\n'
+            '[dependencies]\nextracted={path="../GameEngine/Extracted"}\n'
+        )
+        return dependency
+
     def test_cohesive_split_preserves_tests_and_public_surface(self) -> None:
         root = self.make_repo()
         source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
@@ -72,6 +90,83 @@ class ValidateRustSplitTests(unittest.TestCase):
             ["GeneralsRust/Code/Main/src/consumer.rs"],
             report["stale_source_references"],
         )
+
+    def test_referenced_extracted_crate_root_includes_its_declared_tests(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        extracted = self.make_extracted_dependency(
+            root, "#[test]\nfn behavior() {}\n"
+        )
+        (root / source).write_text("pub use extracted::Stable;\n")
+
+        report = validate_rust_split.validate(
+            root,
+            root / "GeneralsRust",
+            source,
+            "HEAD",
+            [Path("GeneralsRust/Code/GameEngine/Extracted/src/events.rs"),
+             Path("GeneralsRust/Code/GameEngine/Extracted/src/tests.rs")],
+        )
+
+        self.assertTrue(report["passed"], report["problems"])
+        self.assertEqual({"before": 1, "after": 1}, report["tests"])
+        self.assertIn(
+            "GeneralsRust/Code/GameEngine/Extracted/src/tests.rs",
+            {fragment["path"] for fragment in report["fragments"]},
+        )
+
+    def test_reachable_extracted_crate_still_rejects_lost_tests(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        extracted = self.make_extracted_dependency(root)
+        (extracted / "src/events.rs").write_text("pub struct Stable;\npub fn Leak() {}\n")
+        (root / source).write_text("pub use extracted::Stable;\n")
+
+        report = validate_rust_split.validate(
+            root,
+            root / "GeneralsRust",
+            source,
+            "HEAD",
+            [Path("GeneralsRust/Code/GameEngine/Extracted/src/events.rs")],
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
+        self.assertIn("new public API names: Leak", report["problems"])
+
+    def test_reachable_sibling_tests_cannot_mask_lost_mapped_tests(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        self.make_extracted_dependency(root, "#[test]\nfn unrelated_behavior() {}\n")
+        (root / source).write_text("pub use extracted::Stable;\n")
+        report = validate_rust_split.validate(
+            root, root / "GeneralsRust", source, "HEAD",
+            [Path("GeneralsRust/Code/GameEngine/Extracted/src/events.rs")],
+        )
+        self.assertFalse(report["passed"])
+        self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
+
+    def test_unreachable_unrelated_file_cannot_supply_tests(self) -> None:
+        root = self.make_repo()
+        source = self.commit_source(root, "pub struct Stable;\n#[test]\nfn behavior() {}\n")
+        self.make_extracted_dependency(root)
+        (root / source).write_text("pub use extracted::Stable;\n")
+        unrelated = root / "GeneralsRust/Code/GameEngine/Extracted/src/unrelated.rs"
+        unrelated.write_text("#[test]\nfn behavior() {}\n")
+
+        report = validate_rust_split.validate(
+            root,
+            root / "GeneralsRust",
+            source,
+            "HEAD",
+            [Path("GeneralsRust/Code/GameEngine/Extracted/src/unrelated.rs")],
+        )
+
+        self.assertFalse(report["passed"])
+        self.assertTrue(
+            any("not reachable from a declared local path dependency" in p for p in report["problems"])
+        )
+        self.assertIn("test attributes decreased: 1 -> 0", report["problems"])
 
 
 if __name__ == "__main__":

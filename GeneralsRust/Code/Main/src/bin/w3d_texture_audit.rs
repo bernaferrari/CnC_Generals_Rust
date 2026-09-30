@@ -202,12 +202,14 @@ async fn main() -> Result<()> {
 
             match decode_texture(&resolved_path, &bytes) {
                 Ok((w, h)) => {
-                    let archive_name = archive
-                        .get_archive_filename_for_file(&resolved_path)
+                    let source = archive
+                        .resolve_local_file(&resolved_path)
+                        .map(|path| format!("local: {}", path.display()))
+                        .or_else(|| archive.get_archive_filename_for_file(&resolved_path))
                         .unwrap_or_else(|| "?".to_string());
                     println!(
                         "OK      ({:>3}x): {} -> {} ({}x{}, {})",
-                        count, texture, resolved_path, w, h, archive_name
+                        count, texture, resolved_path, w, h, source
                     );
                 }
                 Err(err) => {
