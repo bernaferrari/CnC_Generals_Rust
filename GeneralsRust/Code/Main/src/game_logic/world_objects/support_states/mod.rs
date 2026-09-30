@@ -7,6 +7,7 @@
 mod contain_states;
 mod guard_states;
 mod heal_contain_tunnel;
+mod quick_exit;
 mod special_abilities;
 mod supply_repair_docks;
 mod update;

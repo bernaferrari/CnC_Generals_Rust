@@ -870,9 +870,11 @@ fn guard_idle_acquire_uses_scan_rate_cadence() {
     logic.objects.insert(eid, e);
 
     let rate = logic.host_guard_enemy_scan_rate().max(1);
+    let scan_deadline = logic.frame.saturating_add(rate);
     logic
-        .guard_next_enemy_scan
-        .insert(gid, logic.frame.saturating_add(rate));
+        .unit_ai_runtime_mut(gid)
+        .expect("unit")
+        .set_guard_scan_deadline(Some(scan_deadline));
     logic.update_support_states(&[gid, eid], 1.0 / 30.0);
     assert!(
         logic.objects[&gid].target.is_none(),

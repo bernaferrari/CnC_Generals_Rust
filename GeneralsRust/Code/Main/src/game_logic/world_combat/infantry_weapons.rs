@@ -282,7 +282,6 @@ impl GameLogic {
                 continue;
             };
             fu.tick_sway(frame);
-            crate::game_logic::host_float_update::publish_sway(id.0, fu.yaw, fu.pitch);
             self.float_update_reg.record_sway();
             if let Some(wy) = fu.snap_height_y(water_y) {
                 let mut p = obj.get_position();

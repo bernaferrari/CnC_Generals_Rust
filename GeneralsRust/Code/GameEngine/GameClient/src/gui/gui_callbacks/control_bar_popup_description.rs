@@ -85,16 +85,16 @@ fn leftover_ini_command_button(name: &str) -> Option<IniCommandButton> {
         .cloned()
 }
 
-fn resolve_command_button(window: &GameWindow) -> Option<IniCommandButton> {
+fn resolve_command_button(window: &GameWindow) -> Option<(IniCommandButton, Option<u32>)> {
     if let Some(button) = window.get_user_data::<IniCommandButton>() {
-        return Some(button.clone());
+        return Some((button.clone(), None));
     }
     if let Some(button) = window.get_user_data::<Arc<IniCommandButton>>() {
-        return Some((**button).clone());
+        return Some(((**button).clone(), None));
     }
     if let Some(button) = window.get_user_data::<LiveCommandButton>() {
         if let Some(ini) = leftover_ini_command_button(&button.command_name) {
-            return Some(ini);
+            return Some((ini, button.presentation_can_make_status));
         }
         let mut ini = IniCommandButton::default();
         ini.name = button.command_name.clone();
@@ -105,10 +105,10 @@ fn resolve_command_button(window: &GameWindow) -> Option<IniCommandButton> {
         ini.button_image = button.button_image.clone();
         ini.sciences_ids = button.sciences_ids.clone();
         ini.conflicting_label = button.conflicting_element.clone();
-        return Some(ini);
+        return Some((ini, button.presentation_can_make_status));
     }
     if let Some(name) = window.get_user_data::<String>() {
-        return leftover_ini_command_button(name);
+        return leftover_ini_command_button(name).map(|ini| (ini, None));
     }
     None
 }
@@ -270,13 +270,12 @@ fn leftover_first_selected_object_id() -> Option<u32> {
 fn leftover_append_presentation_can_make(
     description: &mut String,
     command_button: &IniCommandButton,
+    presentation_can_make_status: Option<u32>,
 ) {
     if command_button.object.is_empty() {
         return;
     }
-    let Some(status) = crate::gui::control_bar::ControlBar::leftover_stamped_can_make_status(
-        &command_button.object,
-    ) else {
+    let Some(status) = presentation_can_make_status else {
         return;
     };
     // C++ CanMakeType ordinals (BuildAssistant.h).
@@ -304,17 +303,35 @@ fn leftover_append_presentation_can_make(
     }
 }
 
+#[cfg(test)]
+pub(crate) fn presentation_input_owner_tooltip_text(window: &GameWindow) -> String {
+    let mut description = String::new();
+    if let Some((command, status)) = resolve_command_button(window) {
+        leftover_append_presentation_can_make(&mut description, &command, status);
+    }
+    description
+}
+
 fn leftover_append_can_make_and_overcharge(
     description: &mut String,
     command_button: &IniCommandButton,
     player: &Player,
+    presentation_can_make_status: Option<u32>,
 ) {
     let Some(obj_id) = leftover_first_selected_object_id() else {
-        leftover_append_presentation_can_make(description, command_button);
+        leftover_append_presentation_can_make(
+            description,
+            command_button,
+            presentation_can_make_status,
+        );
         return;
     };
     let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-        leftover_append_presentation_can_make(description, command_button);
+        leftover_append_presentation_can_make(
+            description,
+            command_button,
+            presentation_can_make_status,
+        );
         return;
     };
     let Ok(obj) = obj_arc.read() else {
@@ -424,6 +441,7 @@ fn leftover_upgrade_cost(upgrade_name: &str) -> i32 {
 fn populate_layout_for_command(
     layout: &Rc<RefCell<WindowLayout>>,
     command_button: &IniCommandButton,
+    presentation_can_make_status: Option<u32>,
 ) {
     let mut name = String::new();
     let mut cost = String::new();
@@ -477,7 +495,21 @@ fn populate_layout_for_command(
 
     if !command_button.descriptive_text.is_empty() {
         if let Some(player_guard) = player_guard.as_ref() {
-            leftover_append_can_make_and_overcharge(&mut description, command_button, player_guard);
+            leftover_append_can_make_and_overcharge(
+                &mut description,
+                command_button,
+                player_guard,
+                presentation_can_make_status,
+            );
+        } else {
+            // C++ ControlBarPopupDescription.cpp:318-354 appends the selected
+            // producer's CanMake result. The live host freezes that result in
+            // this command window instead of allocating a legacy crate Player.
+            leftover_append_presentation_can_make(
+                &mut description,
+                command_button,
+                presentation_can_make_status,
+            );
         }
     }
 
@@ -709,8 +741,8 @@ pub fn show_build_tooltip_layout(cmd_button: Rc<RefCell<GameWindow>>) -> WindowM
 
         let is_button = (cmd_button.borrow().get_style() & GWS_PUSH_BUTTON) != 0;
         if is_button {
-            if let Some(command_button) = resolve_command_button(&cmd_button.borrow()) {
-                populate_layout_for_command(&layout, &command_button);
+            if let Some((command_button, status)) = resolve_command_button(&cmd_button.borrow()) {
+                populate_layout_for_command(&layout, &command_button, status);
             }
         } else if (cmd_button.borrow().get_style() & (GWS_USER_WINDOW | GWS_STATIC_TEXT)) != 0 {
             populate_layout_for_window(&layout, &cmd_button.borrow());
@@ -751,8 +783,8 @@ pub fn repopulate_build_tooltip_layout() -> WindowMsgHandled {
         if (prev_window.borrow().get_style() & GWS_PUSH_BUTTON) == 0 {
             return WindowMsgHandled::Ignored;
         }
-        if let Some(command_button) = resolve_command_button(&prev_window.borrow()) {
-            populate_layout_for_command(layout, &command_button);
+        if let Some((command_button, status)) = resolve_command_button(&prev_window.borrow()) {
+            populate_layout_for_command(layout, &command_button, status);
             return WindowMsgHandled::Handled;
         }
         WindowMsgHandled::Ignored
@@ -795,4 +827,114 @@ pub fn update_build_tooltip_layout() -> WindowMsgHandled {
         update_animation(state);
         WindowMsgHandled::Handled
     })
+}
+
+#[cfg(test)]
+mod presentation_can_make_popup_tests {
+    use super::*;
+
+    #[test]
+    fn host_popup_shows_bound_denials_without_legacy_player() {
+        // C++ ControlBarPopupDescription.cpp:318-354 appends the selected
+        // producer's CanMake denial to this command's actual description.
+        // In the host, those exact facts come from the bound window payload.
+        struct RestorePlayers(Option<gamelogic::player::PlayerList>);
+        impl Drop for RestorePlayers {
+            fn drop(&mut self) {
+                *player_list().write().unwrap() = self.0.take().unwrap();
+            }
+        }
+        let saved = std::mem::replace(
+            &mut *player_list().write().unwrap(),
+            gamelogic::player::PlayerList::new(),
+        );
+        let _restore = RestorePlayers(Some(saved));
+        assert_eq!(
+            game_engine::common::thing::thing_factory::load_templates_from_ini_text(
+                "Object OwnerHostPopupTank\n  KindOf = VEHICLE SELECTABLE\nEnd\nObject OwnerHostPopupStructure\n  KindOf = STRUCTURE SELECTABLE\nEnd\n",
+                "OwnedPopupFixture",
+            ),
+            2,
+        );
+        assert!(
+            !TheThingFactory::find_template("OwnerHostPopupTank")
+                .unwrap()
+                .is_kind_of(gamelogic::common::types::KindOf::Structure)
+        );
+        assert!(
+            TheThingFactory::find_template("OwnerHostPopupStructure")
+                .unwrap()
+                .is_kind_of(gamelogic::common::types::KindOf::Structure)
+        );
+        let mut owned_windows = None;
+        with_window_manager(|wm| {
+            wm.destroy_all_windows();
+            let parent = wm.create_window(None, 0, 0, 500, 150).unwrap();
+            parent.borrow_mut().set_id(NameKeyGenerator::name_to_key(
+                "ControlBarPopupDescription.wnd:Parent",
+            ) as i32);
+            let description = wm.create_window(Some(&parent), 0, 0, 480, 120).unwrap();
+            description
+                .borrow_mut()
+                .set_id(NameKeyGenerator::name_to_key(
+                    "ControlBarPopupDescription.wnd:StaticTextDescription",
+                ) as i32);
+            owned_windows = Some((parent, description));
+        });
+        let (parent, description) = owned_windows.unwrap();
+        assert_ne!(parent.borrow().get_id(), description.borrow().get_id());
+        let layout = Rc::new(RefCell::new(WindowLayout::new(
+            "OwnedPopupFixture".to_owned(),
+        )));
+        layout.borrow_mut().add_window(parent);
+        let mut command_window = GameWindow::new();
+        for (object, status, key) in [
+            (
+                "OwnerHostPopupTank",
+                Some(2),
+                Some("TOOLTIP:TooltipNotEnoughMoneyToBuild"),
+            ),
+            (
+                "OwnerHostPopupTank",
+                Some(4),
+                Some("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull"),
+            ),
+            (
+                "OwnerHostPopupTank",
+                Some(5),
+                Some("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull"),
+            ),
+            (
+                "OwnerHostPopupTank",
+                Some(6),
+                Some("TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"),
+            ),
+            (
+                "OwnerHostPopupStructure",
+                Some(6),
+                Some("TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"),
+            ),
+            ("OwnerHostPopupTank", Some(0), None),
+            ("OwnerHostPopupTank", None, None),
+        ] {
+            command_window.set_user_data(LiveCommandButton {
+                command_name: "OwnerHostPopupBuild".to_owned(),
+                object: object.to_owned(),
+                descriptive_text: "OwnerHostPopupBaseDescription".to_owned(),
+                presentation_can_make_status: status,
+                ..LiveCommandButton::default()
+            });
+            let (command, frozen_status) = resolve_command_button(&command_window).unwrap();
+            populate_layout_for_command(&layout, &command, frozen_status);
+            let text = description.borrow().get_text().to_owned();
+            if let Some(key) = key {
+                assert!(
+                    text.contains(&GameText::fetch(key)),
+                    "status {status:?} must reach the actual popup description: {text}"
+                );
+            } else {
+                assert_eq!(text, GameText::fetch("OwnerHostPopupBaseDescription"));
+            }
+        }
+    }
 }

@@ -1126,6 +1126,9 @@ pub struct Object {
 
     /// AI state for autonomous behavior
     pub ai_state: AIState,
+    /// C++ AI state lifetime belongs to this Object, including reused IDs.
+    #[serde(skip)]
+    pub(crate) unit_ai_runtime: unit_ai_runtime::UnitAiRuntime,
 
     // Command system compatibility fields
     /// Object type identifier
@@ -3242,6 +3245,8 @@ pub use visual::ObjectVisualInfo;
 #[cfg(test)]
 mod tests;
 
+pub(crate) mod unit_ai_runtime;
+
 /// Concatenated live `object/*.rs` sources (excluding tests) for residual scans.
 pub const OBJECT_SRC: &str = concat!(
     include_str!("mod.rs"),
@@ -3262,6 +3267,7 @@ pub const OBJECT_SRC: &str = concat!(
     include_str!("status_bits.rs"),
     include_str!("stealth.rs"),
     include_str!("update.rs"),
+    include_str!("unit_ai_runtime.rs"),
     include_str!("visual.rs"),
     include_str!("weapons.rs"),
 );

@@ -441,5 +441,7 @@ mod teams;
 mod cpp_parity_tests;
 #[cfg(test)]
 mod construction_parity_tests;
+#[cfg(test)]
+mod ownership_tests;
 
 pub use manager::AIManager;

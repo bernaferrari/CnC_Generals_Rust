@@ -67,6 +67,8 @@ pub const GAME_LOGIC_HOST_SRC: &str = concat!(
     include_str!("../../game_logic/world_objects/support_states/special_abilities.rs"),
     include_str!("../../game_logic/world_objects/support_states/supply_repair_docks.rs"),
     include_str!("../../game_logic/world_objects/support_states/update.rs"),
+    include_str!("../../game_logic/world_objects/support_states/quick_exit.rs"),
+    include_str!("../../game_logic/world_objects/unit_ai_runtime.rs"),
     include_str!("../../game_logic/world_objects/weapon_upgrades.rs"),
     include_str!("../../game_logic/world_objects/crates_radar_power.rs"),
     include_str!("../../game_logic/world_tick/production.rs"),

@@ -211,7 +211,7 @@ impl GameLogic {
                 end_hunt_on_player_parent_order(unit);
                 unit.set_ai_state(AIState::Moving);
             }
-            self.hunt_next_enemy_scan.remove(&id);
+            self.clear_unit_hunt_scan(id);
         }
         ok
     }
@@ -257,7 +257,7 @@ impl GameLogic {
         if let Some(unit) = self.objects.get_mut(&id) {
             end_hunt_on_player_parent_order(unit);
         }
-        self.hunt_next_enemy_scan.remove(&id);
+        self.clear_unit_hunt_scan(id);
         // C++ GameLogicDispatch.cpp:104-106 (doMoveTo): a player move order
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.release_weapon_lock(crate::game_logic::WeaponLockType::LockedTemporarily);
@@ -296,7 +296,7 @@ impl GameLogic {
             end_hunt_on_player_parent_order(unit);
             unit.set_ai_state(AIState::Moving);
         }
-        self.hunt_next_enemy_scan.remove(&id);
+        self.clear_unit_hunt_scan(id);
         true
     }
 
@@ -363,7 +363,7 @@ impl GameLogic {
                 unit.ignored_obstacle_id = None;
             }
         }
-        self.hunt_next_enemy_scan.remove(&id);
+        self.clear_unit_hunt_scan(id);
         if let Some(tgt) = self.objects.get_mut(&target_id) {
             tgt.add_jet_targeter(id, true, self.frame);
         }
@@ -423,7 +423,7 @@ impl GameLogic {
                 unit.ignored_obstacle_id = None;
             }
         }
-        self.hunt_next_enemy_scan.remove(&id);
+        self.clear_unit_hunt_scan(id);
         if let Some(tgt) = self.objects.get_mut(&target_id) {
             tgt.add_jet_targeter(id, true, self.frame);
         }
@@ -749,7 +749,7 @@ impl GameLogic {
             }
             drop(unit);
             if !hard_miss {
-                self.hunt_next_enemy_scan.remove(&id);
+                self.clear_unit_hunt_scan(id);
                 self.assault_transport_on_player_attack_move(id, destination);
             }
             return true;
@@ -824,7 +824,7 @@ impl GameLogic {
         unit.set_ai_state(AIState::AttackingGround);
         drop(unit);
         self.set_turret_target_position(id, Some(location));
-        self.hunt_next_enemy_scan.remove(&id);
+        self.clear_unit_hunt_scan(id);
         true
     }
 
@@ -855,7 +855,7 @@ impl GameLogic {
                 unit.movement.path.clear();
                 unit.set_ai_state(AIState::Moving);
             }
-            self.hunt_next_enemy_scan.remove(&id);
+            self.clear_unit_hunt_scan(id);
             return true;
         }
         let _ = self.note_move_to_request_path(id);
@@ -867,7 +867,7 @@ impl GameLogic {
             end_hunt_on_player_parent_order(unit);
             unit.ignored_obstacle_id = None;
             unit.set_ai_state(AIState::Moving);
-            self.hunt_next_enemy_scan.remove(&id);
+            self.clear_unit_hunt_scan(id);
             return true;
         }
         false
@@ -1267,7 +1267,7 @@ impl GameLogic {
             drop(unit);
             // C++ AIHuntState::onEnter reseeds m_nextEnemyScanTime with jitter.
             if entering_hunt {
-                self.hunt_next_enemy_scan.remove(&id);
+                self.clear_unit_hunt_scan(id);
             }
             return true;
         }

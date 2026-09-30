@@ -17,4 +17,8 @@ mod ready_completions;
 mod resources_income;
 mod spawn_templates;
 mod support_states;
+mod unit_ai_runtime;
 mod weapon_upgrades;
+
+#[cfg(test)]
+mod unit_ai_runtime_tests;

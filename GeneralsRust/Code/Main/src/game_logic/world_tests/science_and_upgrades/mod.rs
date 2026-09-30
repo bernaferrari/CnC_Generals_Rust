@@ -13,7 +13,11 @@ fn wave21_guard_weapon() -> Weapon {
 }
 
 fn mark_guard_scan_due(logic: &mut GameLogic, id: crate::game_logic::ObjectId) {
-    logic.guard_next_enemy_scan.insert(id, logic.frame);
+    let scan_deadline = logic.frame;
+    logic
+        .unit_ai_runtime_mut(id)
+        .expect("unit")
+        .set_guard_scan_deadline(Some(scan_deadline));
 }
 
 // Behavior-named suites keep each test file below the 4k LOC ceiling.

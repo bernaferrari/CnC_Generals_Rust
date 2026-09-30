@@ -20,6 +20,10 @@ mod physics_visual_host_tests;
 #[path = "host_draw_schedule_tests.rs"]
 mod host_draw_schedule_tests;
 
+#[cfg(test)]
+#[path = "float_sway_ownership_tests.rs"]
+mod float_sway_ownership_tests;
+
 /// Build the dynamic part of one selected Draw module's C++ projectile-bone
 /// visibility vector.  The caller appends it after static state directives so
 /// the existing exact-HLOD resolver preserves C++ last-write behavior.
@@ -129,6 +133,10 @@ pub struct UnitRenderInput {
     pub team_color: [f32; 4],
     pub position: Vec3,
     pub orientation: f32,
+    /// C++ FloatUpdate yaw/pitch instance-matrix rotations, frozen with the
+    /// object pose. The renderer never looks up another world or frame.
+    pub float_yaw: f32,
+    pub float_pitch: f32,
     /// C++ ToppleUpdate lean residual for mesh tilt.
     pub topple_lean_radians: f32,
     /// C++ `m_toppleDirection.x` (host X).
@@ -361,6 +369,8 @@ impl UnitRenderInput {
             team_color: ro.team_color,
             position: ro.position,
             orientation: ro.orientation,
+            float_yaw: ro.float_yaw,
+            float_pitch: ro.float_pitch,
             topple_lean_radians: ro.topple_lean_radians,
             topple_dir_x: ro.topple_dir_x,
             topple_dir_y: ro.topple_dir_y,
@@ -597,7 +607,7 @@ impl UnitRenderInput {
         } else {
             glam::Mat4::IDENTITY
         };
-        let (fy, fp) = crate::game_logic::host_float_update::sway_for(self.id.0);
+        let (fy, fp) = (self.float_yaw, self.float_pitch);
         // C++ FloatUpdate: Rotate_Z(heading); Rotate_Y(yaw); Rotate_X(pitch).
         // Host Y-up: heading is already Ry; C++ Ry → host Rz; Rx stays Rx.
         let sway = if fy.abs() > 1e-8 || fp.abs() > 1e-8 {

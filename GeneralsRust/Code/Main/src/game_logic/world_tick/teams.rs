@@ -2859,7 +2859,11 @@ mod tests {
         logic
             .team_common_attack_targets
             .insert("USA_RetaliateSquad".into(), shared);
-        logic.guard_next_enemy_scan.insert(id, logic.frame);
+        let scan_deadline = logic.frame;
+        logic
+            .unit_ai_runtime_mut(id)
+            .expect("unit")
+            .set_guard_scan_deadline(Some(scan_deadline));
         logic.tick_guard_retaliate_states();
         assert_eq!(
             logic.objects[&id].guard_retaliate_victim,

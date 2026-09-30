@@ -1056,6 +1056,7 @@ impl Object {
             flash_color: 0,
 
             ai_state: AIState::Idle,
+            unit_ai_runtime: Default::default(),
             object_type,
             template_name: template_name.clone(),
             position,
@@ -1981,6 +1982,7 @@ impl Object {
             flash_color: 0,
 
             ai_state: AIState::Idle,
+            unit_ai_runtime: Default::default(),
             object_type,
             template_name: template_name.clone(),
             position: Vec3::ZERO,

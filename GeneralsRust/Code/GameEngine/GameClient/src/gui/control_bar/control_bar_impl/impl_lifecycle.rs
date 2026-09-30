@@ -1,10 +1,5 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
-static PRESENTATION_CAN_MAKE: std::sync::Mutex<Vec<(String, u32)>> =
-    std::sync::Mutex::new(Vec::new());
-static PRESENTATION_UNLOCKED_SCIENCES: std::sync::Mutex<Vec<String>> =
-    std::sync::Mutex::new(Vec::new());
-
 impl ControlBar {
     pub fn new() -> Self {
         Self {
@@ -57,6 +52,9 @@ impl ControlBar {
             presentation_power: (0, 0),
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
+            presentation_unlocked_sciences: Vec::new(),
+            #[cfg(test)]
+            last_science_transition_group: None,
             ingame_entry_context_applied: false,
             presentation_availability: PresentationAvailabilityResidual::default(),
 
@@ -382,39 +380,23 @@ impl ControlBar {
     /// so get_command_availability looks this map up by command.object.
     pub fn apply_presentation_can_make(&mut self, cameos: &[(String, u32)]) {
         self.presentation_can_make = cameos.to_vec();
-        if let Ok(mut guard) = PRESENTATION_CAN_MAKE.lock() {
-            *guard = cameos.to_vec();
-        }
     }
 
-    /// Stamp live-player unlocked science names for NEED_SPECIAL_POWER_SCIENCE hide.
-    /// Leftover ThePlayerList is empty on the live host; populateCommand consults this.
+    /// The live host supplies this game's local player sciences.
     pub fn apply_presentation_science_hide_names(&mut self, names: &[String]) {
-        if let Ok(mut guard) = PRESENTATION_UNLOCKED_SCIENCES.lock() {
-            *guard = names.to_vec();
-        }
-    }
-
-    fn presentation_unlocked_sciences() -> Vec<String> {
-        PRESENTATION_UNLOCKED_SCIENCES
-            .lock()
-            .ok()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+        self.presentation_unlocked_sciences = names.to_vec();
     }
 
     pub fn presentation_can_make(&self) -> &[(String, u32)] {
         &self.presentation_can_make
     }
 
-    /// Live-host help-box CanMake residual when OBJECT_REGISTRY is empty.
-    pub fn leftover_stamped_can_make_status(template: &str) -> Option<u32> {
-        PRESENTATION_CAN_MAKE.lock().ok().and_then(|guard| {
-            guard
-                .iter()
-                .find(|(name, _)| name.eq_ignore_ascii_case(template))
-                .map(|(_, status)| *status)
-        })
+    /// Frozen host CanMake input, copied into the bound window command payload.
+    fn presentation_can_make_status(&self, template: &str) -> Option<u32> {
+        self.presentation_can_make
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(template))
+            .map(|(_, status)| *status)
     }
 
     /// Supply this bar's frozen player Energy for its next PowerWindow update.

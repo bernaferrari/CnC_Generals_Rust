@@ -88,7 +88,7 @@ impl ControlBar {
             } else {
                 Self::command_from_logic_button(button)
             };
-            Self::apply_need_special_power_science(&mut cmd, button);
+            self.apply_need_special_power_science(&mut cmd, button);
             context.available_commands.push(cmd);
         }
 
@@ -143,13 +143,14 @@ impl ControlBar {
         }
         if presentation_names.len() >= 2 {
             super::control_bar_multi_select::populate_multi_select_commands_from_sets(
+                self,
                 context,
                 &presentation_names,
             )?;
         }
         if context.available_commands.is_empty() {
             // Dual-world residual: OBJECT_REGISTRY intersection.
-            super::control_bar_multi_select::populate_multi_select_commands(context)?;
+            super::control_bar_multi_select::populate_multi_select_commands(self, context)?;
         }
         // C++ populateMultiSelect never falls back to a single unit's full set.
         Ok(())
@@ -301,6 +302,7 @@ impl ControlBar {
     }
 
     pub(super) fn command_from_set_slot(
+        &self,
         common_bar: &game_engine::common::ini::ini_command_button::ControlBar,
         button: Option<&gamelogic::command_button::CommandButton>,
     ) -> CommandButton {
@@ -317,7 +319,7 @@ impl ControlBar {
         } else {
             Self::command_from_logic_button(button)
         };
-        Self::apply_need_special_power_science(&mut cmd, button);
+        self.apply_need_special_power_science(&mut cmd, button);
         cmd
     }
 
@@ -330,11 +332,11 @@ impl ControlBar {
     }
 
     /// Live host leftover PlayerList is empty; consult stamped player sciences.
-    fn presentation_player_has_required_science(required: ScienceType) -> bool {
+    fn presentation_player_has_required_science(&self, required: ScienceType) -> bool {
         if required == SCIENCE_INVALID {
             return true;
         }
-        let names = Self::presentation_unlocked_sciences();
+        let names = &self.presentation_unlocked_sciences;
         if let Some(store) = get_science_store() {
             let name = store.get_internal_name_for_science(required);
             let name = name.as_str();
@@ -347,6 +349,7 @@ impl ControlBar {
 
     /// C++ populateCommand NEED_SPECIAL_POWER_SCIENCE hide + copyImagesFrom rank 1/3/8.
     fn apply_need_special_power_science(
+        &self,
         cmd: &mut CommandButton,
         logic_button: &gamelogic::command_button::CommandButton,
     ) {
@@ -373,7 +376,7 @@ impl ControlBar {
                 .map(|player| player.has_science(required))
         });
         let player_has = leftover_has.unwrap_or_else(|| {
-            Self::presentation_player_has_required_science(required)
+            self.presentation_player_has_required_science(required)
         });
         if Self::hide_need_special_power_science(required, player_has) {
             cmd.button_hidden = true;

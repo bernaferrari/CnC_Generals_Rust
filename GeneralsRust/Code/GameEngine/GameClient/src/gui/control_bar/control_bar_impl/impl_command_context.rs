@@ -729,6 +729,7 @@ impl ControlBar {
                     .map(|button| button.options)
                     .unwrap_or(0);
                 let mut window = win.borrow_mut();
+                self.refresh_window_presentation_can_make(&mut window);
                 let _ = window.clear_status(crate::gui::game_window::WindowStatus::NOT_READY);
                 let _ = window.clear_status(crate::gui::game_window::WindowStatus::ALWAYS_COLOR);
                 match availability {
@@ -1569,7 +1570,7 @@ fn leftover_presentation_queue_upgrade_availability(
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|arc| arc.read().ok().map(|player| player.has_science(*science)));
         let has = leftover_has.unwrap_or_else(|| {
-            ControlBar::presentation_player_has_required_science(*science)
+            bar.presentation_player_has_required_science(*science)
         });
         if !has {
             return Some(CommandAvailability::Restricted);

@@ -630,7 +630,7 @@ impl ControlBar {
             let button = command_set.buttons.get(slot).and_then(|b| b.as_ref());
             context
                 .available_commands
-                .push(Self::command_from_set_slot(&common_bar, button));
+                .push(self.command_from_set_slot(&common_bar, button));
         }
         for b in keep {
             if let Some(existing) = context
@@ -758,7 +758,7 @@ impl ControlBar {
             let button = common_slots.get(slot).and_then(|b| b.as_ref());
             context
                 .available_commands
-                .push(Self::command_from_set_slot(&common_bar, button));
+                .push(self.command_from_set_slot(&common_bar, button));
         }
         context.ui_dirty = true;
         drop(context);

@@ -150,7 +150,7 @@ impl GameLogic {
                         o.hunting = false;
                         o.release_weapon_lock(crate::game_logic::WeaponLockType::LockedTemporarily);
                     }
-                    self.hunt_next_enemy_scan.remove(&object_id);
+                    self.clear_unit_hunt_scan(object_id);
                     return Some(AICommand::SetAIState {
                         object_id,
                         state: AIState::Idle,
@@ -254,7 +254,7 @@ impl GameLogic {
                                 crate::game_logic::WeaponLockType::LockedTemporarily,
                             );
                         }
-                        self.hunt_next_enemy_scan.remove(&object_id);
+                        self.clear_unit_hunt_scan(object_id);
                         return Some(AICommand::SetAIState {
                             object_id,
                             state: AIState::Idle,
@@ -1048,22 +1048,11 @@ impl GameLogic {
     /// C++ AIHuntState `m_nextEnemyScanTime`. First visit matches onEnter
     /// `now + GameLogicRandomValue(0, ENEMY_SCAN_RATE)`; later scans add 30.
     fn hunt_acquire_scan_due(&mut self, object_id: ObjectId, now: u32) -> bool {
-        const RATE: u32 = 30;
-        match self.hunt_next_enemy_scan.get(&object_id).copied() {
-            Some(next) if now < next => return false,
-            None => {
-                let offset = gamelogic::helpers::game_logic_random_value(0, RATE);
-                let next = now.saturating_add(offset);
-                if now < next {
-                    self.hunt_next_enemy_scan.insert(object_id, next);
-                    return false;
-                }
-            }
-            Some(_) => {}
-        }
-        self.hunt_next_enemy_scan
-            .insert(object_id, now.saturating_add(RATE));
-        true
+        self.unit_ai_runtime_mut(object_id).is_some_and(|runtime| {
+            runtime.hunt_scan_due(now, |rate| {
+                gamelogic::helpers::game_logic_random_value(0, rate)
+            })
+        })
     }
 
     #[cfg(test)]
@@ -1133,7 +1122,14 @@ mod hq_m6gcj_tests {
     #[test]
     fn hunt_without_victim_exits_when_units_should_hunt_false() {
         let mut logic = GameLogic::new();
-        logic.hunt_next_enemy_scan.insert(ObjectId(1), 30);
+        let mut hunter = Object::new(ThingTemplate::new("Hunter"), ObjectId(1), Team::USA);
+        hunter.hunting = true;
+        hunter.set_ai_state(AIState::Patrolling);
+        logic.add_object(hunter);
+        logic
+            .unit_ai_runtime_mut(ObjectId(1))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(30));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -1164,7 +1160,10 @@ mod hq_m6gcj_tests {
         worker.hunting = true;
         worker.set_ai_state(AIState::Patrolling);
         logic.objects.insert(worker.id, worker);
-        logic.hunt_next_enemy_scan.insert(ObjectId(1), 30);
+        logic
+            .unit_ai_runtime_mut(ObjectId(1))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(30));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -1198,7 +1197,10 @@ mod hq_m6gcj_tests {
         hunter.hunting = true;
         hunter.set_ai_state(AIState::Patrolling);
         logic.objects.insert(hunter.id, hunter);
-        logic.hunt_next_enemy_scan.insert(ObjectId(1), 30);
+        logic
+            .unit_ai_runtime_mut(ObjectId(1))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(30));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -1599,7 +1601,10 @@ mod hq_m6gcj_tests {
         logic.objects.insert(dozer.id, dozer);
         logic.objects.insert(tank.id, tank);
         logic.set_host_team_common_target(ObjectId(1), Some(ObjectId(2)));
-        logic.hunt_next_enemy_scan.insert(ObjectId(1), 30);
+        logic
+            .unit_ai_runtime_mut(ObjectId(1))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(30));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -1645,7 +1650,10 @@ mod hq_m6gcj_tests {
         logic
             .objects
             .insert(ObjectId(2), attack_move_enemy(2, Vec3::new(90.0, 0.0, 0.0)));
-        logic.hunt_next_enemy_scan.insert(ObjectId(1), 30);
+        logic
+            .unit_ai_runtime_mut(ObjectId(1))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(30));
         let command = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -1698,8 +1706,14 @@ mod hq_m6gcj_tests {
             .objects
             .insert(ObjectId(3), attack_move_enemy(3, Vec3::new(80.0, 0.0, 0.0)));
         // Frame 31 is not a multiple of 30. Old lockstep would skip both.
-        logic.hunt_next_enemy_scan.insert(ObjectId(1), 31);
-        logic.hunt_next_enemy_scan.insert(ObjectId(2), 50);
+        logic
+            .unit_ai_runtime_mut(ObjectId(1))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(31));
+        logic
+            .unit_ai_runtime_mut(ObjectId(2))
+            .expect("unit")
+            .set_hunt_scan_deadline(Some(50));
         let due_cmd = logic.process_ai_behavior(
             ObjectId(1),
             AIState::Patrolling,
@@ -1735,7 +1749,9 @@ mod hq_m6gcj_tests {
             "waiting hunter must keep its own clock; got {wait_cmd:?}"
         );
         assert_eq!(
-            logic.hunt_next_enemy_scan.get(&ObjectId(1)).copied(),
+            logic
+                .unit_ai_runtime(ObjectId(1))
+                .and_then(|runtime| runtime.hunt_scan_deadline()),
             Some(61),
             "after a scan, next time is now + ENEMY_SCAN_RATE"
         );

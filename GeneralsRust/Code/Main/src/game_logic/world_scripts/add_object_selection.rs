@@ -13,10 +13,11 @@ impl GameLogic {
         id
     }
 
-    /// A new admission receives fresh visual identity, even when the incoming
+    /// A new admission receives fresh runtime identity, even when the incoming
     /// object was cloned. Temporary extraction/reinsertion uses the live map.
     pub(crate) fn admit_host_object(&mut self, mut object: Object) {
         object.visual_object_generation = self.allocate_visual_object_generation();
+        object.unit_ai_runtime = Default::default();
         self.objects.insert(object.id, object);
     }
 
