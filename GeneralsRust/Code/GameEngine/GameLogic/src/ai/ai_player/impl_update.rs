@@ -23,7 +23,8 @@ impl AIPlayer {
         // C++ AIPlayer ctor: m_teamSeconds = TheAI->getAiData()->m_teamSeconds;
         // Structure interval is read live from AIData each arm (0.0 is valid = every tick).
         // Prefer live AIData; fall back to retail Default/AIData.ini constants when unloaded.
-        let ai_store = the_ai(); let (team_seconds, structure_seconds) = if let Ok(ai) = ai_store.read() {
+        let ai_store = the_ai();
+        let (team_seconds, structure_seconds) = if let Ok(ai) = ai_store.read() {
             if let Ok(data) = ai.get_ai_data().read() {
                 // C++ overwrites the 10 initializer with AIData, including 0.
                 (data.team_seconds, data.structure_seconds)
@@ -459,7 +460,8 @@ impl AIPlayer {
             return true;
         };
 
-        let ai_store = the_ai();let aidata_r = ai_store.read().ok().and_then(|ai| {
+        let ai_store = the_ai();
+        let aidata_r = ai_store.read().ok().and_then(|ai| {
             ai.get_ai_data()
                 .read()
                 .ok()
@@ -496,7 +498,16 @@ impl AIPlayer {
                     detected: obj_guard.test_status(ObjectStatusTypes::Detected),
                     disguised: obj_guard.test_status(ObjectStatusTypes::Disguised),
                     is_enemy,
-                    is_structure: obj_guard.is_kind_of(KindOf::Structure),
+                    insignificant_building_rejected: obj_guard.is_structure()
+                        && obj_guard.is_non_faction_structure()
+                        && obj_guard.get_contain().is_some_and(|contain| {
+                            contain
+                                .lock()
+                                .map(|contain| {
+                                    !contain.is_garrisonable() || contain.get_contained_count() == 0
+                                })
+                                .unwrap_or(true)
+                        }),
                 }
             }) {
                 candidates.push(c);

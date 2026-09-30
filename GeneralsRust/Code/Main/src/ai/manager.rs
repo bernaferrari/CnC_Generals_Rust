@@ -4,8 +4,6 @@ use super::*;
 #[derive(Debug)]
 pub struct AIManager {
     pub ai_players: HashMap<u32, AIPlayer>,
-    pub update_interval: f32,
-    pub last_update_time: f32,
     team_factory: gamelogic::team::TeamFactoryHandle,
 }
 
@@ -20,9 +18,6 @@ impl AIManager {
     pub fn new() -> Self {
         Self {
             ai_players: HashMap::new(),
-            update_interval: 1.0 / 30.0, // C++ AI::update every logic frame (30 Hz)
-            // Negative so the first host update at sim_time=0 is not skipped.
-            last_update_time: -1.0,
             team_factory: gamelogic::team::TeamFactoryHandle::new(),
         }
     }
@@ -84,12 +79,9 @@ impl AIManager {
 
     /// Update all AI players
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
-        if self.last_update_time >= 0.0
-            && current_time - self.last_update_time < self.update_interval
-        {
-            return;
-        }
-
+        // GameLogic calls the AI once per advanced fixed logic frame, matching
+        // C++ GameLogic::update -> TheAI->UPDATE. Do not re-gate that cadence
+        // with accumulated f32 seconds: rounding can silently skip a frame.
         let peer_targets: Vec<(u32, Option<u32>)> = self
             .ai_players
             .iter()
@@ -109,8 +101,6 @@ impl AIManager {
                 ai_player.update(game_logic, current_time);
             }
         }
-
-        self.last_update_time = current_time;
     }
 
     /// Set AI difficulty for a player
@@ -294,9 +284,6 @@ impl AIManager {
             ai.next_team_queue_time = 0.0;
             ai.next_team_time = 0.0;
         }
-
-        // Let the first post-load logic frame rebuild actions immediately.
-        self.last_update_time = -1.0;
     }
 
     pub fn capture_queue_persist(
@@ -547,8 +534,6 @@ impl AIManager {
                 ai_player.difficulty
             );
         }
-        // Negative so the first post-load host update is not rate-limited away.
-        self.last_update_time = -1.0;
     }
 
     /// Called when a game is loaded from save

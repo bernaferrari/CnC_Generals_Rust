@@ -85,53 +85,9 @@ impl PathfindingSystem {
     /// Reset pathfinding state for a new map.
     /// C++ `Pathfinder::reset` (AIPathfind.cpp:3816-3880).
     pub fn reset(&mut self) {
-        if let Ok(mut queue) = self.request_queue.lock() {
-            queue.clear();
-        }
-        if let Ok(mut cache) = self.path_cache.lock() {
-            cache.clear();
-        }
-        if let Ok(mut goals) = self.goal_cells.lock() {
-            for row in goals.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = GoalCell::new();
-                }
-            }
-        }
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.reset();
-        }
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.reset();
-        }
-        self.bridges.clear();
-        if let Ok(mut oq) = self.object_path_queue.lock() {
-            *oq = ObjectPathQueue::new();
-        }
-        if let Ok(mut ug) = self.unit_goal_cells.lock() {
-            ug.clear();
-        }
-        if let Ok(mut up) = self.unit_pos_cells.lock() {
-            up.clear();
-        }
-        self.wall_pieces.clear();
-        if let Ok(mut walls) = self.wall_cells.lock() {
-            walls.clear();
-        }
-        self.extent_lo = ICoord2D::new(0, 0);
-        self.extent_hi = ICoord2D::new(0, 0);
-        self.logical_extent_lo = ICoord2D::new(0, 0);
-        self.logical_extent_hi = ICoord2D::new(0, 0);
-        self.ignore_obstacle_id = INVALID_ID;
-        self.is_tunneling = false;
-        self.move_allies_depth = 0;
-        self.is_map_ready = false;
-        self.cumulative_cells_allocated.store(0, Ordering::Relaxed);
-        self.open_list_count = 0;
-        self.closed_list_count = 0;
-        self.wall_height = 0.0;
-        self.debug_path = None;
-        self.debug_path_pos = Coord3D::new(0.0, 0.0, 0.0);
+        // C++ Pathfinder::reset deletes the backing map and clears its dimensions.
+        // Rebuild a zero-sized inert owner so no old map allocation survives reset.
+        *self = Self::new(0, 0);
     }
 
     /// Queue a pathfinding request (full request residual).

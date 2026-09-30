@@ -364,21 +364,78 @@ impl GameLogic {
             .clamp(0.0, u32::MAX as f32) as u32
     }
 
+    /// C++ `ThingTemplate::calcTimeToBuild` applies the Player handicap and
+    /// PlayerTemplate production modifier in separate `Int` assignments.
+    /// Combining the factors changes results for fractional modifiers
+    /// (for example 9 → 8 → 7 vs 8).
+    pub(crate) fn cpp_build_time_frames_from_modifiers(
+        base_seconds: f32,
+        handicap_factor: f32,
+        player_template_factor: f32,
+    ) -> u32 {
+        const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
+
+        if !base_seconds.is_finite()
+            || !handicap_factor.is_finite()
+            || !player_template_factor.is_finite()
+        {
+            return u32::MAX;
+        }
+
+        let truncate_frames = |frames: u32, factor: f32| {
+            ((frames as f32) * factor.max(0.0))
+                .trunc()
+                .clamp(0.0, u32::MAX as f32) as u32
+        };
+        let authored_frames = (base_seconds * LOGIC_FRAMES_PER_SECOND)
+            .trunc()
+            .clamp(0.0, u32::MAX as f32) as u32;
+        let after_handicap = truncate_frames(authored_frames, handicap_factor);
+        truncate_frames(after_handicap, player_template_factor)
+    }
+
+    /// C++ `ThingTemplate::calcTimeToBuild` applies its final low-energy
+    /// division to the already-truncated authored frame count, then assigns
+    /// the result back to Int.
+    pub(crate) fn cpp_build_time_frames_after_power(
+        authored_frames: u32,
+        power_factor: f32,
+    ) -> u32 {
+        if !power_factor.is_finite() {
+            return u32::MAX;
+        }
+        // C++ ThingTemplate.cpp only substitutes 0.01 when the configured
+        // penalty rate is <= 0. A valid positive configuration below 0.01 is
+        // used as-is; do not turn that into a floor.
+        let penalty_rate = if power_factor <= 0.0 {
+            0.01
+        } else {
+            power_factor
+        };
+        ((authored_frames as f32) / penalty_rate)
+            .trunc()
+            .clamp(0.0, u32::MAX as f32) as u32
+    }
+
     /// Encode C++ `ThingTemplate::calcTimeToBuild`'s authored pre-power frame
     /// count in Main's legacy seconds carrier.
     ///
     /// Retail first converts `getBuildTime() * 30` to `Int`, then applies the
-    /// selected PlayerTemplate's `ProductionTimeChange` and converts to `Int`
-    /// again.  Main's queue stores seconds but its existing completion code
+    /// handicap and selected PlayerTemplate's `ProductionTimeChange` in
+    /// separate `Int` assignments. Main's queue stores seconds but its existing completion code
     /// recovers an integer frame count before applying the low-power penalty.
     /// Preserve that ordering by encoding the already-truncated pre-power
     /// frame count just above its lower frame boundary.  A direct
     /// `frames as f32 / 30.0` can round below that boundary (for example frame
     /// 63), causing the downstream `.trunc()` to lose a frame.
     pub(crate) fn cpp_build_time_seconds_from_factor(base_seconds: f32, factor: f32) -> f32 {
+        let authored_frames = Self::cpp_build_time_frames_from_factor(base_seconds, factor);
+        Self::cpp_build_time_seconds_from_frames(authored_frames)
+    }
+
+    fn cpp_build_time_seconds_from_frames(authored_frames: u32) -> f32 {
         const LOGIC_FRAMES_PER_SECOND: f32 = 30.0;
         const FRAME_ENCODING_FRACTION: f32 = 0.25;
-        let authored_frames = Self::cpp_build_time_frames_from_factor(base_seconds, factor);
         if authored_frames == 0 {
             return 0.0;
         }
@@ -406,8 +463,13 @@ impl GameLogic {
             .get(&player_id)
             .map(|p| p.handicap_build_time_multiplier(is_structure))
             .unwrap_or(1.0);
-        let factor =
-            self.player_template_production_time_factor(player_id, template_name) * handicap;
-        Self::cpp_build_time_seconds_from_factor(base_seconds, factor)
+        let player_template_factor =
+            self.player_template_production_time_factor(player_id, template_name);
+        let authored_frames = Self::cpp_build_time_frames_from_modifiers(
+            base_seconds,
+            handicap,
+            player_template_factor,
+        );
+        Self::cpp_build_time_seconds_from_frames(authored_frames)
     }
 }

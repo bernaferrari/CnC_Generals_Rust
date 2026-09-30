@@ -65,6 +65,23 @@ pub enum PathfindLayerEnum {
     Tunnel = 4, // Underground units
 }
 
+fn classic_layer_from_common(
+    layer: crate::common::PathfindLayerEnum,
+) -> crate::ai::pathfind_astar::PathfindLayerEnum {
+    // The C++ layer range keeps exact bridge and wall identities. Rust-only
+    // movement layers (16+) map to Invalid instead of aliasing bridge layers.
+    crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32)
+}
+
+fn classic_ground_layer_from_facade(
+    layer: PathfindLayerEnum,
+) -> crate::ai::pathfind_astar::PathfindLayerEnum {
+    match layer {
+        PathfindLayerEnum::Invalid => crate::ai::pathfind_astar::PathfindLayerEnum::Invalid,
+        _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+    }
+}
+
 impl From<crate::common::PathfindLayerEnum> for PathfindLayerEnum {
     fn from(layer: crate::common::PathfindLayerEnum) -> Self {
         match layer {
@@ -608,6 +625,9 @@ impl Ord for AStarNode {
 /// Main pathfinding system
 #[derive(Debug)]
 pub struct PathfindingSystem {
+    /// The production AI facade reads and mutates this world's Classic Pathfinder map.
+    /// Standalone systems used by local tests/tools have no owner and retain their grid.
+    classic_pathfinder: Option<Arc<RwLock<crate::ai::Pathfinder>>>,
     /// Pathfinding grid
     grid: HashMap<GridCoord, PathfindCell>,
     /// Grid bounds
@@ -718,10 +738,17 @@ impl FlowField {
 impl PathfindingSystem {
     /// Create new pathfinding system
     pub fn new(width: i32, height: i32) -> Self {
-        let min_coord = GridCoord::new(-width / 2, -height / 2, PathfindLayerEnum::Ground);
-        let max_coord = GridCoord::new(width / 2, height / 2, PathfindLayerEnum::Ground);
+        let (min_coord, max_coord) = if width > 0 && height > 0 {
+            (
+                GridCoord::new(-width / 2, -height / 2, PathfindLayerEnum::Ground),
+                GridCoord::new(width / 2, height / 2, PathfindLayerEnum::Ground),
+            )
+        } else {
+            (GridCoord::new(0, 0, PathfindLayerEnum::Ground), GridCoord::new(-1, -1, PathfindLayerEnum::Ground))
+        };
 
         Self {
+            classic_pathfinder: None,
             grid: HashMap::new(),
             bounds: (min_coord, max_coord),
             terrain_costs: TerrainCostTable::new(),
@@ -737,6 +764,9 @@ impl PathfindingSystem {
 
     /// Initialize grid
     pub fn initialize(&mut self) {
+        if self.classic_pathfinder.is_some() || self.bounds.1.x < self.bounds.0.x {
+            return;
+        }
         // Initialize grid cells
         for layer in 0..5u8 {
             let layer_enum = match layer {
@@ -773,8 +803,26 @@ impl PathfindingSystem {
         self.clean_flow_fields();
     }
 
+    /// Clear facade-local requests and cached results when the owning AI resets its map.
+    pub(crate) fn reset_for_new_map(&mut self) {
+        self.grid.clear();
+        self.request_queue.clear();
+        self.ongoing.clear();
+        self.completed.clear();
+        self.path_cache.clear();
+        self.flow_fields.clear();
+        self.current_frame = 0;
+        self.bounds = (GridCoord::new(0, 0, PathfindLayerEnum::Ground), GridCoord::new(-1, -1, PathfindLayerEnum::Ground));
+    }
+
     /// Public line-clear check for path validation.
     pub fn is_line_clear_between(&self, from: &Coord3D, to: &Coord3D) -> bool {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            if let Ok(pf) = pathfinder.read() {
+                return pf.is_line_clear_between(from, to);
+            }
+            return false;
+        }
         let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pf) = pathfinder.read() {
@@ -787,6 +835,11 @@ impl PathfindingSystem {
 
     /// Check if the cell at a world position is clear (matches C++ CELL_CLEAR usage).
     pub fn is_cell_clear_at(&self, pos: &Coord3D, layer: crate::common::PathfindLayerEnum) -> bool {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            return pathfinder.read().ok().and_then(|pf| {
+                pf.get_cell_type_at_layer(pos, classic_layer_from_common(layer))
+            }) == Some(crate::ai::pathfind_astar::PathfindCellType::Clear);
+        }
         let coord = GridCoord::from_world(pos, PathfindLayerEnum::from(layer));
         if coord.x < self.bounds.0.x
             || coord.x > self.bounds.1.x
@@ -804,8 +857,11 @@ impl PathfindingSystem {
     /// Request a path (async)
     pub fn request_path(&mut self, request: PathRequest) {
         // Prefer classic AIPathfind for fidelity.
-        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
-            if let Some(pathfinder) = ai_guard.pathfinder() {
+        let pathfinder = self.classic_pathfinder.clone().or_else(|| {
+            let ai_store = crate::ai::the_ai();
+            ai_store.read().ok().and_then(|ai_guard| ai_guard.pathfinder())
+        });
+        if let Some(pathfinder) = pathfinder {
                 if let Ok(pf) = pathfinder.read() {
                     let classic_request = ClassicPathRequest {
                         object_id: request.requester,
@@ -850,7 +906,10 @@ impl PathfindingSystem {
                     }
                     return;
                 }
-            }
+                if self.classic_pathfinder.is_some() {
+                    self.completed.insert(request.requester, PathResult::Failed("Pathfinder unavailable".to_string()));
+                    return;
+                }
         }
 
         // Check cache first
@@ -889,12 +948,55 @@ impl PathfindingSystem {
         pos: &Coord3D,
         layer: crate::common::PathfindLayerEnum,
     ) -> Option<TerrainType> {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            return pathfinder.read().ok().and_then(|pf| {
+                pf.get_cell_type_at_layer(pos, classic_layer_from_common(layer))
+                    .map(|cell| match cell {
+                        crate::ai::pathfind_astar::PathfindCellType::Water => TerrainType::Water,
+                        crate::ai::pathfind_astar::PathfindCellType::Cliff
+                        | crate::ai::pathfind_astar::PathfindCellType::BridgeImpassable
+                        | crate::ai::pathfind_astar::PathfindCellType::Impassable => TerrainType::Impassable,
+                        crate::ai::pathfind_astar::PathfindCellType::Obstacle => TerrainType::Obstacle,
+                        _ => TerrainType::Clear,
+                    })
+            });
+        }
         let coord = GridCoord::from_world(pos, layer.into());
         self.grid.get(&coord).map(|cell| cell.terrain)
     }
 
     /// Find path immediately (synchronous, may be expensive)
     pub fn find_path_immediate(&mut self, request: &PathRequest) -> PathResult {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            let Ok(pf) = pathfinder.read() else {
+                return PathResult::Failed("Pathfinder unavailable".to_string());
+            };
+            let classic_request = ClassicPathRequest {
+                object_id: request.requester,
+                from: request.start,
+                to: request.goal,
+                surfaces: request.capabilities.surface_mask,
+                is_crusher: request.capabilities.crusher,
+                unit_radius: request.unit_size,
+                allow_partial: request.allow_partial,
+                move_allies: request.move_allies,
+                ignore_obstacle_id: request.ignore_obstacle_id,
+                is_human: false,
+            };
+            let result = pf.find_path_result(classic_request);
+            if !result.success {
+                return PathResult::Failed("No path found".to_string());
+            }
+            let layers: Vec<_> = result.layers.iter().map(|layer| match layer {
+                crate::ai::pathfind_astar::PathfindLayerEnum::Invalid => PathfindLayerEnum::Invalid,
+                crate::ai::pathfind_astar::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
+                _ => PathfindLayerEnum::Ground,
+            }).collect();
+            let path = self.build_path_from_positions_with_layers(
+                &result.waypoints, &layers, request.capabilities.layer, result.total_cost as f32,
+            );
+            return PathResult::Success(path);
+        }
         let start_coord = GridCoord::from_world(&request.start, request.capabilities.layer);
         let goal_coord = GridCoord::from_world(&request.goal, request.capabilities.layer);
 
@@ -1032,6 +1134,33 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         passable: bool,
     ) {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            if let Ok(mut pf) = pathfinder.write() {
+                let min_x = polygon.iter().map(|p| p.x).fold(f32::INFINITY, f32::min);
+                let max_x = polygon.iter().map(|p| p.x).fold(f32::NEG_INFINITY, f32::max);
+                let min_y = polygon.iter().map(|p| p.y).fold(f32::INFINITY, f32::min);
+                let max_y = polygon.iter().map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+                let target = if passable {
+                    crate::ai::pathfind_astar::PathfindCellType::Clear
+                } else {
+                    crate::ai::pathfind_astar::PathfindCellType::BridgeImpassable
+                };
+                let min_cell_x = (min_x / PATHFIND_CELL_SIZE).floor() as i32;
+                let max_cell_x = (max_x / PATHFIND_CELL_SIZE).floor() as i32;
+                let min_cell_y = (min_y / PATHFIND_CELL_SIZE).floor() as i32;
+                let max_cell_y = (max_y / PATHFIND_CELL_SIZE).floor() as i32;
+                for x in min_cell_x..=max_cell_x {
+                    for y in min_cell_y..=max_cell_y {
+                        let coord = GridCoord::new(x, y, layer);
+                        let center = coord.to_world(0.0);
+                        if point_inside_polygon_2d(&center, polygon) {
+                            pf.set_cell_type_at(&center, target);
+                        }
+                    }
+                }
+            }
+            return;
+        }
         let mut min_x = polygon[0].x;
         let mut max_x = polygon[0].x;
         let mut min_y = polygon[0].y;
@@ -1081,6 +1210,14 @@ impl PathfindingSystem {
         positions: &[Coord3D],
         layer: PathfindLayerEnum,
     ) {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            if let Ok(mut pf) = pathfinder.write() {
+                for pos in positions {
+                    pf.set_cell_type_at(pos, crate::ai::pathfind_astar::PathfindCellType::Obstacle);
+                }
+            }
+            return;
+        }
         for pos in positions {
             let coord = GridCoord::from_world(pos, layer);
             if let Some(cell) = self.grid.get_mut(&coord) {
@@ -1098,6 +1235,18 @@ impl PathfindingSystem {
         positions: &[Coord3D],
         layer: PathfindLayerEnum,
     ) {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            if let Ok(mut pf) = pathfinder.write() {
+                for pos in positions {
+                    if pf.get_cell_type_at_layer(pos, crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32))
+                        == Some(crate::ai::pathfind_astar::PathfindCellType::Obstacle)
+                    {
+                        pf.set_cell_type_at(pos, crate::ai::pathfind_astar::PathfindCellType::Clear);
+                    }
+                }
+            }
+            return;
+        }
         for pos in positions {
             let coord = GridCoord::from_world(pos, layer);
             if let Some(cell) = self.grid.get_mut(&coord) {
@@ -1175,6 +1324,9 @@ impl PathfindingSystem {
     // Private methods
 
     pub(crate) fn is_in_bounds(&self, coord: &GridCoord) -> bool {
+        if self.bounds.1.x < self.bounds.0.x || self.bounds.1.y < self.bounds.0.y {
+            return false;
+        }
         coord.x >= self.bounds.0.x
             && coord.x <= self.bounds.1.x
             && coord.y >= self.bounds.0.y
@@ -1672,6 +1824,15 @@ pub type SharedPathfindingSystem = Arc<RwLock<PathfindingSystem>>;
 pub fn create_pathfinding_system(width: i32, height: i32) -> SharedPathfindingSystem {
     let mut system = PathfindingSystem::new(width, height);
     system.initialize();
+    Arc::new(RwLock::new(system))
+}
+
+/// Create the lightweight production facade backed by one world's Classic Pathfinder.
+pub fn create_pathfinding_system_for_pathfinder(
+    pathfinder: Arc<RwLock<crate::ai::Pathfinder>>,
+) -> SharedPathfindingSystem {
+    let mut system = PathfindingSystem::new(0, 0);
+    system.classic_pathfinder = Some(pathfinder);
     Arc::new(RwLock::new(system))
 }
 

@@ -1754,11 +1754,15 @@ fn production_tick_builds_presentation_after_side_systems() {
         eng.find("move_unit_along_path").is_none(),
         "engine must not mid-frame move_unit_along_path (dual path step)"
     );
-    // Wave 713: prefer host helper call-order (update helper before finalize).
-    // Method bodies may define build_for_engine before update_with_dt textually.
-    let host_update_call = eng
-        .find("self.host_update_logic_frame(")
-        .or_else(|| eng.find("host_update_logic_frame("));
+    // The frame driver invokes the fast-forward helper before finalizing.
+    // Its definition appears later in this split file, so declaration offsets
+    // cannot establish runtime order. Check the call and the helper separately.
+    let host_update_call = eng.find("self.host_run_coupled_fast_forward_loop(");
+    let loop_body = include_str!("../../cnc_game_engine/camera_drain.rs")
+        .split_once("fn host_run_coupled_fast_forward_loop(")
+        .expect("fixed-step helper")
+        .1;
+    assert!(loop_body.contains(".host_update_logic_frame("));
     let host_finalize_call = eng.find("host_finalize_presentation_after_logic(");
     let pres = eng
         .find("PresentationFrame::build_from_logic")

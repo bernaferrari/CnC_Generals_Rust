@@ -18,6 +18,115 @@ mod tests {
     }
 
     #[test]
+    fn world_owned_pathfinding_is_inert_until_map_initialization() {
+        let ai = crate::ai::AI::new();
+        let classic = ai.pathfinder().expect("world owns classic Pathfinder");
+        let classic = classic.read().expect("read classic Pathfinder");
+        assert_eq!(classic.inner.width(), 0);
+        assert_eq!(classic.inner.height(), 0);
+        assert!(!classic.inner.is_map_ready());
+
+        let facade = ai
+            .pathfinding_system()
+            .expect("world owns pathfinding compatibility surface");
+        let facade = facade.read().expect("read compatibility surface");
+        assert_eq!(
+            facade.terrain_at(
+                &Coord3D::new(15.0, 15.0, 0.0),
+                crate::common::PathfindLayerEnum::Ground,
+            ),
+            None
+        );
+        assert!(!facade.is_in_bounds(&GridCoord::new(1, 1, PathfindLayerEnum::Ground)));
+    }
+
+    #[test]
+    fn immediate_route_uses_the_worlds_map_terrain() {
+        let ai = crate::ai::AI::new();
+        let classic = ai.pathfinder().expect("world owns classic Pathfinder");
+        {
+            let mut classic = classic.write().expect("write classic Pathfinder");
+            classic.reset_with_size(5, 5);
+            classic.inner.new_map();
+            // A complete water barrier splits this tiny map for ground-only units.
+            for y in 0..5 {
+                classic.set_cell_type_for_test(
+                    &Coord3D::new(25.0, (y as f32 + 0.5) * 10.0, 0.0),
+                    crate::ai::pathfind_astar::PathfindCellType::Water,
+                );
+            }
+        }
+
+        let facade = ai
+            .pathfinding_system()
+            .expect("world owns pathfinding compatibility surface");
+        let request = PathRequest {
+            requester: 1,
+            start: Coord3D::new(5.0, 25.0, 0.0),
+            goal: Coord3D::new(45.0, 25.0, 0.0),
+            capabilities: MovementCapabilities::ground(),
+            unit_size: 1.0,
+            priority: 100,
+            allow_partial: false,
+            frame_requested: 0,
+            move_allies: false,
+            ignore_obstacle_id: None,
+        };
+
+        assert!(matches!(
+            facade
+                .write()
+                .expect("write compatibility surface")
+                .find_path_immediate(&request),
+            PathResult::Failed(_)
+        ));
+    }
+
+    #[test]
+    fn equal_requests_use_each_worlds_own_pathfinding_map() {
+        let blocked_ai = crate::ai::AI::new();
+        let clear_ai = crate::ai::AI::new();
+        for ai in [&blocked_ai, &clear_ai] {
+            let owner = ai.pathfinder().unwrap();
+            let mut owner = owner.write().unwrap();
+            owner.reset_with_size(5, 5);
+            owner.inner.new_map();
+        }
+        {
+            let owner = blocked_ai.pathfinder().unwrap();
+            let mut owner = owner.write().unwrap();
+            for y in 0..5 {
+                owner.set_cell_type_at(
+                    &Coord3D::new(25.0, (y as f32 + 0.5) * 10.0, 0.0),
+                    crate::ai::pathfind_astar::PathfindCellType::Water,
+                );
+            }
+        }
+        let request = PathRequest {
+            requester: 7,
+            start: Coord3D::new(5.0, 25.0, 0.0),
+            goal: Coord3D::new(45.0, 25.0, 0.0),
+            capabilities: MovementCapabilities::ground(),
+            unit_size: 1.0,
+            priority: 100,
+            allow_partial: false,
+            frame_requested: 0,
+            move_allies: false,
+            ignore_obstacle_id: None,
+        };
+        let blocked = blocked_ai.pathfinding_system().unwrap();
+        let clear = clear_ai.pathfinding_system().unwrap();
+        assert!(matches!(
+            blocked.write().unwrap().find_path_immediate(&request),
+            PathResult::Failed(_)
+        ));
+        assert!(matches!(
+            clear.write().unwrap().find_path_immediate(&request),
+            PathResult::Success(_)
+        ));
+    }
+
+    #[test]
     fn test_grid_coordinate_conversion() {
         let world_pos = Coord3D::new(25.0, 35.0, 5.0);
         let grid = GridCoord::from_world(&world_pos, PathfindLayerEnum::Ground);

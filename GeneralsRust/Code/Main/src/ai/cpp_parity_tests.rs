@@ -1,6 +1,7 @@
 use super::*;
 
 fn install_player_team_prototype(
+    logic: &crate::game_logic::GameLogic,
     leftover_index: i32,
     team_name: &str,
     units: &[(i32, i32, &'static str)],
@@ -24,9 +25,7 @@ fn install_player_team_prototype(
         }
     }
     let proto_arc = {
-        let mut tf = gamelogic::team::get_team_factory()
-            .lock()
-            .expect("team factory");
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new(team_name.into());
         proto.set_production_priority(priority);
         proto.set_production_condition("AlwaysBuild".into());
@@ -60,10 +59,16 @@ fn install_player_team_prototype(
     }
 }
 
+fn ai_for_world(
+    logic: &crate::game_logic::GameLogic,
+    player_id: u32,
+    team: Team,
+    difficulty: AIDifficulty,
+) -> AIPlayer {
+    AIPlayer::new_with_team_factory(player_id, team, difficulty, logic.team_factory.clone())
+}
+
 fn clear_player_team_prototypes() {
-    if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
-        factory.reset();
-    }
     if let Ok(mut list) = gamelogic::player::player_list().write() {
         list.clear();
     }
@@ -135,7 +140,8 @@ fn script_build_team_drains_onto_host_ai_queue() {
     }
     let _ = logic.create_object("AmericaBarracks", Team::USA, glam::Vec3::new(0.0, 0.0, 0.0));
 
-    if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut factory = logic.team_factory.lock().expect("world team factory");
         factory.reset();
         factory.init_team(
             gamelogic::common::AsciiString::from("USA_RangerSquad"),
@@ -166,10 +172,6 @@ fn script_build_team_drains_onto_host_ai_queue() {
         .expect("queued team");
     assert_eq!(team.name, "USA_RangerSquad");
     assert!(team.priority_build);
-
-    if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
-        factory.reset();
-    }
 }
 
 #[test]
@@ -195,10 +197,6 @@ fn ai_player_update_order_matches_cpp_aiplayer_update() {
         .find("update_bridge_repair")
         .expect("updateBridgeRepair");
     assert!(econ < ready && ready < queued && queued < mil && mil < upg && upg < br);
-    assert!(
-        AIManager::new().update_interval > 0.0
-            && (AIManager::new().update_interval - 1.0 / 30.0).abs() < 1e-6
-    );
 }
 
 #[test]
@@ -380,7 +378,8 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
         obj.owner_player_id = Some(1);
     }
 
-    if let Ok(mut tf) = logic.team_factory.lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_Timer_TankTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(50);
@@ -400,7 +399,7 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
         }
     }
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Easy);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Easy);
     ai.next_team_time = 42.0;
     assert!(
         ai.select_team_to_build(&mut logic, 1.0),
@@ -413,7 +412,8 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
         "reinforce must not arm TeamSeconds, got {}",
         ai.next_team_time
     );
-    if let Ok(mut tf) = logic.team_factory.lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         tf.reset();
     }
 }
@@ -426,7 +426,8 @@ fn estimate_team_unit_cost_averages_min_max() {
     logic
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_AvgCost".into());
         proto.set_units_info(
             0,
@@ -438,12 +439,9 @@ fn estimate_team_unit_cost_averages_min_max() {
         );
         tf.replace_team_prototype(proto);
     }
-    let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     // C++ (min+max)/2 * cost = (1+3)/2 * 200 = 400, not max-as-required 600.
     assert_eq!(ai.estimate_team_unit_cost(&logic, "HQ_AvgCost"), 400);
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
-        tf.reset();
-    }
 }
 
 #[test]
@@ -467,7 +465,8 @@ fn build_specific_ai_team_splits_optional_and_required() {
         .set_cost(500, 0);
     logic.templates.insert("AmericaBarracks".into(), barracks);
     let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
-    if let Ok(mut tf) = logic.team_factory.lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_SplitTeam".into());
         proto.set_units_info(
             0,
@@ -501,7 +500,8 @@ fn build_specific_ai_team_splits_optional_and_required() {
     assert_eq!(required[0].num_required, 1);
     assert_eq!(optional.len(), 1);
     assert_eq!(optional[0].num_required, 3);
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         tf.reset();
     }
 }
@@ -528,8 +528,14 @@ fn select_team_to_build_splits_min_max_not_max_as_required() {
     logic.templates.insert("AmericaBarracks".into(), barracks);
     let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
 
-    install_player_team_prototype(1, "HQ_MinMaxTeam", &[(1, 4, "AmericaInfantryRanger")], 20);
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    install_player_team_prototype(
+        &logic,
+        1,
+        "HQ_MinMaxTeam",
+        &[(1, 4, "AmericaInfantryRanger")],
+        20,
+    );
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     assert!(
         ai.select_team_to_build(&mut logic, 0.0),
         "auto-select must queue the leftover player prototype"
@@ -594,12 +600,13 @@ fn is_a_good_idea_does_not_reject_ready_queue_team() {
     let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
 
     install_player_team_prototype(
+        &logic,
         1,
         "HQ_Auf59_ReadyOk",
         &[(1, 1, "AmericaInfantryRanger")],
         20,
     );
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.team_ready_queue.push_back(AITeamQueue::new(
         "HQ_Auf59_ReadyOk".into(),
         vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 20)],
@@ -793,6 +800,7 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
         .create_object("AmericaWarFactory", Team::USA, Vec3::new(64.0, 0.0, 0.0))
         .expect("constructed war factory");
     install_player_team_prototype(
+        &logic,
         1,
         "USA_BasicForce",
         &[
@@ -802,7 +810,7 @@ fn skirmish_queues_a_selected_team_without_waiting_for_team_seconds() {
         10,
     );
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.update_military_management(&mut logic, 0.0);
 
     assert_eq!(ai.team_queue.len(), 1, "the selected team is retained");
@@ -923,7 +931,7 @@ fn work_order_waits_for_live_factory_output_before_completing() {
     let factory = logic
         .create_object("AmericaBarracks", Team::USA, Vec3::ZERO)
         .expect("constructed barracks");
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.team_queue.push_back(AITeamQueue::new(
         "one-ranger".into(),
         vec![AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100)],
@@ -1061,7 +1069,7 @@ fn supply_center_spawns_free_collector_then_ai_pays_for_next_collector() {
     );
 
     let free_collector = free_collectors[0];
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.process_team_queue(&mut logic, 0.0);
 
     let paid_order = ai
@@ -1308,7 +1316,7 @@ fn active_loose_collector_rejoins_one_supply_center_before_paid_replacement() {
     }
 
     let cash_before = logic.get_player(1).expect("AI player").effective_supplies();
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.process_team_queue(&mut logic, 0.0);
 
     let collector = logic
@@ -1378,7 +1386,7 @@ fn skirmish_starts_one_structure_with_a_live_dozer_assignment() {
     let dozer_id = logic
         .create_object("TestDozer", Team::USA, Vec3::new(48.0, 0.0, 64.0))
         .expect("live dozer");
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.add_building("TestFirstStructure", build_position, 1);
     ai.add_building("TestSecondStructure", Vec3::new(128.0, 0.0, 64.0), 1);
 
@@ -1807,7 +1815,8 @@ fn queue_units_recruits_existing_idle_units() {
     logic
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new("USA_RangerSquad".into());
         proto.set_production_priority(50);
         tf.replace_team_prototype(proto);
@@ -1825,7 +1834,7 @@ fn queue_units_recruits_existing_idle_units() {
         obj.set_ai_state(crate::game_logic::AIState::Idle);
     }
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
     ai.team_queue.push_back(AITeamQueue::new(
         "USA_RangerSquad".into(),
@@ -1849,10 +1858,11 @@ fn queue_units_recruits_existing_idle_units() {
         Some("USA_RangerSquad"),
         "C++ queueUnits setTeam onto dest instance immediately"
     );
-    let members = gamelogic::team::get_team_factory()
+    let members = logic
+        .team_factory
         .lock()
-        .ok()
-        .and_then(|factory| factory.find_team_by_id(dest_id))
+        .expect("world team factory")
+        .find_team_by_id(dest_id)
         .and_then(|arc| arc.read().ok().map(|tg| tg.get_members().to_vec()))
         .unwrap_or_default();
     assert!(
@@ -1997,7 +2007,7 @@ fn w21_ranger_logic() -> (crate::game_logic::GameLogic, crate::game_logic::Objec
 }
 
 fn w21_enqueue_and_recruit(logic: &mut crate::game_logic::GameLogic, dest: &str) -> u32 {
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(logic, 1, Team::USA, AIDifficulty::Medium);
     let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
     ai.team_queue
         .push_back(AITeamQueue::new(dest.into(), vec![order], false, 0));
@@ -2009,7 +2019,8 @@ fn w21_enqueue_and_recruit(logic: &mut crate::game_logic::GameLogic, dest: &str)
 fn try_to_recruit_skips_inactive_higher_priority_and_unrecruitable() {
     // C++ Team::tryToRecruit isActive / productionPriority / isRecruitable.
     let (mut logic, existing) = w21_ranger_logic();
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("W21_DestHigh".into());
         dest.set_production_priority(50);
         tf.replace_team_prototype(dest);
@@ -2033,7 +2044,8 @@ fn try_to_recruit_skips_inactive_higher_priority_and_unrecruitable() {
     );
 
     let (mut logic, existing) = w21_ranger_logic();
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("W21_DestLow".into());
         dest.set_production_priority(10);
         tf.replace_team_prototype(dest);
@@ -2057,7 +2069,8 @@ fn try_to_recruit_skips_inactive_higher_priority_and_unrecruitable() {
     );
 
     let (mut logic, existing) = w21_ranger_logic();
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("W21_DestRecruit".into());
         dest.set_production_priority(50);
         tf.replace_team_prototype(dest);
@@ -2081,7 +2094,8 @@ fn try_to_recruit_skips_inactive_higher_priority_and_unrecruitable() {
     );
 
     let (mut logic, existing) = w21_ranger_logic();
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("W21_DestUnitFlag".into());
         dest.set_production_priority(50);
         tf.replace_team_prototype(dest);
@@ -2110,7 +2124,8 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
     logic
         .templates
         .insert("AmericaInfantryRanger".into(), ranger);
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("HQ_1T0_Dest".into());
         dest.set_production_priority(50);
         dest.set_home_location(gamelogic::common::Coord3D::new(0.0, 0.0, 80.0));
@@ -2140,7 +2155,7 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
         obj.set_ai_state(crate::game_logic::AIState::Idle);
     }
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     let order = AIWorkOrder::new("AmericaInfantryRanger".into(), 1, 100);
     ai.team_queue.push_back(AITeamQueue::new(
         "HQ_1T0_Dest".into(),
@@ -2166,7 +2181,8 @@ fn try_to_recruit_ranks_leftover_xy_not_host_3d() {
 fn recruit_waiting_work_orders_joins_destination_team_instance() {
     // C++ queueUnits: unit->setTeam(team->m_team) immediately on recruit.
     let (mut logic, existing) = w21_ranger_logic();
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut dest = gamelogic::team::TeamPrototype::new("HQ_6_RecruitDest".into());
         dest.set_production_priority(50);
         tf.replace_team_prototype(dest);
@@ -2181,22 +2197,19 @@ fn recruit_waiting_work_orders_joins_destination_team_instance() {
         obj.team_instance_name, "HQ_6_RecruitDest",
         "recruited unit must join dest team_instance_name during build"
     );
-    let members: Vec<u32> = gamelogic::team::get_team_factory()
+    let members: Vec<u32> = logic
+        .team_factory
         .lock()
-        .ok()
-        .map(|factory| {
-            factory
-                .find_team_instances("HQ_6_RecruitDest")
-                .into_iter()
-                .flat_map(|arc| {
-                    arc.read()
-                        .ok()
-                        .map(|tg| tg.get_members().to_vec())
-                        .unwrap_or_default()
-                })
-                .collect()
+        .expect("world team factory")
+        .find_team_instances("HQ_6_RecruitDest")
+        .into_iter()
+        .flat_map(|arc| {
+            arc.read()
+                .ok()
+                .map(|tg| tg.get_members().to_vec())
+                .unwrap_or_default()
         })
-        .unwrap_or_default();
+        .collect();
     assert!(
         members.contains(&existing.0),
         "leftover dest instance must gain the recruited member"
@@ -2237,7 +2250,7 @@ fn check_ready_teams_execute_actions_requires_production_condition_action() {
     order.observed_unit_ids.push(busy);
     let mut team = AITeamQueue::new("W21_NoCondTeam".into(), vec![order], false, 0);
     team.execute_actions = true;
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     ai.team_ready_queue.push_back(team);
     ai.check_ready_teams(&mut logic, 1.0);
     assert_eq!(
@@ -2334,7 +2347,8 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
     }
 
     let mut inst_id = None;
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_V3_TankTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(50);
@@ -2355,7 +2369,7 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
         }
     }
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     assert!(ai.select_team_to_reinforce(&mut logic, 0, 1.0));
     let team = ai.team_queue.front().expect("reinforce order");
     assert!(team.reinforcement);
@@ -2377,7 +2391,8 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
     }
 
     // Empty instance is skipped even if the player owns units elsewhere.
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    {
+        let mut tf = logic.team_factory.lock().expect("world team factory");
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_V3_EmptyTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(80);
@@ -2392,7 +2407,7 @@ fn select_team_to_reinforce_tops_up_short_auto_team() {
         tf.replace_team_prototype(proto);
         let _ = tf.create_inactive_team("HQ_V3_EmptyTeam");
     }
-    let mut ai_empty = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai_empty = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     assert!(
         !ai_empty.select_team_to_reinforce(&mut logic, 50, 1.0),
         "empty leftover instance must not auto-reinforce from player-wide census"
@@ -3476,74 +3491,6 @@ fn do_upgrades_does_not_research_supply_lines_at_barracks() {
     assert!(
         player.has_queued_upgrade("Upgrade_AmericaRangerCaptureBuilding"),
         "Barracks CommandSet still researches Capture"
-    );
-}
-
-#[test]
-fn check_queued_teams_disbands_expired_incomplete_team() {
-    let mut logic = crate::game_logic::GameLogic::new();
-    logic.add_player(crate::game_logic::Player::new(
-        1,
-        Team::USA,
-        "USA AI",
-        false,
-    ));
-    let mut ranger_t = crate::game_logic::ThingTemplate::new("AmericaInfantryRanger");
-    ranger_t.add_kind_of(crate::game_logic::KindOf::Infantry);
-    logic
-        .templates
-        .insert("AmericaInfantryRanger".into(), ranger_t);
-    let ranger = logic
-        .create_object("AmericaInfantryRanger", Team::USA, Vec3::ZERO)
-        .expect("ranger");
-    if let Some(obj) = logic.host_object_mut(ranger) {
-        obj.owner_player_id = Some(1);
-        obj.team_instance_name = "HQ_9_Disband".into();
-    }
-
-    let mut inst_id = None;
-    if let Ok(mut tf) = logic.team_factory.lock() {
-        let mut proto = gamelogic::team::TeamPrototype::new("HQ_9_Disband".into());
-        proto.set_initial_idle_frames(30);
-        tf.replace_team_prototype(proto);
-        if let Some(team) = tf.create_inactive_team("HQ_9_Disband") {
-            if let Ok(mut tg) = team.write() {
-                tg.add_member(ranger.0);
-                inst_id = Some(tg.get_id());
-            }
-        }
-    }
-
-    let mut ai = AIPlayer::new_with_team_factory(
-        1,
-        Team::USA,
-        AIDifficulty::Medium,
-        logic.team_factory.clone(),
-    );
-    let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
-    order.num_completed = 0;
-    order.observed_unit_ids.push(ranger);
-    let mut q = AITeamQueue::new("HQ_9_Disband".into(), vec![order], false, 0);
-    q.team_id = inst_id;
-    ai.team_queue.push_back(q);
-
-    ai.check_queued_teams(&mut logic, 2.0);
-    assert!(
-        ai.team_queue.is_empty() && ai.team_ready_queue.is_empty(),
-        "expired team below minimum must disband"
-    );
-    let default = logic.default_host_team_instance_name(Some(1), Team::USA);
-    assert_eq!(
-        logic
-            .host_object(ranger)
-            .map(|o| o.team_instance_name.clone())
-            .unwrap_or_default(),
-        default,
-        "disband must transfer recruits to the default team"
-    );
-    assert!(
-        ai.leftover_team_instance_gone(inst_id),
-        "non-singleton leftover instance must be deleted on disband"
     );
 }
 

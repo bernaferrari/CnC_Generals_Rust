@@ -84,9 +84,9 @@ pub struct LeftoverLocationSafeCandidate {
     pub detected: bool,
     pub disguised: bool,
     pub is_enemy: bool,
-    /// C++ PartitionFilterInsignificantBuildings(true, false) rejects non-buildings.
-    pub is_structure: bool,
-
+    /// C++ rejects a non-faction building only when its containment module
+    /// is non-garrisonable or empty. Non-buildings pass this filter.
+    pub insignificant_building_rejected: bool,
 }
 
 /// C++ `TheAI->getAiData()->m_supplyCenterSafeRadius` + template bounding circle.
@@ -120,8 +120,8 @@ pub fn leftover_is_location_safe_enemy_blocks(c: &LeftoverLocationSafeCandidate)
     if !c.is_enemy {
         return false;
     }
-    // PartitionFilterInsignificantBuildings(true, false): non-buildings do not block.
-    if !c.is_structure {
+    // PartitionFilterInsignificantBuildings(true, false) permits non-buildings.
+    if c.insignificant_building_rejected {
         return false;
     }
     true

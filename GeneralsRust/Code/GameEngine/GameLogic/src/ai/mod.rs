@@ -1516,9 +1516,10 @@ pub struct AI {
 impl AI {
     /// Constructor - matches C++ AI::AI() at AI.cpp:286
     pub fn new() -> Self {
+        let pathfinder = Arc::new(RwLock::new(Pathfinder::new()));
         Self {
-            pathfinder: Some(Arc::new(RwLock::new(Pathfinder::new()))),
-            pathfinding_system: Some(pathfinding_system::create_pathfinding_system(1000, 1000)),
+            pathfinder: Some(pathfinder.clone()),
+            pathfinding_system: Some(pathfinding_system::create_pathfinding_system_for_pathfinder(pathfinder)),
             group_list: Vec::new(),
             ai_data: Arc::new(RwLock::new(AiData::default())),
             next_group_id: 0,
@@ -1540,12 +1541,6 @@ impl AI {
             }
         }
 
-        // Initialize pathfinding system
-        if let Some(ref ps) = self.pathfinding_system {
-            if let Ok(mut system) = ps.write() {
-                system.initialize();
-            }
-        }
     }
 
     /// Reset the AI system in preparation for a new map
@@ -1554,6 +1549,11 @@ impl AI {
         if let Some(pathfinder) = &self.pathfinder {
             if let Ok(mut pf) = pathfinder.write() {
                 pf.reset();
+            }
+        }
+        if let Some(pathfinding) = &self.pathfinding_system {
+            if let Ok(mut system) = pathfinding.write() {
+                system.reset_for_new_map();
             }
         }
 
@@ -2261,7 +2261,7 @@ pub(crate) fn object_footprint_positions(obj: &Object) -> Option<Vec<Coord3D>> {
 impl Pathfinder {
     pub fn new() -> Self {
         Self {
-            inner: ClassicPathfindingSystem::new(1000, 1000),
+            inner: ClassicPathfindingSystem::new(0, 0),
         }
     }
 
@@ -2322,6 +2322,7 @@ impl Pathfinder {
                 self.inner.set_cell_type(&pos, cell_type);
             }
         }
+        self.inner.new_map();
     }
 
     fn bridge_layer_from_pathfinder_id(layer_id: u32) -> crate::path::PathfindLayerEnum {
@@ -3249,9 +3250,16 @@ impl Pathfinder {
             .valid_movement_position(surfaces, is_crusher, pos, ignore_obstacle_id)
     }
 
+    pub fn set_cell_type_at(&mut self, pos: &Coord3D, cell_type: PathfindCellType) {
+        self.inner.set_cell_type(pos, cell_type);
+        self.inner.clear_cache();
+        self.inner.mark_zones_dirty();
+        self.inner.refresh_pinched_for_positions(std::slice::from_ref(pos));
+    }
+
     #[cfg(test)]
     pub fn set_cell_type_for_test(&mut self, pos: &Coord3D, cell_type: PathfindCellType) {
-        self.inner.set_cell_type(pos, cell_type);
+        self.set_cell_type_at(pos, cell_type);
     }
 
     /// C++ `Pathfinder::snapClosestGoalPosition`.
