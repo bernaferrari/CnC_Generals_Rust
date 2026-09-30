@@ -11,6 +11,8 @@ pub struct Projectile {
     pub damage_type: DamageType,
     pub shooter_id: ObjectId,
     pub target_id: Option<ObjectId>,
+    /// Runtime velocity in world distance per second; pending Weapon.ini
+    /// distance-per-frame values are normalized before this object is created.
     pub speed: f32,
     pub lifetime: f32,
     /// Parsed Object INI behavior governing lifetime. `None` means the
@@ -172,7 +174,7 @@ impl Projectile {
     }
 
     /// Bind parsed C++ flight/warhead and build the DumbProjectile Bezier.
-    pub fn bind_authored_flight(&mut self, start: Vec3, end: Vec3, speed: f32) {
+    pub fn bind_authored_flight(&mut self, start: Vec3, end: Vec3, speed_per_second: f32) {
         if self.flight.is_none() && !self.projectile_object_name.is_empty() {
             self.flight =
                 crate::game_logic::weapon_bootstrap::host_projectile_flight_for_object_name(
@@ -185,11 +187,19 @@ impl Projectile {
         self.flight_runtime.path_start = start;
         self.flight_runtime.path_end = end;
         self.flight_runtime.original_target_pos = end;
-        self.flight_runtime.path_speed_per_frame = if speed > 0.0 { speed / 30.0 } else { 0.0 };
+        self.flight_runtime.path_speed_per_frame = if speed_per_second > 0.0 {
+            speed_per_second / gamelogic::common::LOGICFRAMES_PER_SECOND as f32
+        } else {
+            0.0
+        };
         match &flight {
             crate::game_logic::weapon_bootstrap::HostProjectileFlight::Dumb(dumb) => {
                 let (path, segs) = crate::game_logic::weapon_bootstrap::build_dumb_bezier_path(
-                    start, end, dumb, speed, 0,
+                    start,
+                    end,
+                    dumb,
+                    speed_per_second,
+                    0,
                 );
                 self.flight_runtime.path = path;
                 self.flight_runtime.path_segments = segs;

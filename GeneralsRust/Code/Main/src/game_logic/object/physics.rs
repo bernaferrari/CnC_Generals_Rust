@@ -1519,7 +1519,10 @@ impl Object {
             self.movement.path = vec![destination];
         }
         if self.movement.path.len() >= 2 {
-            self.movement.current_path_index = 1;
+            // C++ AIFollowPathState::onEnter starts at index zero (the
+            // current-position node), while movement heads for the next node.
+            // The host advances this index by projection on its first update.
+            self.movement.current_path_index = 0;
             self.movement.target_position = Some(self.movement.path[1]);
         } else {
             self.movement.current_path_index = 0;

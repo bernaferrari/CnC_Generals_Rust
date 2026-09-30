@@ -4,11 +4,6 @@
 //! resume/crate helpers onto presentation translator catalog residual when
 //! OBJECT_REGISTRY is empty. playable_claim stays false.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-
-static RESIDUAL_OK: AtomicBool = AtomicBool::new(false);
-static RESIDUAL_ACTION: AtomicU8 = AtomicU8::new(0);
-
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
@@ -41,10 +36,6 @@ pub enum ResidualHostSelectionTargetCatalogAction {
     DispatchSource = 5,
 }
 
-fn residual_action_store(a: ResidualHostSelectionTargetCatalogAction) {
-    RESIDUAL_ACTION.store(a as u8, Ordering::SeqCst);
-}
-
 fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
@@ -62,8 +53,6 @@ pub fn honesty_host_selection_target_catalog_method_names_residual_wave975() -> 
     let names = LIVE_HOST_SELECTION_TARGET_CATALOG_METHOD_NAMES_WAVE975;
     let ok = residual_name_index(names, "selection_any_local_object_can_target").is_some()
         && residual_name_index(names, "Wave 975").is_some();
-    residual_action_store(ResidualHostSelectionTargetCatalogAction::MethodNames);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -71,8 +60,6 @@ pub fn honesty_host_selection_target_catalog_nav_commands_residual_wave975() -> 
     let steps = LIVE_HOST_SELECTION_TARGET_CATALOG_NAV_STEPS_WAVE975;
     let ok = residual_name_index(steps, "LIVE_HOST_SELECTION_TARGET_CATALOG").is_some()
         && residual_name_index(steps, "ATTACK_ENTER_REPAIR_RESIDUAL").is_some();
-    residual_action_store(ResidualHostSelectionTargetCatalogAction::NavCommands);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -100,8 +87,6 @@ pub fn honesty_host_selection_target_catalog_residual_pack_wave975() -> bool {
         && enter.contains("translator_catalog_entry")
         && !cnc.contains("playable_claim = true")
         && !gl.contains("playable_claim = true");
-    residual_action_store(ResidualHostSelectionTargetCatalogAction::SourceMarkers);
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 
@@ -109,9 +94,7 @@ pub fn simulate_live_host_selection_target_catalog_honesty() -> bool {
     let a = honesty_host_selection_target_catalog_method_names_residual_wave975();
     let b = honesty_host_selection_target_catalog_nav_commands_residual_wave975();
     let c = honesty_host_selection_target_catalog_residual_pack_wave975();
-    residual_action_store(ResidualHostSelectionTargetCatalogAction::DispatchSource);
     let ok = a && b && c;
-    RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok
 }
 

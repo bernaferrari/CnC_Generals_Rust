@@ -135,19 +135,7 @@ impl Locomotor {
         // Detect newly blocked movement between current position and the next waypoint.
         let line_clear = pathfinding.is_line_clear_between(&current_pos, &next_waypoint);
 
-        let terrain_layer = match capabilities.layer {
-            crate::ai::pathfinding_system::PathfindLayerEnum::Ground
-            | crate::ai::pathfinding_system::PathfindLayerEnum::Tunnel
-            | crate::ai::pathfinding_system::PathfindLayerEnum::Invalid => {
-                crate::common::PathfindLayerEnum::Ground
-            }
-            crate::ai::pathfinding_system::PathfindLayerEnum::Air => {
-                crate::common::PathfindLayerEnum::Top
-            }
-            crate::ai::pathfinding_system::PathfindLayerEnum::Water => {
-                crate::common::PathfindLayerEnum::Water
-            }
-        };
+        let terrain_layer: crate::common::PathfindLayerEnum = capabilities.layer.into();
 
         let terrain_blocked = pathfinding
             .terrain_at(&next_waypoint, terrain_layer)
@@ -182,23 +170,7 @@ impl Locomotor {
         _pathfinding: &crate::ai::pathfinding_system::PathfindingSystem,
     ) -> Real {
         let capabilities = self.to_movement_capabilities();
-        let terrain_layer = match capabilities.layer {
-            crate::ai::pathfinding_system::PathfindLayerEnum::Ground => {
-                crate::common::PathfindLayerEnum::Ground
-            }
-            crate::ai::pathfinding_system::PathfindLayerEnum::Air => {
-                crate::common::PathfindLayerEnum::Top
-            }
-            crate::ai::pathfinding_system::PathfindLayerEnum::Water => {
-                crate::common::PathfindLayerEnum::Water
-            }
-            crate::ai::pathfinding_system::PathfindLayerEnum::Tunnel => {
-                crate::common::PathfindLayerEnum::Tunnel
-            }
-            crate::ai::pathfinding_system::PathfindLayerEnum::Invalid => {
-                crate::common::PathfindLayerEnum::Ground
-            }
-        };
+        let terrain_layer: crate::common::PathfindLayerEnum = capabilities.layer.into();
 
         // Get terrain height from terrain logic.
         match self.template.appearance {
@@ -315,7 +287,6 @@ impl Locomotor {
         }
     }
 
-
     fn apply_wings_circling(&self, current: Coord3D, target: Coord3D, desired_angle: Real) -> Real {
         if self.template.appearance != LocomotorAppearance::Wings {
             return desired_angle;
@@ -413,6 +384,4 @@ impl Locomotor {
         let diff = Self::std_angle_diff(desired_angle, current_angle);
         current_angle + diff.clamp(-max_turn, max_turn)
     }
-
-
 }

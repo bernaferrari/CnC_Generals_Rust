@@ -246,15 +246,11 @@ pub fn repair_action_range(target_selection_radius: f32) -> f32 {
 pub fn dozer_within_action_dock(dozer_pos: Vec3, dozer_radius: f32, dock: Vec3) -> bool {
     let radius = dozer_radius.max(0.0);
     let gap = crate::game_logic::host_hero_abilities::leftover_bounding_sphere_2d(
-        dozer_pos,
-        radius,
-        dock,
-        0.0,
+        dozer_pos, radius, dock, 0.0,
     );
     let allowance = DOZER_MIN_ACTION_TOLERANCE.max(radius + DOZER_ACTION_SLOP);
     gap <= allowance
 }
-
 
 /// C++ `DozerAIUpdate::getBoredRange`: computer dozers scan `modifier * BoredRange`.
 #[inline]
@@ -647,7 +643,6 @@ mod tests {
     #[test]
     fn get_repaired_does_not_time_for_full_heal_airborne_aircraft() {
         use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
         let mut logic = GameLogic::new();
         let mut air = ThingTemplate::new("TestAirfield");
         air.add_kind_of(KindOf::FSAirfield).set_health(2000.0);
@@ -676,13 +671,11 @@ mod tests {
             (hp - 40.0).abs() < 0.01,
             "airborne aircraft must not TimeForFullHeal, hp={hp}"
         );
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
     }
 
     #[test]
     fn repair_dock_heals_slave_drone_to_max() {
         use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
         let mut logic = GameLogic::new();
         let mut pad = ThingTemplate::new("TestRepairPad");
         pad.add_kind_of(KindOf::RepairPad).set_health(2000.0);
@@ -722,7 +715,6 @@ mod tests {
             (drone_hp - 80.0).abs() < 0.01,
             "slave drone must snap to max while master docks, hp={drone_hp}"
         );
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
     }
 
     #[test]
@@ -731,7 +723,6 @@ mod tests {
             docking_beginning_model_bit, moving_model_bit,
         };
         use crate::game_logic::{AIState, GameLogic, KindOf, Team, ThingTemplate};
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
         let mut logic = GameLogic::new();
         let mut wh = ThingTemplate::new("TestWarehouse");
         wh.add_kind_of(KindOf::SupplySource)
@@ -765,6 +756,5 @@ mod tests {
             0
         );
         assert_eq!(o.model_condition_bits & (1u128 << moving_model_bit()), 0);
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
     }
 }

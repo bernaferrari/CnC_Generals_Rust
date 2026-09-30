@@ -59,6 +59,34 @@ pub struct ProjectileImpactFx {
     pub source_velocity: Vec3,
 }
 
+/// Unit of the pending speed and `min_weapon_speed` pair. Weapon.ini stores
+/// these in distance per 30 Hz logic frame; low-level CombatSystem callers
+/// often already supply distance per second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectileSpeedUnit {
+    DistancePerLogicFrame,
+    DistancePerSecond,
+}
+
+impl ProjectileSpeedUnit {
+    fn distance_per_logic_frame(self, speed: f32) -> f32 {
+        match self {
+            Self::DistancePerLogicFrame => speed,
+            Self::DistancePerSecond => speed / gamelogic::common::LOGICFRAMES_PER_SECOND as f32,
+        }
+    }
+
+    fn distance_per_second(self, speed: f32) -> f32 {
+        if Projectile::is_instant_speed(speed) {
+            return speed;
+        }
+        match self {
+            Self::DistancePerLogicFrame => speed * gamelogic::common::LOGICFRAMES_PER_SECOND as f32,
+            Self::DistancePerSecond => speed,
+        }
+    }
+}
+
 /// C++ `Weapon::fireWeaponTemplate` fire-time authored effects.  `FireFX` and
 /// `FireOCL` run when the shot is accepted, before the projectile needs a live
 /// target, so they are kept separately from projectile impact events.
@@ -201,12 +229,15 @@ fn handle_projectileless_pending(
     damage_pos: Vec3,
     damage_id: Option<ObjectId>,
     flight_speed: f32,
+    speed_unit: ProjectileSpeedUnit,
 ) {
-    let delay_in_frames = if flight_speed > 0.0 && !Projectile::is_instant_speed(flight_speed) {
-        pending.shooter_pos.distance(damage_pos) / flight_speed
-    } else {
-        0.0
-    };
+    let speed_per_logic_frame = speed_unit.distance_per_logic_frame(flight_speed);
+    let delay_in_frames =
+        if speed_per_logic_frame > 0.0 && !Projectile::is_instant_speed(flight_speed) {
+            pending.shooter_pos.distance(damage_pos) / speed_per_logic_frame
+        } else {
+            0.0
+        };
     let now = crate::game_logic::host_historic_bonus::logic_frame();
     let laser = leftover_weapon_is_laser(&pending.historic_weapon_key);
     if laser || delay_in_frames < 1.0 {
@@ -282,6 +313,8 @@ pub struct PendingProjectile {
     pub target_pos: Option<Vec3>,
     pub damage: f32,
     pub speed: f32,
+    /// Shared by `speed` and `min_weapon_speed`; both come from the same source.
+    pub speed_unit: ProjectileSpeedUnit,
     /// C++ radius damage residual at impact (0 = direct only).
     pub splash_radius: f32,
     /// C++ projectile homing residual (retarget velocity toward live target).
@@ -627,9 +660,20 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         // (or same-frame dealDamageInternal). Do not spawn a CombatSystem
         // dummy that can collide mid-flight.
         if is_projectileless_object_name(&p.projectile_object_name) {
-            handle_projectileless_pending(&p, target_pos, fire_target_id, flight_speed);
+            handle_projectileless_pending(
+                &p,
+                target_pos,
+                fire_target_id,
+                flight_speed,
+                p.speed_unit,
+            );
             continue;
         }
+
+        // C++ WeaponSpeed is distance per logic frame. CombatSystem integrates
+        // velocity against seconds, so convert only as the projectile is
+        // materialized. Already-normalized callers keep their public meaning.
+        let flight_speed_per_second = p.speed_unit.distance_per_second(flight_speed);
 
         let weapon = Weapon {
             damage: p.damage,
@@ -642,7 +686,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             clip_reload_time: 0.0,
             can_target_air: true,
             can_target_ground: true,
-            projectile_speed: flight_speed,
+            projectile_speed: flight_speed_per_second,
             pre_attack_delay: 0.0,
             splash_radius: p.splash_radius,
             suspend_fx_frame: 0,
@@ -655,7 +699,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             &weapon,
             p.shooter_id,
             fire_target_id,
-            flight_speed,
+            flight_speed_per_second,
             projectile_lifecycle
                 .map(crate::game_logic::weapon_bootstrap::HostProjectileLifecycle::follows_target)
                 .unwrap_or(p.is_homing),
@@ -690,7 +734,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             proj.die_on_detonate = p.die_on_detonate;
             proj.projectile_collides = p.projectile_collides;
             proj.set_projectile_lifecycle(projectile_lifecycle);
-            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed);
+            proj.bind_authored_flight(p.shooter_pos, target_pos, flight_speed_per_second);
             proj.is_small_missile = host_projectile_is_small_missile(proj);
         }
     }

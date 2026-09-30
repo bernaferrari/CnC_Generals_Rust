@@ -33,7 +33,7 @@ use crate::helpers::ThePartitionManager;
 use crate::modules::AIAttitudeType;
 use crate::object::Object;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::physics::{SurfaceType, TerrainQuery};
+use crate::physics::TerrainQuery;
 use crate::player::PlayerType;
 use crate::player::ThePlayerList;
 pub use crate::scripting::engine::AttackPriorityInfo;
@@ -67,7 +67,6 @@ fn elevated_eye(obj: &Object, pos: &Coord3D) -> Coord3D {
     let z = pos.z + obj.get_geometry_info().get_max_height_above_position();
     Coord3D::new(pos.x, pos.y, z)
 }
-
 
 // Debug options for AI visualization
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1519,7 +1518,9 @@ impl AI {
         let pathfinder = Arc::new(RwLock::new(Pathfinder::new()));
         Self {
             pathfinder: Some(pathfinder.clone()),
-            pathfinding_system: Some(pathfinding_system::create_pathfinding_system_for_pathfinder(pathfinder)),
+            pathfinding_system: Some(
+                pathfinding_system::create_pathfinding_system_for_pathfinder(pathfinder),
+            ),
             group_list: Vec::new(),
             ai_data: Arc::new(RwLock::new(AiData::default())),
             next_group_id: 0,
@@ -1540,7 +1541,6 @@ impl AI {
                 }
             }
         }
-
     }
 
     /// Reset the AI system in preparation for a new map
@@ -2302,12 +2302,23 @@ impl Pathfinder {
                 let mut cell_type = if !in_bounds {
                     PathfindCellType::Impassable
                 } else {
-                    match terrain.get_surface_type(world_x, world_y) {
-                        SurfaceType::Water => PathfindCellType::Water,
-                        SurfaceType::Cliff => PathfindCellType::Cliff,
-                        SurfaceType::Bridge => PathfindCellType::Clear,
-                        _ => PathfindCellType::Clear,
+                    let left = x as f32 * cell_size;
+                    let top = y as f32 * cell_size;
+                    let right = left + cell_size;
+                    let bottom = top + cell_size;
+                    let mut kind = if terrain.is_cliff_cell(left, top) {
+                        PathfindCellType::Cliff
+                    } else {
+                        PathfindCellType::Clear
+                    };
+                    if terrain.is_underwater(left, top, None, None)
+                        || terrain.is_underwater(left, bottom, None, None)
+                        || terrain.is_underwater(right, bottom, None, None)
+                        || terrain.is_underwater(right, top, None, None)
+                    {
+                        kind = PathfindCellType::Water;
                     }
+                    kind
                 };
 
                 let pos = Coord3D::new(world_x, world_y, 0.0);
@@ -2322,7 +2333,8 @@ impl Pathfinder {
                 self.inner.set_cell_type(&pos, cell_type);
             }
         }
-        self.inner.new_map();
+        self.inner.expand_cliff_cells_like_cpp();
+        self.inner.new_map_from_classified_cells();
     }
 
     fn bridge_layer_from_pathfinder_id(layer_id: u32) -> crate::path::PathfindLayerEnum {
@@ -3010,7 +3022,8 @@ impl Pathfinder {
         victim_pos: &Coord3D,
     ) -> bool {
         // Global AI data switch.
-        let ai_store = the_ai();let attack_uses_los = ai_store
+        let ai_store = the_ai();
+        let attack_uses_los = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -3251,10 +3264,20 @@ impl Pathfinder {
     }
 
     pub fn set_cell_type_at(&mut self, pos: &Coord3D, cell_type: PathfindCellType) {
-        self.inner.set_cell_type(pos, cell_type);
-        self.inner.clear_cache();
-        self.inner.mark_zones_dirty();
-        self.inner.refresh_pinched_for_positions(std::slice::from_ref(pos));
+        self.set_cell_type_at_layer(pos, crate::path::PathfindLayerEnum::Ground, cell_type);
+    }
+
+    pub fn set_cell_type_at_layer(
+        &mut self,
+        pos: &Coord3D,
+        layer: crate::path::PathfindLayerEnum,
+        cell_type: PathfindCellType,
+    ) {
+        self.inner.set_cell_type_at_layer(
+            pos,
+            self::pathfind_astar::PathfindLayerEnum::from_u32(layer as u32),
+            cell_type,
+        );
     }
 
     #[cfg(test)]
@@ -3637,7 +3660,6 @@ impl Pathfinder {
         }
         self.inner.mark_zones_dirty();
     }
-
 
     pub fn is_line_clear_between(&self, from: &Coord3D, to: &Coord3D) -> bool {
         self.inner.is_line_clear_between(from, to)

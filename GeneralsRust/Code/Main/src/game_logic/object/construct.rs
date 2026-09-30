@@ -1057,6 +1057,7 @@ impl Object {
             flash_color: 0,
 
             ai_state: AIState::Idle,
+            dock_cancel_epoch: 0,
             unit_ai_runtime: Default::default(),
             object_type,
             template_name: template_name.clone(),
@@ -1985,6 +1986,7 @@ impl Object {
             flash_color: 0,
 
             ai_state: AIState::Idle,
+            dock_cancel_epoch: 0,
             unit_ai_runtime: Default::default(),
             object_type,
             template_name: template_name.clone(),

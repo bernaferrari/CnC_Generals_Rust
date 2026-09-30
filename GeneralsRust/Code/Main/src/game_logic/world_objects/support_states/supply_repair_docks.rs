@@ -2,6 +2,147 @@
 use super::super::super::*;
 
 impl GameLogic {
+    /// Consume only cancellation epochs for docker IDs represented in this
+    /// world's queues. Object setters record epochs synchronously; this owner
+    /// reconciles queue state at observers and applies dock fields at its next
+    /// mutable boundary.
+    pub(crate) fn sync_host_dock_queue_cancellations(&self) {
+        let tracked = self.host_dock_approach_queues.borrow().tracked_docker_ids();
+        if tracked.is_empty() {
+            return;
+        }
+        let current_epochs: Vec<_> = tracked
+            .into_iter()
+            .map(|docker_id| {
+                (
+                    docker_id,
+                    self.objects
+                        .get(&docker_id)
+                        .map(|object| object.dock_cancel_epoch),
+                )
+            })
+            .collect();
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .reconcile_cancel_epochs(&current_epochs);
+    }
+
+    pub(crate) fn sync_host_dock_queue_cancellations_for_dock(&self, dock_id: ObjectId) {
+        let tracked = self
+            .host_dock_approach_queues
+            .borrow()
+            .tracked_docker_ids_for_dock(dock_id);
+        if tracked.is_empty() {
+            return;
+        }
+        let current_epochs: Vec<_> = tracked
+            .into_iter()
+            .map(|docker_id| {
+                (
+                    docker_id,
+                    self.objects
+                        .get(&docker_id)
+                        .map(|object| object.dock_cancel_epoch),
+                )
+            })
+            .collect();
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .reconcile_dock_cancel_epochs(&current_epochs);
+    }
+
+    pub(crate) fn sync_host_dock_queue_cancellations_for_docker(&self, docker_id: ObjectId) {
+        let is_tracked = self
+            .host_dock_approach_queues
+            .borrow()
+            .tracks_docker(docker_id);
+        if !is_tracked {
+            return;
+        }
+        let current = self
+            .objects
+            .get(&docker_id)
+            .map(|object| object.dock_cancel_epoch);
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .reconcile_cancel_epochs(&[(docker_id, current)]);
+    }
+
+    /// Apply deferred Object callback events at a mutable GameLogic boundary.
+    /// Read-only selectors may clear queue slots, but only this owner can also
+    /// clear active-docker/model state on the dock and docker objects.
+    pub(super) fn apply_pending_host_dock_cancellation_effects(&mut self) {
+        let pending = self
+            .host_dock_approach_queues
+            .borrow_mut()
+            .take_pending_cancel_effects();
+        for (dock_id, docker_id) in pending {
+            self.clear_dock_holder_without_reconcile(dock_id, docker_id);
+        }
+    }
+
+    fn reconcile_host_dock_cancellations_for_dock(&mut self, dock_id: ObjectId) {
+        self.sync_host_dock_queue_cancellations_for_dock(dock_id);
+        self.apply_pending_host_dock_cancellation_effects();
+    }
+
+    /// Seed active-session cancellation identity after queue-tail restore has
+    /// assigned `Object::dock_active_docker` on its already-admitted objects.
+    pub(crate) fn track_restored_active_docker(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        let epoch = self
+            .objects
+            .get(&docker_id)
+            .map(|object| object.dock_cancel_epoch)
+            .unwrap_or(0);
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .track_restored_active_docker(dock_id, docker_id, epoch);
+    }
+
+    pub(crate) fn host_dock_approach_queue_snapshot(
+        &self,
+    ) -> Vec<(
+        ObjectId,
+        crate::game_logic::host_supply_gather::HostDockApproachQueue,
+    )> {
+        self.sync_host_dock_queue_cancellations();
+        self.host_dock_approach_queues.borrow().snapshot()
+    }
+
+    pub(crate) fn restore_host_dock_approach_queues(
+        &self,
+        entries: Vec<(
+            ObjectId,
+            crate::game_logic::host_supply_gather::HostDockApproachQueue,
+        )>,
+    ) {
+        let owner_ids: std::collections::HashSet<_> = entries
+            .iter()
+            .flat_map(|(_, queue)| queue.owned_dockers())
+            .collect();
+        let object_epochs: HashMap<_, _> = owner_ids
+            .into_iter()
+            .filter_map(|docker_id| {
+                self.objects
+                    .get(&docker_id)
+                    .map(|object| (docker_id, object.dock_cancel_epoch))
+            })
+            .collect();
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .restore(entries, &object_epochs);
+    }
+
+    pub(crate) fn reset_host_dock_approach_queues(&self) {
+        self.host_dock_approach_queues.borrow_mut().clear();
+    }
+
+    pub(crate) fn remove_host_dock_approach_queue(&self, dock_id: ObjectId) {
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .remove_dock(dock_id);
+    }
+
     pub(super) fn expire_temporary_stealth_grant(&mut self, object_id: ObjectId) {
         let Some(object) = self.objects.get(&object_id) else {
             return;
@@ -29,6 +170,7 @@ impl GameLogic {
     }
 
     pub(crate) fn try_claim_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+        self.reconcile_host_dock_cancellations_for_dock(dock_id);
         let (
             current,
             template_name,
@@ -104,29 +246,37 @@ impl GameLogic {
         } else {
             self.load_dock_waiting_bones_world(dock_id, n as usize)
         };
-        let tick = crate::game_logic::host_supply_gather::tick_live_dock_approach_ex(
-            dock_id,
-            docker_id,
-            n,
-            docker_alive,
-            current,
-            current_alive,
-            docker_pos,
-            dock_pos,
-            dock_major,
-            &waiting_bones,
-            self.frame,
-            dock_crippled,
-            |id| {
-                self.objects.get(&id).is_some_and(|object| {
-                    object.is_alive()
-                        && (id == docker_id
-                            || crate::game_logic::host_supply_gather::is_live_dock_ai_state(
-                                &object.ai_state,
-                            ))
-                })
-            },
-        );
+        let docker_cancel_epoch = self
+            .objects
+            .get(&docker_id)
+            .map(|object| object.dock_cancel_epoch)
+            .unwrap_or(0);
+        let tick = {
+            self.host_dock_approach_queues.borrow_mut().tick(
+                dock_id,
+                docker_id,
+                docker_cancel_epoch,
+                n,
+                docker_alive,
+                current,
+                current_alive,
+                docker_pos,
+                dock_pos,
+                dock_major,
+                &waiting_bones,
+                self.frame,
+                dock_crippled,
+                |id| {
+                    self.objects.get(&id).is_some_and(|object| {
+                        object.is_alive()
+                            && (id == docker_id
+                                || crate::game_logic::host_supply_gather::is_live_dock_ai_state(
+                                    &object.ai_state,
+                                ))
+                    })
+                },
+            )
+        };
         match tick {
             crate::game_logic::host_supply_gather::DockApproachTick::ClearToAct => {
                 if let Some(dock) = self.objects.get_mut(&dock_id) {
@@ -144,7 +294,7 @@ impl GameLogic {
                     .get(&docker_id)
                     .map(|o| o.ai_state.clone())
                     .unwrap_or(AIState::Idle);
-                self.path_approach_with_state(docker_id, goal, state);
+                self.dock_approach_with_state(docker_id, goal, state);
                 false
             }
             crate::game_logic::host_supply_gather::DockApproachTick::TimedOut => {
@@ -205,6 +355,11 @@ impl GameLogic {
     }
 
     pub(super) fn release_dock_if_holder(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        self.reconcile_host_dock_cancellations_for_dock(dock_id);
+        self.clear_dock_holder_without_reconcile(dock_id, docker_id);
+    }
+
+    fn clear_dock_holder_without_reconcile(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
         let was_holder = self
             .objects
             .get(&dock_id)
@@ -218,7 +373,9 @@ impl GameLogic {
                 dock.repair_dock_health_per_sec = 0.0;
             }
         }
-        crate::game_logic::host_supply_gather::cancel_live_dock_approach(dock_id, docker_id);
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .cancel_dock(dock_id, docker_id);
         if was_holder {
             self.apply_docking_model_conditions(dock_id, docker_id, false);
         }
@@ -226,6 +383,8 @@ impl GameLogic {
 
     /// C++ `AIDockState::onExit` → `AIDockMachine::halt` → `DockUpdate::cancelDock`.
     pub(crate) fn cancel_dock_reservation(&mut self, docker_id: ObjectId) {
+        self.sync_host_dock_queue_cancellations_for_docker(docker_id);
+        self.apply_pending_host_dock_cancellation_effects();
         let mut docks = Vec::new();
         if let Some(obj) = self.objects.get(&docker_id) {
             if let Some(id) = obj.preferred_dock_id {
@@ -246,9 +405,11 @@ impl GameLogic {
             }
         }
         for dock_id in docks {
-            self.release_dock_if_holder(dock_id, docker_id);
+            self.clear_dock_holder_without_reconcile(dock_id, docker_id);
         }
-        crate::game_logic::host_supply_gather::cancel_live_dock_for_docker(docker_id);
+        self.host_dock_approach_queues
+            .borrow_mut()
+            .cancel_docker(docker_id);
     }
 
     /// C++ `RepairDockUpdate::isRallyPointAfterDockType` + `AIDockMoveToRallyState`.

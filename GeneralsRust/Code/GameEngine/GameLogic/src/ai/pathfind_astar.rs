@@ -963,6 +963,51 @@ impl AStarPathfinder {
         )
     }
 
+    /// Layer-preserving `findPathEx6`. The C++ path nodes retain both the cell
+    /// pointer and its layer; callers building PathNodes must not infer layers
+    /// later from bridge bounds.
+    #[allow(clippy::too_many_arguments)]
+    pub fn find_path_ex6_with_layers(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
+        self.find_path_with_start_layer_and_layers(
+            start,
+            goal,
+            PathfindLayerEnum::Ground,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            starts_tunneling,
+            cell_allowed,
+            dozer_obstacle_ok,
+        )
+    }
+
     /// A* starting on `start_layer` (C++ `obj->getLayer()` / `getClippedCell(layer, from)`).
     pub fn find_path_on_layer(
         &self,
@@ -1018,6 +1063,51 @@ impl AStarPathfinder {
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
         dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
     ) -> Option<(Vec<GridCoord>, usize)> {
+        self.find_path_with_start_layer_and_layers(
+            start,
+            goal,
+            start_layer,
+            dest_layer,
+            surfaces,
+            is_crusher,
+            max_iterations,
+            allow_partial,
+            ignore_cells,
+            extra_cost,
+            downhill_only,
+            ground_height,
+            force_passable,
+            line_cell_ok,
+            seed_line_to_goal,
+            starts_tunneling,
+            cell_allowed,
+            dozer_obstacle_ok,
+        )
+        .map(|(path, examined)| (path.into_iter().map(|(coord, _)| coord).collect(), examined))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn find_path_with_start_layer_and_layers(
+        &self,
+        start: GridCoord,
+        goal: GridCoord,
+        start_layer: PathfindLayerEnum,
+        dest_layer: PathfindLayerEnum,
+        surfaces: u32,
+        is_crusher: bool,
+        max_iterations: usize,
+        allow_partial: bool,
+        ignore_cells: Option<&HashSet<GridCoord>>,
+        extra_cost: Option<&dyn Fn(GridCoord) -> u32>,
+        downhill_only: bool,
+        ground_height: Option<&dyn Fn(GridCoord) -> f32>,
+        force_passable: Option<&dyn Fn(GridCoord) -> bool>,
+        line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
+        seed_line_to_goal: bool,
+        starts_tunneling: bool,
+        cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
+        dozer_obstacle_ok: Option<&dyn Fn(GridCoord) -> bool>,
+    ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
         let mut open_set = BinaryHeap::new();
@@ -1095,7 +1185,10 @@ impl AStarPathfinder {
             if iterations > max_iterations {
                 // Prevent infinite loops
                 if allow_partial {
-                    return Some((self.reconstruct_path(&came_from, best_key), iterations));
+                    return Some((
+                        self.reconstruct_path_with_layers(&came_from, best_key),
+                        iterations,
+                    ));
                 }
                 return None;
             }
@@ -1106,7 +1199,10 @@ impl AStarPathfinder {
             // Goal reached!
             // C++ compares PathfindCell pointers: dest XY on destinationLayer.
             if current.coord == goal && current.layer == dest_layer {
-                return Some((self.reconstruct_path(&came_from, current_key), iterations));
+                return Some((
+                    self.reconstruct_path_with_layers(&came_from, current_key),
+                    iterations,
+                ));
             }
 
             let current_dist = current.coord.diagonal_distance(&goal);
@@ -1350,7 +1446,10 @@ impl AStarPathfinder {
         // No path found
         // Matches C++ at AIPathfind.cpp:6635-6693
         if allow_partial {
-            Some((self.reconstruct_path(&came_from, best_key), iterations))
+            Some((
+                self.reconstruct_path_with_layers(&came_from, best_key),
+                iterations,
+            ))
         } else {
             None
         }
@@ -1516,6 +1615,20 @@ impl AStarPathfinder {
             current = parent;
         }
 
+        path.reverse();
+        path
+    }
+
+    fn reconstruct_path_with_layers(
+        &self,
+        came_from: &HashMap<SearchKey, SearchKey>,
+        mut current: SearchKey,
+    ) -> Vec<(GridCoord, PathfindLayerEnum)> {
+        let mut path = vec![current];
+        while let Some(&parent) = came_from.get(&current) {
+            path.push(parent);
+            current = parent;
+        }
         path.reverse();
         path
     }

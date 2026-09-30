@@ -993,7 +993,7 @@ impl Object {
         if crate::game_logic::host_supply_gather::is_live_dock_ai_state(&self.ai_state)
             && self.ai_state != state
         {
-            crate::game_logic::host_supply_gather::cancel_live_dock_for_docker(self.id);
+            self.dock_cancel_epoch = self.dock_cancel_epoch.wrapping_add(1);
         }
         let was_entering = matches!(self.ai_state, AIState::Entering);
         let entering_move =
@@ -1064,8 +1064,7 @@ impl Object {
                 }
             }
         }
-        if matches!(state, AIState::AttackMoving)
-            && !matches!(self.ai_state, AIState::AttackMoving)
+        if matches!(state, AIState::AttackMoving) && !matches!(self.ai_state, AIState::AttackMoving)
         {
             self.attack_move_retry_count = 5;
             self.attack_move_sleep_until = 0;

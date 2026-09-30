@@ -5,51 +5,289 @@
 use crate::game_logic::{DockKind, ObjectId};
 use glam::Vec3;
 
-use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex};
 
-fn live_dock_queues() -> &'static Mutex<HashMap<ObjectId, HostDockApproachQueue>> {
-    static QUEUES: OnceLock<Mutex<HashMap<ObjectId, HostDockApproachQueue>>> = OnceLock::new();
-    QUEUES.get_or_init(|| Mutex::new(HashMap::new()))
+/// Main-owned mirror of each dock module's C++ approach-position state.
+/// `GameLogic` owns this store; object state transitions report cancellations
+/// with epochs that the owner reconciles before observing queue state.
+#[derive(Debug, Default)]
+pub(crate) struct HostDockApproachQueues {
+    queues: HashMap<ObjectId, HostDockApproachQueue>,
+    observed_cancel_epochs: HashMap<ObjectId, u64>,
+    active_dockers: HashMap<ObjectId, ObjectId>,
+    pending_cancel_effects: HashSet<(ObjectId, ObjectId)>,
 }
 
-/// C++ `DockUpdate::reserveApproachPosition` + `update` promote first arriver.
-/// Returns `PathTo` until the docker reaches its `DockWaiting` / boneless slot.
-pub fn tick_live_dock_approach(
-    dock_id: ObjectId,
-    docker_id: ObjectId,
-    number_approach_positions: i32,
-    docker_alive: bool,
-    current_active: Option<ObjectId>,
-    current_active_alive: bool,
-    docker_pos: Vec3,
-    dock_pos: Vec3,
-    dock_major_radius: f32,
-    waiting_bones: &[Vec3],
-    current_frame: u32,
-    is_alive: impl FnMut(ObjectId) -> bool,
-) -> DockApproachTick {
-    tick_live_dock_approach_ex(
-        dock_id,
-        docker_id,
-        number_approach_positions,
-        docker_alive,
-        current_active,
-        current_active_alive,
-        docker_pos,
-        dock_pos,
-        dock_major_radius,
-        waiting_bones,
-        current_frame,
-        false,
-        is_alive,
-    )
+impl HostDockApproachQueues {
+    /// C++ `DockUpdate::reserveApproachPosition` + `update` promote first arriver.
+    /// Returns `PathTo` until the docker reaches its `DockWaiting` / boneless slot.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn tick(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+        docker_cancel_epoch: u64,
+        number_approach_positions: i32,
+        docker_alive: bool,
+        current_active: Option<ObjectId>,
+        current_active_alive: bool,
+        docker_pos: Vec3,
+        dock_pos: Vec3,
+        dock_major_radius: f32,
+        waiting_bones: &[Vec3],
+        current_frame: u32,
+        crippled: bool,
+        is_alive: impl FnMut(ObjectId) -> bool,
+    ) -> DockApproachTick {
+        let queue = self
+            .queues
+            .entry(dock_id)
+            .or_insert_with(|| HostDockApproachQueue::new(number_approach_positions));
+        let previous_owners: Vec<_> = queue.owned_dockers().collect();
+        let result = tick_dock_approach(
+            queue,
+            docker_id,
+            number_approach_positions,
+            docker_alive,
+            current_active,
+            current_active_alive,
+            docker_pos,
+            dock_pos,
+            dock_major_radius,
+            waiting_bones,
+            current_frame,
+            crippled,
+            is_alive,
+        );
+        let current_owners: Vec<_> = self
+            .queues
+            .get(&dock_id)
+            .into_iter()
+            .flat_map(HostDockApproachQueue::owned_dockers)
+            .collect();
+        for previous in previous_owners {
+            if !current_owners.contains(&previous) {
+                self.forget_if_unowned(previous);
+            }
+        }
+        if matches!(&result, DockApproachTick::ClearToAct) {
+            self.active_dockers.insert(dock_id, docker_id);
+            self.observed_cancel_epochs
+                .insert(docker_id, docker_cancel_epoch);
+        } else if let Some(stale) = current_active.filter(|_| !current_active_alive) {
+            if self.active_dockers.get(&dock_id) == Some(&stale) {
+                self.active_dockers.remove(&dock_id);
+                self.forget_if_unowned(stale);
+            }
+        }
+        if current_owners.contains(&docker_id) {
+            self.observed_cancel_epochs
+                .insert(docker_id, docker_cancel_epoch);
+        }
+        result
+    }
+
+    pub(crate) fn cancel_dock(&mut self, dock_id: ObjectId, docker_id: ObjectId) {
+        if let Some(queue) = self.queues.get_mut(&dock_id) {
+            queue.cancel_docker(docker_id);
+        }
+        self.pending_cancel_effects.remove(&(dock_id, docker_id));
+        if self.active_dockers.get(&dock_id) == Some(&docker_id) {
+            self.active_dockers.remove(&dock_id);
+        }
+        self.forget_if_unowned(docker_id);
+    }
+
+    /// C++ `DockUpdate::cancelDock` for every live queue this docker reserved.
+    pub(crate) fn cancel_docker(&mut self, docker_id: ObjectId) {
+        for queue in self.queues.values_mut() {
+            queue.cancel_docker(docker_id);
+        }
+        self.active_dockers
+            .retain(|_, active_docker| *active_docker != docker_id);
+        self.pending_cancel_effects
+            .retain(|(_, active_docker)| *active_docker != docker_id);
+        self.observed_cancel_epochs.remove(&docker_id);
+    }
+
+    /// A dock module's queue has the same lifetime as its owning Object.
+    pub(crate) fn remove_dock(&mut self, dock_id: ObjectId) {
+        let active_docker = self.active_dockers.remove(&dock_id);
+        let owners: Vec<_> = self
+            .queues
+            .remove(&dock_id)
+            .into_iter()
+            .flat_map(|queue| queue.owned_dockers().collect::<Vec<_>>())
+            .collect();
+        for owner in owners {
+            self.forget_if_unowned(owner);
+        }
+        if let Some(owner) = active_docker {
+            self.forget_if_unowned(owner);
+        }
+    }
+
+    /// Reconcile only docker IDs that currently own a queue slot. No world
+    /// scan: the caller performs O(1) lookups for these tracked IDs.
+    pub(crate) fn reconcile_cancel_epochs(&mut self, current_epochs: &[(ObjectId, Option<u64>)]) {
+        for &(docker_id, current) in current_epochs {
+            let Some(previous) = self.observed_cancel_epochs.get(&docker_id).copied() else {
+                continue;
+            };
+            if current != Some(previous) {
+                self.reconcile_cancelled_docker(docker_id);
+            }
+        }
+    }
+
+    pub(crate) fn reconcile_dock_cancel_epochs(
+        &mut self,
+        current_epochs: &[(ObjectId, Option<u64>)],
+    ) {
+        let changed: Vec<_> = current_epochs
+            .iter()
+            .filter_map(|&(docker_id, current)| {
+                self.observed_cancel_epochs
+                    .get(&docker_id)
+                    .is_some_and(|previous| current != Some(*previous))
+                    .then_some(docker_id)
+            })
+            .collect();
+        if changed.is_empty() {
+            return;
+        }
+        // C++ cancelDock releases this docker from every dock module. Once a
+        // referenced dock notices the callback epoch, remove it world-wide.
+        for docker_id in changed {
+            self.reconcile_cancelled_docker(docker_id);
+        }
+    }
+
+    pub(crate) fn tracked_docker_ids_for_dock(&self, dock_id: ObjectId) -> Vec<ObjectId> {
+        let mut ids: Vec<_> = self
+            .queues
+            .get(&dock_id)
+            .into_iter()
+            .flat_map(HostDockApproachQueue::owned_dockers)
+            .collect();
+        if let Some(active) = self.active_dockers.get(&dock_id) {
+            if !ids.contains(active) {
+                ids.push(*active);
+            }
+        }
+        ids
+    }
+
+    pub(crate) fn tracked_docker_ids(&self) -> Vec<ObjectId> {
+        self.observed_cancel_epochs.keys().copied().collect()
+    }
+
+    pub(crate) fn tracks_docker(&self, docker_id: ObjectId) -> bool {
+        self.observed_cancel_epochs.contains_key(&docker_id)
+    }
+
+    pub(crate) fn has_dock(&self, dock_id: ObjectId) -> bool {
+        self.queues.contains_key(&dock_id)
+    }
+
+    pub(crate) fn is_clear_to_approach(&self, dock_id: ObjectId, docker_id: ObjectId) -> bool {
+        self.queues
+            .get(&dock_id)
+            .map(|queue| queue.is_clear_to_approach(docker_id))
+            .unwrap_or(true)
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.queues.clear();
+        self.observed_cancel_epochs.clear();
+        self.active_dockers.clear();
+        self.pending_cancel_effects.clear();
+    }
+
+    pub(crate) fn track_restored_active_docker(
+        &mut self,
+        dock_id: ObjectId,
+        docker_id: ObjectId,
+        docker_cancel_epoch: u64,
+    ) {
+        self.active_dockers.insert(dock_id, docker_id);
+        self.observed_cancel_epochs
+            .insert(docker_id, docker_cancel_epoch);
+    }
+
+    pub(crate) fn take_pending_cancel_effects(&mut self) -> Vec<(ObjectId, ObjectId)> {
+        let mut pending: Vec<_> = self.pending_cancel_effects.drain().collect();
+        pending.sort_by_key(|(dock_id, docker_id)| (dock_id.0, docker_id.0));
+        pending
+    }
+
+    /// C++ `DockUpdate::xfer` approach-slot vectors for snapshot persist.
+    pub(crate) fn snapshot(&self) -> Vec<(ObjectId, HostDockApproachQueue)> {
+        let mut entries: Vec<_> = self
+            .queues
+            .iter()
+            .map(|(id, queue)| (*id, queue.clone()))
+            .collect();
+        entries.sort_by_key(|(id, _)| id.0);
+        entries
+    }
+
+    /// Restore this world's module queues and seed callback epochs from its
+    /// already-admitted objects, without touching another world's store.
+    pub(crate) fn restore(
+        &mut self,
+        entries: Vec<(ObjectId, HostDockApproachQueue)>,
+        object_epochs: &HashMap<ObjectId, u64>,
+    ) {
+        self.clear();
+        for (dock_id, queue) in entries {
+            for docker_id in queue.owned_dockers() {
+                if let Some(&epoch) = object_epochs.get(&docker_id) {
+                    self.observed_cancel_epochs.insert(docker_id, epoch);
+                }
+            }
+            self.queues.insert(dock_id, queue);
+        }
+    }
+
+    fn forget_if_unowned(&mut self, docker_id: ObjectId) {
+        if !self
+            .queues
+            .values()
+            .any(|queue| queue.index_of(docker_id).is_some())
+            && !self
+                .active_dockers
+                .values()
+                .any(|active_docker| *active_docker == docker_id)
+        {
+            self.observed_cancel_epochs.remove(&docker_id);
+        }
+    }
+
+    fn reconcile_cancelled_docker(&mut self, docker_id: ObjectId) {
+        // Preserve only active module associations for the mutable owner to
+        // apply. Queue-only reservations have no dock/docker model side effects.
+        let active_docks: Vec<_> = self
+            .active_dockers
+            .iter()
+            .filter_map(|(&dock_id, &active)| (active == docker_id).then_some(dock_id))
+            .collect();
+        for dock_id in active_docks {
+            self.pending_cancel_effects.insert((dock_id, docker_id));
+        }
+        for queue in self.queues.values_mut() {
+            queue.cancel_docker(docker_id);
+        }
+        self.active_dockers
+            .retain(|_, active_docker| *active_docker != docker_id);
+        self.observed_cancel_epochs.remove(&docker_id);
+    }
 }
 
-/// Same as [`tick_live_dock_approach`], with C++ `m_dockCrippled`.
-/// C++ `DockUpdate::update` never assigns `m_activeDocker` while crippled.
-pub fn tick_live_dock_approach_ex(
-    dock_id: ObjectId,
+#[allow(clippy::too_many_arguments)]
+fn tick_dock_approach(
+    queue: &mut HostDockApproachQueue,
     docker_id: ObjectId,
     number_approach_positions: i32,
     docker_alive: bool,
@@ -63,12 +301,6 @@ pub fn tick_live_dock_approach_ex(
     crippled: bool,
     is_alive: impl FnMut(ObjectId) -> bool,
 ) -> DockApproachTick {
-    let Ok(mut map) = live_dock_queues().lock() else {
-        return DockApproachTick::Blocked;
-    };
-    let queue = map
-        .entry(dock_id)
-        .or_insert_with(|| HostDockApproachQueue::new(number_approach_positions));
     queue.evict_dead(is_alive);
     if !waiting_bones.is_empty() {
         queue.set_waiting_bones(waiting_bones.to_vec());
@@ -127,51 +359,6 @@ pub fn tick_live_dock_approach_ex(
     }
 }
 
-pub fn cancel_live_dock_approach(dock_id: ObjectId, docker_id: ObjectId) {
-    if let Ok(mut map) = live_dock_queues().lock() {
-        if let Some(queue) = map.get_mut(&dock_id) {
-            queue.cancel_docker(docker_id);
-        }
-    }
-}
-
-/// C++ `DockUpdate::cancelDock` for every live queue this docker reserved.
-pub fn cancel_all_live_dock_reservations_for(docker_id: ObjectId) {
-    if let Ok(mut map) = live_dock_queues().lock() {
-        for queue in map.values_mut() {
-            queue.cancel_docker(docker_id);
-        }
-    }
-}
-
-/// Drop live approach queues so tests do not leak ObjectId state.
-pub fn reset_live_dock_queues() {
-    if let Ok(mut map) = live_dock_queues().lock() {
-        map.clear();
-    }
-}
-
-/// C++ `DockUpdate::xfer` approach-slot vectors for snapshot persist.
-pub fn snapshot_live_dock_queues() -> Vec<(ObjectId, HostDockApproachQueue)> {
-    let Ok(map) = live_dock_queues().lock() else {
-        return Vec::new();
-    };
-    let mut entries: Vec<(ObjectId, HostDockApproachQueue)> =
-        map.iter().map(|(id, queue)| (*id, queue.clone())).collect();
-    entries.sort_by_key(|(id, _)| id.0);
-    entries
-}
-
-/// Replace process-global queues so a load cannot leak the previous session.
-pub fn restore_live_dock_queues(entries: Vec<(ObjectId, HostDockApproachQueue)>) {
-    reset_live_dock_queues();
-    if let Ok(mut map) = live_dock_queues().lock() {
-        for (dock_id, queue) in entries {
-            map.insert(dock_id, queue);
-        }
-    }
-}
-
 /// C++ AI_DOCK session states that own an approach reservation.
 pub fn is_live_dock_ai_state(state: &crate::game_logic::AIState) -> bool {
     matches!(
@@ -183,22 +370,6 @@ pub fn is_live_dock_ai_state(state: &crate::game_logic::AIState) -> bool {
             | crate::game_logic::AIState::Docking
             | crate::game_logic::AIState::Docked
     )
-}
-
-/// Alias used by `Object::set_ai_state` / death cancel.
-pub fn cancel_live_dock_for_docker(docker_id: ObjectId) {
-    cancel_all_live_dock_reservations_for(docker_id);
-}
-
-/// C++ `DockUpdate::isClearToApproach` against the live approach-queue.
-/// A dock that has never been reserved is clear (every slot still free).
-pub fn live_dock_is_clear_to_approach(dock_id: ObjectId, docker_id: ObjectId) -> bool {
-    let Ok(map) = live_dock_queues().lock() else {
-        return false;
-    };
-    map.get(&dock_id)
-        .map(|queue| queue.is_clear_to_approach(docker_id))
-        .unwrap_or(true)
 }
 
 /// C++ `DYNAMIC_APPROACH_VECTOR_FLAG` (`DockUpdate.h:24`).
@@ -268,6 +439,10 @@ impl HostDockApproachQueue {
         self.owners
             .iter()
             .any(|owner| owner.is_none() || *owner == Some(docker))
+    }
+
+    pub(crate) fn owned_dockers(&self) -> impl Iterator<Item = ObjectId> + '_ {
+        self.owners.iter().flatten().copied()
     }
 
     /// C++ `DockUpdate::reserveApproachPosition` — returns the reserved index.
@@ -838,7 +1013,6 @@ pub fn reset_live_warehouse_host_state() {
     if let Ok(mut s) = WAREHOUSE_CRIPPLING_STATES.lock() {
         s.clear();
     }
-    reset_live_dock_queues();
 }
 
 /// Live `WAREHOUSE_CRIPPLING_STATES` entry.
@@ -1304,13 +1478,14 @@ mod tests {
 
     #[test]
     fn crippled_warehouse_never_clears_to_act() {
-        reset_live_dock_queues();
+        let mut queues = HostDockApproachQueues::default();
         let dock = ObjectId(21);
         let a = ObjectId(22);
         let bone = Vec3::new(10.0, 0.0, 0.0);
-        let tick = tick_live_dock_approach_ex(
+        let tick = queues.tick(
             dock,
             a,
+            0,
             5,
             true,
             None,
@@ -1324,12 +1499,10 @@ mod tests {
             |_| true,
         );
         assert_eq!(tick, DockApproachTick::Blocked);
-        reset_live_dock_queues();
     }
 
     #[test]
     fn evict_dead_clears_ghost_reservation() {
-        reset_live_dock_queues();
         let mut q = HostDockApproachQueue::new(5);
         let ghost = ObjectId(9);
         assert_eq!(q.reserve_approach_position(ghost), Some(0));
@@ -1348,13 +1521,14 @@ mod tests {
 
     #[test]
     fn waiting_bones_drive_path_to_not_instant_act() {
-        reset_live_dock_queues();
+        let mut queues = HostDockApproachQueues::default();
         let dock = ObjectId(1);
         let a = ObjectId(2);
         let bone = Vec3::new(40.0, 0.0, 0.0);
-        let tick = tick_live_dock_approach(
+        let tick = queues.tick(
             dock,
             a,
+            0,
             5,
             true,
             None,
@@ -1364,12 +1538,14 @@ mod tests {
             20.0,
             &[bone],
             0,
+            false,
             |_| true,
         );
         assert_eq!(tick, DockApproachTick::PathTo(bone));
-        let arrived = tick_live_dock_approach(
+        let arrived = queues.tick(
             dock,
             a,
+            0,
             5,
             true,
             None,
@@ -1379,10 +1555,10 @@ mod tests {
             20.0,
             &[bone],
             1,
+            false,
             |_| true,
         );
         assert_eq!(arrived, DockApproachTick::ClearToAct);
-        reset_live_dock_queues();
     }
 
     #[test]
@@ -1395,16 +1571,17 @@ mod tests {
 
     #[test]
     fn wait_for_clearance_times_out_after_900_frames() {
-        reset_live_dock_queues();
+        let mut queues = HostDockApproachQueues::default();
         let dock = ObjectId(3);
         let a = ObjectId(4);
         let b = ObjectId(5);
         let bone_a = Vec3::new(10.0, 0.0, 0.0);
         let bone_b = Vec3::new(20.0, 0.0, 0.0);
         assert_eq!(
-            tick_live_dock_approach(
+            queues.tick(
                 dock,
                 a,
+                0,
                 5,
                 true,
                 None,
@@ -1414,14 +1591,16 @@ mod tests {
                 10.0,
                 &[bone_a, bone_b],
                 0,
+                false,
                 |_| true,
             ),
             DockApproachTick::ClearToAct
         );
         assert_eq!(
-            tick_live_dock_approach(
+            queues.tick(
                 dock,
                 b,
+                0,
                 5,
                 true,
                 Some(a),
@@ -1431,14 +1610,16 @@ mod tests {
                 10.0,
                 &[bone_a, bone_b],
                 10,
+                false,
                 |_| true,
             ),
             DockApproachTick::Blocked
         );
         assert_eq!(
-            tick_live_dock_approach(
+            queues.tick(
                 dock,
                 b,
+                0,
                 5,
                 true,
                 Some(a),
@@ -1448,22 +1629,23 @@ mod tests {
                 10.0,
                 &[bone_a, bone_b],
                 10 + WAIT_FOR_CLEARANCE_FRAMES,
+                false,
                 |_| true,
             ),
             DockApproachTick::TimedOut
         );
-        assert!(live_dock_is_clear_to_approach(dock, b));
-        reset_live_dock_queues();
+        assert!(queues.is_clear_to_approach(dock, b));
     }
 
     #[test]
     fn death_or_retask_cancels_all_reservations() {
-        reset_live_dock_queues();
+        let mut queues = HostDockApproachQueues::default();
         let dock = ObjectId(6);
         let a = ObjectId(7);
-        let _ = tick_live_dock_approach(
+        let _ = queues.tick(
             dock,
             a,
+            0,
             5,
             true,
             Some(ObjectId(8)),
@@ -1473,10 +1655,10 @@ mod tests {
             20.0,
             &[],
             0,
+            false,
             |_| true,
         );
-        cancel_all_live_dock_reservations_for(a);
-        assert!(live_dock_is_clear_to_approach(dock, ObjectId(9)));
-        reset_live_dock_queues();
+        queues.cancel_docker(a);
+        assert!(queues.is_clear_to_approach(dock, ObjectId(9)));
     }
 }

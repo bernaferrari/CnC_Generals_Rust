@@ -466,7 +466,6 @@ fn open_ground_move_changes_position() {
     );
 }
 
-
 #[test]
 fn attack_order_closes_on_open_ground() {
     use crate::game_logic::{GameLogic, Team, ThingTemplate, Weapon};
@@ -552,7 +551,10 @@ fn attack_in_range_damages_the_target() {
     }
     let before = logic.host_object(victim).expect("victim").health.current;
     assert!(logic.unit_command_attack(id, victim));
-    for _ in 0..90 {
+    // Observe a bounded firing interval: enough for the 0.1s reload weapon to
+    // hit, but not enough to kill the 100 HP victim and remove it from the
+    // live object list.
+    for _ in 0..8 {
         logic.update();
     }
     let after = logic.host_object(victim).expect("victim").health.current;
@@ -588,7 +590,7 @@ fn stop_prevents_further_attack_damage() {
         });
     }
     assert!(logic.unit_command_attack(id, victim));
-    for _ in 0..90 {
+    for _ in 0..8 {
         logic.update();
     }
     let mid = logic.host_object(victim).expect("victim").health.current;
@@ -614,9 +616,13 @@ fn assign_shared_group_paths_uses_one_spine() {
     let b = logic
         .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("b");
+    // CPP AIGroup updates each pathfind goal only when AIUpdate has an active
+    // ground locomotor (AIGroup.cpp:490; AIUpdate.cpp:2339-2380).
     for id in [a, b] {
         if let Some(u) = logic.host_object_mut(id) {
             u.movement.max_speed = 20.0;
+            u.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+            u.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
         }
     }
     let dest = Vec3::new(80.0, 0.0, 0.0);
@@ -658,17 +664,23 @@ fn group_march_request_path_clears_safe_and_skips_parachute() {
     let chute = logic
         .create_object("Ranger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
         .expect("chute");
+    // CPP's AIGroup updateGoal guard requires the active ground locomotor;
+    // the second member remains a parachute order after the group request.
     if let Some(u) = logic.host_object_mut(safe) {
         u.is_safe_path = true;
         u.is_attack_path = true;
         u.is_approach_path = true;
         u.is_final_goal = false;
         u.movement.max_speed = 20.0;
+        u.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        u.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
     }
     if let Some(u) = logic.host_object_mut(chute) {
         u.set_status_parachuting(true);
         u.is_final_goal = true;
         u.movement.max_speed = 20.0;
+        u.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        u.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
     }
     let dest = Vec3::new(80.0, 0.0, 0.0);
     assert!(logic.assign_shared_group_paths(
@@ -685,7 +697,6 @@ fn group_march_request_path_clears_safe_and_skips_parachute() {
     assert!(!chute_u.is_final_goal);
     assert_eq!(chute_u.pathfind_goal_cell, (-1, -1));
 }
-
 
 #[test]
 fn cliff_pinch_converts_clear_neighbors() {
@@ -1153,6 +1164,8 @@ fn aircraft_goals_and_landing_dest_unstack() {
     let mut a = Object::new(tmpl_a, ObjectId(11), Team::USA);
     a.object_type = ObjectType::Aircraft;
     a.loco_appearance = LocomotorAppearance::Hover;
+    a.cur_locomotor_name = Some("TestHoverLocomotor".into());
+    a.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     a.status.airborne_target = true;
     a.set_position(Vec3::new(20.0, 40.0, 20.0));
     a.movement.target_position = Some(dest);
@@ -1171,6 +1184,8 @@ fn aircraft_goals_and_landing_dest_unstack() {
     let mut b = Object::new(tmpl_b, ObjectId(12), Team::USA);
     b.object_type = ObjectType::Aircraft;
     b.loco_appearance = LocomotorAppearance::Hover;
+    b.cur_locomotor_name = Some("TestHoverLocomotor".into());
+    b.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     b.status.airborne_target = true;
     b.set_position(Vec3::new(30.0, 40.0, 20.0));
     b.movement.target_position = Some(dest);
@@ -1223,6 +1238,8 @@ fn aircraft_attack_dests_spiral_off_occupied_hover_cell() {
     let mut a = Object::new(tmpl_a, ObjectId(21), Team::USA);
     a.object_type = ObjectType::Aircraft;
     a.loco_appearance = LocomotorAppearance::Hover;
+    a.cur_locomotor_name = Some("TestHoverLocomotor".into());
+    a.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     a.status.airborne_target = true;
     a.set_position(Vec3::new(20.0, 40.0, 200.0));
     a.movement.target_position = Some(dest);
@@ -1235,6 +1252,8 @@ fn aircraft_attack_dests_spiral_off_occupied_hover_cell() {
     let mut b = Object::new(tmpl_b, ObjectId(22), Team::USA);
     b.object_type = ObjectType::Aircraft;
     b.loco_appearance = LocomotorAppearance::Hover;
+    b.cur_locomotor_name = Some("TestHoverLocomotor".into());
+    b.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_AIR;
     b.status.airborne_target = true;
     b.set_position(Vec3::new(30.0, 40.0, 190.0));
     b.selection_radius = 8.0;
@@ -1517,7 +1536,7 @@ fn attack_and_request_path_fail_closed_through_walls() {
     }
 }
 
-/// A loaded map with no route must not install the raw click after the queue drains.
+/// A loaded map snaps a disconnected click to the reachable source zone.
 #[test]
 fn blocked_route_does_not_walk_the_click() {
     use crate::game_logic::{GameLogic, KindOf, Team, ThingTemplate};
@@ -1539,6 +1558,14 @@ fn blocked_route_does_not_walk_the_click() {
     let stun = logic
         .create_object("Ranger", Team::USA, from)
         .expect("stun");
+    // These orders exercise ground Pathfinder requests, which in CPP require
+    // an AIUpdate with a live ground locomotor before updateGoal can stamp.
+    for unit_id in [id, scatter, tight, stun] {
+        if let Some(unit) = logic.host_object_mut(unit_id) {
+            unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+            unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
+        }
+    }
     let wall_x = {
         let grid = &logic.pathfinding_system.grid;
         let start_cell = grid.world_to_grid(from);
@@ -1573,13 +1600,24 @@ fn blocked_route_does_not_walk_the_click() {
     for unit_id in [id, scatter, tight] {
         let unit = logic.host_object(unit_id).expect("mover");
         assert!(!unit.waiting_for_path);
+        // CPP adjustDestination searches outward from a disconnected click
+        // until it finds a valid cell in the mover's source zone. The path may
+        // therefore end at the near side of this wall, but never cross it.
+        let cells: Vec<_> = unit
+            .movement
+            .path
+            .iter()
+            .map(|point| logic.pathfinding_system.grid.world_to_grid(*point))
+            .collect();
         assert!(
-            unit.movement.path.is_empty(),
-            "sealed wall must not install a path, got {:?}",
-            unit.movement.path
+            !cells.is_empty(),
+            "same-zone adjusted path should be installed"
         );
-        assert!(unit.movement.target_position.is_none());
-        assert!(unit.movement.velocity.length() < 1.0);
+        assert!(
+            cells.iter().all(|cell| cell.x < wall_x),
+            "snapped goal/path must stay in the source zone before wall x={wall_x}: {cells:?}"
+        );
+        assert!(unit.movement.target_position.is_some());
     }
     if let Some(unit) = logic.host_object_mut(stun) {
         unit.shock_stun_frames = 0;
@@ -1594,15 +1632,29 @@ fn blocked_route_does_not_walk_the_click() {
     logic.process_pathfind_queue();
     {
         let unit = logic.host_object(stun).expect("stun");
-        assert!(unit.movement.path.is_empty());
-        assert!(unit.movement.target_position.is_none());
-        assert!(unit.movement.velocity.length() < 1.0);
+        let cells: Vec<_> = unit
+            .movement
+            .path
+            .iter()
+            .map(|point| logic.pathfinding_system.grid.world_to_grid(*point))
+            .collect();
+        assert!(
+            !cells.is_empty(),
+            "stun release should find a source-zone route"
+        );
+        assert!(
+            cells.iter().all(|cell| cell.x < wall_x),
+            "stun release must not route through wall x={wall_x}: {cells:?}"
+        );
+        assert!(unit.movement.target_position.is_some());
     }
     let packed = logic
         .create_object("Ranger", Team::USA, from)
         .expect("packed");
     let near = Vec3::new(from.x + 20.0, 0.0, from.z);
     if let Some(unit) = logic.host_object_mut(packed) {
+        unit.cur_locomotor_name = Some("BasicHumanLocomotor".into());
+        unit.locomotor_surfaces = crate::game_logic::object::LOCO_SURFACE_GROUND;
         unit.deploy_style = Some(crate::game_logic::host_deploy_style::HostDeployStyleData {
             state: crate::game_logic::host_deploy_style::HostDeployStyleState::ReadyToAttack,
             ready_frame: 0,

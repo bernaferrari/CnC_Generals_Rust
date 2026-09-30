@@ -272,7 +272,7 @@ impl PathfindingSystem {
         } else {
             None
         };
-        let grid_path = pathfinder.find_path_ex6(
+        let grid_path = pathfinder.find_path_ex6_with_layers(
             start,
             goal,
             request.surfaces,
@@ -304,7 +304,7 @@ impl PathfindingSystem {
         // Convert grid path via buildActualPath (centerInCell from unit radius).
         // Matches C++ buildActualPath() at AIPathfind.cpp:8954-9071
         let (_radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
-        let built = self.build_actual_path_for_object(
+        let built = self.build_actual_path_from_layered_path(
             &grid_path,
             &request.from,
             &request.to,
@@ -316,7 +316,8 @@ impl PathfindingSystem {
         );
         if built.success {
             let mut result = built;
-            result.total_cost = self.calculate_path_cost(&grid_path);
+            let coordinate_path: Vec<_> = grid_path.iter().map(|(coord, _)| *coord).collect();
+            result.total_cost = self.calculate_path_cost(&coordinate_path);
             // C++ path->optimize(obj, surfaces, blocked) after prependCells.
             let optimized = self.optimize_path_blocked(
                 &result.waypoints,

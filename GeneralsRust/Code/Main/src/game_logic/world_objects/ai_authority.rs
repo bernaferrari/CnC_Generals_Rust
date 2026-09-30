@@ -178,7 +178,11 @@ impl GameLogic {
                             self.object_units_should_hunt(object_id),
                             self.attack_priority_info_for(object_id).is_some(),
                             self.host_team_common_target(object_id),
-                            self.find_closest_enemy(object_id, 9999.9, crate::game_logic::find_enemy_flags::CAN_ATTACK),
+                            self.find_closest_enemy(
+                                object_id,
+                                9999.9,
+                                crate::game_logic::find_enemy_flags::CAN_ATTACK
+                            ),
                             self.objects.get(&object_id).map(|o| o.hunting)
                         );
                     }
@@ -695,6 +699,7 @@ impl GameLogic {
                 target_pos: self.objects.get(&target_id).map(|t| t.get_position()),
                 damage,
                 speed,
+                speed_unit: combat::ProjectileSpeedUnit::DistancePerLogicFrame,
                 splash_radius: splash,
                 is_homing: homing,
                 damage_type: dtype,
@@ -763,11 +768,7 @@ impl GameLogic {
     /// GameWorld apply/writeback is last-writer when authority is on. Does not
     /// invoke full [`Object::attack_target`] (avoids takeoff/force-attack side effects).
     /// Set AI state, honoring AI decision authority (log-only when GameWorld applies).
-    pub(crate) fn set_ai_state_decision_aware(
-        &mut self,
-        unit_id: ObjectId,
-        state: AIState,
-    ) {
+    pub(crate) fn set_ai_state_decision_aware(&mut self, unit_id: ObjectId, state: AIState) {
         // Host applies immediately so residual FSM/combat sees the new state
         // same-frame. Decision authority still logs for GameWorld last-write.
         let ordinal = crate::gameworld_shadow::GameWorldShadow::host_ai_state_ordinal(&state);
@@ -1031,8 +1032,7 @@ impl GameLogic {
                 object_id,
                 position,
             } => {
-                let installed =
-                    self.move_object_with_pathfinding(object_id, position, None);
+                let installed = self.move_object_with_pathfinding(object_id, position, None);
                 if installed && decision_auth {
                     crate::game_logic::host_ai_decision_log::record_move_to(object_id, position);
                 }

@@ -224,6 +224,7 @@ pub fn simulate_live_gameworld_fire_special_power_honesty() -> bool {
         target_pos: Some(Vec3::new(50.0, 0.0, 0.0)),
         damage: 12.0,
         speed: 100.0,
+        speed_unit: crate::game_logic::combat::ProjectileSpeedUnit::DistancePerLogicFrame,
         splash_radius: 0.0,
         is_homing: false,
         damage_type: DamageType::Bullet,

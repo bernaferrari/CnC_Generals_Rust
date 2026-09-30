@@ -1040,9 +1040,7 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 1000;
         game_logic.add_player(player);
-        // Live dock-approach queues are a process-global keyed by ObjectId;
-        // clear stale reservations so this instance docks from a clean slate.
-        crate::game_logic::host_supply_gather::reset_live_dock_queues();
+        // Dock approach queues belong to this newly constructed GameLogic.
         let mut chinook = ThingTemplate::new("AmericaVehicleChinook");
         chinook
             .add_kind_of(KindOf::Harvester)
@@ -1220,7 +1218,6 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    crate::game_logic::host_supply_gather::reset_live_dock_queues();
     game_logic.update();
     // C++ research advances on the producer's Upgrade.ini BuildTime
     // (Upgrade_AmericaSupplyLines BuildTime = 30s → 900 frames) — one
@@ -1373,7 +1370,6 @@ fn supply_truck_force_wanting_reenters_gathering() {
     // (player, ObjectId) shroud rows and dock-approach queue reservations
     // keyed by reused ObjectIds. A live C++ game tears these down per match;
     // the host keeps them process-global, so each fixture re-syncs them.
-    crate::game_logic::host_supply_gather::reset_live_dock_queues();
     logic.update_main_crate_vision();
     logic.update_support_states(&[collector_id, source], 1.0 / 30.0);
 
