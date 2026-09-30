@@ -36,7 +36,7 @@ fn is_location_safe_rejects_enemies_not_harvesters_or_undetected_stealth() {
 
     let template = logic.templates.get("AmericaSupplyCenter").cloned();
     let pos = Vec3::ZERO;
-    let ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
     assert!(!ai.is_location_safe(&logic, pos, None));
     assert!(ai.is_location_safe(&logic, pos, template.as_ref()));
 
@@ -70,4 +70,39 @@ fn is_location_safe_rejects_enemies_not_harvesters_or_undetected_stealth() {
         ai.is_location_safe(&logic, pos, template.as_ref()),
         "C++ rejects HARVESTER and DOZER from the safety scan"
     );
+}
+
+#[test]
+fn location_safety_matches_cpp_non_faction_containment_filter() {
+    use crate::game_logic::{ContainModuleKind, KindOf, ObjectId, ThingTemplate};
+    let mut logic = crate::game_logic::GameLogic::new();
+    let ai = ai_for_world(&logic, 1, Team::USA, AIDifficulty::Medium);
+    let pad = ThingTemplate::new("SafetyBuildPad");
+    for (kind, occupied, expected_safe) in [
+        (ContainModuleKind::None, false, false),
+        (ContainModuleKind::Garrison, false, true),
+        (ContainModuleKind::Garrison, true, false),
+        (ContainModuleKind::Transport, true, true),
+        (ContainModuleKind::Heal, true, true),
+    ] {
+        let mut template = ThingTemplate::new("CivilianSafetySite");
+        template.add_kind_of(KindOf::Structure).set_health(100.0);
+        template.contain_module.kind = kind;
+        template.contain_module.slots = Some(4);
+        logic.templates.insert(template.name.clone(), template);
+        let id = logic
+            .create_object("CivilianSafetySite", Team::China, Vec3::ZERO)
+            .expect("civilian structure");
+        let site = logic.host_object_mut(id).expect("site");
+        assert!(site.is_non_faction_structure());
+        if occupied {
+            site.occupants.push(ObjectId(999));
+        }
+        assert_eq!(
+            ai.is_location_safe(&logic, Vec3::ZERO, Some(&pad)),
+            expected_safe,
+            "CPP allows non-buildings and rejects only empty/non-garrison civilian containers: {kind:?}, occupied={occupied}"
+        );
+        logic.destroy_object(id);
+    }
 }

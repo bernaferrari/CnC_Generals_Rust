@@ -1664,6 +1664,94 @@ mod tests {
         );
     }
 
+    fn host_ai_last_update_time(logic: &GameLogic) -> f32 {
+        logic
+            .ai_manager
+            .ai_players
+            .get(&1)
+            .expect("host AI player")
+            .last_update_time
+    }
+
+    fn add_test_host_ai(logic: &mut GameLogic) {
+        logic.add_player(crate::game_logic::Player::new(
+            1,
+            crate::game_logic::Team::USA,
+            "Test AI",
+            false,
+        ));
+        logic.add_ai_opponent(1, crate::game_logic::Team::USA, crate::ai::AIDifficulty::Easy);
+    }
+
+    #[test]
+    fn host_ai_runs_once_for_each_advanced_fixed_logic_frame() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+
+        let mut logic = GameLogic::new();
+        add_test_host_ai(&mut logic);
+
+        for expected_frame in 1..=12 {
+            // C++ calls TheAI->UPDATE before advancing the frame's simulation
+            // clock, so AI observes the time at the beginning of each tick.
+            let tick_time = logic.sim_time_seconds;
+            logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+            assert_eq!(logic.frame, expected_frame);
+            assert_eq!(
+                host_ai_last_update_time(&logic).to_bits(),
+                tick_time.to_bits(),
+                "C++ GameLogic::update calls TheAI->UPDATE once on frame {expected_frame}"
+            );
+        }
+    }
+
+    #[test]
+    fn host_ai_does_not_run_on_frozen_steps_and_resumes_after_unfreeze() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+
+        let mut logic = GameLogic::new();
+        add_test_host_ai(&mut logic);
+        let initial_ai_time = host_ai_last_update_time(&logic);
+        logic.set_script_time_frozen_for_test(true);
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        assert_eq!(logic.frame, 0);
+        assert_eq!(host_ai_last_update_time(&logic), initial_ai_time);
+
+        logic.set_script_time_frozen_for_test(false);
+        let resumed_tick_time = logic.sim_time_seconds;
+        logic.step_simulation_with_budget(LOGIC_FRAME_TIMESTEP, None, None);
+        assert_eq!(logic.frame, 1);
+        assert_eq!(
+            host_ai_last_update_time(&logic).to_bits(),
+            resumed_tick_time.to_bits()
+        );
+    }
+
+    #[test]
+    fn host_ai_catch_up_updates_every_internal_fixed_step() {
+        let _guard = STREAM_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        drop_pending_clear_game_data();
+
+        let mut logic = GameLogic::new();
+        add_test_host_ai(&mut logic);
+        let first_tick_time = logic.sim_time_seconds;
+        logic.step_simulation_with_budget(
+            4.0 * LOGIC_FRAME_TIMESTEP,
+            None,
+            Some(4),
+        );
+
+        assert_eq!(logic.frame, 4);
+        let final_ai_tick_time = first_tick_time + 3.0 * LOGIC_FRAME_TIMESTEP;
+        assert_eq!(
+            host_ai_last_update_time(&logic).to_bits(),
+            final_ai_tick_time.to_bits(),
+            "catch-up must call AI for its final advanced logic frame"
+        );
+        assert_eq!(logic.fixed_step_diagnostics().steps_run, 4);
+    }
+
     /// C++ skips m_frame++ on frozen frames (early return at 3614-3616) and
     /// resumes the sequence once freezeTime drops — no skipped or repeated
     /// frame numbers.

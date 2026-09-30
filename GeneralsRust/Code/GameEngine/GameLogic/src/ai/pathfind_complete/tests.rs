@@ -26,6 +26,19 @@ fn test_pathfinding_system_creation() {
 }
 
 #[test]
+fn cpp_reset_releases_map_dimensions_and_readiness() {
+    let mut system = PathfindingSystem::new(8, 6);
+    system.new_map();
+    assert!(system.is_map_ready());
+
+    system.reset();
+
+    assert_eq!(system.width(), 0);
+    assert_eq!(system.height(), 0);
+    assert!(!system.is_map_ready());
+}
+
+#[test]
 fn test_queue_path_request() {
     let system = PathfindingSystem::new(128, 128);
 

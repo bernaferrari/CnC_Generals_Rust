@@ -54,12 +54,15 @@ impl GameLogic {
                     .get(&player_id)
                     .map(|p| p.handicap_build_time_multiplier(is_structure))
                     .unwrap_or(1.0);
-                let factor = self
-                    .player_template_production_time_factor(player_id, &obj.template_name)
-                    * handicap;
+                let player_template_factor =
+                    self.player_template_production_time_factor(player_id, &obj.template_name);
                 Some((
                     *id,
-                    Self::cpp_build_time_frames_from_factor(obj.thing.template.build_time, factor),
+                    Self::cpp_build_time_frames_from_modifiers(
+                        obj.thing.template.build_time,
+                        handicap,
+                        player_template_factor,
+                    ),
                 ))
             })
             .collect();
@@ -179,20 +182,23 @@ impl GameLogic {
                         .unwrap_or(1.0);
                     let authored_frames =
                         authored_time_frames.get(&id).copied().unwrap_or_else(|| {
-                            Self::cpp_build_time_frames_from_factor(
+                            Self::cpp_build_time_frames_from_modifiers(
                                 obj.thing.template.build_time,
+                                1.0,
                                 1.0,
                             )
                         });
+                    let final_frames =
+                        Self::cpp_build_time_frames_after_power(authored_frames, power_factor);
                     // Keep the existing zero-duration one-tick safeguard, but
-                    // otherwise advance from C++'s already-truncated authored
-                    // frame count rather than multiplying seconds first.
+                    // otherwise use C++ calcTimeToBuild's final integer frame
+                    // count after the low-energy division.
                     let base_rate = if authored_frames == 0 {
                         100.0
                     } else {
-                        30.0 / authored_frames as f32
+                        30.0 / final_frames.max(1) as f32
                     };
-                    let effective_rate = base_rate * dozer_count as f32 * power_factor;
+                    let effective_rate = base_rate * dozer_count as f32;
                     // Under CONSTRUCTION_AUTHORITY + shadow, GameWorld sole-ticks percent
                     // using effective_rate; host only completes when writeback hits 1.0
                     // (Wave 617: readiness gated by host_construction_ready_log).
@@ -238,7 +244,7 @@ impl GameLogic {
                     // then complete. Completion itself never writes max health, so
                     // scaffold damage taken during build persists.
                     if !(construction_sole && gw_mapped) && actively_built {
-                        let frames = authored_frames.max(1) as f32;
+                        let frames = final_frames.max(1) as f32;
                         let per_frame = obj.health.maximum / frames;
                         let logic_frames = (dt * 30.0).max(0.0);
                         let build_hp = (obj.health.current + per_frame * logic_frames)

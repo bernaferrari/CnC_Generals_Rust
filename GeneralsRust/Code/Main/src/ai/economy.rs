@@ -959,7 +959,17 @@ impl AIPlayer {
                 detected: other.status.detected,
                 disguised: other.status.disguised,
                 is_enemy: other.team != self.team && other.team != Team::Neutral,
-                is_structure: other.is_kind_of(KindOf::Structure),
+                insignificant_building_rejected: other.is_non_faction_structure()
+                    && match other.thing.template.contain_module.kind {
+                        crate::game_logic::ContainModuleKind::Garrison => {
+                            other.occupants.is_empty()
+                        }
+                        crate::game_logic::ContainModuleKind::None => {
+                            other.thing.template.garrison_contain_max.is_some()
+                                && other.occupants.is_empty()
+                        }
+                        _ => true,
+                    },
             }
         });
         gamelogic::ai::ai_player::leftover_is_location_safe(pos.x, pos.z, radius, candidates)
@@ -1199,9 +1209,7 @@ impl AIPlayer {
                 // module only (AIPlayer.cpp:275-283): a warehouse-dock source must
                 // hold boxes and must not be an ENEMY (allies and neutral pass);
                 // non-dock sources carry no cash or relationship gate.
-                if source.thing.template.dock_kind
-                    == crate::game_logic::DockKind::SupplyWarehouse
-                {
+                if source.thing.template.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
                     if source.stored_resources.supplies == 0 {
                         return None;
                     }
