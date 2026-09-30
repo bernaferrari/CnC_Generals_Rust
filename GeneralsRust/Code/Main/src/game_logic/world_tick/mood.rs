@@ -226,6 +226,7 @@ impl GameLogic {
                         if let (Some(src), Some(tgt)) = (me.owner_player_id, other.map(|p| p.id))
                         {
                             Self::object_relationship_from_owners(
+                                &self.team_factory,
                                 &self.players,
                                 Some(src),
                                 "",
@@ -264,6 +265,7 @@ impl GameLogic {
                             return false;
                         };
                         Self::object_relationship_from_owners(
+                            &self.team_factory,
                             &self.players,
                             Some(src),
                             "",
@@ -322,7 +324,7 @@ impl GameLogic {
                 let viewer = me.owner_player_id;
                 let clear = viewer
                     .and_then(|pid| {
-                        gamelogic::system::shroud_manager::get_shroud_manager()
+                        std::sync::Arc::clone(self.engine_stores.shroud())
                             .lock()
                             .ok()
                             .and_then(|mgr| mgr.get_host_object_shroud_status(pid, oid.0))
@@ -415,7 +417,7 @@ impl GameLogic {
             return false;
         };
         let name = Self::host_team_instance_key(object);
-        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+        if let Ok(factory) = self.team_factory.lock() {
             if let Some(proto) = factory.find_team_prototype(&name) {
                 return proto.attack_common_target();
             }

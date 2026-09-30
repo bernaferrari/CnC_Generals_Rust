@@ -5,7 +5,48 @@
 
 impl ScriptEvaluator {
     pub fn new(engine: ScriptEngineHandle) -> Self {
-        Self { engine }
+        Self {
+            engine,
+            host_trigger_world: None,
+        }
+    }
+
+    pub fn new_with_host_trigger_world(
+        engine: ScriptEngineHandle,
+        host_trigger_world: std::sync::Arc<
+            std::sync::Mutex<crate::scripting::HostTriggerWorld>,
+        >,
+    ) -> Self {
+        Self {
+            engine,
+            host_trigger_world: Some(host_trigger_world),
+        }
+    }
+
+    pub(crate) fn with_host_trigger_world<R>(
+        &self,
+        f: impl FnOnce(&crate::scripting::HostTriggerWorld) -> R,
+    ) -> Option<R> {
+        let owner = self.host_trigger_world.as_ref()?;
+        let world = owner.lock().unwrap_or_else(|e| e.into_inner());
+        Some(f(&world))
+    }
+
+    pub(crate) fn with_host_trigger_world_mut<R>(
+        &self,
+        f: impl FnOnce(&mut crate::scripting::HostTriggerWorld) -> R,
+    ) -> Option<R> {
+        let owner = self.host_trigger_world.as_ref()?;
+        let mut world = owner.lock().unwrap_or_else(|e| e.into_inner());
+        Some(f(&mut world))
+    }
+
+    pub fn sync_host_trigger_flags_from_snapshot(&self, frame: u32) {
+        let Some(owner) = self.host_trigger_world.as_ref() else {
+            return;
+        };
+        let mut world = owner.lock().unwrap_or_else(|e| e.into_inner());
+        crate::scripting::sync_host_trigger_flags_from_snapshot(&mut world, frame);
     }
 
     /// Access the engine that owns this evaluation.

@@ -144,7 +144,7 @@ impl GameLogic {
 
         // Ensure shroud grid exists (tests / pre-map residual).
         {
-            let shroud = get_shroud_manager();
+            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
             if let Ok(mut shroud_mgr) = shroud.lock() {
                 if !shroud_mgr.has_shroud_grid() {
                     shroud_mgr.init_shroud_grid(world_w, world_h);
@@ -174,7 +174,7 @@ impl GameLogic {
             // ShroudManager grid axes are (x, y); host uses (x, z) ground plane.
             let center = Coord3D::new(location.x, location.z, location.y);
             let fow_reveal_ok = {
-                let shroud = get_shroud_manager();
+                let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
                 let mut shroud_mgr = match shroud.lock() {
                     Ok(mgr) => mgr,
                     Err(_) => {
@@ -268,7 +268,7 @@ impl GameLogic {
                         .map(move |u| (u.object_id, remain, scan.player_mask))
                 })
                 .collect();
-            if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
                 for (obj_id, remain, player_mask) in remaining_by_id {
                     let Some(obj) = self.objects.get(&obj_id) else {
                         continue;
@@ -314,7 +314,7 @@ impl GameLogic {
                 obj.record_host_vision_camo();
             }
         }
-        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+        if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
             shroud_mgr.process_pending_undo_shroud_reveals(self.frame);
         }
     }
@@ -379,7 +379,7 @@ impl GameLogic {
             .collect();
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
             if let Ok(mut shroud_mgr) = shroud.lock() {
                 if !shroud_mgr.has_shroud_grid() {
                     shroud_mgr.init_shroud_grid(world_w, world_h);
@@ -397,7 +397,7 @@ impl GameLogic {
             }
             let center_pos = Coord3D::new(location.x, location.z, location.y);
             let fow_reveal_ok = {
-                let shroud = get_shroud_manager();
+                let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
                 let Ok(mut shroud_mgr) = shroud.lock() else {
                     spied_units.push(HostCiaIntelligenceSpiedUnit {
                         object_id: obj_id,
@@ -1469,6 +1469,7 @@ impl GameLogic {
     /// (`Object::getRelationship`). Missing owners fall back to leftover
     /// `is_angry_mob_hostile_team` (faction residual).
     fn angry_mob_relationship_enemies_from_maps(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
         objects: &std::collections::HashMap<ObjectId, Object>,
         source_id: ObjectId,
@@ -1482,6 +1483,7 @@ impl GameLogic {
                 if src.owner_player_id.is_some() && tgt.owner_player_id.is_some() =>
             {
                 Self::object_relationship_from_owners(
+                    team_factory,
                     players,
                     src.owner_player_id,
                     &src.team_instance_name,
@@ -1680,6 +1682,7 @@ impl GameLogic {
             |team| armed_teams.contains(&team),
             |mob_id, mob_team, tgt_id, tgt_team| {
                 Self::angry_mob_relationship_enemies_from_maps(
+                    &self.team_factory,
                     players, objects, mob_id, mob_team, tgt_id, tgt_team,
                 )
             },

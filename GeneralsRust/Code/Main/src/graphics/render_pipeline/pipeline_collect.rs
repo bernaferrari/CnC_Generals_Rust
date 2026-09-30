@@ -209,6 +209,8 @@ impl RenderPipeline {
             } else {
                 Vec::new()
             };
+        self.live_draw_playback
+            .retain(|key, _| key.world_is_alive());
 
         #[cfg(feature = "game_client")]
         if let (Some(bundle), Some(frame)) =
@@ -275,11 +277,10 @@ impl RenderPipeline {
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
             #[cfg(feature = "game_client")]
             let specialized_draw = u.specialized_draw.as_deref();
-            // Presentation has already selected the exact source-authored
-            // models *and animation state* from every ConditionState Draw
-            // module. Never reconstruct either from combat bits or mesh-name
-            // suffixes here: doing so can turn an exact damaged/construction
-            // W3D key into guessed art or a guessed visibility channel.
+            // Presentation froze the exact destination model for each
+            // ConditionState. Apply C++ current/next TransitionState at the
+            // draw collection boundary using this RenderPipeline's explicit
+            // state owner; never reconstruct a model from mesh-name suffixes.
             // Wave 501: deployed + radar dish bits included in stamp helper.
             // Wave 503: construction scaffold bits included in stamp helper.
             // Wave 504: GARRISONED bit included in stamp helper.
@@ -299,6 +300,8 @@ impl RenderPipeline {
             // Wave 499: defector_flash folded into selection_flash_intensity(); poison via apply_poison_tint.
             let team_color = u.team_color;
             let selection_flash_color = u.selection_flash_color_rgba();
+
+            u.apply_live_draw_transition_playback(&mut self.live_draw_playback);
 
             // `UnitRenderInput::from_renderable` normalizes old snapshots to
             // one module. Keep the same compatibility at this boundary for
@@ -436,6 +439,7 @@ impl RenderPipeline {
                                     &w3d_model,
                                     template_name_owned.as_str(),
                                     &draw_model,
+                                    u.draw_animation_completion_target(draw_module_index),
                                     delta_time,
                                     pending_client_drawable_restore,
                                     &visual_plans,

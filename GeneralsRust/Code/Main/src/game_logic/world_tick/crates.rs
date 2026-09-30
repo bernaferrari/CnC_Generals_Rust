@@ -1663,7 +1663,7 @@ impl GameLogic {
         else {
             return false;
         };
-        self.partition_manager.reveal_map_for_player(player_id);
+        self.partition_manager.reveal_map_for_player(&mut self.engine_stores.shroud().lock().unwrap_or_else(|e| e.into_inner()), player_id);
         true
     }
     pub fn execute_heal_crate_behavior(&mut self, picker_id: ObjectId) -> usize {
@@ -1898,6 +1898,7 @@ impl GameLogic {
                 let v_owner = self.player_owner_for_event(v_own, victim_team);
                 if matches!(
                     Self::object_relationship_from_owners(
+                        &self.team_factory,
                         &self.players,
                         k_owner,
                         &k_inst,

@@ -222,8 +222,7 @@ impl PresentationFrame {
                     model_key: fallback_model_key.clone(),
                     ..Default::default()
                 });
-            let draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
-                obj.id.0,
+            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
                 &ent.template.name,
                 fallback_draw_models.as_slice(),
                 ent.model_condition_bits,
@@ -1421,8 +1420,7 @@ impl PresentationFrame {
                 model_key: fallback_model_key,
                 ..Default::default()
             });
-        let draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
-            host_id.0,
+        let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
             &ent.template.name,
             fallback_draw_models.as_slice(),
             ent.model_condition_bits,
@@ -1430,6 +1428,7 @@ impl PresentationFrame {
         let model_key = draw_models.first().map(|model| model.model_key.clone());
         RenderableObject {
             status_tint: [0.0; 3],
+            draw_playback_identity: None,
             id: host_id,
             template_name: ent.template.name.clone(),
             team,
@@ -2036,6 +2035,7 @@ impl PresentationFrame {
     /// fields would otherwise hard-default. Overlay from the matching host Object by id.
     /// Fail-closed: not full GameWorld FX ownership / playable_claim.
     pub fn overlay_host_fx_residual(&mut self, logic: &GameLogic) -> usize {
+        let shroud = logic.engine_stores.shroud().lock().ok();
         let mut stamped = 0usize;
         for ro in &mut self.objects {
             let Some(obj) = logic.host_object(ro.id) else {
@@ -2055,6 +2055,7 @@ impl PresentationFrame {
                 .map(|p| p.team)
                 .unwrap_or(crate::game_logic::Team::Neutral);
             let drawable_shroud = super::build::freeze_direct_object_shroud_facts(
+                shroud.as_deref(),
                 obj,
                 self.local_player_id,
                 local_team,
@@ -2367,6 +2368,18 @@ impl PresentationFrame {
         n
     }
 
+    fn bind_draw_playback_handles_from_host(&mut self, logic: &GameLogic) {
+        for renderable in &mut self.objects {
+            let Some(object) = logic.host_object(renderable.id) else {
+                continue;
+            };
+            renderable.draw_playback_identity = Some(logic.live_draw_playback_identity(
+                object.id,
+                object.visual_object_generation,
+            ));
+        }
+    }
+
     /// Build a PresentationFrame whose **object roster** is GameWorld-primary (Wave 193).
     ///
     /// When `host` is provided, non-object presentation residual (world_env, scripts,
@@ -2392,6 +2405,9 @@ impl PresentationFrame {
         };
         let host_n = frame.objects.len();
         let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+        if let Some(logic) = host {
+            frame.bind_draw_playback_handles_from_host(logic);
+        }
         // Wave 838: keep host objects when shadow yields nothing.
         if gw_n == 0 && host_n > 0 {
             if let Some(logic) = host {
@@ -2443,6 +2459,9 @@ impl PresentationFrame {
         };
         let host_n = frame.objects.len();
         let gw_n = frame.rebuild_objects_from_gameworld(shadow);
+        if let Some(logic) = host {
+            frame.bind_draw_playback_handles_from_host(logic);
+        }
         // Wave 838: keep host objects when shadow yields nothing.
         if gw_n == 0 && host_n > 0 {
             if let Some(logic) = host {

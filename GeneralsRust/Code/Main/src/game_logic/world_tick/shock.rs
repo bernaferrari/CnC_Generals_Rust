@@ -389,6 +389,7 @@ impl GameLogic {
                     &obj.template_name,
                 );
                 let relationship = GameLogic::object_relationship_from_owners(
+                    &self.team_factory,
                     players,
                     obj.owner_player_id,
                     &obj.team_instance_name,
@@ -540,6 +541,7 @@ impl GameLogic {
                     &obj.template_name,
                 );
                 let mut relationship = GameLogic::object_relationship_from_owners(
+                    &self.team_factory,
                     players,
                     obj.owner_player_id,
                     &obj.team_instance_name,

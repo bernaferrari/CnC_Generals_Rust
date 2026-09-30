@@ -1333,7 +1333,8 @@ impl AssetManager {
     /// Apply C++ `findTransitionForSig` playback for one live object.
     pub fn apply_live_draw_transition_playback(
         &self,
-        object_id: u32,
+        playback_by_module: &mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
+        identity: &crate::assets::LiveDrawPlaybackIdentity,
         object_name: &str,
         dest_models: Vec<AuthoredDrawModel>,
     ) -> Vec<AuthoredDrawModel> {
@@ -1342,7 +1343,7 @@ impl AssetManager {
             .resolve_object_definition(object_name, None)
         {
             Some(definition) => {
-                definition.apply_live_draw_transition_playback(object_id, dest_models)
+                definition.apply_live_draw_transition_playback(playback_by_module, identity, dest_models)
             }
             None => dest_models,
         }
@@ -2429,7 +2430,8 @@ pub fn resolve_presentation_draw_models_for_conditions(
 /// Apply C++ `setModelState` TransitionState playback to already-selected dest
 /// models for one live object. Missing catalogue identity leaves dest as-is.
 pub fn apply_live_draw_transition_playback_for_object(
-    object_id: u32,
+    playback_by_module: &mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
+    identity: &crate::assets::LiveDrawPlaybackIdentity,
     object_name: &str,
     dest_models: Vec<AuthoredDrawModel>,
 ) -> Vec<AuthoredDrawModel> {
@@ -2442,13 +2444,14 @@ pub fn apply_live_draw_transition_playback_for_object(
     let Some(definition) = asset_manager.resolve_object_definition(object_name, None) else {
         return dest_models;
     };
-    definition.apply_live_draw_transition_playback(object_id, dest_models)
+    definition.apply_live_draw_transition_playback(playback_by_module, identity, dest_models)
 }
 
 /// Resolve Draw models then play any authored `TransitionState` for this live
 /// object (C++ `setModelState` / `findTransitionForSig`).
 pub fn resolve_presentation_draw_models_for_live_object(
-    object_id: u32,
+    playback_by_module: &mut HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
+    identity: &crate::assets::LiveDrawPlaybackIdentity,
     object_name: &str,
     fallback_draw_models: &[AuthoredDrawModel],
     condition_bits: u128,
@@ -2464,7 +2467,7 @@ pub fn resolve_presentation_draw_models_for_live_object(
     let Ok(asset_manager) = asset_manager.lock() else {
         return dest;
     };
-    asset_manager.apply_live_draw_transition_playback(object_id, object_name, dest)
+    asset_manager.apply_live_draw_transition_playback(playback_by_module, identity, object_name, dest)
 }
 
 /// Warm up optional caustic animation textures outside startup critical path.

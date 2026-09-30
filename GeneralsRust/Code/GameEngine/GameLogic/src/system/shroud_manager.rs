@@ -1201,6 +1201,9 @@ pub struct ShroudManager {
     /// Whether at least one update has run
     has_updated_once: bool,
 
+    /// Main host vision has completed on this manager; never shared across games.
+    host_vision_ready: bool,
+
     /// Last frame when full vision recalculation occurred
     last_vision_recalc_frame: u32,
 
@@ -1222,6 +1225,14 @@ pub struct ShroudManager {
 }
 
 impl ShroudManager {
+    pub fn mark_host_vision_ready(&mut self) {
+        self.host_vision_ready = true;
+    }
+
+    pub fn host_vision_ready(&self) -> bool {
+        self.host_vision_ready
+    }
+
     /// Returns true if the shroud grid has been initialized.
     pub fn has_shroud_grid(&self) -> bool {
         self.shroud_grid.is_some()
@@ -1432,6 +1443,7 @@ impl ShroudManager {
             shroud_grid: None,
             last_update_frame: 0,
             has_updated_once: false,
+            host_vision_ready: false,
             last_vision_recalc_frame: 0,
             update_interval: DEFAULT_UPDATE_INTERVAL,
             vision_recalc_interval: VISION_RECALC_INTERVAL,
@@ -1877,6 +1889,7 @@ impl ShroudManager {
         self.last_update_frame = 0;
         self.last_vision_recalc_frame = 0;
         self.has_updated_once = false;
+        self.host_vision_ready = false;
     }
 
     /// Clear all visibility information
@@ -1902,6 +1915,7 @@ impl ShroudManager {
         self.last_update_frame = 0;
         self.last_vision_recalc_frame = 0;
         self.has_updated_once = false;
+        self.host_vision_ready = false;
         // Drop terrain grid so permanent reveal lookers cannot leak across tests
         // / scenario resets. Callers re-init via init_shroud_grid.
         self.shroud_grid = None;
@@ -1934,7 +1948,6 @@ impl ShroudManager {
             self.player_explored_objects[player_id].insert(obj_id);
         }
     }
-
 
     /// Check if an object has been explored by a player (even if not currently visible)
     ///

@@ -584,7 +584,7 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -602,9 +602,14 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
             else {
                 return Ok(false);
             };
+            let world = context
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             return Ok(
-                super::helpers::host_team_some_inside_some_outside(&team_name, &trigger, 1)
-                    || super::helpers::host_team_all_inside(&team_name, &trigger, 1),
+                super::helpers::host_team_some_inside_some_outside(
+                    &world, &team_name, &trigger, 1,
+                ) || super::helpers::host_team_all_inside(&world, &team_name, &trigger, 1),
             );
         }
 
@@ -668,7 +673,7 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let team_name = match parameters.get("team") {
             Some(ScriptValue::Team(n)) => n.clone(),
@@ -686,8 +691,12 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
             else {
                 return Ok(false);
             };
+            let world = context
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             return Ok(super::helpers::host_team_all_inside(
-                &team_name, &trigger, 1,
+                &world, &team_name, &trigger, 1,
             ));
         }
 

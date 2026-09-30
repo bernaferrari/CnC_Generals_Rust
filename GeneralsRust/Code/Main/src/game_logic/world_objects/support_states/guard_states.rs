@@ -104,6 +104,7 @@ impl GameLogic {
         }
         match (owner_player, cand.owner_player_id) {
             (Some(_), Some(_)) => Self::object_relationship_from_owners(
+                &self.team_factory,
                 &self.players,
                 owner_player,
                 owner_inst,

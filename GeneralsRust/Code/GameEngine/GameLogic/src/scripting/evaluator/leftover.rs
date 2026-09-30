@@ -123,6 +123,16 @@ impl ScriptEvaluator {
     }
 
     fn get_trigger_area(&self, area_name: &str) -> Option<PolygonTrigger> {
+        if let Some(world_trigger) =
+            self.with_host_trigger_world(|world| world.trigger_area_by_name(area_name))
+        {
+            // Presence of an explicit Main owner makes its geometry
+            // authoritative, including an empty/uninstalled owner.
+            return world_trigger;
+        }
+        if self.host_trigger_world.is_some() {
+            return None;
+        }
         if let Some(trigger) = self
             .with_evaluation_engine_ref(|engine| engine.get_qualified_trigger_area_by_name(area_name))
             .flatten()

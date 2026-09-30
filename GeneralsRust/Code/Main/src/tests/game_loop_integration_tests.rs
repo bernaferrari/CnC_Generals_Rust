@@ -76,7 +76,11 @@ impl GameLoopTestFixture {
         }
 
         self.record_phase(GamePhase::FOWUpdate);
-        FOWRenderingBridge::force_visibility_update();
+        if let Ok(logic) = self.game_logic.read() {
+            if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
+                FOWRenderingBridge::force_visibility_update(&mut shroud);
+            }
+        }
 
         self.record_phase(GamePhase::UIUpdate);
         if let Ok(mut ui) = self.ui_state.write() {
@@ -186,7 +190,11 @@ fn command_fow_ui_threads_can_progress_together() {
                 if let Ok(mut ui) = fixture.ui_state.write() {
                     ui.current_game_time += 0.016;
                 }
-                FOWRenderingBridge::force_visibility_update();
+                if let Ok(logic) = fixture.game_logic.read() {
+                    if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
+                        FOWRenderingBridge::force_visibility_update(&mut shroud);
+                    }
+                }
             }
         })
     };

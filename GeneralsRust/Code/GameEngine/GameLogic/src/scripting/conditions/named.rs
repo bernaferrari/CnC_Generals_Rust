@@ -694,7 +694,7 @@ impl ScriptCondition for NamedEnteredAreaCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
@@ -713,7 +713,16 @@ impl ScriptCondition for NamedEnteredAreaCondition {
             let Some(object_id) = super::helpers::host_script_named_unit_id(&unit_name) else {
                 return Ok(false);
             };
-            return Ok(super::helpers::host_object_did_enter(object_id, &trigger));
+            let world = context
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            return Ok(super::helpers::host_object_did_enter(
+                &world,
+                object_id,
+                &trigger,
+                world.current_frame(),
+            ));
         }
 
         let object_id = match lookup_named_object_id(&unit_name)? {
@@ -757,7 +766,7 @@ impl ScriptCondition for NamedExitedAreaCondition {
     async fn evaluate(
         &self,
         parameters: &HashMap<String, ScriptValue>,
-        _context: &ScriptContext,
+        context: &ScriptContext,
     ) -> GameLogicResult<bool> {
         let unit_name = get_str_param(parameters, "unit_name")?;
         let area_name = get_str_param(parameters, "area_name")?;
@@ -776,7 +785,16 @@ impl ScriptCondition for NamedExitedAreaCondition {
             let Some(object_id) = super::helpers::host_script_named_unit_id(&unit_name) else {
                 return Ok(false);
             };
-            return Ok(super::helpers::host_object_did_exit(object_id, &trigger));
+            let world = context
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            return Ok(super::helpers::host_object_did_exit(
+                &world,
+                object_id,
+                &trigger,
+                world.current_frame(),
+            ));
         }
 
         let object_id = match lookup_named_object_id(&unit_name)? {

@@ -6,6 +6,7 @@ pub struct AIManager {
     pub ai_players: HashMap<u32, AIPlayer>,
     pub update_interval: f32,
     pub last_update_time: f32,
+    team_factory: gamelogic::team::TeamFactoryHandle,
 }
 
 impl Default for AIManager {
@@ -22,12 +23,25 @@ impl AIManager {
             update_interval: 1.0 / 30.0, // C++ AI::update every logic frame (30 Hz)
             // Negative so the first host update at sim_time=0 is not skipped.
             last_update_time: -1.0,
+            team_factory: gamelogic::team::TeamFactoryHandle::new(),
+        }
+    }
+
+    pub(crate) fn with_team_factory(team_factory: gamelogic::team::TeamFactoryHandle) -> Self {
+        Self {
+            team_factory,
+            ..Self::new()
         }
     }
 
     /// Add AI player
     pub fn add_ai_player(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
-        let mut ai_player = AIPlayer::new(player_id, team, difficulty);
+        let mut ai_player = AIPlayer::new_with_team_factory(
+            player_id,
+            team,
+            difficulty,
+            self.team_factory.clone(),
+        );
 
         // Initialize with team-appropriate base position
         // Keep pads inside default 512×512 world with MinDistFromEdgeOfMapForBuild=30
@@ -85,7 +99,7 @@ impl AIManager {
             .iter()
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
-        let destroyed = match gamelogic::team::get_team_factory().lock() {
+        let destroyed = match game_logic.team_factory.lock() {
             Ok(mut factory) => factory.take_host_pre_team_destroy_requests(),
             Err(poisoned) => poisoned.into_inner().take_host_pre_team_destroy_requests(),
         };
@@ -645,7 +659,7 @@ impl AIManager {
     }
 
     fn resolve_guard_supply_player(&self, game_logic: &GameLogic, team_name: &str) -> Option<u32> {
-        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+        if let Ok(factory) = game_logic.team_factory.lock() {
             if let Some(prototype) = factory.find_team_prototype(team_name) {
                 let owner = prototype.get_owner_name().to_string();
                 if !owner.is_empty() {

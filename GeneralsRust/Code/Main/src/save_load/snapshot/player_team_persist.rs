@@ -454,7 +454,10 @@ pub fn parse_players_block(payload: &[u8]) -> SaveLoadResult<PlayersChunkPersist
 pub fn write_team_factory_block<W: Write + Seek>(
     xfer: &mut CommonXferSave<W>,
 ) -> SaveLoadResult<()> {
-    let persist = peek_pending_teams().unwrap_or_else(capture_team_factory_chunk);
+    // Main snapshots call `stamp_from_live` with their owning world first. A
+    // standalone block writer has no world context, so emit an empty chunk
+    // instead of reading the process-wide compatibility singleton.
+    let persist = peek_pending_teams().unwrap_or_default();
     let mut version = TEAM_FACTORY_CHUNK_VERSION;
     map_xfer(xfer.xfer_version(&mut version, TEAM_FACTORY_CHUNK_VERSION))?;
     let mut unique_team_id = persist.unique_team_id;
@@ -626,7 +629,9 @@ pub fn parse_team_factory_block(payload: &[u8]) -> SaveLoadResult<TeamFactoryChu
     })
 }
 
-fn capture_leftover_players() -> Vec<PlayerRuntimePersist> {
+fn capture_leftover_players(
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+) -> Vec<PlayerRuntimePersist> {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
         return Vec::new();
     };
@@ -680,7 +685,7 @@ fn capture_leftover_players() -> Vec<PlayerRuntimePersist> {
             .team_relation_pairs()
             .into_iter()
             .map(|(team_id, relationship)| TeamRelPersist {
-                team_name: leftover_team_name(team_id),
+                team_name: leftover_team_name(team_factory, team_id),
                 team_id,
                 relationship,
             })
@@ -711,8 +716,14 @@ fn capture_leftover_players() -> Vec<PlayerRuntimePersist> {
     out
 }
 
-fn leftover_team_name(team_id: u32) -> String {
-    let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+fn leftover_team_name(
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    team_id: u32,
+) -> String {
+    let Some(team_factory) = team_factory else {
+        return String::new();
+    };
+    let Ok(factory) = team_factory.lock() else {
         return String::new();
     };
     let Some(team) = factory.find_team_by_id(team_id) else {
@@ -723,11 +734,17 @@ fn leftover_team_name(team_id: u32) -> String {
         .unwrap_or_default()
 }
 
-fn leftover_team_id(team_name: &str) -> u32 {
+fn leftover_team_id(
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    team_name: &str,
+) -> u32 {
     if team_name.trim().is_empty() {
         return 0;
     }
-    let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+    let Some(team_factory) = team_factory else {
+        return 0;
+    };
+    let Ok(factory) = team_factory.lock() else {
         return 0;
     };
     factory
@@ -739,8 +756,9 @@ fn leftover_team_id(team_name: &str) -> u32 {
 }
 
 fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist {
+    let team_factory = game_logic.map(|logic| &logic.team_factory);
     let mut persist = PlayersChunkPersist {
-        players: capture_leftover_players(),
+        players: capture_leftover_players(team_factory),
     };
     let Some(game_logic) = game_logic else {
         return persist;
@@ -767,7 +785,7 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
             .iter()
             .map(|(name, rel)| TeamRelPersist {
                 team_name: name.clone(),
-                team_id: leftover_team_id(name),
+                team_id: leftover_team_id(Some(&game_logic.team_factory), name),
                 relationship: relationship_to_i32(*rel),
             })
             .collect();
@@ -808,8 +826,10 @@ fn capture_players_chunk(game_logic: Option<&GameLogic>) -> PlayersChunkPersist 
     persist
 }
 
-fn capture_team_factory_chunk() -> TeamFactoryChunkPersist {
-    let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+fn capture_team_factory_chunk(
+    team_factory: &gamelogic::team::TeamFactoryHandle,
+) -> TeamFactoryChunkPersist {
+    let Ok(factory) = team_factory.lock() else {
         return TeamFactoryChunkPersist::default();
     };
     let unique_team_id = factory.get_next_team_id();
@@ -881,7 +901,7 @@ pub fn stamp_from_live(game_logic: &GameLogic) {
         *guard = Some(capture_players_chunk(Some(game_logic)));
     }
     if let Ok(mut guard) = PENDING_TEAMS.lock() {
-        *guard = Some(capture_team_factory_chunk());
+        *guard = Some(capture_team_factory_chunk(&game_logic.team_factory));
     }
 }
 
@@ -984,7 +1004,10 @@ fn apply_player_to_live(game_logic: &mut GameLogic, persist: &PlayerRuntimePersi
     }
 }
 
-fn apply_player_to_leftover(persist: &PlayerRuntimePersist) {
+fn apply_player_to_leftover(
+    team_factory: &gamelogic::team::TeamFactoryHandle,
+    persist: &PlayerRuntimePersist,
+) {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
         return;
     };
@@ -1019,7 +1042,7 @@ fn apply_player_to_leftover(persist: &PlayerRuntimePersist) {
         if rel.team_id != 0 {
             player.set_team_relationship_by_id(rel.team_id, relationship);
         } else if !rel.team_name.trim().is_empty() {
-            let team_id = leftover_team_id(&rel.team_name);
+            let team_id = leftover_team_id(Some(team_factory), &rel.team_name);
             if team_id != 0 {
                 player.set_team_relationship_by_id(team_id, relationship);
             }
@@ -1065,8 +1088,11 @@ fn apply_player_to_leftover(persist: &PlayerRuntimePersist) {
     }
 }
 
-fn apply_teams_to_leftover(persist: &TeamFactoryChunkPersist) {
-    let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+fn apply_teams_to_leftover(
+    team_factory: &gamelogic::team::TeamFactoryHandle,
+    persist: &TeamFactoryChunkPersist,
+) {
+    let Ok(mut factory) = team_factory.lock() else {
         return;
     };
     if persist.unique_team_id != 0 {
@@ -1160,11 +1186,11 @@ pub fn apply_pending(game_logic: &mut GameLogic) {
     if let Some(players) = take_pending_players() {
         for player in &players.players {
             apply_player_to_live(game_logic, player);
-            apply_player_to_leftover(player);
+            apply_player_to_leftover(&game_logic.team_factory, player);
         }
     }
     if let Some(teams) = take_pending_teams() {
-        apply_teams_to_leftover(&teams);
+        apply_teams_to_leftover(&game_logic.team_factory, &teams);
     }
 }
 

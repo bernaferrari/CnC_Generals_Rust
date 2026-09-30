@@ -1366,24 +1366,35 @@ fn live_named_entered_uses_host_trigger_flags() {
     let _test_lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     crate::scripting::clear_host_script_query_snapshot();
+    let trigger = crate::polygon_trigger::PolygonTrigger::new(
+        1814,
+        crate::common::AsciiString::from("Wave18PolyPad"),
+        vec![
+            crate::common::ICoord3D::new(0, 0, 0),
+            crate::common::ICoord3D::new(20, 0, 0),
+            crate::common::ICoord3D::new(0, 20, 0),
+        ],
+    );
     crate::terrain::get_terrain_logic()
         .write()
         .expect("terrain")
-        .add_trigger_area(crate::polygon_trigger::PolygonTrigger::new(
-            1814,
-            crate::common::AsciiString::from("Wave18PolyPad"),
-            vec![
-                crate::common::ICoord3D::new(0, 0, 0),
-                crate::common::ICoord3D::new(20, 0, 0),
-                crate::common::ICoord3D::new(0, 20, 0),
-            ],
-        ));
+        .add_trigger_area(trigger.clone());
     crate::system::game_logic::get_game_logic()
         .lock()
         .expect("logic")
         .set_current_frame(20);
-    crate::scripting::update_host_object_trigger_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
-    crate::scripting::update_host_object_trigger_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
+    let context = Arc::new(RwLock::new(ScriptContext::new()));
+    {
+        let context_guard = context.read().expect("script context");
+        let mut world = context_guard
+            .host_trigger_world
+            .lock()
+            .expect("trigger world");
+        world.set_trigger_areas(&[trigger]);
+        world.set_current_frame(20);
+        world.update_object_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
+        world.update_object_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
+    }
     crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![live_host_named_object("Scout", 7, true)],
@@ -1400,7 +1411,7 @@ fn live_named_entered_uses_host_trigger_flags() {
             "Wave18PolyPad".into(),
         ))
         .unwrap();
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut evaluator = ScriptConditionEvaluator::new(context);
     assert_eq!(
         evaluator.evaluate_condition(&mut entered).unwrap(),
         ScriptConditionResult::True

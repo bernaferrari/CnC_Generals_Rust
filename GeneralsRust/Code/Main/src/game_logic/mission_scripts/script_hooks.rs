@@ -71,12 +71,19 @@ pub struct MissionScriptHooks {
 
 impl MissionScriptHooks {
     pub fn new() -> GameLogicResult<Arc<Self>> {
+        Self::new_with_host_trigger_world(Arc::new(Mutex::new(Default::default())))
+    }
+
+    pub(crate) fn new_with_host_trigger_world(
+        host_trigger_world: Arc<Mutex<gamelogic::scripting::HostTriggerWorld>>,
+    ) -> GameLogicResult<Arc<Self>> {
         let pending_script_enabled_updates = Arc::new(Mutex::new(Vec::new()));
         Ok(Arc::new(Self {
             runtime: Mutex::new(
-                MissionScriptRuntime::new_with_pending_script_enabled_updates(Arc::clone(
-                    &pending_script_enabled_updates,
-                ))?,
+                MissionScriptRuntime::new_with_host_trigger_world(
+                    Arc::clone(&pending_script_enabled_updates),
+                    host_trigger_world,
+                )?,
             ),
             pending_script_enabled_updates,
             messages: Mutex::new(Vec::new()),

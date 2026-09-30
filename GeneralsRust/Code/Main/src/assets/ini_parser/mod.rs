@@ -14,7 +14,6 @@
 use anyhow::Result;
 use log::{debug, trace};
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 
 mod objects;
 mod parser;

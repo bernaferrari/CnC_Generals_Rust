@@ -20,10 +20,9 @@ pub use super::{ScriptContext, ScriptValue};
 pub use registry::ConditionRegistry;
 
 pub use helpers::{
-    HostObjectTriggerPersist, HostScriptPlayerCensus, HostScriptQueryObject,
+    HostObjectTriggerPersist, HostScriptPlayerCensus, HostScriptQueryObject, HostTriggerWorld,
     HostScriptQuerySnapshot, HostTechBuildingCensus, HostTriggerSlotPersist,
-    capture_host_object_trigger_persists, clear_host_script_query_snapshot,
-    clear_host_trigger_flags, host_bridge_broken, host_bridge_repaired,
+    clear_host_script_query_snapshot, host_bridge_broken, host_bridge_repaired,
     host_building_entered_by_player, host_count_player_kind_in_area,
     host_count_player_type_in_area, host_enemy_sighted, host_eval_skirmish_captured_count,
     host_eval_skirmish_command_button_ready, host_eval_skirmish_garrisoned_count,
@@ -47,8 +46,7 @@ pub use helpers::{
     host_team_did_partial_enter, host_team_did_partial_exit, host_team_has_any_live_objects,
     host_team_has_any_live_units, host_team_sequential_status, host_team_some_inside_some_outside,
     host_team_was_fielded, host_type_sighted, merge_host_script_query_snapshot,
-    restore_host_object_trigger_persists, set_host_script_query_snapshot,
-    sync_host_trigger_flags_from_snapshot, update_host_object_trigger_flags,
+    set_host_script_query_snapshot, sync_host_trigger_flags_from_snapshot,
 };
 pub(crate) use helpers::{
     get_player_arc, get_str_param, lookup_named_object_id, perform_comparison,
@@ -126,6 +124,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -155,6 +154,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -200,6 +200,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
 
         let result = condition.evaluate(&params, &context).await.unwrap();
@@ -241,6 +242,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
         let mut params = HashMap::new();
         params.insert(
@@ -320,6 +322,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
         let mut params = HashMap::new();
         params.insert("player".to_string(), ScriptValue::Int(0));
@@ -363,6 +366,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
         let mut params = HashMap::new();
         params.insert(
@@ -396,6 +400,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
         let mut params = HashMap::new();
         params.insert("player".to_string(), ScriptValue::Int(0));

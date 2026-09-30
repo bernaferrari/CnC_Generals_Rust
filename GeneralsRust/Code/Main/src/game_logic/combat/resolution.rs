@@ -384,7 +384,7 @@ impl CombatSystem {
         >,
         frame: u32,
     ) -> Vec<ObjectId> {
-        self.update_projectiles_with_relationships(dt, objects, countermeasures, frame, None)
+        self.update_projectiles_with_relationships(dt, objects, countermeasures, frame, None, None)
     }
 
     /// Projectile step that applies RadiusDamageAffects via GameWorld player relationships.
@@ -398,6 +398,7 @@ impl CombatSystem {
         >,
         frame: u32,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> Vec<ObjectId> {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
 
@@ -736,7 +737,7 @@ impl CombatSystem {
             }
         }
 
-        self.apply_damage_events(&damage_events, objects, players);
+        self.apply_damage_events(&damage_events, objects, players, team_factory);
 
         // Remove expired/hit projectiles.  Under coupled GameWorld flight
         // authority, publish an explicit inactive residual here: a later
@@ -758,6 +759,7 @@ impl CombatSystem {
         damage_events: &[DamageEvent],
         objects: &mut HashMap<ObjectId, Object>,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) {
         for hit in damage_events {
             match hit {
@@ -857,8 +859,9 @@ impl CombatSystem {
                                     &obj.template_name,
                                 );
                             let relationship = match players {
-                                Some(map) => {
+                                Some(map) if team_factory.is_some() => {
                                     crate::game_logic::GameLogic::object_relationship_from_owners(
+                                        team_factory.expect("guarded Some"),
                                         map,
                                         obj.owner_player_id,
                                         &obj.team_instance_name,
@@ -870,6 +873,17 @@ impl CombatSystem {
                                 // ownership-driven; the live host falls back to
                                 // the frozen launch teams when no player
                                 // registry is wired into this combat pass.
+                                Some(map) if obj.owner_player_id == *shooter_owner_player_id => {
+                                    gamelogic::common::Relationship::Allies
+                                }
+                                Some(map) => {
+                                    let _ = map;
+                                    if obj.team == *shooter_team {
+                                        gamelogic::common::Relationship::Allies
+                                    } else {
+                                        gamelogic::common::Relationship::Neutral
+                                    }
+                                }
                                 None if obj.team == *shooter_team => {
                                     gamelogic::common::Relationship::Allies
                                 }
@@ -1024,7 +1038,7 @@ impl CombatSystem {
                 source_velocity: Vec3::ZERO,
             });
         }
-        self.apply_damage_events(&events, objects, players);
+        self.apply_damage_events(&events, objects, players, None);
     }
 
     /// Check if projectile collides with something

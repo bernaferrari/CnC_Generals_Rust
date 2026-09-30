@@ -601,12 +601,19 @@ impl RenderPipeline {
     /// completes immediately instead of freezing the unit mid-transition.
     #[inline]
     fn notify_unplayable_transition_complete(
-        object_id: crate::game_logic::ObjectId,
-        draw_module_index: u32,
+        playback_by_module: &mut HashMap<
+            crate::assets::LiveDrawPlaybackKey,
+            crate::assets::LiveDrawPlayback,
+        >,
+        completion_target: Option<&crate::assets::LiveDrawAnimationCompletionTarget>,
         draw_model: &crate::assets::AuthoredDrawModel,
     ) {
         if draw_model.is_transition {
-            crate::assets::notify_live_draw_animation_complete(object_id.0, draw_module_index);
+            if let Some(target) = completion_target {
+                if let Some(playback) = playback_by_module.get_mut(&target.playback_key()) {
+                    playback.animation_complete = true;
+                }
+            }
         }
     }
 
@@ -621,6 +628,7 @@ impl RenderPipeline {
         model: &crate::assets::W3DModel,
         source_template_name: &str,
         draw_model: &crate::assets::AuthoredDrawModel,
+        completion_target: Option<&crate::assets::LiveDrawAnimationCompletionTarget>,
         delta_time: f32,
         pending_restore: Option<ClientDrawableStateSnapshot>,
         visual_plans: &[crate::presentation_frame::FrozenWeaponVisualDispatchPlan],
@@ -632,7 +640,11 @@ impl RenderPipeline {
         let Some(identity) =
             frozen_visual_identity_for_draw_model(source_template_name, draw_model)
         else {
-            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
+            Self::notify_unplayable_transition_complete(
+                &mut self.live_draw_playback,
+                completion_target,
+                draw_model,
+            );
             return (None, 0.0, Vec::new());
         };
         retain_fire_starts_from_plans(&mut self.drawable_visual_states, visual_plans);
@@ -673,8 +685,7 @@ impl RenderPipeline {
             let imported = match (&identity.animation, &saved.animation) {
                 (None, None) => {
                     Self::notify_unplayable_transition_complete(
-                        object_id,
-                        draw_module_index,
+                        completion_target,
                         draw_model,
                     );
                     let topology = model.weapon_barrel_topology_for_authored_bindings(
@@ -792,7 +803,7 @@ impl RenderPipeline {
             state.force_bind_pose = true;
             state.animation = None;
             state.recoil_slots = std::array::from_fn(|_| Vec::new());
-            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
+            Self::notify_unplayable_transition_complete(completion_target, draw_model);
             return (None, 0.0, Vec::new());
         }
 
@@ -817,20 +828,20 @@ impl RenderPipeline {
                 &draw_model.recoil_kinematics,
                 &discharges,
             );
-            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
+            Self::notify_unplayable_transition_complete(completion_target, draw_model);
             return (None, 0.0, controls);
         };
         let Some(animation_binding) =
             Self::cached_draw_animation_binding(model, expected.hierarchy_animation.as_str())
         else {
             discard_unvisualizable_discharges(state, &discharges);
-            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
+            Self::notify_unplayable_transition_complete(completion_target, draw_model);
             return (None, 0.0, Vec::new());
         };
         let Some((num_frames, frame_rate)) = model.animation_binding_metadata(&animation_binding)
         else {
             discard_unvisualizable_discharges(state, &discharges);
-            Self::notify_unplayable_transition_complete(object_id, draw_module_index, draw_model);
+            Self::notify_unplayable_transition_complete(completion_target, draw_model);
             return (None, 0.0, Vec::new());
         };
         let animation_binding_key = animation_binding.state_key();
@@ -903,17 +914,19 @@ impl RenderPipeline {
                         && animation.current_frame + 1e-3
                             >= (animation.num_frames.saturating_sub(1) as f32) =>
                 {
-                    crate::assets::notify_live_draw_animation_complete(
-                        object_id.0,
-                        draw_module_index,
+                    Self::notify_unplayable_transition_complete(
+                        &mut self.live_draw_playback,
+                        completion_target,
+                        draw_model,
                     );
                 }
                 crate::assets::AuthoredDrawAnimationMode::OnceBackwards
                     if animation.current_frame <= 1e-3 =>
                 {
-                    crate::assets::notify_live_draw_animation_complete(
-                        object_id.0,
-                        draw_module_index,
+                    Self::notify_unplayable_transition_complete(
+                        &mut self.live_draw_playback,
+                        completion_target,
+                        draw_model,
                     );
                 }
                 _ => {}

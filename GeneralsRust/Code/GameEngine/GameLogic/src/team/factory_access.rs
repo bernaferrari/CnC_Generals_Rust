@@ -57,6 +57,7 @@ impl Drop for TeamFactoryGuard<'_> {
 }
 
 /// Mutex wrapper that returns TeamFactoryGuard with post-unlock flush semantics.
+#[derive(Debug)]
 pub struct TeamFactoryMutex {
     inner: Mutex<TeamFactory>,
 }
@@ -106,6 +107,42 @@ impl TeamFactoryMutex {
     }
 }
 
+/// Cloneable access to one match's team factory. The handle is owned by the
+/// driving game instance; cloning it gives a subsystem an explicit dependency
+/// without selecting a process-global active factory.
+#[derive(Clone, Debug)]
+pub struct TeamFactoryHandle {
+    inner: Arc<TeamFactoryMutex>,
+}
+
+impl TeamFactoryHandle {
+    /// Create an independent factory for a new match.
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(TeamFactoryMutex::new()),
+        }
+    }
+
+    pub fn lock(&self) -> LockResult<TeamFactoryGuard<'_>> {
+        self.inner.lock()
+    }
+
+    pub fn try_lock(&self) -> TryLockResult<TeamFactoryGuard<'_>> {
+        self.inner.try_lock()
+    }
+
+    /// Replace contents only at an explicit whole-world boundary.
+    pub fn replace_for_world_boundary(&self, next: TeamFactory) -> TeamFactory {
+        self.inner.replace_for_world_boundary(next)
+    }
+}
+
+impl Default for TeamFactoryHandle {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Post-unlock team callbacks captured by a whole-world staging transaction.
 ///
 /// `TeamFactoryGuard` ordinarily executes these synchronously after releasing
@@ -142,20 +179,18 @@ impl TeamFactoryDeferredEffects {
 }
 
 /// Global team factory instance (matching C++ TheTeamFactory)
-static THE_TEAM_FACTORY: OnceLock<TeamFactoryMutex> = OnceLock::new();
+static THE_TEAM_FACTORY: OnceLock<TeamFactoryHandle> = OnceLock::new();
 
-/// Get global team factory instance
-pub fn get_team_factory() -> &'static TeamFactoryMutex {
+fn global_team_factory_handle() -> &'static TeamFactoryHandle {
     THE_TEAM_FACTORY.get_or_init(|| {
-        // Leftover Common `TeamTemplateInfo::from_dict` resolves teamHome via this hook.
-        game_engine::common::rts::team::set_team_home_waypoint_resolver(
-            leftover_resolve_team_home_waypoint,
-        );
-
-        TeamFactoryMutex::new()
+        TeamFactoryHandle::new()
     })
 }
 
+/// Get the compatibility singleton used by legacy engine-only callers.
+pub fn get_team_factory() -> &'static TeamFactoryMutex {
+    global_team_factory_handle().inner.as_ref()
+}
 
 /// Convenience alias for C++ compatibility
 pub use get_team_factory as TheTeamFactory;

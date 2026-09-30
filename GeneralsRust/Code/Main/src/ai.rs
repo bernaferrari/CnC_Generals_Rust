@@ -201,12 +201,16 @@ impl AITeamQueue {
     }
 
     /// C++ `TeamInQueue::isBuildTimeExpired` (`AIPlayer.cpp:3488-3496`).
-    fn is_build_time_expired(&self, current_time: f32) -> bool {
+    fn is_build_time_expired(
+        &self,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        current_time: f32,
+    ) -> bool {
         let proto_name = self
             .team_id
-            .and_then(Self::leftover_team_proto_name)
+            .and_then(|id| Self::leftover_team_proto_name(team_factory, id))
             .unwrap_or_else(|| self.name.clone());
-        let idle_frames = Self::leftover_initial_idle_frames(&proto_name);
+        let idle_frames = Self::leftover_initial_idle_frames(team_factory, &proto_name);
         if idle_frames < 1 {
             return false;
         }
@@ -214,8 +218,11 @@ impl AITeamQueue {
         now > self.frame_started.saturating_add(idle_frames as u32)
     }
 
-    fn leftover_team_proto_name(team_id: u32) -> Option<String> {
-        gamelogic::team::get_team_factory()
+    fn leftover_team_proto_name(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        team_id: u32,
+    ) -> Option<String> {
+        team_factory
             .lock()
             .ok()
             .and_then(|factory| {
@@ -225,8 +232,11 @@ impl AITeamQueue {
             })
     }
 
-    fn leftover_initial_idle_frames(team_name: &str) -> i32 {
-        gamelogic::team::get_team_factory()
+    fn leftover_initial_idle_frames(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        team_name: &str,
+    ) -> i32 {
+        team_factory
             .lock()
             .ok()
             .and_then(|factory| {
@@ -336,6 +346,8 @@ struct ReinforceCandidate {
 /// Base AI Player implementation
 #[derive(Debug)]
 pub struct AIPlayer {
+    /// Explicit owner dependency inherited from the world that created this AI.
+    pub(crate) team_factory: gamelogic::team::TeamFactoryHandle,
     pub player_id: u32,
     pub team: Team,
     pub difficulty: AIDifficulty,

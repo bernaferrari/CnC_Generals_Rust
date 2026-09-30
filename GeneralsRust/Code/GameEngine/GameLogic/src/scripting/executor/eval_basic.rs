@@ -1679,13 +1679,15 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(
+            return Ok(bool_result(self.with_host_trigger_world(|world, now| {
                 crate::scripting::conditions::host_team_did_all_enter(
+                    world,
                     &team_name,
                     &trigger,
                     which_to_consider,
-                ),
-            ));
+                    now,
+                )
+            })));
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
@@ -1712,13 +1714,15 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(
+            return Ok(bool_result(self.with_host_trigger_world(|world, now| {
                 crate::scripting::conditions::host_team_did_partial_enter(
+                    world,
                     &team_name,
                     &trigger,
                     which_to_consider,
-                ),
-            ));
+                    now,
+                )
+            })));
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
@@ -1745,13 +1749,15 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(
+            return Ok(bool_result(self.with_host_trigger_world(|world, now| {
                 crate::scripting::conditions::host_team_did_all_exit(
+                    world,
                     &team_name,
                     &trigger,
                     which_to_consider,
-                ),
-            ));
+                    now,
+                )
+            })));
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
@@ -1778,13 +1784,15 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
         if crate::object::registry::OBJECT_REGISTRY.is_empty() {
-            return Ok(bool_result(
+            return Ok(bool_result(self.with_host_trigger_world(|world, now| {
                 crate::scripting::conditions::host_team_did_partial_exit(
+                    world,
                     &team_name,
                     &trigger,
                     which_to_consider,
-                ),
-            ));
+                    now,
+                )
+            })));
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
@@ -2057,16 +2065,22 @@ impl ScriptConditionEvaluator {
             let Ok(trigger) = self.get_trigger_area(&area_name) else {
                 return Ok(TeamInsideCounts::default());
             };
-            let all_inside = crate::scripting::conditions::host_team_all_inside(
-                &team_name,
-                &trigger,
-                which_to_consider,
-            );
-            let mixed = crate::scripting::conditions::host_team_some_inside_some_outside(
-                &team_name,
-                &trigger,
-                which_to_consider,
-            );
+            let (all_inside, mixed) = self.with_host_trigger_world(|world, _| {
+                (
+                    crate::scripting::conditions::host_team_all_inside(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                    ),
+                    crate::scripting::conditions::host_team_some_inside_some_outside(
+                        world,
+                        &team_name,
+                        &trigger,
+                        which_to_consider,
+                    ),
+                )
+            });
             if !all_inside && !mixed {
                 return Ok(TeamInsideCounts::default());
             }

@@ -14,3 +14,5 @@ mod freeze_queries;
 mod render_overlay;
 mod runtime_heightmap;
 mod weapon_readiness;
+
+mod shroud_ownership;

@@ -256,6 +256,10 @@ impl GameLogic {
                             // C++ m_frame++ (GameLogic.cpp:3795-3803): this loop is
                             // the single frame/sim-time advancement owner.
                             self.frame += 1;
+                            self.host_trigger_world
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .set_current_frame(self.frame);
                             self.sim_time_seconds += FIXED_TIMESTEP;
                             steps_run += 1;
                         }
@@ -1144,6 +1148,7 @@ impl GameLogic {
                 Some(&mut self.countermeasures),
                 self.frame,
                 Some(&self.players),
+                Some(&self.team_factory),
             );
             crate::game_logic::host_projectile_log::record_snapshot(
                 self.combat_system.projectiles_snapshot(),
@@ -1543,7 +1548,7 @@ impl GameLogic {
         // Presentation FOW consumers fail open only until this first completed
         // vision pass of the session (boot window); afterwards they derive from
         // real membership (fow_rendering::shroud_runtime_active).
-        crate::fow_rendering::note_main_crate_vision_tick_completed();
+
         // C++ Radar.cpp overlay queries live Object pose/stealth each update.
         self.host_radar_sync_live_objects();
 
@@ -1841,7 +1846,7 @@ mod tests {
             .create_object_for_player("VisionProbeC17", 1, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("spawn looker");
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.engine_stores.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.clear_all();
             mgr.init_shroud_grid(512.0, 512.0);
@@ -1857,7 +1862,7 @@ mod tests {
         end_shadow_coupled_tick();
 
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.engine_stores.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             assert!(
                 !mgr.get_visible_objects(1).is_empty(),
@@ -1873,18 +1878,16 @@ mod tests {
                 "looker circle must reveal cells on the shroud grid"
             );
         }
-        // Snapshot re-locks the process-global shroud manager internally, so
-        // it must run with the test's lock dropped (std Mutex is not
-        // reentrant).
-        let grid = FOWRenderingBridge::snapshot_terrain_grid(1, false);
+        // Freeze the same world after releasing its mutable vision borrow.
+        let grid = FOWRenderingBridge::snapshot_terrain_grid(logic.engine_stores.shroud().lock().ok().as_deref(), 1, false);
         assert!(grid.active, "membership present: snapshot must be active");
         assert!(
             grid.to_r8_texture().iter().any(|&v| v != 255),
             "revealed looker circle must darken part of the R8 payload"
         );
-        // Leave the process-global manager clean for sibling suites.
+        // Reset only this fixture's world.
         {
-            let shroud = get_shroud_manager();
+            let shroud = logic.engine_stores.shroud();
             let mut mgr = shroud.lock().expect("shroud");
             mgr.clear_all();
         }

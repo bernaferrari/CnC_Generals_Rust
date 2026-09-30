@@ -430,13 +430,19 @@ impl GameLogic {
                     .or_default()
                     .push(id.0);
             }
-            let skip = obj.is_kind_of(crate::game_logic::KindOf::Projectile);
+            let skip = obj.is_kind_of(crate::game_logic::KindOf::Projectile)
+                || obj.is_kind_of(crate::game_logic::KindOf::Inert);
             let team = if obj.team_instance_name.is_empty() {
                 None
             } else {
                 Some(obj.team_instance_name.as_str())
             };
-            gamelogic::scripting::update_host_object_trigger_flags(
+            let mut trigger_world = self
+                .host_trigger_world
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            trigger_world.set_current_frame(self.frame);
+            trigger_world.update_object_flags(
                 id.0,
                 obj.position.x,
                 obj.position.z,
@@ -445,7 +451,7 @@ impl GameLogic {
                 team,
             );
         }
-        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+        if let Ok(factory) = self.team_factory.lock() {
             for name in factory.prototype_names() {
                 if snap.team_instance_ids.contains_key(&name) {
                     continue;
@@ -1411,7 +1417,7 @@ impl GameLogic {
                 obj.owner_player_id = Some(dest_player);
             }
         }
-        if let Ok(mut factory) = gamelogic::team::get_team_factory().lock() {
+        if let Ok(mut factory) = self.team_factory.lock() {
             if let Some(team) = factory.find_team(team_name) {
                 if let Ok(mut guard) = team.write() {
                     guard.set_controlling_player_id(Some(dest_player));

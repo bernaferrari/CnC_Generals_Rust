@@ -10,6 +10,7 @@
 pub mod archive;
 pub mod audio;
 pub mod big_file;
+pub(crate) mod draw_playback;
 pub mod ini_parser;
 pub mod ini_template_loader;
 pub mod local_file_system;
@@ -23,6 +24,10 @@ pub mod ww3d_asset_manager;
 pub use archive::*;
 pub use audio::*;
 pub use big_file::*;
+pub(crate) use draw_playback::{
+    LiveDrawAnimationCompletionTarget, LiveDrawPlayback, LiveDrawPlaybackIdentity,
+    LiveDrawPlaybackKey,
+};
 pub use ini_parser::*;
 pub use local_file_system::LocalFileSystem;
 pub use manager::*;

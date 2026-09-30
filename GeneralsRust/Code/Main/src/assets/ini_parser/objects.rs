@@ -381,30 +381,31 @@ impl ObjectDefinition {
         Some(self.apply_transition_playback(dest, prior_by_module))
     }
 
-    /// Apply live TransitionState playback using the process-wide Once-complete
-    /// latch so presentation can keep a transition clip until it finishes.
+    /// Apply live TransitionState playback using state owned by the caller's
+    /// RenderPipeline. The immutable world/object identity prevents equal ids
+    /// in concurrent worlds or reused generations from sharing a timeline.
     pub fn apply_live_draw_transition_playback(
         &self,
-        object_id: u32,
+        playback_by_module: &mut HashMap<LiveDrawPlaybackKey, LiveDrawPlayback>,
+        identity: &LiveDrawPlaybackIdentity,
         dest_models: Vec<AuthoredDrawModel>,
     ) -> Vec<AuthoredDrawModel> {
         let dest_indices: Vec<(u32, u32)> = dest_models
             .iter()
             .map(|model| (model.module_index, model.selected_condition_state_index))
             .collect();
-        let Ok(mut map) = LIVE_DRAW_PLAYBACK.lock() else {
-            return dest_models;
-        };
         let prior: Vec<(u32, u32, bool)> = dest_models
             .iter()
             .filter_map(|model| {
-                map.get(&(object_id, model.module_index)).map(|playback| {
+                playback_by_module
+                    .get(&identity.playback_key(model.module_index))
+                    .map(|playback| {
                     (
                         model.module_index,
                         playback.current_index,
                         playback.animation_complete,
                     )
-                })
+                    })
             })
             .collect();
         let selected = self.apply_transition_playback(dest_models, &prior);
@@ -413,8 +414,8 @@ impl ObjectDefinition {
                 .iter()
                 .find(|(module_index, _)| *module_index == model.module_index)
                 .map(|(_, dest)| *dest);
-            map.insert(
-                (object_id, model.module_index),
+            playback_by_module.insert(
+                identity.playback_key(model.module_index),
                 LiveDrawPlayback {
                     current_index: model.selected_condition_state_index,
                     next_index: dest_index

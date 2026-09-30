@@ -616,8 +616,10 @@ impl ScriptConditionEvaluator {
             let Some(object_id) = crate::scripting::host_script_named_unit_id(&object_name) else {
                 return Ok(ScriptConditionResult::False);
             };
-            return Ok(Self::bool_result(crate::scripting::host_object_did_enter(
-                object_id, &trigger,
+            return Ok(Self::bool_result(self.with_host_trigger_world(
+                |world, now| {
+                    crate::scripting::host_object_did_enter(world, object_id, &trigger, now)
+                },
             )));
         }
         let tracker = get_named_object_tracker();
@@ -660,8 +662,10 @@ impl ScriptConditionEvaluator {
             let Some(object_id) = crate::scripting::host_script_named_unit_id(&object_name) else {
                 return Ok(ScriptConditionResult::False);
             };
-            return Ok(Self::bool_result(crate::scripting::host_object_did_exit(
-                object_id, &trigger,
+            return Ok(Self::bool_result(self.with_host_trigger_world(
+                |world, now| {
+                    crate::scripting::host_object_did_exit(world, object_id, &trigger, now)
+                },
             )));
         }
         let tracker = get_named_object_tracker();

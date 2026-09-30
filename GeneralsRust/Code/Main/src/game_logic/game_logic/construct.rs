@@ -38,7 +38,12 @@ impl GameLogic {
         let world_min = Vec3::new(-world_width * 0.5, 0.0, -world_height * 0.5);
         let world_max = Vec3::new(world_width * 0.5, 0.0, world_height * 0.5);
 
-        let mission_hooks = MissionScriptHooks::new().expect("Mission script runtime init failed");
+        let host_trigger_world = Arc::new(Mutex::new(Default::default()));
+        let mission_hooks = MissionScriptHooks::new_with_host_trigger_world(Arc::clone(
+            &host_trigger_world,
+        ))
+        .expect("Mission script runtime init failed");
+        let team_factory = gamelogic::team::TeamFactoryHandle::new();
 
         let mut instance = Self {
             // C++ engine-init order (GameEngine.cpp:468-481): the upgrade
@@ -46,6 +51,8 @@ impl GameLogic {
             // Construction is inert (no active-slot write); Main installs
             // the bundle at the explicit world-start boundaries below.
             engine_stores: gamelogic::system::engine_stores::new_for_world(),
+            host_trigger_world,
+            team_factory: team_factory.clone(),
             #[cfg(feature = "game_client")]
             host_physics_visuals: Default::default(),
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
@@ -77,6 +84,7 @@ impl GameLogic {
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
             visual_world_epoch: 1,
             next_visual_object_generation: 1,
+            live_draw_playback_world: std::sync::Arc::new(()),
             game_mode: GameMode::None,
             skirmish_rules: SkirmishRulesState::default(),
             world_width,
@@ -524,7 +532,7 @@ impl GameLogic {
                 world_width,
                 world_height,
             ),
-            ai_manager: AIManager::new(),
+            ai_manager: AIManager::with_team_factory(team_factory),
             scripts_loaded: false,
             mission_script_counter: 0,
             queued_audio_events: Vec::new(),
@@ -732,7 +740,6 @@ impl GameLogic {
         // constructor used to install them, still before any map/snapshot
         // work reads the legacy funnels.
         self.install_as_active_stores();
-        crate::assets::clear_live_draw_playback();
         // Same per-world shroud teardown as GameLogic::new — start_new_game /
         // clearGameData route through here (C++ GameLogic.cpp newGame calls
         // clearGameData before rebuilding the player list). Explicitly on
@@ -742,6 +749,10 @@ impl GameLogic {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .reset_for_new_game();
+        self.team_factory
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .reset();
         #[cfg(feature = "game_client")]
         {
             *self.host_physics_visuals.get_mut() = Default::default();
@@ -762,6 +773,15 @@ impl GameLogic {
         // C++ GameLogic::reset (GameLogic.cpp:431).
         self.frame_objects_changed_trigger_areas.set(0);
         self.host_guard_area_occupancy.get_mut().clear();
+        // Constructor/restore order is per world. A reset clears this
+        // world's trigger slots and never touches another GameLogic.
+        let mut trigger_world = self
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        trigger_world.clear();
+        trigger_world.set_current_frame(0);
+        drop(trigger_world);
         self.replay_pending.clear();
         self.next_weapon_discharge_sequence = 1;
         self.weapon_discharge_log.clear();
@@ -1300,7 +1320,7 @@ impl GameLogic {
         // Host AI is match-scoped. Wipe so rematch / start_new_game cannot leave
         // orphan AI slots with stale object_ids while players were cleared above.
         // load_map does not call reset, so preserve_host_players still keeps AI.
-        self.ai_manager = AIManager::new();
+        self.ai_manager = AIManager::with_team_factory(self.team_factory.clone());
         log::debug!("GameLogic::reset() complete");
     }
 }

@@ -198,6 +198,7 @@ impl ScriptEngine {
             special_powers_id: 0,
             current_frame,
             suppress_new_windows: false,
+            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
         }));
 
         let mut action_dispatcher =
@@ -631,6 +632,7 @@ impl ScriptEngine {
             special_powers_id: 0,
             current_frame,
             suppress_new_windows: false,
+            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
         }));
         let mut dispatcher = crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
 

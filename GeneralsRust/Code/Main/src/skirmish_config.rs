@@ -705,7 +705,7 @@ pub fn apply_skirmish_config(
         drop(player);
 
         if is_observer {
-            if let Ok(mut shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+            if let Ok(mut shroud) = logic.engine_stores.shroud().lock() {
                 let _ = shroud.reveal_map_for_player_permanently(player_id);
             }
             if slot.is_human {

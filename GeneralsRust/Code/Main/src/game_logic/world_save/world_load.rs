@@ -544,7 +544,7 @@ impl GameLogic {
                     );
                 }
 
-                if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+                if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
                     shroud_mgr.init_shroud_grid(self.world_width, self.world_height);
                 }
                 report_progress(0.88, "Initializing shroud and pathfinding");

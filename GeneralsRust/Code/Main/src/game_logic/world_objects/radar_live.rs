@@ -96,18 +96,6 @@ fn ensure_radar_hooks_registered() {
     game_client::terrain::ensure_radar_terrain_paint_source_registered();
 }
 
-/// Push leftover ShroudManager cells onto TheRadar for the last local player.
-pub fn host_refresh_radar_shroud() {
-    let pid = HOST_RADAR_MAP
-        .lock()
-        .ok()
-        .map(|g| g.local_player_id)
-        .unwrap_or(0);
-    if let Ok(mut shroud) = get_shroud_manager().lock() {
-        shroud.refresh_radar_shroud_for_player(pid);
-    }
-}
-
 impl RadarMapSource for HostRadarMapSource {
     fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
         let guard = HOST_RADAR_MAP.lock().ok()?;
@@ -566,7 +554,7 @@ impl GameLogic {
             *store = specs.clone();
         }
         if let Some(local) = self.host_local_player() {
-            if let Ok(mut shroud) = get_shroud_manager().lock() {
+            if let Ok(mut shroud) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
                 shroud.refresh_radar_shroud_for_player(local.id);
             }
         }

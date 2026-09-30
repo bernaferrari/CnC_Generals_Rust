@@ -552,6 +552,7 @@ impl GameLogic {
                     let is_infantry = obj.is_kind_of(KindOf::Infantry);
                     let is_vehicle = obj.is_kind_of(KindOf::Vehicle);
                     let is_enemy = Self::object_relationship_from_owners(
+                        &self.team_factory,
                         &self.players,
                         self.player_owner_for_host_object(obj),
                         &obj.team_instance_name,

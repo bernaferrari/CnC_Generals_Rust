@@ -510,6 +510,7 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
+            host_trigger_world: std::sync::Weak::new(),
             team,
             owner_player_id: None,
             team_instance_name: String::new(),
@@ -1436,6 +1437,7 @@ impl Object {
         Self {
             thing: Thing::new(template),
             id,
+            host_trigger_world: std::sync::Weak::new(),
             team,
             owner_player_id: None,
             team_instance_name: String::new(),

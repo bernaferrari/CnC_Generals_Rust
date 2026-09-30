@@ -657,7 +657,7 @@ impl GameLogic {
         }
         if let Some(u) = self.objects.get_mut(&unit_id) {
             // Create / re-inherit: scripted setAttitude must win.
-            u.apply_named_team_ai_profile(false);
+            u.apply_named_team_ai_profile(&self.team_factory, false);
         }
     }
 
@@ -705,7 +705,7 @@ impl GameLogic {
         if team_name.is_empty() {
             return;
         }
-        let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+        let Ok(mut factory) = self.team_factory.lock() else {
             return;
         };
         let team = factory
@@ -729,7 +729,7 @@ impl GameLogic {
         if team_name.is_empty() {
             return;
         }
-        let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+        let Ok(mut factory) = self.team_factory.lock() else {
             return;
         };
         let Some(team) = factory.find_team(team_name) else {
@@ -752,7 +752,7 @@ impl GameLogic {
         if team_name.is_empty() {
             return;
         }
-        let Ok(mut factory) = gamelogic::team::get_team_factory().lock() else {
+        let Ok(mut factory) = self.team_factory.lock() else {
             return;
         };
         let Some(team) = factory.find_team(team_name) else {
@@ -1701,7 +1701,8 @@ impl GameLogic {
         if source.is_empty() || dest.is_empty() || source.eq_ignore_ascii_case(dest) {
             return;
         }
-        let dest_owner = gamelogic::team::get_team_factory()
+        let dest_owner = self
+            .team_factory
             .lock()
             .ok()
             .and_then(|mut factory| {
@@ -1726,7 +1727,7 @@ impl GameLogic {
                     obj.owner_player_id = Some(pid);
                 }
                 // C++ obj->setTeam(teamDest) applies dest proto attitude.
-                obj.apply_named_team_ai_profile(true);
+                obj.apply_named_team_ai_profile(&self.team_factory, true);
             }
             self.activate_leftover_team_for_host_object(id);
         }
@@ -1956,6 +1957,7 @@ impl GameLogic {
                 Relationship::Neutral
             } else {
                 Self::object_relationship_from_owners(
+                    &self.team_factory,
                     &self.players,
                     source_owner,
                     source_inst,

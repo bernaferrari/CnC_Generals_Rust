@@ -1060,6 +1060,7 @@ impl GameLogic {
                 let is_ally = match (caster_owner, obj_owner) {
                     (Some(_), Some(_)) => {
                         GameLogic::object_relationship_from_owners(
+                            &self.team_factory,
                             &self.players,
                             caster_owner,
                             &caster_team_instance,

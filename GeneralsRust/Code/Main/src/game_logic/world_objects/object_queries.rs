@@ -47,6 +47,7 @@ fn object_has_special_power_module(
 /// C++ `Player::getRelationship(const Team*)` leftover map written by
 /// `PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`.
 fn leftover_team_relationship_override(
+    team_factory: &gamelogic::team::TeamFactoryHandle,
     source_player_id: u32,
     team_name: &str,
 ) -> Option<gamelogic::common::Relationship> {
@@ -54,7 +55,7 @@ fn leftover_team_relationship_override(
         return None;
     }
     let team = {
-        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+        let Ok(factory) = team_factory.lock() else {
             return None;
         };
         factory.find_team_instances(team_name).into_iter().next()?
@@ -78,6 +79,7 @@ fn leftover_team_relationship_override(
 /// C++ `Team::getRelationship` team/player override maps written by
 /// `TEAM_SET_OVERRIDE_RELATION_TO_TEAM` / `_TO_PLAYER`.
 fn leftover_source_team_override(
+    team_factory: &gamelogic::team::TeamFactoryHandle,
     source_team_name: &str,
     target_team_name: &str,
     target_owner: Option<u32>,
@@ -86,7 +88,7 @@ fn leftover_source_team_override(
         return None;
     }
     let source = {
-        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+        let Ok(factory) = team_factory.lock() else {
             return None;
         };
         factory
@@ -97,7 +99,7 @@ fn leftover_source_team_override(
     let target = if target_team_name.trim().is_empty() {
         None
     } else {
-        match gamelogic::team::get_team_factory().lock() {
+        match team_factory.lock() {
             Ok(factory) => factory
                 .find_team_instances(target_team_name)
                 .into_iter()
@@ -471,6 +473,7 @@ impl GameLogic {
             return Relationship::Allies;
         }
         Self::object_relationship_from_owners(
+            &self.team_factory,
             &self.players,
             source.owner_player_id,
             &source.team_instance_name,
@@ -483,6 +486,7 @@ impl GameLogic {
     /// `source` is the viewer (`curVictim->getRelationship(source)` when the
     /// first pair is the victim).
     pub fn object_relationship_from_owners(
+        team_factory: &gamelogic::team::TeamFactoryHandle,
         players: &std::collections::HashMap<u32, crate::game_logic::Player>,
         source_owner: Option<u32>,
         source_team_instance: &str,
@@ -491,6 +495,7 @@ impl GameLogic {
     ) -> gamelogic::common::Relationship {
         if !source_team_instance.is_empty() {
             if let Some(rel) = leftover_source_team_override(
+                team_factory,
                 source_team_instance,
                 target_team_instance,
                 target_owner,
@@ -522,7 +527,11 @@ impl GameLogic {
         if let Some(source_player_id) = source_owner {
             if !target_team_instance.is_empty() {
                 if let Some(rel) =
-                    leftover_team_relationship_override(source_player_id, target_team_instance)
+                    leftover_team_relationship_override(
+                        team_factory,
+                        source_player_id,
+                        target_team_instance,
+                    )
                 {
                     return rel;
                 }
@@ -984,7 +993,7 @@ impl GameLogic {
         if target.get_template().always_visible || target.contained_by.is_some() {
             return false;
         }
-        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
         let Ok(shroud) = shroud_manager.lock() else {
             return false;
         };
@@ -1250,6 +1259,10 @@ impl GameLogic {
     /// Set current frame number (for snapshot restoration)
     pub fn set_current_frame(&mut self, frame: u64) {
         self.frame = frame as u32;
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_current_frame(self.frame);
     }
 
     /// Clear all objects (for snapshot restoration)
@@ -2183,7 +2196,7 @@ impl GameLogic {
                     .get(&owner_id)
                     .is_some_and(|player| player.is_local)
                 {
-                    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+                    let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
                     let visible = shroud_manager
                         .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))
@@ -2378,7 +2391,7 @@ impl GameLogic {
                     .get(&owner_id)
                     .is_some_and(|player| player.is_local)
                 {
-                    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+                    let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
                     let visible = shroud_manager
                         .lock()
                         .map(|shroud| shroud.can_see_object(owner_id, target_id.0))

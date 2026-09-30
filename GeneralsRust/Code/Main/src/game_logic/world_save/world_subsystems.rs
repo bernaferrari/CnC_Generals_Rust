@@ -449,7 +449,7 @@ impl GameLogic {
         }) else {
             return;
         };
-        if let Ok(mut shroud) = get_shroud_manager().lock() {
+        if let Ok(mut shroud) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
             let _ = shroud.reveal_map_for_player_permanently(id);
         }
     }
@@ -526,7 +526,7 @@ impl GameLogic {
         if let Ok(mut radar) = game_engine::common::system::radar::get_radar_system().write() {
             radar.force_on(true);
         }
-        if let Ok(mut shroud) = get_shroud_manager().lock() {
+        if let Ok(mut shroud) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
             shroud.refresh_shroud_for_local_player();
         }
         #[cfg(feature = "game_client")]

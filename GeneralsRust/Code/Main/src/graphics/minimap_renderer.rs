@@ -10,7 +10,6 @@ use crate::fow_rendering::PresentationFowGrid;
 use crate::ui::UiTextureId;
 use anyhow::{Result, anyhow};
 use gamelogic::common::Coord3D as LogicCoord3D;
-use gamelogic::system::shroud_manager::get_shroud_manager;
 use glam::{Vec2, Vec3};
 use log::{debug, trace};
 use std::collections::HashMap;
@@ -151,7 +150,7 @@ fn shroud_runtime_active(
     shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
     player_id: u32,
 ) -> bool {
-    shroud_mgr.get_last_update_frame() > 0 || !shroud_mgr.get_visible_objects(player_id).is_empty()
+    shroud_mgr.get_last_update_frame() > 0 || shroud_mgr.has_any_visible_object(player_id)
 }
 
 pub struct MinimapFowManager {
@@ -382,7 +381,12 @@ impl MinimapFowManager {
     }
 
     /// Live shroud-manager path (boot / no presentation frame).
-    pub fn regenerate_texture(&mut self, player_id: usize, _frame: u64) {
+    pub fn regenerate_texture(
+        &mut self,
+        shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
+        player_id: usize,
+        _frame: u64,
+    ) {
         let pixel_count = (self.dimensions.width * self.dimensions.height) as usize;
         let mut states = vec![MinimapFowState::Visible; pixel_count];
         let mut texture = self
@@ -399,8 +403,7 @@ impl MinimapFowManager {
             }
         };
 
-        let shroud_manager = get_shroud_manager();
-        let maybe_shroud = shroud_manager.lock().ok();
+        let maybe_shroud = shroud;
         let use_shroud = maybe_shroud
             .as_ref()
             .map(|shroud| shroud_runtime_active(shroud, player_u32))
@@ -662,7 +665,7 @@ impl MinimapTextureRenderer {
                 self.fow
                     .regenerate_texture_from_presentation_grid(player_id, grid, frame_number);
             } else {
-                self.fow.regenerate_texture(player_id, frame_number);
+                self.fow.regenerate_texture(None, player_id, frame_number);
             }
 
             // Get texture data
@@ -901,7 +904,7 @@ mod tests {
             width: 8,
             height: 8,
         });
-        manager.regenerate_texture(0, 0);
+        manager.regenerate_texture(None, 0, 0);
 
         let data = manager.get_texture_data(0);
         assert_eq!(data.len(), 8 * 8 * 4);

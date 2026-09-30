@@ -9,7 +9,7 @@ impl GameLogic {
     pub(in super::super::super) fn update_main_crate_vision(&mut self) {
         use gamelogic::common::Coord3D;
 
-        let shroud = get_shroud_manager();
+        let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
         let mut shroud_mgr = match shroud.lock() {
             Ok(mgr) => mgr,
             Err(_) => return,
@@ -307,6 +307,7 @@ impl GameLogic {
                 }
             }
         }
+        shroud_mgr.mark_host_vision_ready();
     }
 
     pub(in super::super::super) fn shroud_visibility_snapshot_for_team(
@@ -314,7 +315,7 @@ impl GameLogic {
         viewing_team: Team,
     ) -> Option<ShroudVisibilitySnapshot> {
         let player_id = self.player_id_for_team(viewing_team)?;
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
         let shroud_mgr = shroud_manager.lock().ok()?;
         let raw_visible_objects = shroud_mgr.get_visible_objects(player_id);
 

@@ -40,6 +40,11 @@ fn dual_world_registry_unavailable() -> bool {
 /// Script Evaluator matching C++ ScriptEngine evaluation logic
 pub struct ScriptEvaluator {
     engine: ScriptEngineHandle,
+    // Main evaluators carry an explicit authoritative world. Native-only
+    // evaluators may omit it and use the engine's standalone terrain lookup.
+    host_trigger_world: Option<
+        std::sync::Arc<std::sync::Mutex<crate::scripting::HostTriggerWorld>>,
+    >,
 }
 
 static TRANSPORT_STATUSES: Lazy<RwLock<HashMap<ObjectID, (UnsignedInt, usize)>>> =
