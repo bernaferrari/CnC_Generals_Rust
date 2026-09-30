@@ -60,6 +60,7 @@ impl SubsystemInterface for ControlBar {
         self.displayed_construct_percent = -1.0;
         self.displayed_ocl_timer_seconds = 0;
         self.presentation_money = None;
+        self.presentation_power = (0, 0);
         self.last_displayed_money = -1;
 
         Ok(())

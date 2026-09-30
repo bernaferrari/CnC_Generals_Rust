@@ -148,6 +148,94 @@ fn compute_pass_index_ranges_groups_polygon_renderers_by_material_pass() {
 }
 
 #[test]
+fn owned_bone_palette_retains_sampled_allocation_and_matrix_order() {
+    let matrices: Vec<_> = (0..128)
+        .map(|index| Mat4::from_translation(Vec3::new(index as f32, 2.0, -3.0)))
+        .collect();
+    let allocation = matrices.as_ptr();
+    let expected = matrices.clone();
+    let mut mesh = MeshClass::new();
+
+    mesh.set_bone_palette(matrices);
+
+    let installed = mesh.bone_palette_view().unwrap();
+    assert_eq!(installed.matrices.as_ptr(), allocation);
+    assert_eq!(installed.matrices, expected);
+    assert_eq!(installed.version, 1);
+}
+
+#[test]
+fn owned_bone_palette_matches_slice_deformation_and_preserves_instance_fields() {
+    let mut model = MeshModelClass::new("owned_palette_skin");
+    model.vertices.push(W3dVectorStruct {
+        x: 1.0,
+        y: 2.0,
+        z: 3.0,
+    });
+    model.set_vertex_bone_links(vec![1]);
+    let model = Arc::new(model);
+    let matrices = vec![
+        Mat4::IDENTITY,
+        Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+    ];
+    let mut borrowed_mesh = MeshClass::new();
+    borrowed_mesh.model = Some(Arc::clone(&model));
+    borrowed_mesh.set_bone_palette_slice(&matrices);
+    let mut owned_mesh = MeshClass::new();
+    owned_mesh.model = Some(model);
+    owned_mesh.is_hidden = true;
+    owned_mesh.is_animation_hidden = true;
+    owned_mesh.is_decal_instance = true;
+    owned_mesh.alpha_override = 0.25;
+    owned_mesh.presentation_opacity = 0.5;
+    owned_mesh.set_frozen_fow_visibility(FrozenFowVisibility::new(0.25, 0.75, 1.0));
+    owned_mesh.set_projected_shroud_eligible(true);
+    owned_mesh.set_uv_offset_override(Some([0.125, 0.25]));
+    let transform = Mat4::from_translation(Vec3::new(7.0, 8.0, 9.0));
+    owned_mesh.set_transform(transform);
+
+    owned_mesh.set_bone_palette(matrices);
+
+    assert_eq!(
+        owned_mesh.deformed_world_vertices,
+        borrowed_mesh.deformed_world_vertices
+    );
+    assert_eq!(
+        owned_mesh.deformed_world_vertices.as_deref(),
+        Some(&[Vec3::new(3.0, 2.0, 3.0)][..])
+    );
+    assert_eq!(owned_mesh.bone_palette, borrowed_mesh.bone_palette);
+    assert_eq!(
+        owned_mesh.bone_palette_version,
+        borrowed_mesh.bone_palette_version
+    );
+    assert!(owned_mesh.is_hidden && owned_mesh.is_animation_hidden && owned_mesh.is_decal_instance);
+    assert_eq!(owned_mesh.alpha_override, 0.25);
+    assert_eq!(owned_mesh.presentation_opacity, 0.5);
+    assert_eq!(
+        owned_mesh.frozen_fow_visibility,
+        FrozenFowVisibility::new(0.25, 0.75, 1.0)
+    );
+    assert!(owned_mesh.projected_shroud_eligible());
+    assert_eq!(owned_mesh.uv_offset_override, Some([0.125, 0.25]));
+    assert_eq!(owned_mesh.transform, transform);
+}
+
+#[test]
+fn owned_bone_palette_empty_replacement_clears_deformation_and_wraps_version() {
+    let mut mesh = MeshClass::new();
+    mesh.set_bone_palette(vec![Mat4::IDENTITY]);
+    mesh.deformed_world_vertices = Some(vec![Vec3::ONE]);
+    mesh.bone_palette_version = u64::MAX;
+
+    mesh.set_bone_palette(Vec::new());
+
+    assert!(mesh.bone_palette_view().is_none());
+    assert!(mesh.deformed_world_vertices.is_none());
+    assert_eq!(mesh.bone_palette_version, 0);
+}
+
+#[test]
 fn update_skin_and_get_deformed_vertices_use_bone_palette() {
     let mut model = MeshModelClass::new("skin_mesh");
     model.vertices.push(W3dVectorStruct {

@@ -711,9 +711,9 @@ impl Object {
         self.jet_ai.takeoff_pause_until = now.saturating_add(self.jet_takeoff_pause_frames());
         self.jet_ai.takeoff_pause_transfer =
             now.saturating_add(if waited_for_taxi { 2 } else { 1 });
-        if self.jet_ai.takeoff_max_lift <= 0.0 {
-            self.jet_ai.takeoff_max_lift = self.max_lift.max(self.get_max_lift());
-        }
+        // This begins PauseBeforeTakeoff, which still uses the taxi set.
+        // JetTakeoffOrLandingState captures flight lift only after that pause.
+        self.jet_ai.takeoff_max_lift = 0.0;
         self.jet_ai.takeoff_runway_end = Some([runway_end.x, runway_end.y, runway_end.z]);
         self.jet_ai.takeoff_runway_dist = runway_dist.max(1.0);
         self.max_lift = 0.0;
@@ -734,6 +734,10 @@ impl Object {
         }
         if !self.jet_ai.allow_air_loco {
             self.apply_airborne_locomotor_set();
+            // C++ onEnter selects the flight locomotor, clears its lift cap,
+            // then captures damage-conditioned lift (JetAIUpdate.cpp:708-724).
+            // Applying the complete binding above restores its authored lift.
+            self.jet_ai.takeoff_max_lift = self.get_max_lift();
             // C++ chooseLocomotorSet then setUsePreciseZPos (JetAIUpdate.cpp:709,725-726).
             self.set_precise_z_and_ultra_accurate(true);
         }

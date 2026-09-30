@@ -1319,11 +1319,6 @@ impl PresentationFrame {
         let local_supplies = local.map(|p| p.effective_supplies()).unwrap_or(0);
         let (local_power, local_power_produced, local_power_consumed) =
             freeze_host_player_power(logic, local_player_id, local);
-        #[cfg(feature = "game_client")]
-        game_client::gui::control_bar::ControlBar::stamp_presentation_power(
-            local_power_produced,
-            local_power_consumed,
-        );
         let local_color_rgb = local.map(|p| p.color_rgb).unwrap_or((200, 200, 200));
         let local_is_alive = local.map(|p| p.is_alive).unwrap_or(false);
         let local_radar_count = local.map(|p| p.radar_count).unwrap_or(0);

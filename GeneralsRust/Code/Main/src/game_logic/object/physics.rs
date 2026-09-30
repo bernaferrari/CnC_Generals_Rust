@@ -1,9 +1,4 @@
 use super::*;
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use std::collections::HashMap;
-
-static PREV_ACCEL: Lazy<Mutex<HashMap<u32, glam::Vec3>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 impl Object {
     pub fn take_damage(&mut self, damage: f32) -> bool {
@@ -198,8 +193,7 @@ impl Object {
         if self.can_crush_or_squish(other, is_ally) {
             return false;
         }
-        if !crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(other)
-        {
+        if !crate::game_logic::pathfinding::PathfindingGrid::is_doing_ground_movement_full(other) {
             return false;
         }
         if self.moving_backwards
@@ -483,8 +477,7 @@ impl Object {
                 if busy || self.status.using_ability {
                     return false;
                 }
-                if self.ai_state == super::AIState::Idle || other.ai_state == super::AIState::Idle
-                {
+                if self.ai_state == super::AIState::Idle || other.ai_state == super::AIState::Idle {
                     self.unstack_partner = Some(other.id);
                 }
             }
@@ -1313,7 +1306,8 @@ impl Object {
     /// Flying non-aircraft `computeQuickPath`. Aircraft need `getAircraftPath`
     /// on the world pathfinder, so they return false and stay queued.
     fn try_non_aircraft_quick_path(&mut self, destination: glam::Vec3, current_frame: u32) -> bool {
-        let air_surface = (self.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0;
+        let air_surface =
+            (self.locomotor_surfaces & crate::game_logic::object::LOCO_SURFACE_AIR) != 0;
         if !air_surface || crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(self) {
             return false;
         }
@@ -1842,6 +1836,7 @@ impl Object {
     /// C++ PhysicsBehavior::resetDynamicPhysics residual.
     pub fn reset_dynamic_physics(&mut self) {
         self.physics_accel = glam::Vec3::ZERO;
+        self.physics_previous_accel = glam::Vec3::ZERO;
         self.movement.velocity = glam::Vec3::ZERO;
         self.invalidate_velocity_magnitude();
         self.shock_yaw_rate = 0.0;
@@ -1855,11 +1850,7 @@ impl Object {
     /// C++ `PhysicsBehavior::getAcceleration()` = previous-frame accel.
     #[must_use]
     pub fn previous_acceleration(&self) -> glam::Vec3 {
-        PREV_ACCEL
-            .lock()
-            .get(&self.id.0)
-            .copied()
-            .unwrap_or(glam::Vec3::ZERO)
+        self.physics_previous_accel
     }
 
     /// Integrate physics_accel into velocity residual (a → v per logic frame).
@@ -1867,7 +1858,7 @@ impl Object {
     /// C++ `getAcceleration()` returns `m_prevAccel` (previous frame). Store
     /// the current accel before zeroing so the visual calc can read it.
     pub fn integrate_physics_accel(&mut self) {
-        PREV_ACCEL.lock().insert(self.id.0, self.physics_accel);
+        self.physics_previous_accel = self.physics_accel;
         if self.physics_accel != glam::Vec3::ZERO {
             self.movement.velocity += self.physics_accel;
             self.physics_accel = glam::Vec3::ZERO;

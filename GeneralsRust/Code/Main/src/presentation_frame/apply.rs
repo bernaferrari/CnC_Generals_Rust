@@ -1,6 +1,10 @@
 use super::*;
 include!("command_set_strip.rs");
 
+#[cfg(all(test, feature = "game_client"))]
+#[path = "control_bar_power_tests.rs"]
+mod control_bar_power_tests;
+
 impl PresentationFrame {
     /// Selected unit identity (health/name/type) from snapshot only.
     ///
@@ -1154,6 +1158,7 @@ impl PresentationFrame {
             panel.unit_infos.iter().map(|u| u.object_id.0).collect()
         };
         control_bar.apply_presentation_money(self.local_supplies as i32);
+        control_bar.apply_presentation_power(self.local_power_produced, self.local_power_consumed);
         control_bar.apply_presentation_can_make(
             &self
                 .can_make_cameos
