@@ -1125,7 +1125,7 @@ fn vec_scale(v: [f32; 3], s: f32) -> [f32; 3] {
     [v[0] * s, v[1] * s, v[2] * s]
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct HostTintEnvelope {
     current: [f32; 3],
     peak: [f32; 3],
@@ -1198,24 +1198,26 @@ impl HostTintEnvelope {
     }
 }
 
-thread_local! {
-    static TINT_ENVELOPES: std::cell::RefCell<std::collections::HashMap<u32, HostTintEnvelope>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+/// Client-only drawable state belonging to one world. Construction is inert;
+/// sampling requires this explicit owner and the completed presentation frame.
+#[derive(Debug, Default)]
+pub(crate) struct DrawableTintEnvelopes {
+    envelopes: std::cell::RefCell<std::collections::HashMap<u32, HostTintEnvelope>>,
 }
 
-/// C++ `Drawable::updateDrawable` TintEnvelope sample for the live mesh pass.
-pub fn sample_drawable_status_tint(
-    object_id: u32,
-    logic_frame: u32,
-    disabled_dark: bool,
-    subdual: bool,
-    frenzy: bool,
-    infantry: bool,
-) -> [f32; 3] {
-    let kind = tint_kind(disabled_dark, subdual, frenzy);
-    TINT_ENVELOPES.with(|map| {
-        let mut map = map.borrow_mut();
-        let env = map.entry(object_id).or_default();
+impl DrawableTintEnvelopes {
+    pub(crate) fn sample(
+        &self,
+        object_id: u32,
+        logic_frame: u32,
+        disabled_dark: bool,
+        subdual: bool,
+        frenzy: bool,
+        infantry: bool,
+    ) -> [f32; 3] {
+        let kind = tint_kind(disabled_dark, subdual, frenzy);
+        let mut envelopes = self.envelopes.borrow_mut();
+        let env = envelopes.entry(object_id).or_default();
         if !env.seen || env.last_kind != kind {
             if kind == TINT_KIND_NONE {
                 if env.seen {
@@ -1240,7 +1242,7 @@ pub fn sample_drawable_status_tint(
         env.last_frame = logic_frame;
         env.seen = true;
         env.current
-    })
+    }
 }
 
 /// C++ `TintEnvelope` snapshot for live save/load (current ADSR sample).
@@ -1256,9 +1258,10 @@ pub struct DrawableTintEnvelopePersist {
     pub seen: bool,
 }
 
-pub fn capture_drawable_tint_envelope(object_id: u32) -> Option<DrawableTintEnvelopePersist> {
-    TINT_ENVELOPES.with(|map| {
-        map.borrow()
+impl DrawableTintEnvelopes {
+    pub(crate) fn capture(&self, object_id: u32) -> Option<DrawableTintEnvelopePersist> {
+        self.envelopes
+            .borrow()
             .get(&object_id)
             .map(|env| DrawableTintEnvelopePersist {
                 current: env.current,
@@ -1270,12 +1273,9 @@ pub fn capture_drawable_tint_envelope(object_id: u32) -> Option<DrawableTintEnve
                 last_frame: env.last_frame,
                 seen: env.seen,
             })
-    })
-}
-
-pub fn restore_drawable_tint_envelope(object_id: u32, persist: DrawableTintEnvelopePersist) {
-    TINT_ENVELOPES.with(|map| {
-        map.borrow_mut().insert(
+    }
+    pub(crate) fn restore(&self, object_id: u32, persist: DrawableTintEnvelopePersist) {
+        self.envelopes.borrow_mut().insert(
             object_id,
             HostTintEnvelope {
                 current: persist.current,
@@ -1288,12 +1288,13 @@ pub fn restore_drawable_tint_envelope(object_id: u32, persist: DrawableTintEnvel
                 seen: persist.seen,
             },
         );
-    });
-}
-
-#[cfg(test)]
-pub fn reset_drawable_tint_envelopes() {
-    TINT_ENVELOPES.with(|map| map.borrow_mut().clear());
+    }
+    pub(crate) fn retain(&self, mut alive: impl FnMut(u32) -> bool) {
+        self.envelopes.borrow_mut().retain(|id, _| alive(*id));
+    }
+    pub(crate) fn clear(&self) {
+        self.envelopes.borrow_mut().clear();
+    }
 }
 
 #[cfg(test)]
@@ -1684,18 +1685,18 @@ mod stealth_grant_tests {
 
     #[test]
     fn status_tint_envelope_ramps_disabled_then_releases() {
-        super::reset_drawable_tint_envelopes();
-        let first = super::sample_drawable_status_tint(9001, 0, true, false, false, false);
+        let owner = super::DrawableTintEnvelopes::default();
+        let first = owner.sample(9001, 0, true, false, false, false);
         assert!(first[0] < -0.01 && first[0] > -0.5);
         let mut color = first;
         for frame in 1..=30 {
-            color = super::sample_drawable_status_tint(9001, frame, true, false, false, false);
+            color = owner.sample(9001, frame, true, false, false, false);
         }
         assert!((color[0] + 0.5).abs() < 0.02);
         assert!((color[1] + 0.5).abs() < 0.02);
         let mut faded = color;
         for frame in 31..=61 {
-            faded = super::sample_drawable_status_tint(9001, frame, false, false, false, false);
+            faded = owner.sample(9001, frame, false, false, false, false);
         }
         assert!(faded[0].abs() < 0.05);
         assert!(faded[1].abs() < 0.05);
@@ -1704,16 +1705,16 @@ mod stealth_grant_tests {
 
     #[test]
     fn subdual_envelope_uses_150_frame_attack() {
-        super::reset_drawable_tint_envelopes();
-        let early = super::sample_drawable_status_tint(9002, 0, false, true, false, false);
+        let owner = super::DrawableTintEnvelopes::default();
+        let early = owner.sample(9002, 0, false, true, false, false);
         assert!(early[2] > 0.0 && early[2] < 0.8);
         let mut color = early;
         for frame in 1..=30 {
-            color = super::sample_drawable_status_tint(9002, frame, false, true, false, false);
+            color = owner.sample(9002, frame, false, true, false, false);
         }
         assert!(color[2] < 0.79, "subdual must not finish in 1s");
         for frame in 31..=150 {
-            color = super::sample_drawable_status_tint(9002, frame, false, true, false, false);
+            color = owner.sample(9002, frame, false, true, false, false);
         }
         assert!((color[2] - 0.8).abs() < 0.03);
     }

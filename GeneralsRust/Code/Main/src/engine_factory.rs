@@ -29,7 +29,7 @@ use crate::subsystem_interfaces::*;
 
 /// Base game engine trait - equivalent to C++ GameEngine interface
 #[async_trait]
-pub trait GameEngine: Send + Sync {
+pub trait GameEngine: Send {
     /// Initialize the game engine with command line arguments
     async fn init(&mut self, args: &[String]) -> Result<()>;
 
@@ -972,7 +972,7 @@ impl AssetSubsystem for DefaultAssetSubsystem {
 pub struct DefaultGameLogicSubsystem {
     initialized: bool,
     game_logic: game_logic::GameLogic,
-    save_manager: std::sync::Mutex<SaveFileManager>,
+    save_manager: SaveFileManager,
 }
 
 impl Default for DefaultGameLogicSubsystem {
@@ -986,7 +986,7 @@ impl DefaultGameLogicSubsystem {
         Self {
             initialized: false,
             game_logic: game_logic::GameLogic::new(),
-            save_manager: std::sync::Mutex::new(SaveFileManager::new()),
+            save_manager: SaveFileManager::new(),
         }
     }
 }
@@ -1036,10 +1036,7 @@ impl SubsystemInterface for DefaultGameLogicSubsystem {
 impl GameLogicSubsystem for DefaultGameLogicSubsystem {
     async fn init_game_logic(&mut self) -> Result<()> {
         self.game_logic.reset();
-        self.save_manager
-            .lock()
-            .expect("save manager mutex poisoned")
-            .init()?;
+        self.save_manager.init()?;
         Ok(())
     }
 
@@ -1065,7 +1062,7 @@ impl GameLogicSubsystem for DefaultGameLogicSubsystem {
         Ok(())
     }
 
-    async fn save_game(&self, slot: u32) -> Result<()> {
+    async fn save_game(&mut self, slot: u32) -> Result<()> {
         let filename = format!("slot_{slot}");
         let save_info = SaveGameInfo {
             filename: filename.clone(),
@@ -1094,8 +1091,6 @@ impl GameLogicSubsystem for DefaultGameLogicSubsystem {
         };
 
         self.save_manager
-            .lock()
-            .expect("save manager mutex poisoned")
             .save_game(&filename, &self.game_logic, &save_info)?;
         Ok(())
     }
@@ -1103,8 +1098,6 @@ impl GameLogicSubsystem for DefaultGameLogicSubsystem {
     async fn load_game(&mut self, slot: u32) -> Result<()> {
         let filename = format!("slot_{slot}");
         self.save_manager
-            .lock()
-            .expect("save manager mutex poisoned")
             .load_game(&filename, &mut self.game_logic)?;
         Ok(())
     }

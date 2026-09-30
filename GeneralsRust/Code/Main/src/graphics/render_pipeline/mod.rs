@@ -17,6 +17,7 @@ use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::rc::Rc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -687,6 +688,9 @@ pub struct RenderPipeline {
     // FOW state
     current_player_id: u32, // Which player is viewing (for FOW queries)
     missing_ini_objects: HashSet<String>,
+    /// Failed asset resolutions are local to this renderer; no global lock or
+    /// cross-pipeline suppression of retries. Fresh instances start empty.
+    failed_model_resolutions: pipeline_collect::FailedModelResolutions,
     debug_last_alive_objects: usize,
     /// Live GameLogic object identity reads in unit mesh pass (0 when presentation owns pass).
     debug_last_live_unit_identity_reads: usize,
@@ -724,7 +728,7 @@ pub struct RenderPipeline {
     frozen_ghost_scene: Option<game_client::render_bridge::FrozenGhostSceneFrame>,
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
-    presentation_frame: Option<Arc<crate::presentation_frame::PresentationFrame>>,
+    presentation_frame: Option<Rc<crate::presentation_frame::PresentationFrame>>,
     /// Immutable direct-host shroud visibility captured from GameClient for
     /// this presentation frame. It is replaced, never merged, at every Main
     /// render boundary so object IDs cannot carry across frame/world changes.

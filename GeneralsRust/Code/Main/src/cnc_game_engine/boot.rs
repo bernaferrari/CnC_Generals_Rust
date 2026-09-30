@@ -560,6 +560,9 @@ impl CnCGameEngine {
             show_attack_lines: true,
             frame_counter: 0,
             fps: 0.0,
+            average_fps_tracker: super::run_loop::AverageFpsTracker::new(),
+            visual_clock: super::run_loop::VisualClock::new(),
+            last_new_game_identity: None,
             last_frame_timing: None,
             frame_clock: FrameClock::new(),
             menu_loading_tick_accumulator: Duration::ZERO,
@@ -674,11 +677,11 @@ impl CnCGameEngine {
 
             engine.game_client.init_recorder_bridge();
 
-            engine.game_client.bind_visual_world(
-                gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
+            engine
+                .game_client
+                .bind_visual_world(gamelogic::helpers::ClientVisualHandle::new(Arc::clone(
                     &engine.game_logic.engine_stores,
-                )),
-            );
+                )));
             engine.game_client.mark_initialized();
             info!("GameClient: all subsystems initialized");
         }

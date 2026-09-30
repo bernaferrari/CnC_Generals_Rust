@@ -43,6 +43,7 @@ impl GameWorldShadow {
     pub fn new(max_entities: usize) -> Self {
         Self {
             world: GameWorld::new(8),
+            drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
             host_to_entity: HashMap::new(),
             entity_to_host: HashMap::new(),
             max_entities: max_entities.max(1),

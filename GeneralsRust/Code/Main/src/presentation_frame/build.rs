@@ -65,9 +65,7 @@ pub(super) fn freeze_direct_object_shroud_facts_with_frame_facts(
         if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
             if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0) {
                 PresentationObjectShroudStatus::from(status)
-            } else if !facts.runtime_active
-                || shroud.can_see_object(local_player_id, obj.id.0)
-            {
+            } else if !facts.runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
                 PresentationObjectShroudStatus::Clear
             } else if shroud.has_explored_object(local_player_id, obj.id.0) {
                 PresentationObjectShroudStatus::Fogged
@@ -376,6 +374,15 @@ impl PresentationFrame {
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
+        Self::build_from_logic_with_tint_update(logic, local_player_id, runtime_heightmap, true)
+    }
+
+    pub(super) fn build_from_logic_with_tint_update(
+        logic: &GameLogic,
+        local_player_id: u32,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        freeze_tints: bool,
+    ) -> Self {
         // Shell maps render fully visible background scenes (C++ parity).
         let fow_shell_bypass = logic.isInShellGame();
         // Local force residual: always present own-team objects fully visible.
@@ -645,6 +652,7 @@ impl PresentationFrame {
                 obj.team
             };
             let renderable = RenderableObject {
+                status_tint: [0.0; 3],
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: garrison_apparent_team,
@@ -2301,6 +2309,9 @@ impl PresentationFrame {
         frame.stamp_restrict_a(logic);
         // Wave 500: named damage/death/bone FX residual → particle observe list.
         let _ = frame.append_object_residual_fx_particles();
+        if freeze_tints {
+            frame.freeze_drawable_status_tints_from_logic(logic, None);
+        }
         frame
     }
 
@@ -2315,10 +2326,20 @@ impl PresentationFrame {
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
-        let mut frame = Self::build_from_logic_with_runtime_heightmap(
+        Self::build_with_victory_with_tint_update(logic, local_player_id, runtime_heightmap, true)
+    }
+
+    pub(super) fn build_with_victory_with_tint_update(
+        logic: &mut GameLogic,
+        local_player_id: u32,
+        runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
+        freeze_tints: bool,
+    ) -> Self {
+        let mut frame = Self::build_from_logic_with_tint_update(
             logic,
             local_player_id,
             runtime_heightmap,
+            false,
         );
         if let Some(v) = logic.evaluate_victory_condition() {
             frame.match_over = true;
@@ -2336,6 +2357,9 @@ impl PresentationFrame {
         // Freeze defeat notification residual produced by evaluate (engine drains take).
         frame.defeated_player_ids = logic.peek_defeat_events().to_vec();
         frame.alliance_events = logic.peek_alliance_events().to_vec();
+        if freeze_tints {
+            frame.freeze_drawable_status_tints_from_logic(logic, None);
+        }
         frame
     }
 

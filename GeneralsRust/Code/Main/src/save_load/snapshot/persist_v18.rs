@@ -541,8 +541,10 @@ fn capture_persist_v18_impl(
         let Some(object) = game_logic.host_object(id) else {
             continue;
         };
-        let tint_envelope =
-            crate::game_logic::capture_drawable_tint_envelope(id.0).unwrap_or_default();
+        let tint_envelope = game_logic
+            .drawable_tint_envelopes
+            .capture(id.0)
+            .unwrap_or_default();
         let mut explicit_opacity = object.drawable_explicit_opacity;
         let mut stealth_opacity = object.camo_friendly_opacity;
         let mut effective_stealth_opacity = object.camo_friendly_opacity;
@@ -869,7 +871,9 @@ pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic
             })
             .collect();
         if entry.tint_envelope.seen {
-            crate::game_logic::restore_drawable_tint_envelope(entry.object_id, entry.tint_envelope);
+            game_logic
+                .drawable_tint_envelopes
+                .restore(entry.object_id, entry.tint_envelope);
         }
     }
 }
@@ -1831,6 +1835,48 @@ pub fn merge_chunk_persist(base: &mut WorldPersistV18, chunk: WorldPersistV18) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owned_tint_save_restore_isolates_candidate_and_preserves_payload() {
+        use crate::game_logic::{Team, ThingTemplate};
+        use crate::presentation_frame::PresentationFrame;
+        fn world() -> (GameLogic, ObjectId) {
+            let mut logic = GameLogic::new();
+            logic
+                .templates
+                .insert("SavedTint".into(), ThingTemplate::new("SavedTint"));
+            let id = logic
+                .create_object("SavedTint", Team::USA, glam::Vec3::ZERO)
+                .unwrap();
+            logic
+                .host_object_mut(id)
+                .unwrap()
+                .status
+                .disabled_underpowered = true;
+            (logic, id)
+        }
+        let (mut playing, id) = world();
+        let _ = PresentationFrame::build_from_logic(&playing, 0).unit_render_inputs();
+        let saved = capture_persist_v18(&playing);
+        let bytes = serde_json::to_vec(&saved).unwrap();
+        let decoded: WorldPersistV18 = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(serde_json::to_vec(&decoded).unwrap(), bytes);
+        playing.frame = 30;
+        let _ = PresentationFrame::build_from_logic(&playing, 0).unit_render_inputs();
+        let before = capture_persist_v18(&playing);
+        let (mut candidate, candidate_id) = world();
+        assert_eq!(id, candidate_id);
+        restore_persist_v18(&decoded, &mut candidate);
+        let after = capture_persist_v18(&playing);
+        assert_eq!(
+            before.drawable_xfer[0].tint_envelope, after.drawable_xfer[0].tint_envelope,
+            "restoring a staged candidate must not overwrite the playing object's envelope"
+        );
+        assert_eq!(
+            capture_persist_v18(&candidate).drawable_xfer[0].tint_envelope,
+            saved.drawable_xfer[0].tint_envelope
+        );
+    }
 
     #[test]
     fn persist_v18_defaults_match_cpp_globals() {

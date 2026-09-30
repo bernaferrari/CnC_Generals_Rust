@@ -1139,7 +1139,8 @@ pub struct CnCGameEngine {
     /// frame to the render pipeline does not clone the full height/blend data.
     pub(crate) presentation_terrain_cache: PresentationTerrainCache,
     /// Immutable presentation feed for client/render after last logic step.
-    pub(crate) last_presentation_frame: Option<Arc<crate::presentation_frame::PresentationFrame>>,
+    pub(crate) last_presentation_frame:
+        Option<std::rc::Rc<crate::presentation_frame::PresentationFrame>>,
     /// Runtime-only identity epoch for direct host Drawable associations.
     ///
     /// Object IDs are reused by reset, map install, and restore.  This epoch is
@@ -1382,6 +1383,9 @@ pub struct CnCGameEngine {
     pub(crate) show_attack_lines: bool,
     pub(crate) frame_counter: u32,
     pub(crate) fps: f32,
+    pub(super) average_fps_tracker: super::run_loop::AverageFpsTracker,
+    pub(super) visual_clock: super::run_loop::VisualClock,
+    pub(super) last_new_game_identity: Option<super::dispatch::LastNewGameIdentity>,
     pub(crate) last_frame_timing: Option<FrameTiming>,
     pub(crate) frame_clock: FrameClock,
     pub(crate) menu_loading_tick_accumulator: Duration,

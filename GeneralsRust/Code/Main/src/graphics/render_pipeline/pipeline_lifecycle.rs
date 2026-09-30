@@ -30,14 +30,14 @@ impl RenderPipeline {
         // that the full asset path is installed. Drop the session negative
         // caches — the asset manager's known-missing blacklist (so loader
         // attempts really re-run) and the render collector's failed-resolution
-        // cache (so keys are retried at all). Fail-closed keys re-fail once
-        // and re-cache; recoverable keys resolve.
+        // cache. This new pipeline starts with an empty failed-resolution
+        // cache, so it retries without clearing another pipeline's state.
+        // Fail-closed keys re-fail once and re-cache; recoverable keys resolve.
         if let Some(manager_arc) = get_asset_manager() {
             if let Ok(mut manager) = manager_arc.lock() {
                 manager.clear_missing_model_cache();
             }
         }
-        Self::clear_failed_model_resolutions();
         let (ambient_light, sun_color, sun_direction) = graphics_system.current_lighting();
         let initial_lighting = CachedLighting {
             sun_direction: Some(sun_direction),
@@ -69,6 +69,7 @@ impl RenderPipeline {
             current_pass: None,
             current_player_id: 0, // Default to player 0
             missing_ini_objects: HashSet::new(),
+            failed_model_resolutions: Default::default(),
             debug_last_alive_objects: 0,
             debug_last_live_unit_identity_reads: 0,
             debug_last_presentation_live_fallback_reads: 0,
@@ -133,7 +134,7 @@ impl RenderPipeline {
     /// Provide full presentation snapshot for the next collect_render_items pass.
     pub fn set_presentation_frame(
         &mut self,
-        frame: Option<Arc<crate::presentation_frame::PresentationFrame>>,
+        frame: Option<Rc<crate::presentation_frame::PresentationFrame>>,
     ) {
         // Direct-host shroud state is meaningful only for this exact frozen
         // topology. Main installs its replacement sidecar immediately after
@@ -246,25 +247,25 @@ impl RenderPipeline {
     #[inline]
     pub fn presentation_frame_handle(
         &self,
-    ) -> Option<Arc<crate::presentation_frame::PresentationFrame>> {
+    ) -> Option<Rc<crate::presentation_frame::PresentationFrame>> {
         self.presentation_frame.clone()
     }
 
     /// Diagnostic identity check: render/UI consumers retain one frozen roster.
     pub fn shares_presentation_frame(
         &self,
-        frame: &Arc<crate::presentation_frame::PresentationFrame>,
+        frame: &Rc<crate::presentation_frame::PresentationFrame>,
     ) -> bool {
         self.presentation_frame
             .as_ref()
-            .is_some_and(|installed| Arc::ptr_eq(installed, frame))
+            .is_some_and(|installed| Rc::ptr_eq(installed, frame))
     }
 
     #[inline]
     pub fn presentation_frame_mut(
         &mut self,
     ) -> Option<&mut crate::presentation_frame::PresentationFrame> {
-        self.presentation_frame.as_mut().map(Arc::make_mut)
+        self.presentation_frame.as_mut().map(Rc::make_mut)
     }
 
     #[cfg(feature = "game_client")]
@@ -318,5 +319,28 @@ impl RenderPipeline {
             self.presentation_frame = None;
         }
         // IDs-only path no longer used; clear frame when None.
+    }
+}
+
+#[cfg(test)]
+mod presentation_handle_tests {
+    use super::*;
+
+    #[test]
+    fn presentation_handles_share_frozen_frame_and_mutation_detaches() {
+        let logic = crate::game_logic::GameLogic::new();
+        let mut host: Rc<crate::presentation_frame::PresentationFrame> =
+            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0).into();
+        let original_supplies = host.local_supplies;
+        let renderer = host.clone();
+        let ui = renderer.clone();
+        assert!(Rc::ptr_eq(&host, &renderer));
+        assert!(Rc::ptr_eq(&renderer, &ui));
+        Rc::make_mut(&mut host).local_supplies = original_supplies.wrapping_add(1);
+        assert!(!Rc::ptr_eq(&host, &renderer));
+        assert!(Rc::ptr_eq(&renderer, &ui));
+        assert_eq!(renderer.local_supplies, original_supplies);
+        assert_eq!(ui.local_supplies, original_supplies);
+        assert_eq!(host.local_supplies, original_supplies.wrapping_add(1));
     }
 }

@@ -377,6 +377,9 @@ fn default_terrain_decal_none() -> u8 {
 /// One renderable object as seen after a completed logic step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RenderableObject {
+    /// Ephemeral client sample; durable envelope bytes remain in DrawableXferPersist.
+    #[serde(skip)]
+    pub(crate) status_tint: [f32; 3],
     pub id: ObjectId,
     pub template_name: String,
     pub team: Team,

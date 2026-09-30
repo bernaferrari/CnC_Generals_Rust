@@ -22,7 +22,7 @@ use ww3d_engine::FrameTiming;
 /// Base trait for all game subsystems
 /// Equivalent to C++ SubsystemInterface
 #[async_trait]
-pub trait SubsystemInterface: Send + Sync {
+pub trait SubsystemInterface: Send {
     /// Initialize the subsystem
     async fn init(&mut self) -> Result<()>;
 
@@ -245,7 +245,7 @@ pub trait GameLogicSubsystem: SubsystemInterface {
     async fn handle_input(&mut self, input_events: &[InputEvent]) -> Result<()>;
 
     /// Save game state
-    async fn save_game(&self, slot: u32) -> Result<()>;
+    async fn save_game(&mut self, slot: u32) -> Result<()>;
 
     /// Load game state
     async fn load_game(&mut self, slot: u32) -> Result<()>;
@@ -338,7 +338,7 @@ pub struct SubsystemManager {
 
 struct SubsystemSlot {
     name: String,
-    subsystem: Box<dyn SubsystemInterface + Send + Sync>,
+    subsystem: Box<dyn SubsystemInterface + Send>,
 }
 
 impl SubsystemManager {
@@ -354,7 +354,7 @@ impl SubsystemManager {
     pub async fn init_with_factory(&mut self, factory: Arc<dyn SubsystemFactory>) -> Result<()> {
         log::info!("Initializing subsystems via factory...");
 
-        let mut created: Vec<Box<dyn SubsystemInterface + Send + Sync>> = vec![
+        let mut created: Vec<Box<dyn SubsystemInterface + Send>> = vec![
             factory.create_file_system_subsystem(),
             factory.create_config_subsystem(),
             factory.create_audio_subsystem(),
@@ -434,45 +434,6 @@ impl SubsystemManager {
 }
 
 impl Default for SubsystemManager {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-// Safe wrapper for subsystem management
-pub struct SafeSubsystemManager {
-    inner: Arc<tokio::sync::RwLock<SubsystemManager>>,
-}
-
-impl SafeSubsystemManager {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(tokio::sync::RwLock::new(SubsystemManager::new())),
-        }
-    }
-
-    pub async fn init_with_factory(&self, factory: Arc<dyn SubsystemFactory>) -> Result<()> {
-        let mut manager = self.inner.write().await;
-        manager.init_with_factory(factory).await
-    }
-
-    pub async fn update_all(&self, delta_time: f32) -> Result<()> {
-        let mut manager = self.inner.write().await;
-        manager.update_all(delta_time).await
-    }
-
-    pub async fn update_all_with_timing(&self, timing: &FrameTiming) -> Result<()> {
-        let mut manager = self.inner.write().await;
-        manager.update_all_with_timing(timing).await
-    }
-
-    pub async fn shutdown_all(&self) -> Result<()> {
-        let mut manager = self.inner.write().await;
-        manager.shutdown_all().await
-    }
-}
-
-impl Default for SafeSubsystemManager {
     fn default() -> Self {
         Self::new()
     }

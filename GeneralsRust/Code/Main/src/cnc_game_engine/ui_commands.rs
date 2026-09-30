@@ -1118,7 +1118,11 @@ impl CnCGameEngine {
         // `host_ui_selected_ids_from_residuals` (presentation-first) returns empty
         // until the next dual-tick rebuild, so host select → RMB order fails closed
         // with selected_count>0 but ui_selected_ids empty.
-        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
+        if let Some(pres) = self
+            .last_presentation_frame
+            .as_mut()
+            .map(std::rc::Rc::make_mut)
+        {
             let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
             for o in &mut pres.objects {
                 o.selected = selected_set.contains(&o.id);
@@ -1146,7 +1150,11 @@ impl CnCGameEngine {
         }
         self.selected_objects = ids.clone();
         self.host_match_selected_ids = Some(ids.clone());
-        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
+        if let Some(pres) = self
+            .last_presentation_frame
+            .as_mut()
+            .map(std::rc::Rc::make_mut)
+        {
             let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
             for o in &mut pres.objects {
                 o.selected = selected_set.contains(&o.id);
