@@ -915,7 +915,7 @@ impl GameLogic {
     }
 
     pub(super) fn host_script_create_team(&self, team_name: &str) -> crate::game_logic::Team {
-        if let Ok(factory) = gamelogic::team::get_team_factory().lock() {
+        if let Ok(factory) = self.team_factory.lock() {
             if let Some(proto) = factory.find_team_prototype(team_name) {
                 let owner = proto.get_owner_name().to_string();
                 if !owner.is_empty() {
@@ -981,7 +981,7 @@ impl GameLogic {
         };
         let mut origin = dest;
         let (start, transport, units) = {
-            let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+            let Ok(factory) = self.team_factory.lock() else {
                 return;
             };
             let Some(proto) = factory.find_team_prototype(team_name) else {
@@ -1491,7 +1491,8 @@ impl GameLogic {
         if needle.is_empty() {
             return Vec::new();
         }
-        let leftover_ids: Vec<ObjectId> = gamelogic::team::get_team_factory()
+        let leftover_ids: Vec<ObjectId> = self
+            .team_factory
             .lock()
             .ok()
             .and_then(|mut factory| {

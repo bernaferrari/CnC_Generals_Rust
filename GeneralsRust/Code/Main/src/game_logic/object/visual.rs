@@ -48,12 +48,16 @@ impl Object {
     /// C++ `Object::setTeam` / leftover `apply_team_ai_profile`.
     /// Attitude and attack priority come from the named Team prototype
     /// (`AmericaTeamRangers`, `teamAmerica`), never the faction enum.
-    pub fn apply_named_team_ai_profile(&mut self, force_attitude: bool) {
+    pub fn apply_named_team_ai_profile(
+        &mut self,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+        force_attitude: bool,
+    ) {
         let name = self.team_instance_name.trim();
         if name.is_empty() {
             return;
         }
-        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+        let Ok(factory) = team_factory.lock() else {
             return;
         };
         let Some(proto) = factory.find_team_prototype(name) else {
@@ -77,7 +81,8 @@ impl Object {
         }
     }
 
-    /// Update team color (useful for changing allegiance)
+    /// Update team color and allegiance. Prototype-backed AI state is applied by
+    /// [`set_team_with_factory`] at the world boundary that owns this object.
     pub fn set_team(&mut self, team: Team) {
         let changed = self.team != team;
         if changed {
@@ -98,8 +103,17 @@ impl Object {
             // C++ Team::setControllingPlayer / Object::setTeam → handlePartitionCellMaintenance.
             self.handle_partition_cell_maintenance();
         }
-        // C++ Object.cpp:857-872 setTeam: ai->setAttitude(named proto).
-        self.apply_named_team_ai_profile(true);
+    }
+
+    /// C++ Object.cpp:857-872 `setTeam`: apply the owning world's named-team
+    /// AI profile after updating the object's allegiance.
+    pub fn set_team_with_factory(
+        &mut self,
+        team: Team,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        self.set_team(team);
+        self.apply_named_team_ai_profile(team_factory, true);
     }
 
     /// Set faction presentation and exact controlling-player identity together.
@@ -118,8 +132,17 @@ impl Object {
             // C++ Object::setTeam then onCapture handlePartitionCellMaintenance.
             self.handle_partition_cell_maintenance();
         }
-        // C++ Object.cpp:857-872 setTeam: ai->setAttitude(named proto).
-        self.apply_named_team_ai_profile(true);
+    }
+
+    /// Factory-explicit variant for capture/hijack operations in a live world.
+    pub fn set_team_and_owner_with_factory(
+        &mut self,
+        team: Team,
+        owner_player_id: Option<u32>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) {
+        self.set_team_and_owner(team, owner_player_id);
+        self.apply_named_team_ai_profile(team_factory, true);
     }
 
     /// Check if this object is visible to a team (for fog of war / targeting UI).

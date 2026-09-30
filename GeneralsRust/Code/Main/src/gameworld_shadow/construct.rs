@@ -1558,7 +1558,7 @@ impl GameWorldShadow {
                             // army); see presentation_frame/build.rs bypass.
                             crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                         } else {
-                            FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
+                            FOWRenderingBridge::get_object_visibility(logic.engine_stores.shroud().lock().ok().as_deref(), local_player_id, obj.id)
                         };
                         e.fow_visibility_alpha = vis.visibility_alpha;
                         e.fow_is_explored = vis.is_explored;
@@ -2133,7 +2133,7 @@ impl GameWorldShadow {
                         // see presentation_frame/build.rs own-force bypass).
                         crate::fow_rendering::ObjectVisibility::FULLY_VISIBLE
                     } else {
-                        FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
+                        FOWRenderingBridge::get_object_visibility(logic.engine_stores.shroud().lock().ok().as_deref(), local_player_id, obj.id)
                     };
                     e.fow_visibility_alpha = vis.visibility_alpha;
                     e.fow_is_explored = vis.is_explored;

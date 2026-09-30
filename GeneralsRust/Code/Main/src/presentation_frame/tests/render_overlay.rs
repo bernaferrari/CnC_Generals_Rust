@@ -10,6 +10,8 @@ fn unit_render_input_world_matrix_applies_mesh_scale() {
         #[cfg(feature = "game_client")]
         specialized_draw: None,
         draw_models: Vec::new(),
+        draw_playback_identity: None,
+        draw_animation_completion_targets: Vec::new(),
         projectile_clip_statuses: [None; 3],
         mesh_scale: 2.0,
         team: Team::USA,
@@ -204,6 +206,8 @@ fn unit_render_input_fixture() -> UnitRenderInput {
         #[cfg(feature = "game_client")]
         specialized_draw: None,
         draw_models: Vec::new(),
+        draw_playback_identity: None,
+        draw_animation_completion_targets: Vec::new(),
         projectile_clip_statuses: [None; 3],
         mesh_scale: 1.0,
         team: Team::USA,
@@ -494,7 +498,10 @@ fn friendly_stealth_opacity_pulses_across_logic_frames() {
         .find(|u| u.id == id)
         .expect("repeated frame 0");
     assert_eq!(repeated.presentation_opacity, a.presentation_opacity);
-    assert_eq!(logic.host_object(id).unwrap().camo_opacity_pulse_phase, phase_a);
+    assert_eq!(
+        logic.host_object(id).unwrap().camo_opacity_pulse_phase,
+        phase_a
+    );
     for frame in 1..=8 {
         logic.frame = frame;
         logic.update_stealth_and_detection();
@@ -840,10 +847,11 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
         .owner_player_id = Some(1);
 
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
+        shroud.mark_host_vision_ready();
         shroud.mark_host_object_seen(0, id.0);
     }
     assert_eq!(
@@ -858,10 +866,11 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     );
 
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
+        shroud.mark_host_vision_ready();
         shroud.mark_host_object_seen(0, id.0);
         // Explored membership persists while current visible membership drops:
         // this is the raw Fogged branch, not a visibility-alpha threshold.
@@ -879,12 +888,13 @@ fn direct_host_shroud_facts_use_raw_membership_not_visibility_alpha() {
     );
 
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0);
         // Keep the FOW runtime active for the viewer but leave this object
         // absent from both raw membership sets.
+        shroud.mark_host_vision_ready();
         shroud.mark_host_object_seen(0, 0x00ff_0001);
     }
     assert_eq!(

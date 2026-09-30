@@ -317,7 +317,12 @@ fn arm_team_timer_after_build_uses_wealth_not_difficulty() {
     let mut player = crate::game_logic::Player::new(1, Team::USA, "USA", false);
     player.resources.supplies = 3_000;
     logic.add_player(player);
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Easy);
+    let mut ai = AIPlayer::new_with_team_factory(
+        1,
+        Team::USA,
+        AIDifficulty::Easy,
+        logic.team_factory.clone(),
+    );
     ai.team_seconds = AIPlayer::TEAM_SECONDS;
     ai.arm_team_timer_after_build(&logic, 0.0);
     assert!(
@@ -375,7 +380,7 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
         obj.owner_player_id = Some(1);
     }
 
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    if let Ok(mut tf) = logic.team_factory.lock() {
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_Timer_TankTeam".into());
         proto.set_automatically_reinforce(true);
         proto.set_production_priority(50);
@@ -408,7 +413,7 @@ fn select_team_to_build_reinforce_does_not_arm_timer() {
         "reinforce must not arm TeamSeconds, got {}",
         ai.next_team_time
     );
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    if let Ok(mut tf) = logic.team_factory.lock() {
         tf.reset();
     }
 }
@@ -462,7 +467,7 @@ fn build_specific_ai_team_splits_optional_and_required() {
         .set_cost(500, 0);
     logic.templates.insert("AmericaBarracks".into(), barracks);
     let _ = logic.create_object("AmericaBarracks", Team::USA, Vec3::ZERO);
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    if let Ok(mut tf) = logic.team_factory.lock() {
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_SplitTeam".into());
         proto.set_units_info(
             0,
@@ -474,7 +479,12 @@ fn build_specific_ai_team_splits_optional_and_required() {
         );
         tf.replace_team_prototype(proto);
     }
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = AIPlayer::new_with_team_factory(
+        1,
+        Team::USA,
+        AIDifficulty::Medium,
+        logic.team_factory.clone(),
+    );
     assert!(ai.build_specific_ai_team(&mut logic, "HQ_SplitTeam", false));
     let team = ai.team_queue.front().expect("queued");
     let required: Vec<_> = team
@@ -3499,7 +3509,7 @@ fn check_queued_teams_disbands_expired_incomplete_team() {
     }
 
     let mut inst_id = None;
-    if let Ok(mut tf) = gamelogic::team::get_team_factory().lock() {
+    if let Ok(mut tf) = logic.team_factory.lock() {
         let mut proto = gamelogic::team::TeamPrototype::new("HQ_9_Disband".into());
         proto.set_initial_idle_frames(30);
         tf.replace_team_prototype(proto);
@@ -3511,7 +3521,9 @@ fn check_queued_teams_disbands_expired_incomplete_team() {
         }
     }
 
-    let mut ai = AIPlayer::new(1, Team::USA, AIDifficulty::Medium);
+    let mut ai = AIPlayer::new_with_team_factory(
+        1, Team::USA, AIDifficulty::Medium, logic.team_factory.clone(),
+    );
     let mut order = AIWorkOrder::new("AmericaInfantryRanger".into(), 2, 100);
     order.num_completed = 0;
     order.observed_unit_ids.push(ranger);
@@ -3534,7 +3546,7 @@ fn check_queued_teams_disbands_expired_incomplete_team() {
         "disband must transfer recruits to the default team"
     );
     assert!(
-        AIPlayer::leftover_team_instance_gone(inst_id),
+        ai.leftover_team_instance_gone(inst_id),
         "non-singleton leftover instance must be deleted on disband"
     );
 }

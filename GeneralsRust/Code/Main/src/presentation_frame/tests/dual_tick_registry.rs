@@ -14,7 +14,11 @@ fn seed_victory_keep_alive(logic: &mut GameLogic) {
         logic.templates.insert("VictoryKeepAlive".into(), t);
     }
     logic
-        .create_object("VictoryKeepAlive", Team::USA, glam::Vec3::new(60.0, 0.0, 60.0))
+        .create_object(
+            "VictoryKeepAlive",
+            Team::USA,
+            glam::Vec3::new(60.0, 0.0, 60.0),
+        )
         .expect("keep-alive structure");
 }
 
@@ -471,13 +475,6 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
     use crate::fow_rendering::{FOWRenderingBridge, ObjectVisibility};
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
-    // Isolate global shroud — prior FOW tests may leave permanent reveal.
-    {
-        let shroud_manager = get_shroud_manager();
-        let mut shroud = shroud_manager.lock().expect("shroud");
-        shroud.clear_all();
-    }
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowSnapConsistency");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
@@ -490,7 +487,11 @@ fn presentation_fow_matches_bridge_at_build_and_stays_frozen() {
         .expect("unit");
 
     // Bridge state at build time is the source of truth for the snapshot.
-    let bridge_at_build = FOWRenderingBridge::get_object_visibility(0, id);
+    let bridge_at_build = FOWRenderingBridge::get_object_visibility(
+        logic.engine_stores.shroud().lock().ok().as_deref(),
+        0,
+        id,
+    );
     let snap = PresentationFrame::build_from_logic(&logic, 0);
     let ro = snap.objects.iter().find(|o| o.id == id).expect("in snap");
     assert_eq!(
@@ -641,22 +642,6 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     use crate::fow_rendering::{FOWRenderingBridge, PresentationFowGrid};
     use gamelogic::system::shroud_manager::get_shroud_manager;
 
-    // Isolate global shroud manager for this test.
-    // The membership stamp below simulates the post-vision-pass state, so the
-    // session boot gate must be opened as well (GameLogic Phase 17 marker);
-    // otherwise shroud_runtime_active stays fail-open and the baseline here
-    // would come back fully visible.
-    crate::fow_rendering::note_main_crate_vision_tick_completed();
-    {
-        let shroud_manager = get_shroud_manager();
-        let mut shroud = shroud_manager.lock().expect("shroud");
-        shroud.clear_all();
-        shroud.init_shroud_grid(500.0, 500.0); // manager-owned 40-wu cells
-        shroud.mark_host_object_seen(0, 1);
-        shroud.force_update();
-        let _ = shroud.update(1);
-    }
-
     let mut logic = GameLogic::new();
     let cfg = golden_skirmish_config("FowGridSnap");
     apply_skirmish_config(&mut logic, &cfg).expect("config");
@@ -664,18 +649,23 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     // Activate FOW runtime (visible membership) without permanent map reveal so
     // baseline is not fail-open fully-visible and reveal can change fingerprint.
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         shroud.clear_all();
         shroud.init_shroud_grid(500.0, 500.0); // manager-owned 40-wu cells
         // Host residual API — keeps FOW filters active without dual registry.
+        shroud.mark_host_vision_ready();
         shroud.mark_host_object_seen(0, 1);
         let _ = shroud.update(1);
         // No reveal_map_for_player_permanently yet — terrain stays mostly shrouded.
     }
 
     // Build with active hidden grid (last_update_frame > 0 after update above).
-    let bridge_grid = FOWRenderingBridge::snapshot_terrain_grid(0, false);
+    let bridge_grid = FOWRenderingBridge::snapshot_terrain_grid(
+        logic.engine_stores.shroud().lock().ok().as_deref(),
+        0,
+        false,
+    );
     let snap = PresentationFrame::build_from_logic(&logic, 0);
 
     assert!(
@@ -732,7 +722,7 @@ fn presentation_fow_grid_matches_shroud_snapshot_and_stays_frozen() {
     let frozen_r8 = snap.fow_grid.to_r8_texture();
     let frozen_projected_fp = snap.projected_shroud.content_fingerprint();
     {
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = logic.engine_stores.shroud();
         let mut shroud = shroud_manager.lock().expect("shroud");
         // Permanent reveal → all cells Visible on the live manager.
         shroud.reveal_map_for_player_permanently(0).expect("reveal");
@@ -1640,9 +1630,8 @@ fn enhanced_ai_system_registry_empty() {
     // System split: GameLogic update/rebuild lives in system/game_logic_impl/
     // (system/game_logic.rs is an unused shim); registry peels are centralized
     // via dual_world_registry_unavailable().
-    let sys = include_str!(
-        "../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_update.rs"
-    );
+    let sys =
+        include_str!("../../../../GameEngine/GameLogic/src/system/game_logic_impl/impl_update.rs");
     assert!(
         sys.contains("dual_world_registry_unavailable()"),
         "crate GameLogic update/rebuild must skip empty dual-world registry"

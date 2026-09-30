@@ -1242,17 +1242,29 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     crate::scripting::clear_host_script_query_snapshot();
+    let host_trigger_world = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::scripting::HostTriggerWorld::default(),
+    ));
+    let trigger = wave14_triangle_area();
     crate::terrain::get_terrain_logic()
         .write()
         .expect("terrain")
-        .add_trigger_area(wave14_triangle_area());
+        .add_trigger_area(trigger.clone());
+    host_trigger_world
+        .lock()
+        .expect("trigger world")
+        .set_trigger_areas(&[trigger]);
     crate::system::game_logic::get_game_logic()
         .lock()
         .expect("logic")
         .set_current_frame(20);
 
-    crate::scripting::update_host_object_trigger_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
-    crate::scripting::update_host_object_trigger_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
+    {
+        let mut world = host_trigger_world.lock().expect("trigger world");
+        world.set_current_frame(20);
+        world.update_object_flags(7, 18.0, 18.0, 19, false, Some("teamUSA"));
+        world.update_object_flags(7, 2.0, 2.0, 20, false, Some("teamUSA"));
+    }
     crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {
@@ -1268,7 +1280,10 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         ..Default::default()
     });
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator = ScriptEvaluator::new_with_host_trigger_world(
+        get_script_engine(),
+        std::sync::Arc::clone(&host_trigger_world),
+    );
     let mut entered = Condition::new(ConditionType::NamedEnteredArea);
     entered
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1288,7 +1303,11 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         .lock()
         .expect("logic")
         .set_current_frame(21);
-    crate::scripting::update_host_object_trigger_flags(7, 18.0, 18.0, 21, false, Some("teamUSA"));
+    {
+        let mut world = host_trigger_world.lock().expect("trigger world");
+        world.set_current_frame(21);
+        world.update_object_flags(7, 18.0, 18.0, 21, false, Some("teamUSA"));
+    }
     crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
         objects: vec![crate::scripting::HostScriptQueryObject {

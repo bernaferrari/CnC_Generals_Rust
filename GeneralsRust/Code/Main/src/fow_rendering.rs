@@ -32,54 +32,33 @@
 //! Not full SAGE dirty-rect streaming / multi-player simultaneous grid parity.
 
 use crate::game_logic::ObjectId as ObjectID;
-use gamelogic::system::shroud_manager::{ShroudState, get_shroud_manager};
+use gamelogic::system::shroud_manager::{ShroudManager, ShroudState};
 use log::{trace, warn};
-use std::sync::atomic::{AtomicBool, Ordering};
-
-/// Session boot gate: flipped by the logic-side vision feed (GameLogic Phase
-/// 17) after the first completed `update_main_crate_vision` pass of this
-/// process. The pass itself only aborts on a poisoned shroud-manager lock
-/// (process-fatal elsewhere), so completing the call is the "first successful
-/// vision tick" marker.
-static MAIN_CRATE_VISION_TICKED: AtomicBool = AtomicBool::new(false);
-
-/// Mark the first completed main-crate vision pass of this session.
-pub fn note_main_crate_vision_tick_completed() {
-    MAIN_CRATE_VISION_TICKED.store(true, Ordering::Relaxed);
-}
-
-#[inline]
-fn main_crate_vision_ticked() -> bool {
-    MAIN_CRATE_VISION_TICKED.load(Ordering::Relaxed)
-}
-
 fn shroud_runtime_active(
     shroud_mgr: &gamelogic::system::shroud_manager::ShroudManager,
     player_id: u32,
 ) -> bool {
-    // Boot window: from process start until the first completed
+    // Boot window: until this manager's first completed
     // update_main_crate_vision pass, membership is not yet meaningful and the
     // shroud grid may still be all-Hidden. Fail open (fully visible) so the
     // world is not painted black before the first logic frame has revealed
-    // it. The gate is process-lifetime; across map resets the membership
-    // check below re-gates (cleared membership -> fail open) until the new
-    // map's vision pass repopulates it.
+    // it. Reset clears readiness and membership for this world only.
     // After the first vision tick, derive strictly from real membership.
     // Membership is written by the 30 Hz vision feed itself (clear +
     // re-stamp every logic frame), so an empty set post-gate means either
     // genuinely no lookers or a membership flush — not "FOW is broken".
-    if !main_crate_vision_ticked() {
+    if !shroud_mgr.host_vision_ready() {
         return false;
     }
-    !shroud_mgr.get_visible_objects(player_id).is_empty()
-        || !shroud_mgr.get_explored_objects(player_id).is_empty()
+    shroud_mgr.has_any_visible_object(player_id) || shroud_mgr.has_any_explored_object(player_id)
 }
 
 /// FOW visibility state for rendering an object
 ///
 /// Snapshot-friendly (Copy + Serialize) so `PresentationFrame` can own unit FOW
 /// without re-locking the shroud manager mid-render.
-/// Serialize tests that mutate the process-wide shroud manager / FOW bridge.
+/// Serialize remaining legacy fixtures which still mutate engine singletons.
+#[cfg(test)]
 pub fn shroud_test_isolation_lock() -> &'static std::sync::Mutex<()> {
     use std::sync::{Mutex, OnceLock};
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -740,13 +719,17 @@ impl FOWRenderingBridge {
     /// - `visibility_alpha`: 0.0 (hidden) to 1.0 (fully visible)
     /// - `is_explored`: 1.0 (explored) or 0.0 (never seen)
     /// - `visibility_falloff`: Gradient strength (1.0 for sharp, lower for smoother)
-    pub fn get_object_visibility(player_id: u32, object_id: ObjectID) -> ObjectVisibility {
+    pub fn get_object_visibility(
+        shroud: Option<&ShroudManager>,
+        player_id: u32,
+        object_id: ObjectID,
+    ) -> ObjectVisibility {
         // Default to fully visible if shroud manager not available
         // This ensures the game continues to work even without FOW
         let mut visibility = ObjectVisibility::default();
 
         // Query ShroudManager for visibility state
-        if let Ok(shroud_mgr) = get_shroud_manager().lock() {
+        if let Some(shroud_mgr) = shroud {
             if !shroud_runtime_active(&shroud_mgr, player_id) {
                 return visibility;
             }
@@ -798,11 +781,12 @@ impl FOWRenderingBridge {
     ///
     /// ObjectVisibility with stealth considerations applied
     pub fn get_object_visibility_with_stealth(
+        shroud: Option<&ShroudManager>,
         player_id: u32,
         object_id: ObjectID,
     ) -> ObjectVisibility {
         // Start with basic FOW visibility
-        let mut visibility = Self::get_object_visibility(player_id, object_id);
+        let mut visibility = Self::get_object_visibility(shroud, player_id, object_id);
 
         // If not visible due to FOW, stealth doesn't matter
         if visibility.visibility_alpha <= 0.0 {
@@ -811,7 +795,7 @@ impl FOWRenderingBridge {
 
         // Check stealth system - this would check if object is stealthed
         // and whether the player has detection capability
-        if let Ok(shroud_mgr) = get_shroud_manager().lock() {
+        if let Some(shroud_mgr) = shroud {
             if !shroud_runtime_active(&shroud_mgr, player_id) {
                 return visibility;
             }
@@ -847,13 +831,14 @@ impl FOWRenderingBridge {
     ///
     /// Map of object_id to visibility state
     pub fn get_all_object_visibilities(
+        shroud: Option<&ShroudManager>,
         player_id: u32,
         object_ids: &[ObjectID],
     ) -> std::collections::HashMap<ObjectID, ObjectVisibility> {
         let mut visibilities = std::collections::HashMap::with_capacity(object_ids.len());
 
         for &object_id in object_ids {
-            let visibility = Self::get_object_visibility(player_id, object_id);
+            let visibility = Self::get_object_visibility(shroud, player_id, object_id);
             visibilities.insert(object_id, visibility);
         }
 
@@ -873,8 +858,12 @@ impl FOWRenderingBridge {
     /// # Returns
     ///
     /// true if object should be rendered (even if darkened)
-    pub fn should_render_object(player_id: u32, object_id: ObjectID) -> bool {
-        if let Ok(shroud_mgr) = get_shroud_manager().lock() {
+    pub fn should_render_object(
+        shroud: Option<&ShroudManager>,
+        player_id: u32,
+        object_id: ObjectID,
+    ) -> bool {
+        if let Some(shroud_mgr) = shroud {
             if !shroud_runtime_active(&shroud_mgr, player_id) {
                 return true;
             }
@@ -893,11 +882,9 @@ impl FOWRenderingBridge {
     /// - Units created or destroyed
     /// - Vision upgrades completed
     /// - Special powers used
-    pub fn force_visibility_update() {
-        if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
-            shroud_mgr.force_update();
-            trace!("FOW visibility recalculation forced");
-        }
+    pub fn force_visibility_update(shroud: &mut ShroudManager) {
+        shroud.force_update();
+        trace!("FOW visibility recalculation forced");
     }
 
     /// Snapshot the partition cell grid for `player_id` into a presentation-owned buffer.
@@ -906,9 +893,12 @@ impl FOWRenderingBridge {
     /// grid is not initialized (fail-open for terrain overlay). Shell-map callers
     /// should pass `shell_bypass=true` to force fully-visible cells when dimensions
     /// are known.
-    pub fn snapshot_terrain_grid(player_id: u32, shell_bypass: bool) -> PresentationFowGrid {
-        let shroud_manager = get_shroud_manager();
-        let Ok(shroud_mgr) = shroud_manager.lock() else {
+    pub fn snapshot_terrain_grid(
+        shroud: Option<&ShroudManager>,
+        player_id: u32,
+        shell_bypass: bool,
+    ) -> PresentationFowGrid {
+        let Some(shroud_mgr) = shroud else {
             return PresentationFowGrid::inactive();
         };
 
@@ -952,21 +942,17 @@ impl FOWRenderingBridge {
 
 /// Reveal the entire map as explored/fogged (addLooker+removeLooker).
 /// C++ PartitionManager::revealMapForPlayer — shroud crates and RevealMap scripts.
-pub fn reveal_entire_map_explored_for_player(player_id: u32) {
-    if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
-        if let Err(err) = shroud_mgr.reveal_map_for_player(player_id) {
-            warn!("Failed to reveal map for player {player_id}: {err}");
-        }
+pub fn reveal_entire_map_explored_for_player(shroud: &mut ShroudManager, player_id: u32) {
+    if let Err(err) = shroud.reveal_map_for_player(player_id) {
+        warn!("Failed to reveal map for player {player_id}: {err}");
     }
 }
 
 /// Reveal the entire map permanently (add lookers only).
 /// C++ PartitionManager::revealMapForPlayerPermanently — observer/defeat only.
-pub fn reveal_entire_map_for_player(player_id: u32) {
-    if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
-        if let Err(err) = shroud_mgr.reveal_map_for_player_permanently(player_id) {
-            warn!("Failed to permanently reveal map for player {player_id}: {err}");
-        }
+pub fn reveal_entire_map_for_player(shroud: &mut ShroudManager, player_id: u32) {
+    if let Err(err) = shroud.reveal_map_for_player_permanently(player_id) {
+        warn!("Failed to permanently reveal map for player {player_id}: {err}");
     }
 }
 
@@ -1428,74 +1414,63 @@ mod tests {
 
 #[cfg(test)]
 mod host_fow_fail_open_tests {
-    use super::{
-        FOWRenderingBridge, PresentationFowGrid, note_main_crate_vision_tick_completed,
-        shroud_test_isolation_lock,
-    };
+    use super::*;
+    use gamelogic::common::Coord3D;
 
     #[test]
     fn host_fow_fail_open_without_object_membership() {
-        let src = include_str!("fow_rendering.rs");
-        let start = src.find("fn shroud_runtime_active").expect("fn");
-        let body = &src[start..src.len().min(start + 1600)];
-        assert!(
-            body.contains("main_crate_vision_ticked()"),
-            "boot window: must fail open until the first vision tick of the session"
-        );
-        assert!(
-            body.contains("get_visible_objects(player_id)"),
-            "must require visible membership"
-        );
-        assert!(
-            body.contains("get_explored_objects(player_id)"),
-            "must require explored membership"
-        );
-        assert!(
-            !body.contains("get_last_update_frame() > 0"),
-            "last_update_frame alone must not activate FOW object filtering"
+        let mut manager = ShroudManager::new();
+        manager.mark_host_vision_ready();
+        assert!(!shroud_runtime_active(&manager, 0));
+        assert_eq!(
+            FOWRenderingBridge::get_object_visibility(Some(&manager), 0, ObjectID(1)),
+            ObjectVisibility::FULLY_VISIBLE
         );
     }
 
-    /// After the session's first vision tick, the terrain snapshot must
-    /// derive from real membership + real shroud cells (fail closed), no
-    /// longer force fully-visible. Simulates the post-vision-pass state the
-    /// 30 Hz feed produces: membership stamped and looker circle revealed.
     #[test]
     fn terrain_snapshot_derives_from_membership_after_first_vision_tick() {
-        let _iso = shroud_test_isolation_lock()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        use gamelogic::common::Coord3D;
-        use gamelogic::system::shroud_manager::get_shroud_manager;
-
-        // Simulate the completed vision pass (GameLogic Phase 17 stamp).
-        note_main_crate_vision_tick_completed();
-        {
-            let shroud = get_shroud_manager();
-            let mut mgr = shroud.lock().expect("shroud");
-            mgr.clear_all();
-            mgr.init_shroud_grid(400.0, 400.0);
-            // Looker circle for player 0 (bit 0) + visible membership, the
-            // exact residuals update_main_crate_vision leaves behind.
-            mgr.do_shroud_reveal(&Coord3D::new(100.0, 0.0, 100.0), 80.0, 1);
-            mgr.mark_host_object_seen(0, 0x00c0_ffee);
-        }
-
-        let grid = FOWRenderingBridge::snapshot_terrain_grid(0, false);
-        assert!(grid.active, "post-vision-tick snapshot must be active");
-        assert_eq!(grid.cells.len(), 10 * 10);
+        let mut manager = ShroudManager::new();
+        manager.init_shroud_grid(400.0, 400.0);
+        manager.do_shroud_reveal(&Coord3D::new(100.0, 0.0, 100.0), 80.0, 1);
+        manager.mark_host_object_seen(0, 0x00c0_ffee);
+        let before = FOWRenderingBridge::snapshot_terrain_grid(Some(&manager), 0, false);
+        assert!(
+            before
+                .cells
+                .iter()
+                .all(|&cell| cell == PresentationFowGrid::CELL_VISIBLE)
+        );
+        manager.mark_host_vision_ready();
+        let grid = FOWRenderingBridge::snapshot_terrain_grid(Some(&manager), 0, false);
+        assert!(grid.active);
+        assert_eq!(grid.cells.len(), 100);
         assert!(grid.cells.contains(&PresentationFowGrid::CELL_VISIBLE));
         assert!(grid.cells.contains(&PresentationFowGrid::CELL_HIDDEN));
         let r8 = grid.to_r8_texture();
-        assert_eq!(r8.len(), grid.cells.len());
         assert!(r8.contains(&PresentationFowGrid::R8_VISIBLE));
         assert!(r8.contains(&PresentationFowGrid::R8_SHROUDED));
+    }
 
-        // Leave the process-global manager clean for sibling suites.
-        {
-            let shroud = get_shroud_manager();
-            let mut mgr = shroud.lock().expect("shroud");
-            mgr.clear_all();
+    #[test]
+    fn vision_readiness_is_local_and_resettable_without_changing_saved_cells() {
+        let mut left = ShroudManager::new();
+        let mut right = ShroudManager::new();
+        for manager in [&mut left, &mut right] {
+            manager.mark_host_object_seen(0, 1);
         }
+        let saved = left.snapshot_state();
+        left.mark_host_vision_ready();
+        assert!(shroud_runtime_active(&left, 0));
+        assert!(!shroud_runtime_active(&right, 0));
+        assert_eq!(
+            left.snapshot_state(),
+            saved,
+            "readiness is not CPP persistent counter state"
+        );
+        right.reset_for_new_game();
+        assert!(shroud_runtime_active(&left, 0));
+        left.reset_for_new_game();
+        assert!(!left.host_vision_ready());
     }
 }

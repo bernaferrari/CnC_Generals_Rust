@@ -27,6 +27,10 @@ impl GameLogic {
         );
 
         let map_data = loader.to_map_data();
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_trigger_areas(&map_data.polygon_triggers);
 
         if let Ok(mut terrain) = gamelogic::terrain::get_terrain_logic().write() {
             terrain.reset();
@@ -67,7 +71,8 @@ impl GameLogic {
                 count
             })
             .unwrap_or(0);
-        let team_count = get_team_factory()
+        let team_count = self
+            .team_factory
             .lock()
             .map(|factory| factory.get_all_teams().len())
             .unwrap_or(0);
@@ -190,6 +195,12 @@ impl GameLogic {
                     Vec::new()
                 }
             };
+        // Trigger membership uses each GameLogic world's authored geometry,
+        // so later map loads cannot change another world's enter/exit edges.
+        self.host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .set_trigger_areas(&polygon_triggers);
         // Freeze the same authored polygons that C++ WaterRenderObjClass::renderWater
         // traverses. Rendering must not depend on a later read of process-global
         // TerrainLogic, which can be a different instance or unavailable.
@@ -350,7 +361,8 @@ impl GameLogic {
                 count
             })
             .unwrap_or(0);
-        let team_count = get_team_factory()
+        let team_count = self
+            .team_factory
             .try_lock()
             .map(|factory| factory.get_all_teams().len())
             .unwrap_or(0);
@@ -890,11 +902,9 @@ impl GameLogic {
         self.sync_legacy_player_list_from_side_dicts(&side_dicts);
     }
 
-    pub(in super::super) fn sync_legacy_team_factory_from_team_dicts(&self, team_dicts: &[Dict]) {
-        let Ok(mut team_factory) = get_team_factory().try_lock() else {
-            log::warn!(
-                "Fast legacy runtime sync skipped TeamFactory write (THE_TEAM_FACTORY busy)"
-            );
+    pub(in super::super) fn sync_legacy_team_factory_from_team_dicts(&mut self, team_dicts: &[Dict]) {
+        let Ok(mut team_factory) = self.team_factory.try_lock() else {
+            log::warn!("Skipping per-world TeamFactory sync because its owner is busy");
             return;
         };
         team_factory.reset();
@@ -925,7 +935,7 @@ impl GameLogic {
         }
     }
 
-    pub(in super::super) fn sync_legacy_team_factory_from_sides(&self) {
+    pub(in super::super) fn sync_legacy_team_factory_from_sides(&mut self) {
         let sides_list = get_sides_list();
         let Ok(sides_guard) = sides_list.try_read() else {
             log::warn!("Fast legacy runtime sync skipped TeamFactory derive (THE_SIDES_LIST busy)");

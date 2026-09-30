@@ -86,7 +86,7 @@ fn host_discovered_by_player_names(
         return Vec::new();
     }
     let mut names = Vec::new();
-    let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+    let shroud_manager = logic.engine_stores.shroud();
     let shroud = shroud_manager.lock().ok();
     for player in logic.players.values() {
         let status = shroud

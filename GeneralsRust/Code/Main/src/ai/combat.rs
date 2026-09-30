@@ -78,7 +78,7 @@ impl AIPlayer {
             .filter(|team| !team.reinforcement)
             // Teams whose OnCreate script carries hunt/guard/attack orders
             // are commanded by the script path on activation.
-            .filter(|team| !Self::ready_team_has_on_create_orders(team))
+            .filter(|team| !self.ready_team_has_on_create_orders(team))
             .flat_map(|team| {
                 team.work_orders
                     .iter()
@@ -102,8 +102,8 @@ impl AIPlayer {
     /// orders — the script path commands the team after activation, so the
     /// script-absent fallback in `evaluate_attack_opportunities` must leave
     /// it alone.
-    fn ready_team_has_on_create_orders(team: &AITeamQueue) -> bool {
-        let on_create = gamelogic::team::get_team_factory()
+    fn ready_team_has_on_create_orders(&self, team: &AITeamQueue) -> bool {
+        let on_create = self.team_factory
             .lock()
             .ok()
             .and_then(|factory| {

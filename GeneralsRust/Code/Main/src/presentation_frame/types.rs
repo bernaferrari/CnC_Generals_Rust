@@ -380,6 +380,10 @@ pub struct RenderableObject {
     /// Ephemeral client sample; durable envelope bytes remain in DrawableXferPersist.
     #[serde(skip)]
     pub(crate) status_tint: [f32; 3],
+    /// Runtime-only handle to this Main world's drawable playback state.
+    /// Serialized/frozen replay records do not retain live completion targets.
+    #[serde(skip, default)]
+    pub(crate) draw_playback_identity: Option<crate::assets::LiveDrawPlaybackIdentity>,
     pub id: ObjectId,
     pub template_name: String,
     pub team: Team,

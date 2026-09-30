@@ -478,7 +478,7 @@ impl GameLogic {
         let center = Coord3D::new(target_position.x, target_position.z, target_position.y);
         let frame = self.frame;
         let fow_reveal_ok = {
-            let shroud = get_shroud_manager();
+            let shroud = std::sync::Arc::clone(self.engine_stores.shroud());
             let mut shroud_mgr = match shroud.lock() {
                 Ok(mgr) => mgr,
                 Err(_) => {
@@ -1529,6 +1529,7 @@ impl GameLogic {
     ) -> bool {
         if src_owner.is_some() && tgt_owner.is_some() {
             return Self::object_relationship_from_owners(
+                &self.team_factory,
                 &self.players,
                 src_owner,
                 src_inst,
@@ -1608,7 +1609,7 @@ impl GameLogic {
         let Some(pid) = viewer_player_id else {
             return true;
         };
-        let shroud_manager = get_shroud_manager();
+        let shroud_manager = std::sync::Arc::clone(self.engine_stores.shroud());
         let Ok(mgr) = shroud_manager.lock() else {
             return true;
         };
@@ -1948,7 +1949,7 @@ impl GameLogic {
 
         for (source, aim) in shots {
             let shroud = local.and_then(|pid| {
-                get_shroud_manager()
+                std::sync::Arc::clone(self.engine_stores.shroud())
                     .lock()
                     .ok()
                     .and_then(|mgr| mgr.get_host_object_shroud_status(pid, source.0))
@@ -2078,7 +2079,7 @@ impl GameLogic {
             use gamelogic::common::Coord3D;
             let world_w = self.world_width.max(1.0);
             let world_h = self.world_height.max(1.0);
-            if let Ok(mut shroud_mgr) = get_shroud_manager().lock() {
+            if let Ok(mut shroud_mgr) = std::sync::Arc::clone(self.engine_stores.shroud()).lock() {
                 if !shroud_mgr.has_shroud_grid() {
                     shroud_mgr.init_shroud_grid(world_w, world_h);
                 }

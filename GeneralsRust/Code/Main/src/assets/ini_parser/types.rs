@@ -728,35 +728,6 @@ pub(super) fn parse_ac_bits_flags(value: &str) -> u32 {
     bits
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(super) struct LiveDrawPlayback {
-    pub(super) current_index: u32,
-    pub(super) next_index: Option<u32>,
-    pub(super) animation_complete: bool,
-}
-
-pub(super) static LIVE_DRAW_PLAYBACK: LazyLock<Mutex<HashMap<(u32, u32), LiveDrawPlayback>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// C++ `isAnimationComplete` latch used by `setModelState` wait-to-finish /
-/// transition cutover. The renderer records Once clips that reached the last
-/// frame so the next presentation tick can leave the TransitionState.
-pub fn notify_live_draw_animation_complete(object_id: u32, module_index: u32) {
-    let Ok(mut map) = LIVE_DRAW_PLAYBACK.lock() else {
-        return;
-    };
-    if let Some(playback) = map.get_mut(&(object_id, module_index)) {
-        playback.animation_complete = true;
-    }
-}
-
-/// Drop per-object TransitionState playback when the world resets.
-pub fn clear_live_draw_playback() {
-    if let Ok(mut map) = LIVE_DRAW_PLAYBACK.lock() {
-        map.clear();
-    }
-}
-
 /// One source-authored `Behavior = ...` module, retained with its own block
 /// fields instead of being collapsed into `ObjectDefinition::attributes`.
 ///

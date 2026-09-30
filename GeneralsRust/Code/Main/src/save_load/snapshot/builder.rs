@@ -92,7 +92,7 @@ impl SnapshotBuilder {
             // attaches it through the explicit companion-aware save API.
             client_drawables: ClientDrawableWorldSnapshot::default(),
             player_template_bindings: self.snapshot_player_template_bindings(game_logic)?,
-            shroud: self.snapshot_shroud_state()?,
+            shroud: self.snapshot_shroud_state(game_logic)?,
             lifecycle_tail: {
                 let mut bytes = super::lifecycle_tail::encode_lifecycle_tail(
                     &super::lifecycle_tail::capture_lifecycle_tail(game_logic),
@@ -200,14 +200,14 @@ impl SnapshotBuilder {
         Ok(snapshot)
     }
 
-    /// Capture the process-global PartitionManager equivalent. The host
-    /// transaction keeps this singleton aligned with the active GameLogic;
+    /// Capture the driving world's PartitionManager equivalent;
     /// snapshotting the derived per-player presentation bytes here would lose
     /// the raw C++ looker/shrouder counters and pending undo queue.
     fn snapshot_shroud_state(
         &self,
+        game_logic: &GameLogic,
     ) -> SaveLoadResult<gamelogic::system::shroud_manager::ShroudSnapshot> {
-        gamelogic::system::shroud_manager::get_shroud_manager()
+        game_logic.engine_stores.shroud()
             .lock()
             .map(|manager| manager.snapshot_state())
             .map_err(|_| {
@@ -233,7 +233,7 @@ impl SnapshotBuilder {
         // C++ Object.cpp:4218-4246 writes trigger slots after pose. Restore
         // HOST_TRIGGER_WORLD (including m_iPos) before recreate/set_position
         // so units already inside do not emit a fresh ENTERED_AREA edge.
-        self.restore_object_triggers(snapshot);
+        self.restore_object_triggers(snapshot, game_logic);
 
         // C++ parity order: players/teams before objects, then world systems.
         self.restore_all_players(&snapshot.players, game_logic)?;
@@ -292,7 +292,7 @@ impl SnapshotBuilder {
         }
 
         // Map loading initializes a fresh shroud grid and may reveal
-        // staging-map objects. Replace that singleton only when this save
+        // staging-map objects. Replace that world's manager only when this save
         // actually carries the v6 shroud tail, after all object/team restore
         // callbacks have finished mutating candidate state.
         if snapshot.shroud.grid.is_some()
@@ -300,7 +300,7 @@ impl SnapshotBuilder {
             || !snapshot.shroud.pending_full_reveal_players.is_empty()
             || !snapshot.shroud.pending_permanent_reveal_players.is_empty()
         {
-            gamelogic::system::shroud_manager::get_shroud_manager()
+            game_logic.engine_stores.shroud()
                 .lock()
                 .map_err(|_| {
                     SaveLoadError::Corrupted(
@@ -1117,8 +1117,11 @@ impl SnapshotBuilder {
         &self,
         game_logic: &GameLogic,
     ) -> Vec<ObjectTriggerPersistSnapshot> {
-        let mut entries: Vec<ObjectTriggerPersistSnapshot> =
-            gamelogic::scripting::capture_host_object_trigger_persists()
+        let mut entries: Vec<ObjectTriggerPersistSnapshot> = game_logic
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .capture()
                 .into_iter()
                 .map(|entry| ObjectTriggerPersistSnapshot {
                     object_id: ObjectId(entry.object_id),
@@ -1161,7 +1164,7 @@ impl SnapshotBuilder {
         entries
     }
 
-    fn restore_object_triggers(&self, snapshot: &WorldSnapshot) {
+    fn restore_object_triggers(&self, snapshot: &WorldSnapshot, game_logic: &mut GameLogic) {
         if snapshot.version < WORLD_SNAPSHOT_DIRECT_XFER_V16_TAIL_VERSION {
             return;
         }
@@ -1186,7 +1189,11 @@ impl SnapshotBuilder {
                     .collect(),
             })
             .collect();
-        gamelogic::scripting::restore_host_object_trigger_persists(&entries);
+        game_logic
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .restore(&entries);
     }
 
     fn restore_object_persist(

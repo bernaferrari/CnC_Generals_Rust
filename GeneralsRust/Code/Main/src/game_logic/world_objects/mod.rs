@@ -12,7 +12,6 @@ mod object_ai_combat;
 mod object_queries;
 mod overlord_addon_damage;
 mod radar_live;
-pub(crate) use radar_live::host_refresh_radar_shroud;
 mod ready_completions;
 mod resources_income;
 mod spawn_templates;

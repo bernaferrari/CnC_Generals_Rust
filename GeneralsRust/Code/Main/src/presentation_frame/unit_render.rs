@@ -118,6 +118,11 @@ pub struct UnitRenderInput {
     /// Exact selected models for all source-authored W3D Draw modules. Source
     /// order and module identity are preserved; equal basenames are not merged.
     pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
+    /// Send-safe object/world identity frozen from the source host Drawable.
+    /// Mutable transition playback belongs to the receiving RenderPipeline.
+    pub(crate) draw_playback_identity: Option<crate::assets::LiveDrawPlaybackIdentity>,
+    pub(crate) draw_animation_completion_targets:
+        Vec<crate::assets::LiveDrawAnimationCompletionTarget>,
     /// Local transform completed once by the driving visual owner. Matrix
     /// reads never advance locomotor state or consume client randomness.
     pub physics_visual_local: Option<glam::Mat4>,
@@ -356,6 +361,8 @@ impl UnitRenderInput {
             template_name: ro.template_name.clone(),
             model_key,
             draw_models,
+            draw_playback_identity: ro.draw_playback_identity.clone(),
+            draw_animation_completion_targets: Vec::new(),
             physics_visual_local: None,
             #[cfg(feature = "game_client")]
             specialized_draw: None,
@@ -510,16 +517,69 @@ impl UnitRenderInput {
             &fallback_draw_models,
             self.model_condition_bits_with_combat_flags(),
         );
-        self.draw_models = crate::assets::apply_live_draw_transition_playback_for_object(
-            self.id.0,
-            &self.template_name,
-            dest,
-        );
+        self.draw_models = dest;
         self.model_key = self
             .draw_models
             .first()
             .map(|model| model.model_key.clone())
             .unwrap_or_default();
+    }
+
+    pub(crate) fn resolve_draw_models_for_template(
+        &mut self,
+        template_name: &str,
+        fallback_draw_models: &[crate::assets::AuthoredDrawModel],
+    ) {
+        let dest = crate::assets::resolve_presentation_draw_models_for_conditions(
+            template_name,
+            fallback_draw_models,
+            self.model_condition_bits_with_combat_flags(),
+        );
+        self.template_name = template_name.to_owned();
+        self.draw_models = dest;
+        self.model_key = self
+            .draw_models
+            .first()
+            .map(|model| model.model_key.clone())
+            .unwrap_or_default();
+    }
+
+    pub(crate) fn apply_live_draw_transition_playback(
+        &mut self,
+        playback_by_module: &mut std::collections::HashMap<
+            crate::assets::LiveDrawPlaybackKey,
+            crate::assets::LiveDrawPlayback,
+        >,
+    ) {
+        self.draw_animation_completion_targets.clear();
+        if let Some(identity) = self.draw_playback_identity.as_ref() {
+            self.draw_models = crate::assets::apply_live_draw_transition_playback_for_object(
+                playback_by_module,
+                identity,
+                &self.template_name,
+                self.draw_models.clone(),
+            );
+            self.draw_animation_completion_targets = self
+                .draw_models
+                .iter()
+                .filter(|model| model.is_transition)
+                .map(|model| identity.completion_target(model.module_index))
+                .collect();
+        }
+        self.model_key = self
+            .draw_models
+            .first()
+            .map(|model| model.model_key.clone())
+            .unwrap_or_default();
+    }
+
+    pub(crate) fn draw_animation_completion_target(
+        &self,
+        module_index: u32,
+    ) -> Option<&crate::assets::LiveDrawAnimationCompletionTarget> {
+        self.draw_animation_completion_targets
+            .iter()
+            .find(|target| target.module_index() == module_index)
     }
 
     /// Resolve C++ W3DModelDraw child visibility for exactly one selected

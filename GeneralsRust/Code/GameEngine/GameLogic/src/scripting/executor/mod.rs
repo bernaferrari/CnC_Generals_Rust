@@ -54,7 +54,7 @@ use once_cell::sync::Lazy;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Live host drain: TEAM/NAMED move and attack when leftover `OBJECT_REGISTRY` is empty.
 /// C++ `ScriptActions::doMoveToWaypoint` / `doNamedMoveToWaypoint` / `doAttack` /
@@ -1381,6 +1381,10 @@ pub struct ScriptContext {
     // Runtime state
     pub current_frame: u32,
     pub suppress_new_windows: bool,
+    /// Trigger edge state for this world context. Main supplies the owning
+    /// GameLogic instance's handle; standalone executor contexts own a fresh
+    /// state instead of consulting ambient TLS.
+    pub host_trigger_world: Arc<Mutex<crate::scripting::HostTriggerWorld>>,
 }
 
 impl ScriptContext {
@@ -1396,6 +1400,7 @@ impl ScriptContext {
             special_powers_id: 0,
             current_frame: TheGameLogic::get_frame(),
             suppress_new_windows: false,
+            host_trigger_world: Arc::new(Mutex::new(Default::default())),
         }
     }
 }
@@ -1426,6 +1431,18 @@ pub struct ScriptConditionEvaluator {
 impl ScriptConditionEvaluator {
     pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
         Self { context }
+    }
+
+    pub(crate) fn with_host_trigger_world<R>(
+        &self,
+        f: impl FnOnce(&crate::scripting::HostTriggerWorld, u32) -> R,
+    ) -> R {
+        let context = self.context.read().unwrap_or_else(|e| e.into_inner());
+        let world = context
+            .host_trigger_world
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        f(&world, context.current_frame)
     }
 }
 

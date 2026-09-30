@@ -58,15 +58,31 @@ pub struct MissionScriptRuntime {
 
 impl MissionScriptRuntime {
     fn new() -> GameLogicResult<Self> {
-        Self::new_with_pending_script_enabled_updates(Arc::new(Mutex::new(Vec::new())))
+        Self::new_with_host_trigger_world(
+            Arc::new(Mutex::new(Vec::new())),
+            Arc::new(Mutex::new(Default::default())),
+        )
     }
 
     fn new_with_pending_script_enabled_updates(
         pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
     ) -> GameLogicResult<Self> {
+        Self::new_with_host_trigger_world(
+            pending_script_enabled_updates,
+            Arc::new(Mutex::new(Default::default())),
+        )
+    }
+
+    fn new_with_host_trigger_world(
+        pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
+        host_trigger_world: Arc<Mutex<gamelogic::scripting::HostTriggerWorld>>,
+    ) -> GameLogicResult<Self> {
         let _ = initialize_script_engine();
         let engine = get_script_engine();
-        let evaluator = ScriptEvaluator::new(engine.clone());
+        let evaluator = ScriptEvaluator::new_with_host_trigger_world(
+            engine.clone(),
+            host_trigger_world,
+        );
         Ok(Self {
             evaluator,
             scripts: Vec::new(),
@@ -186,7 +202,8 @@ impl MissionScriptRuntime {
             return Ok(());
         }
         self.frame_counter = current_frame;
-        gamelogic::scripting::sync_host_trigger_flags_from_snapshot(current_frame as u32);
+        self.evaluator
+            .sync_host_trigger_flags_from_snapshot(current_frame as u32);
 
         self.apply_pending_script_enabled_updates()?;
         if current_frame <= 2 {

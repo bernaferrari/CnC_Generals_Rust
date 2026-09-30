@@ -3,8 +3,23 @@ use super::*;
 impl AIPlayer {
     /// Create new AI player
     pub fn new(player_id: u32, team: Team, difficulty: AIDifficulty) -> Self {
+        Self::new_with_team_factory(
+            player_id,
+            team,
+            difficulty,
+            gamelogic::team::TeamFactoryHandle::new(),
+        )
+    }
+
+    pub(crate) fn new_with_team_factory(
+        player_id: u32,
+        team: Team,
+        difficulty: AIDifficulty,
+        team_factory: gamelogic::team::TeamFactoryHandle,
+    ) -> Self {
         let personality = AIPersonality::for_team(team);
         Self {
+            team_factory,
             player_id,
             team,
             difficulty,

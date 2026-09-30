@@ -84,6 +84,7 @@ impl RenderPipeline {
             debug_warned_bad_mesh_transforms: HashSet::new(),
             model_cull_bounds_cache: HashMap::new(),
             drawable_visual_states: HashMap::new(),
+            live_draw_playback: HashMap::new(),
             pending_client_drawable_restore: None,
             pending_client_drawable_imports: HashMap::new(),
             #[cfg(feature = "game_client")]

@@ -48,8 +48,7 @@ pub use conditions::*;
 pub use conditions::{
     HostObjectTriggerPersist, HostScriptPlayerCensus, HostScriptQueryObject,
     HostScriptQuerySnapshot, HostTechBuildingCensus, HostTriggerSlotPersist,
-    capture_host_object_trigger_persists, clear_host_script_query_snapshot,
-    clear_host_trigger_flags, host_bridge_broken, host_bridge_repaired,
+    clear_host_script_query_snapshot, host_bridge_broken, host_bridge_repaired,
     host_building_entered_by_player, host_count_player_kind_in_area,
     host_count_player_type_in_area, host_enemy_sighted, host_eval_skirmish_captured_count,
     host_eval_skirmish_command_button_ready, host_eval_skirmish_garrisoned_count,
@@ -71,8 +70,7 @@ pub use conditions::{
     host_script_query_object_by_id, host_script_team_member_ids, host_script_team_unit_ids,
     host_team_has_any_live_objects, host_team_has_any_live_units, host_team_sequential_status,
     host_team_was_fielded, host_type_sighted, merge_host_script_query_snapshot,
-    restore_host_object_trigger_persists, sync_host_trigger_flags_from_snapshot,
-    update_host_object_trigger_flags,
+    sync_host_trigger_flags_from_snapshot,
 };
 pub use core::*;
 pub use engine::*;
@@ -122,6 +120,8 @@ pub struct ScriptContext {
     pub variables: HashMap<String, ScriptValue>,
     /// Global game state
     pub game_state: GameStateContext,
+    /// Trigger edge state owned by the script execution world.
+    pub host_trigger_world: Arc<Mutex<HostTriggerWorld>>,
 }
 
 /// Game state context for scripts
@@ -693,6 +693,7 @@ impl ScriptingEngine {
                 active_player: None,
                 variables: event.parameters.clone(),
                 game_state,
+                host_trigger_world: Arc::new(Mutex::new(HostTriggerWorld::default())),
             };
 
             if let Err(e) = self.execute_script(&script_id, context).await {
@@ -1032,6 +1033,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: Arc::new(Mutex::new(HostTriggerWorld::default())),
         };
 
         let result = engine.execute_script("test_exec", context).await.unwrap();

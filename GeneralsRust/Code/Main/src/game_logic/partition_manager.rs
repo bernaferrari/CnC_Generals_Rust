@@ -71,14 +71,22 @@ impl PartitionManager {
 
     /// C++ PartitionManager::revealMapForPlayer (non-permanent).
     /// Shroud crate / RevealMapForPlayer script: addLooker+removeLooker → FOGGED.
-    pub fn reveal_map_for_player(&mut self, player_id: u32) {
-        crate::fow_rendering::reveal_entire_map_explored_for_player(player_id);
+    pub fn reveal_map_for_player(
+        &mut self,
+        shroud: &mut gamelogic::system::shroud_manager::ShroudManager,
+        player_id: u32,
+    ) {
+        crate::fow_rendering::reveal_entire_map_explored_for_player(shroud, player_id);
     }
 
     /// C++ PartitionManager::revealMapForPlayerPermanently — observer/defeat only.
-    pub fn reveal_map_for_player_permanently(&mut self, player_id: u32) {
+    pub fn reveal_map_for_player_permanently(
+        &mut self,
+        shroud: &mut gamelogic::system::shroud_manager::ShroudManager,
+        player_id: u32,
+    ) {
         if self.revealed_players.insert(player_id) {
-            crate::fow_rendering::reveal_entire_map_for_player(player_id);
+            crate::fow_rendering::reveal_entire_map_for_player(shroud, player_id);
         }
     }
 
@@ -276,12 +284,13 @@ mod tests {
     #[test]
     fn reveal_map_for_player_is_not_permanent() {
         let mut pm = PartitionManager::new();
-        pm.reveal_map_for_player(0);
+        let mut shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+        pm.reveal_map_for_player(&mut shroud, 0);
         assert!(
             !pm.has_revealed_map(0),
             "crate/script reveal must not latch permanent lookers"
         );
-        pm.reveal_map_for_player_permanently(1);
+        pm.reveal_map_for_player_permanently(&mut shroud, 1);
         assert!(pm.has_revealed_map(1));
     }
 }

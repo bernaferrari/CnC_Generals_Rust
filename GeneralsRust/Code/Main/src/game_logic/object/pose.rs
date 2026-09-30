@@ -1,6 +1,15 @@
 use super::*;
 
 impl Object {
+    pub(crate) fn attach_host_trigger_world(
+        &mut self,
+        world: &std::sync::Arc<
+            std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+        >,
+    ) {
+        self.host_trigger_world = std::sync::Arc::downgrade(world);
+    }
+
     pub fn get_position(&self) -> Vec3 {
         self.thing.get_position()
     }
@@ -24,20 +33,26 @@ impl Object {
         // C++ Object.cpp:2580-2583: integer XY change notifies W3DTreeBuffer::unitMoved.
         if old_ix != position.x as i32 || old_iz != position.z as i32 {
             self.notify_terrain_trees_on_unit_move();
-            let skip = self.is_kind_of(KindOf::Projectile);
+            let skip = self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert);
             let team = if self.team_instance_name.is_empty() {
                 None
             } else {
                 Some(self.team_instance_name.as_str())
             };
-            gamelogic::scripting::update_host_object_trigger_flags(
-                self.id.0,
-                position.x,
-                position.z,
-                gamelogic::system::game_logic::current_frame(),
-                skip,
-                team,
-            );
+            if let Some(world) = self.host_trigger_world.upgrade() {
+                let mut world = world
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let frame = world.current_frame();
+                world.update_object_flags(
+                    self.id.0,
+                    position.x,
+                    position.z,
+                    frame,
+                    skip,
+                    team,
+                );
+            }
         }
     }
 

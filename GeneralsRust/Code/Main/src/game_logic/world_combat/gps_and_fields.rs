@@ -273,6 +273,7 @@ impl GameLogic {
                 &candidates
             {
                 let rel = GameLogic::object_relationship_from_owners(
+                    &self.team_factory,
                     &self.players,
                     *target_owner,
                     target_team_instance,
@@ -674,6 +675,7 @@ impl GameLogic {
             let is_structure =
                 target.is_kind_of(KindOf::Structure) || target.object_type == ObjectType::Building;
             let rel = GameLogic::object_relationship_from_owners(
+                &self.team_factory,
                 &self.players,
                 target.owner_player_id,
                 &target.team_instance_name,
@@ -880,6 +882,7 @@ impl GameLogic {
                 let airborne =
                     tobj.is_kind_of(KindOf::Aircraft) || tobj.object_type == ObjectType::Aircraft;
                 let rel = GameLogic::object_relationship_from_owners(
+                    &self.team_factory,
                     &self.players,
                     tobj.owner_player_id,
                     &tobj.team_instance_name,

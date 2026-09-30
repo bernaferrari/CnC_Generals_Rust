@@ -1335,7 +1335,7 @@ impl GameLogic {
         let Some(local) = self.local_player_id() else {
             return true;
         };
-        let status = gamelogic::system::shroud_manager::get_shroud_manager()
+        let status = std::sync::Arc::clone(self.engine_stores.shroud())
             .lock()
             .ok()
             .and_then(|mgr| mgr.get_host_object_shroud_status(local, det_id.0));

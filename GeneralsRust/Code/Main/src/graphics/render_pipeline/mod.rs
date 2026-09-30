@@ -710,6 +710,11 @@ pub struct RenderPipeline {
     /// not collapse separate retail Draw modules into one timeline: C++ keeps
     /// animation and weapon-recoil state on each W3DModelDraw module.
     drawable_visual_states: HashMap<(u32, u32), ObjectVisualState>,
+    /// C++ W3DModelDraw current/next state for each exact world/object/module
+    /// identity. RenderPipeline is the synchronous mutable owner; presentation
+    /// and GameLogic carry only immutable identity values.
+    live_draw_playback:
+        HashMap<crate::assets::LiveDrawPlaybackKey, crate::assets::LiveDrawPlayback>,
     /// A v4 client Drawable payload which has passed the host's staged-load
     /// boundary but has not yet seen a frozen full presentation topology.
     /// `set_presentation_frame(Some(..))` consumes this exactly once into the

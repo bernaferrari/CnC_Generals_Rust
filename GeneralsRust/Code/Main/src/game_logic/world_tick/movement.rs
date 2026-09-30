@@ -2318,6 +2318,7 @@ impl GameLogic {
             &mut self.objects,
             self.frame,
             Some(&self.players),
+            Some(&self.team_factory),
         );
         self.execute_pending_weapon_fire_ocls();
     }

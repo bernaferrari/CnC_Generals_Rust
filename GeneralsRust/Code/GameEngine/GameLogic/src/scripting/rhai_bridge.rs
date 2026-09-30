@@ -943,6 +943,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         }
     }
 
@@ -990,6 +991,7 @@ mod tests {
                 players: vec![],
                 objectives: vec![],
             },
+            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
         };
 
         let _ = executor.execute("test_var", &context);

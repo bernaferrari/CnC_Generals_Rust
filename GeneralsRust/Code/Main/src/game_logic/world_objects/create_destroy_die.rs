@@ -1174,6 +1174,7 @@ impl GameLogic {
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
             let mut object = Object::new_with_logic_frame(template, id, team, self.frame);
+            object.attach_host_trigger_world(&self.host_trigger_world);
             object.owner_player_id = owner_player_id;
             if object.team_instance_name.is_empty() {
                 object.team_instance_name =
@@ -2546,6 +2547,7 @@ impl GameLogic {
             let partition_cash = template.build_cost.supplies;
             let partition_threat = u32::from(template.get_threat_value());
             let mut object = Object::new_under_construction(template, id, team);
+            object.attach_host_trigger_world(&self.host_trigger_world);
             object.owner_player_id = owner_player_id;
             object.partition_cash_value = partition_cash;
             object.partition_threat_value = partition_threat;

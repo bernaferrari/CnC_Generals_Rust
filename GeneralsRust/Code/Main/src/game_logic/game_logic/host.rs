@@ -22,6 +22,16 @@ pub struct GameLogic {
     /// displaced (see `install_as_active_stores` and
     /// `impl Drop for GameLogic`).
     pub(crate) engine_stores: std::sync::Arc<gamelogic::system::engine_stores::EngineStores>,
+    /// Trigger membership for this host world. Objects keep only a weak
+    /// handle so pose changes update this owner's slots without selecting an
+    /// ambient game instance.
+    pub(crate) host_trigger_world: std::sync::Arc<
+        std::sync::Mutex<gamelogic::scripting::HostTriggerWorld>,
+    >,
+    /// Team prototypes, instances, ID counters, and deletion notifications for
+    /// this match. C++ exposes this through `TheTeamFactory`; Rust keeps the
+    /// mutable simulation data on the owning host world.
+    pub(super) team_factory: gamelogic::team::TeamFactoryHandle,
     /// Named AttackPriorityInfo residual map (script sets).
     pub attack_priority_sets: std::collections::HashMap<String, AttackPriorityInfo>,
     /// C++ `Team::m_commonAttackTarget` residual, keyed by team instance name.
@@ -107,6 +117,9 @@ pub struct GameLogic {
     /// Runtime-only world identity so recycled ObjectIds cannot inherit a stale plan.
     pub(super) visual_world_epoch: u64,
     pub(super) next_visual_object_generation: u64,
+    /// Immutable identity token copied into presentation values. Runtime
+    /// W3DModelDraw playback belongs to RenderPipeline, keeping GameLogic Send.
+    pub(crate) live_draw_playback_world: Arc<()>,
 
     /// Game mode
     pub(super) game_mode: GameMode,
@@ -1354,6 +1367,21 @@ pub struct GameLogic {
     pub(super) install_multiplayer_scripts: bool,
 }
 impl GameLogic {
+    /// Freeze a Send-safe W3DModelDraw identity for one admitted object
+    /// generation. Mutable playback remains owned by the RenderPipeline.
+    pub(crate) fn live_draw_playback_identity(
+        &self,
+        object_id: ObjectId,
+        object_generation: u64,
+    ) -> crate::assets::LiveDrawPlaybackIdentity {
+        crate::assets::LiveDrawPlaybackIdentity::new(
+            Arc::clone(&self.live_draw_playback_world),
+            self.visual_world_epoch,
+            object_id.0,
+            object_generation,
+        )
+    }
+
     /// Make this world's engine-store bundle the ambient resolution target
     /// (C++ single-world engine: the world being started or committed is THE
     /// world). Idempotent per bundle — a live world resetting itself must

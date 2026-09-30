@@ -374,18 +374,10 @@ impl PresentationFrame {
                                     model_key: fallback_model_key,
                                     ..Default::default()
                                 });
-                            input.draw_models =
-                                crate::assets::resolve_presentation_draw_models_for_live_object(
-                                    input.id.0,
-                                    disguise_template,
-                                    fallback_draw_models.as_slice(),
-                                    input.model_condition_bits_with_combat_flags(),
-                                );
-                            input.model_key = input
-                                .draw_models
-                                .first()
-                                .map(|model| model.model_key.clone())
-                                .unwrap_or_default();
+                            input.resolve_draw_models_for_template(
+                                disguise_template,
+                                fallback_draw_models.as_slice(),
+                            );
                         }
                     }
                 }
@@ -407,18 +399,10 @@ impl PresentationFrame {
                     model_key: fallback_model_key,
                     ..Default::default()
                 });
-            input.template_name = visual_template_name.to_owned();
-            input.draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
-                input.id.0,
+            input.resolve_draw_models_for_template(
                 visual_template_name,
                 fallback_draw_models.as_slice(),
-                input.model_condition_bits_with_combat_flags(),
             );
-            input.model_key = input
-                .draw_models
-                .first()
-                .map(|model| model.model_key.clone())
-                .unwrap_or_default();
             if visual_mesh_scale.is_finite() && visual_mesh_scale > 0.0 {
                 input.mesh_scale = visual_mesh_scale;
             }
@@ -530,6 +514,7 @@ impl PresentationFrame {
                 marker.rally_point = None;
                 marker.destroyed = false;
                 marker.contained_by = None;
+                marker.draw_playback_identity = None;
                 let mut input = UnitRenderInput::from_renderable_with_environment(
                     &marker,
                     self.world_env.is_snow,
@@ -571,6 +556,7 @@ impl PresentationFrame {
             marker.selected = false;
             marker.rally_point = None;
             marker.contained_by = None;
+            marker.draw_playback_identity = None;
             let mut input = UnitRenderInput::from_renderable_with_environment(
                 &marker,
                 self.world_env.is_snow,
@@ -635,6 +621,7 @@ impl PresentationFrame {
                 marker.destroyed = false;
                 marker.contained_by = None;
                 marker.shadows_enabled = false;
+                marker.draw_playback_identity = None;
                 let mut input = UnitRenderInput::from_renderable_with_environment(
                     &marker,
                     self.world_env.is_snow,

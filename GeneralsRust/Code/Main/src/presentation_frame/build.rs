@@ -3,7 +3,7 @@ use crate::fow_rendering::{ProjectedShroudMetadata, ProjectedShroudSnapshot};
 
 /// Per-frame frozen FOW runtime facts for the direct-drawable shroud freeze.
 ///
-/// Hoists the shroud-manager lock and the runtime-active probe out of the
+/// Uses the frame's shroud borrow and hoists the runtime-active probe out of the
 /// per-object loop: the fallback branch needs only this one bit, and probing
 /// it per object used to materialize the full visible/explored snapshot Vecs
 /// per object per frame. `None` mirrors the per-object lock-failure Clear
@@ -13,10 +13,9 @@ pub(super) struct DirectShroudFrameFacts {
 }
 
 impl DirectShroudFrameFacts {
-    /// One lock + O(1) membership probe per presentation frame.
-    pub(super) fn freeze(local_player_id: u32) -> Option<Self> {
-        let shroud = gamelogic::system::shroud_manager::get_shroud_manager();
-        let guard = shroud.lock().ok()?;
+    /// O(1) membership probe using the already borrowed frame owner.
+    pub(super) fn freeze(guard: Option<&gamelogic::system::shroud_manager::ShroudManager>, local_player_id: u32) -> Option<Self> {
+        let guard = guard?;
         Some(Self {
             runtime_active: guard.has_any_visible_object(local_player_id)
                 || guard.has_any_explored_object(local_player_id),
@@ -28,17 +27,19 @@ impl DirectShroudFrameFacts {
 /// Drawable. Host object FOW is the PartitionData COI mix stored by
 /// `update_main_crate_vision` (Clear / PartialClear / Fogged / Shrouded).
 pub(super) fn freeze_direct_object_shroud_facts(
+    shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
     obj: &crate::game_logic::Object,
     local_player_id: u32,
     local_team: Team,
     fow_shell_bypass: bool,
 ) -> PresentationDrawableShroudFacts {
     freeze_direct_object_shroud_facts_with_frame_facts(
+        shroud,
         obj,
         local_player_id,
         local_team,
         fow_shell_bypass,
-        DirectShroudFrameFacts::freeze(local_player_id).as_ref(),
+        DirectShroudFrameFacts::freeze(shroud, local_player_id).as_ref(),
     )
 }
 
@@ -46,6 +47,7 @@ pub(super) fn freeze_direct_object_shroud_facts(
 /// probe (see the frame build loop). Behavior-identical to probing per
 /// object: the runtime-active bit only feeds the cache-miss fallback.
 pub(super) fn freeze_direct_object_shroud_facts_with_frame_facts(
+    shroud: Option<&gamelogic::system::shroud_manager::ShroudManager>,
     obj: &crate::game_logic::Object,
     local_player_id: u32,
     local_team: Team,
@@ -62,7 +64,7 @@ pub(super) fn freeze_direct_object_shroud_facts_with_frame_facts(
         // clear behavior even when the standalone manager has no membership.
         PresentationObjectShroudStatus::Clear
     } else if let Some(facts) = frame_facts {
-        if let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() {
+        if let Some(shroud) = shroud {
             if let Some(status) = shroud.get_host_object_shroud_status(local_player_id, obj.id.0) {
                 PresentationObjectShroudStatus::from(status)
             } else if !facts.runtime_active || shroud.can_see_object(local_player_id, obj.id.0) {
@@ -416,7 +418,27 @@ impl PresentationFrame {
         // Freeze team base proximity once (camera snap / host residual).
         let local_team_base_position = logic.team_base_position(local_team);
         // Freeze terrain FOW grid once for this presentation frame (local player only).
-        let fow_grid = FOWRenderingBridge::snapshot_terrain_grid(local_player_id, fow_shell_bypass);
+        // One borrow freezes all shroud facts, then releases the manager before
+        // gameplay queries. The vectors use the same unchanged object traversal;
+        // rendering consumes values without locks or ambient world selection.
+        let (fow_grid, frozen_object_shrouds) = {
+            let manager = logic.engine_stores.shroud().lock().ok();
+            let shroud = manager.as_deref();
+            let grid = FOWRenderingBridge::snapshot_terrain_grid(shroud, local_player_id, fow_shell_bypass);
+            let facts = DirectShroudFrameFacts::freeze(shroud, local_player_id);
+            let objects: Vec<_> = logic.host_objects().values().map(|obj| {
+                let owner = obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
+                let visibility = if fow_shell_bypass || owner == Some(local_player_id) {
+                    ObjectVisibility::FULLY_VISIBLE
+                } else {
+                    FOWRenderingBridge::get_object_visibility(shroud, local_player_id, obj.id)
+                };
+                let drawable = freeze_direct_object_shroud_facts_with_frame_facts(
+                    shroud, obj, local_player_id, local_team, fow_shell_bypass, facts.as_ref());
+                (visibility, drawable)
+            }).collect();
+            (grid, objects)
+        };
         // C++ W3DShroud copies logical cells into a padded destination texture
         // before per-object material passes sample it.  Freeze that complete
         // renderer input here, including GlobalData tint/levels, so WGPU never
@@ -441,13 +463,10 @@ impl PresentationFrame {
                 ),
             )
         };
-        // Freeze the FOW runtime-active probe once per frame (one lock, no
-        // per-object visible/explored set materialization in the loop below).
-        let direct_shroud_frame_facts = DirectShroudFrameFacts::freeze(local_player_id);
         let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
         let mut objects = Vec::with_capacity(logic.host_objects().len());
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
-        for obj in logic.host_objects().values() {
+        for (obj, (fow_visibility, drawable_shroud)) in logic.host_objects().values().zip(frozen_object_shrouds) {
             // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
             if obj.drawable_hidden {
                 continue;
@@ -559,8 +578,7 @@ impl PresentationFrame {
                     model_key: base_model_key.clone(),
                     ..Default::default()
                 });
-            let draw_models = crate::assets::resolve_presentation_draw_models_for_live_object(
-                obj.id.0,
+            let draw_models = crate::assets::resolve_presentation_draw_models_for_conditions(
                 &obj.template_name,
                 fallback_draw_models.as_slice(),
                 model_condition_bits,
@@ -586,21 +604,6 @@ impl PresentationFrame {
             let resolved_owner = obj
                 .owner_player_id
                 .or_else(|| logic.player_id_for_team(obj.team));
-            let fow_visibility = if fow_shell_bypass {
-                ObjectVisibility::FULLY_VISIBLE
-            } else if resolved_owner == Some(local_player_id) {
-                // Always see own force (structures + builders + army).
-                ObjectVisibility::FULLY_VISIBLE
-            } else {
-                FOWRenderingBridge::get_object_visibility(local_player_id, obj.id)
-            };
-            let drawable_shroud = freeze_direct_object_shroud_facts_with_frame_facts(
-                obj,
-                local_player_id,
-                local_team,
-                fow_shell_bypass,
-                direct_shroud_frame_facts.as_ref(),
-            );
             let visual_template_name = direct_host_visual_template_name(obj);
             let visual_mesh_scale =
                 direct_host_visual_mesh_scale(logic, obj, &visual_template_name);
@@ -654,6 +657,10 @@ impl PresentationFrame {
             };
             let renderable = RenderableObject {
                 status_tint: [0.0; 3],
+                draw_playback_identity: Some(logic.live_draw_playback_identity(
+                    obj.id,
+                    obj.visual_object_generation,
+                )),
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: garrison_apparent_team,

@@ -498,6 +498,156 @@ End
     assert!(authored_draw_adjusts_height_by_construction(&dest));
 }
 
+
+#[test]
+fn live_draw_playback_isolated_between_game_instances_with_equal_object_ids() {
+    use crate::assets::{LiveDrawPlayback, LiveDrawPlaybackKey};
+    use crate::game_logic::{GameLogic, Team, ThingTemplate};
+    use std::collections::HashMap;
+
+    let source = r#"
+Object TransitionPlayProbe
+  Draw = W3DModelDraw ModuleTag_01
+    DefaultConditionState
+      Model = ProbeIdle
+      TransitionKey = TRANS_Standing
+    End
+    ConditionState = MOVING
+      Model = ProbeMove
+      TransitionKey = TRANS_Moving
+    End
+    TransitionState = TRANS_Standing TRANS_Moving
+      Model = ProbeStandToMove
+      Animation = ProbeHier.StandToMove
+      AnimationMode = ONCE
+    End
+  End
+End
+"#;
+    let mut parser = IniParser::new();
+    parser
+        .parse_ini_content(source, "live_transition_world_isolation.ini")
+        .expect("parse transition fixture");
+    let definition = parser
+        .get_definition("TransitionPlayProbe")
+        .expect("transition fixture definition");
+
+    // The two independent worlds intentionally allocate the same numeric id.
+    let make_world = || {
+        let mut world = GameLogic::new();
+        world
+            .templates
+            .insert("TransitionPlayProbe".into(), ThingTemplate::new("TransitionPlayProbe"));
+        let id = world
+            .create_object("TransitionPlayProbe", Team::USA, glam::Vec3::ZERO)
+            .expect("fixture object");
+        (world, id)
+    };
+    let (mut world_a, id_a) = make_world();
+    let (mut world_b, id_b) = make_world();
+    assert_eq!(id_a, id_b, "fixture must exercise equal cross-world ids");
+
+    // The production owner is one RenderPipeline map; GameLogic contributes
+    // only immutable, Send-safe world/object identities.
+    let mut playback = HashMap::<LiveDrawPlaybackKey, LiveDrawPlayback>::new();
+    let identity_for = |world: &GameLogic, id| {
+        let generation = world.objects.get(&id).expect("fixture object").visual_object_generation;
+        world.live_draw_playback_identity(id, generation)
+    };
+    let identity_a = identity_for(&world_a, id_a);
+    let identity_b = identity_for(&world_b, id_b);
+
+    let standing = definition.select_draw_models_for_conditions(0).expect("standing destination");
+    let selected_a = definition.apply_live_draw_transition_playback(&mut playback, &identity_a, standing);
+    assert_eq!(selected_a[0].model_key, "ProbeIdle");
+    assert!(!selected_a[0].is_transition);
+    let moving_a = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("moving destination");
+    let selected_a = definition.apply_live_draw_transition_playback(&mut playback, &identity_a, moving_a);
+    assert_eq!(selected_a[0].model_key, "ProbeStandToMove");
+    assert!(selected_a[0].is_transition);
+    let completion_a = identity_a.completion_target(selected_a[0].module_index);
+    assert_eq!(completion_a.object_id(), id_a.0);
+    assert_eq!(completion_a.world_epoch(), identity_a.world_epoch());
+    assert_eq!(completion_a.object_generation(), identity_a.object_generation());
+
+    // B's first selected state has no prior B state, so A's standing state
+    // cannot trigger the authored transition despite the shared ObjectId.
+    let moving_b = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("moving destination");
+    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    assert_eq!(selected_b[0].model_key, "ProbeMove");
+    assert!(!selected_b[0].is_transition);
+
+    // Renderer completion targets the precise world/object/module key.
+    playback
+        .get_mut(&completion_a.playback_key())
+        .expect("A transition state")
+        .animation_complete = true;
+    let moving_b = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("B moving destination");
+    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    assert_eq!(selected_b[0].model_key, "ProbeMove");
+    assert!(!selected_b[0].is_transition);
+    let moving_a = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("A moving destination");
+    let selected_a = definition.apply_live_draw_transition_playback(&mut playback, &identity_a, moving_a);
+    assert_eq!(selected_a[0].model_key, "ProbeMove");
+    assert!(!selected_a[0].is_transition);
+
+    // World reset advances only A's identity epoch. B's active transition
+    // remains pending, and an old A completion cannot mutate a new A identity.
+    let standing_b = definition.select_draw_models_for_conditions(0).expect("B standing destination");
+    let _ = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, standing_b);
+    let moving_b = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("B moving destination");
+    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    assert!(selected_b[0].is_transition);
+    let completion_b = identity_b.completion_target(selected_b[0].module_index);
+    world_a.reset();
+    let moving_b = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("B moving destination after other-world reset");
+    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &identity_b, moving_b);
+    assert!(selected_b[0].is_transition);
+    assert!(playback.contains_key(&completion_b.playback_key()));
+
+    // Re-admitting B's same numeric id assigns a new generation. A late
+    // completion for the retired identity cannot finish the replacement.
+    let old_generation = world_b
+        .objects
+        .get(&id_b)
+        .expect("world B object")
+        .visual_object_generation;
+    let replacement = crate::game_logic::Object::new(
+        ThingTemplate::new("TransitionPlayProbe"),
+        id_b,
+        Team::USA,
+    );
+    world_b.admit_host_object(replacement);
+    let new_identity = identity_for(&world_b, id_b);
+    assert_ne!(old_generation, new_identity.object_generation());
+    playback
+        .get_mut(&completion_b.playback_key())
+        .expect("old B transition state")
+        .animation_complete = true;
+    let standing_b = definition.select_draw_models_for_conditions(0).expect("replacement standing destination");
+    let _ = definition.apply_live_draw_transition_playback(&mut playback, &new_identity, standing_b);
+    let moving_b = definition
+        .select_draw_models_for_conditions(model_condition_bit("MOVING"))
+        .expect("replacement moving destination");
+    let selected_b = definition.apply_live_draw_transition_playback(&mut playback, &new_identity, moving_b);
+    assert!(selected_b[0].is_transition);
+
+    assert!(world_a.objects.is_empty(), "reset clears only world A");
+    assert_eq!(world_b.objects.len(), 1);
+}
+
 #[test]
 fn retained_draw_modules_select_each_non_suppressed_model_in_source_order() {
     let ini_content = r#"

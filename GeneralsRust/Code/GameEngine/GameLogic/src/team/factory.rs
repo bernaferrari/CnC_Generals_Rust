@@ -20,9 +20,6 @@ pub struct TeamFactory {
 impl TeamFactory {
     /// Create new team factory
     pub fn new() -> Self {
-        game_engine::common::rts::team::set_team_home_waypoint_resolver(
-            leftover_resolve_team_home_waypoint,
-        );
         Self {
             prototypes: HashMap::new(),
             teams: HashMap::new(),
@@ -1004,4 +1001,3 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
             .store_generic_script_runtime(pending.script_index, Some(script));
     }
 }
-

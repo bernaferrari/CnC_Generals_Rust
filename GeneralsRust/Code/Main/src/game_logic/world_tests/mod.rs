@@ -8,6 +8,7 @@ use helpers::*;
 mod base_defenses;
 mod cave_bridge;
 mod combat_particles_and_economy;
+mod team_factory_owner_red;
 mod crates_and_salvage;
 mod hud_feedback_chains;
 mod network_and_scripts;

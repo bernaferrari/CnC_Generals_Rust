@@ -646,7 +646,6 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
     use gamelogic::polygon_trigger::PolygonTrigger;
     use gamelogic::scripting::{
         clear_host_script_query_snapshot, host_script_named_unit_in_named_area,
-        update_host_object_trigger_flags,
     };
 
     assert!(OBJECT_REGISTRY.is_empty());
@@ -661,12 +660,27 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
             ICoord3D::new(0, 30, 0),
         ],
     );
+    let trigger = PolygonTrigger::new(
+        1412,
+        AsciiString::from("LivePolyPad"),
+        vec![
+            ICoord3D::new(0, 0, 0),
+            ICoord3D::new(30, 0, 0),
+            ICoord3D::new(30, 30, 0),
+            ICoord3D::new(0, 30, 0),
+        ],
+    );
     gamelogic::terrain::get_terrain_logic()
         .write()
         .expect("terrain")
-        .add_trigger_area(trigger);
+        .add_trigger_area(trigger.clone());
 
     let mut logic = GameLogic::new();
+    logic
+        .host_trigger_world
+        .lock()
+        .expect("host trigger owner")
+        .set_trigger_areas(&[trigger]);
     let mut t = ThingTemplate::new("NamedScout");
     t.set_health(100.0);
     logic.templates.insert("NamedScout".into(), t);
@@ -682,10 +696,17 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
         host_script_named_unit_in_named_area("MapNamedScout", "LivePolyPad"),
         Some(true)
     );
-    update_host_object_trigger_flags(id.0, 10.0, 10.0, logic.frame, false, Some("teamUSA"));
+    let trigger = gamelogic::scripting::host_script_lookup_polygon_trigger("LivePolyPad")
+        .expect("poly");
+    let host_trigger_world = logic
+        .host_trigger_world
+        .lock()
+        .expect("host trigger owner");
     assert!(gamelogic::scripting::host_object_did_enter(
+        &host_trigger_world,
         id.0,
-        &gamelogic::scripting::host_script_lookup_polygon_trigger("LivePolyPad").expect("poly")
+        &trigger,
+        logic.frame,
     ));
     clear_host_script_query_snapshot();
 }
@@ -3015,4 +3036,127 @@ fn capture_command_rejects_under_construction_building() {
         .host_object(building_id)
         .expect("building should exist");
     assert_eq!(building.team, Team::GLA);
+}
+#[test]
+fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
+    use gamelogic::scripting::clear_host_script_query_snapshot;
+
+    clear_host_script_query_snapshot();
+    let trigger_a = gamelogic::polygon_trigger::PolygonTrigger::new(
+        19021,
+        gamelogic::common::AsciiString::from("OwnerProbeAreaA"),
+        vec![
+            gamelogic::common::ICoord3D::new(100, 100, 0),
+            gamelogic::common::ICoord3D::new(130, 100, 0),
+            gamelogic::common::ICoord3D::new(130, 130, 0),
+            gamelogic::common::ICoord3D::new(100, 130, 0),
+        ],
+    );
+    let trigger_b = gamelogic::polygon_trigger::PolygonTrigger::new(
+        19022,
+        gamelogic::common::AsciiString::from("OwnerProbeAreaB"),
+        vec![
+            gamelogic::common::ICoord3D::new(200, 200, 0),
+            gamelogic::common::ICoord3D::new(230, 200, 0),
+            gamelogic::common::ICoord3D::new(230, 230, 0),
+            gamelogic::common::ICoord3D::new(200, 230, 0),
+        ],
+    );
+
+    // Both actual Main worlds allocate the same local ObjectId. The host
+    // census below is the production writer used by script condition queries.
+    let mut world_a = GameLogic::new();
+    let mut world_b = GameLogic::new();
+    world_a
+        .host_trigger_world
+        .lock()
+        .expect("host trigger owner")
+        .set_trigger_areas(&[trigger_a.clone()]);
+    world_b
+        .host_trigger_world
+        .lock()
+        .expect("host trigger owner")
+        .set_trigger_areas(&[trigger_b.clone()]);
+    for world in [&mut world_a, &mut world_b] {
+        let mut template = ThingTemplate::new("TriggerOwnerProbeUnit");
+        template.set_health(100.0);
+        world.templates.insert("TriggerOwnerProbeUnit".into(), template);
+    }
+    let id_a = world_a
+        .create_object(
+            "TriggerOwnerProbeUnit",
+            Team::USA,
+            Vec3::new(110.0, 0.0, 110.0),
+        )
+        .expect("world A unit");
+    let id_b = world_b
+        .create_object(
+            "TriggerOwnerProbeUnit",
+            Team::USA,
+            Vec3::new(210.0, 0.0, 210.0),
+        )
+        .expect("world B unit");
+    assert_eq!(id_a, id_b, "world-local IDs should collide intentionally");
+
+    let builder = crate::save_load::snapshot::SnapshotBuilder::new();
+    world_a.inject_host_script_query_snapshot();
+    let snapshot_a = builder
+        .create_world_snapshot(&world_a)
+        .expect("capture world A");
+    let a_before = snapshot_a
+        .object_triggers
+        .iter()
+        .find(|entry| entry.object_id == id_a)
+        .expect("A trigger record");
+    assert_eq!((a_before.i_x, a_before.i_y), (110, 110));
+    assert_eq!(a_before.slots[0].trigger_id, 19021);
+    assert_eq!(a_before.slots[0].trigger_name, "OwnerProbeAreaA");
+
+    world_b.inject_host_script_query_snapshot();
+    let snapshot_b = builder
+        .create_world_snapshot(&world_b)
+        .expect("capture world B");
+    let b_record = snapshot_b
+        .object_triggers
+        .iter()
+        .find(|entry| entry.object_id == id_b)
+        .expect("B trigger record");
+    assert_eq!((b_record.i_x, b_record.i_y), (210, 210));
+    assert_eq!(b_record.slots[0].trigger_id, 19022);
+    assert_eq!(b_record.slots[0].trigger_name, "OwnerProbeAreaB");
+
+    let snapshot_a_after_b = builder
+        .create_world_snapshot(&world_a)
+        .expect("recapture world A after B");
+    let a_after = snapshot_a_after_b
+        .object_triggers
+        .iter()
+        .find(|entry| entry.object_id == id_a)
+        .expect("A trigger record after B");
+    assert_eq!(
+        (a_after.i_x, a_after.i_y),
+        (110, 110),
+        "world B's same-ID census must not replace world A's trigger pose"
+    );
+
+    let saved_trigger_state = world_a
+        .host_trigger_world
+        .lock()
+        .expect("host trigger owner")
+        .capture();
+    let mut restored_trigger_world = gamelogic::scripting::HostTriggerWorld::default();
+    restored_trigger_world.set_trigger_areas(&[trigger_a.clone()]);
+    restored_trigger_world.set_current_frame(world_a.frame);
+    restored_trigger_world.restore(&saved_trigger_state);
+    restored_trigger_world.update_object_flags(
+        id_a.0,
+        110.0,
+        110.0,
+        world_a.frame,
+        false,
+        None,
+    );
+    assert!(restored_trigger_world.did_enter(id_a.0, &trigger_a, world_a.frame));
+
+    clear_host_script_query_snapshot();
 }

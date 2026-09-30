@@ -66,7 +66,11 @@ struct PlayerArmyState {
 /// Team-id override (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`) wins first,
 /// then leftover `m_teamRelations`, then player->player map, then lobby
 /// `alliance_team` as the initial slot-team default.
-fn live_player_relationship(source: &Player, target: &Player) -> gamelogic::common::Relationship {
+fn live_player_relationship(
+    source: &Player,
+    target: &Player,
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+) -> gamelogic::common::Relationship {
     use gamelogic::common::Relationship;
     if source.id == target.id {
         return Relationship::Allies;
@@ -75,7 +79,7 @@ fn live_player_relationship(source: &Player, target: &Player) -> gamelogic::comm
         return rel;
     }
     for name in default_team_instance_names(target) {
-        if let Some(rel) = leftover_player_team_relationship_override(source, &name) {
+        if let Some(rel) = leftover_player_team_relationship_override(team_factory, source, &name) {
             return rel;
         }
         if let Some(rel) = source.team_relationship_override(&name) {
@@ -156,6 +160,7 @@ fn leftover_relationship_to_default_team(
 
 /// C++ leftover `Player::m_teamRelations` keyed by named team instance.
 fn leftover_player_team_relationship_override(
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     source: &Player,
     team_name: &str,
 ) -> Option<gamelogic::common::Relationship> {
@@ -163,7 +168,10 @@ fn leftover_player_team_relationship_override(
         return None;
     }
     let team = {
-        let Ok(factory) = gamelogic::team::get_team_factory().lock() else {
+        let Some(team_factory) = team_factory else {
+            return None;
+        };
+        let Ok(factory) = team_factory.lock() else {
             return None;
         };
         factory.find_team_instances(team_name).into_iter().next()?
@@ -183,24 +191,29 @@ fn leftover_player_team_relationship_override(
 /// Team-id overrides (`PLAYER_SET_OVERRIDE_RELATION_TO_TEAM`) win first;
 /// live host `map_relationship` (PLAYER_RELATES / map playerAllies) next;
 /// lobby `alliance_team` is the initial slot-team default when neither map is set.
-fn live_players_are_allies(a: &Player, b: &Player) -> bool {
+fn live_players_are_allies(
+    a: &Player,
+    b: &Player,
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+) -> bool {
     use gamelogic::common::Relationship;
     if a.id == b.id {
         return false;
     }
-    live_player_relationship(a, b) == Relationship::Allies
-        && live_player_relationship(b, a) == Relationship::Allies
+    live_player_relationship(a, b, team_factory) == Relationship::Allies
+        && live_player_relationship(b, a, team_factory) == Relationship::Allies
 }
 
 fn player_shares_winning_alliance(
     players: &HashMap<u32, Player>,
     player: &Player,
     winning_rep: i32,
+    team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
 ) -> bool {
     let Some(rep) = players.get(&(winning_rep as u32)) else {
         return false;
     };
-    player.id == rep.id || live_players_are_allies(player, rep)
+    player.id == rep.id || live_players_are_allies(player, rep, team_factory)
 }
 
 /// C++ `TheRecorder->isMultiplayer()`: skirmish / network / replay of those.
@@ -503,6 +516,39 @@ impl VictoryConditions {
         game_mode: GameMode,
         identities: &HashMap<u32, PlayerTemplateIdentity>,
     ) -> Option<VictoryCondition> {
+        self.evaluate_with_templates_and_factory(
+            players, objects, frame, game_mode, identities, None,
+        )
+    }
+
+    pub fn evaluate_with_world_factory(
+        &mut self,
+        players: &HashMap<u32, Player>,
+        objects: &HashMap<ObjectId, Object>,
+        frame: u32,
+        game_mode: GameMode,
+        identities: &HashMap<u32, PlayerTemplateIdentity>,
+        team_factory: &gamelogic::team::TeamFactoryHandle,
+    ) -> Option<VictoryCondition> {
+        self.evaluate_with_templates_and_factory(
+            players,
+            objects,
+            frame,
+            game_mode,
+            identities,
+            Some(team_factory),
+        )
+    }
+
+    fn evaluate_with_templates_and_factory(
+        &mut self,
+        players: &HashMap<u32, Player>,
+        objects: &HashMap<ObjectId, Object>,
+        frame: u32,
+        game_mode: GameMode,
+        identities: &HashMap<u32, PlayerTemplateIdentity>,
+        team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
+    ) -> Option<VictoryCondition> {
         self.player_templates.clear();
         self.player_templates
             .extend(identities.iter().map(|(&id, ident)| (id, ident.clone())));
@@ -562,7 +608,7 @@ impl VictoryConditions {
             living_players[1..].iter().all(|id| {
                 players
                     .get(id)
-                    .is_some_and(|other| live_players_are_allies(first, other))
+                    .is_some_and(|other| live_players_are_allies(first, other, team_factory))
             })
         });
 
@@ -595,7 +641,7 @@ impl VictoryConditions {
         players.values().any(|player| {
             player.is_local
                 && is_playable_victory_player(player, &self.player_templates)
-                && player_shares_winning_alliance(players, player, key)
+                && player_shares_winning_alliance(players, player, key, None)
         })
     }
 
@@ -673,7 +719,7 @@ impl VictoryConditions {
                 AllianceState::AlliedDefeat
             } else if self
                 .winning_alliance
-                .map(|key| player_shares_winning_alliance(players, player, key))
+                .map(|key| player_shares_winning_alliance(players, player, key, None))
                 .unwrap_or(false)
             {
                 AllianceState::AlliedVictory

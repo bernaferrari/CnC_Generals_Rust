@@ -224,7 +224,6 @@ pub fn set_host_script_query_snapshot(snap: HostScriptQuerySnapshot) {
 
 pub fn clear_host_script_query_snapshot() {
     HOST_SCRIPT_QUERY.with(|slot| *slot.borrow_mut() = HostScriptQuerySnapshot::default());
-    clear_host_trigger_flags();
 }
 
 pub fn host_bridge_broken(bridge_name: &str) -> bool {
@@ -821,50 +820,94 @@ struct HostObjectTriggerState {
 }
 
 #[derive(Default)]
-struct HostTriggerWorld {
+pub struct HostTriggerWorld {
     objects: HashMap<u32, HostObjectTriggerState>,
     team_entered_or_exited: HashMap<String, u32>,
+    current_frame: u32,
+    triggers: Vec<crate::polygon_trigger::PolygonTrigger>,
+    geometry_installed: bool,
 }
 
-thread_local! {
-    static HOST_TRIGGER_WORLD: RefCell<HostTriggerWorld> =
-        RefCell::new(HostTriggerWorld::default());
-}
-
-fn leftover_polygon_triggers() -> Vec<crate::polygon_trigger::PolygonTrigger> {
-    crate::terrain::get_terrain_logic()
-        .read()
-        .ok()
-        .map(|terrain| terrain.get_trigger_areas().get_triggers().to_vec())
-        .unwrap_or_default()
+impl std::fmt::Debug for HostTriggerWorld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostTriggerWorld")
+            .field("object_count", &self.objects.len())
+            .field("team_event_count", &self.team_entered_or_exited.len())
+            .field("current_frame", &self.current_frame)
+            .field("trigger_count", &self.triggers.len())
+            .field("geometry_installed", &self.geometry_installed)
+            .finish()
+    }
 }
 
 fn host_flag_window(flag_frame: u32, now: u32) -> bool {
     flag_frame == now || (now > 0 && flag_frame == now - 1)
 }
 
-fn current_logic_frame() -> u32 {
-    crate::system::game_logic::current_frame()
-}
-
-/// C++ `Object::setTriggerAreaFlagsForChangeInPosition` for host units.
-pub fn update_host_object_trigger_flags(
-    object_id: u32,
-    x: f32,
-    z: f32,
-    frame: u32,
-    skip: bool,
-    team_name: Option<&str>,
-) {
-    if skip {
-        return;
+impl HostTriggerWorld {
+    /// Install map-authored trigger geometry for this world. The caller owns
+    /// map-load ordering; no terrain singleton lookup is performed here.
+    pub fn set_trigger_areas(
+        &mut self,
+        triggers: &[crate::polygon_trigger::PolygonTrigger],
+    ) {
+        self.triggers.clear();
+        self.triggers.extend_from_slice(triggers);
+        self.geometry_installed = true;
     }
-    let new_x = x as i32;
-    let new_y = z as i32;
-    let triggers = leftover_polygon_triggers();
-    HOST_TRIGGER_WORLD.with(|world| {
-        let mut world = world.borrow_mut();
-        let state = world
+
+    pub fn has_authored_trigger_geometry(&self) -> bool {
+        self.geometry_installed
+    }
+
+    pub fn trigger_area_by_name(
+        &self,
+        area_name: &str,
+    ) -> Option<crate::polygon_trigger::PolygonTrigger> {
+        if area_name.is_empty() {
+            return None;
+        }
+        let resolved = crate::scripting::engine::qualify_trigger_area_name(area_name, None)
+            .unwrap_or_else(|| area_name.to_string());
+        self.triggers
+            .iter()
+            .find(|trigger| {
+                trigger.get_trigger_name().to_string() == resolved
+                    || trigger.get_trigger_name().to_string() == area_name
+            })
+            .cloned()
+    }
+
+    pub fn set_current_frame(&mut self, frame: u32) {
+        self.current_frame = frame;
+    }
+
+    pub fn current_frame(&self) -> u32 {
+        self.current_frame
+    }
+
+    /// Update the host mirror owned by one Main `GameLogic` world.
+    ///
+    /// The native `Object` implementation owns its own trigger slots. This
+    /// mirror exists for Main's host-script objects, which are not registered
+    /// in the native object registry. Callers pass the driving world's owner;
+    /// this method never selects or publishes ambient state.
+    pub fn update_object_flags(
+        &mut self,
+        object_id: u32,
+        x: f32,
+        z: f32,
+        frame: u32,
+        skip: bool,
+        team_name: Option<&str>,
+    ) {
+        if skip {
+            return;
+        }
+        let new_x = x as i32;
+        let new_y = z as i32;
+        let triggers = &self.triggers;
+        let state = self
             .objects
             .entry(object_id)
             .or_insert_with(|| HostObjectTriggerState {
@@ -887,23 +930,21 @@ pub fn update_host_object_trigger_flags(
                 slot.exited = false;
             }
         }
-        if pos_changed {
-            let old = crate::common::ICoord3D::new(state.i_x, state.i_y, 0);
-            for slot in &mut state.slots {
-                let Some(trigger) = triggers.iter().find(|t| t.get_id() == slot.trigger_id) else {
-                    continue;
-                };
-                if !trigger.point_in_trigger_int(&old) {
-                    slot.is_inside = false;
-                    slot.exited = true;
-                    state.entered_or_exited_frame = frame;
-                }
+        let old = crate::common::ICoord3D::new(state.i_x, state.i_y, 0);
+        for slot in &mut state.slots {
+            let Some(trigger) = triggers.iter().find(|t| t.get_id() == slot.trigger_id) else {
+                continue;
+            };
+            if !trigger.point_in_trigger_int(&old) {
+                slot.is_inside = false;
+                slot.exited = true;
+                state.entered_or_exited_frame = frame;
             }
-            state.i_x = new_x;
-            state.i_y = new_y;
         }
+        state.i_x = new_x;
+        state.i_y = new_y;
         let now_pt = crate::common::ICoord3D::new(state.i_x, state.i_y, 0);
-        for trigger in &triggers {
+        for trigger in triggers {
             if state
                 .slots
                 .iter()
@@ -927,14 +968,137 @@ pub fn update_host_object_trigger_flags(
         }
         if state.entered_or_exited_frame == frame {
             if let Some(name) = team_name.filter(|name| !name.is_empty()) {
-                world.team_entered_or_exited.insert(name.to_string(), frame);
+                self.team_entered_or_exited.insert(name.to_string(), frame);
             }
         }
-    });
-}
+    }
 
-pub fn clear_host_trigger_flags() {
-    HOST_TRIGGER_WORLD.with(|world| *world.borrow_mut() = HostTriggerWorld::default());
+    pub fn clear(&mut self) {
+        self.objects.clear();
+        self.team_entered_or_exited.clear();
+        self.current_frame = 0;
+    }
+
+    pub fn capture(&self) -> Vec<HostObjectTriggerPersist> {
+        let mut entries: Vec<HostObjectTriggerPersist> = self
+            .objects
+            .iter()
+            .map(|(object_id, state)| HostObjectTriggerPersist {
+                object_id: *object_id,
+                i_x: state.i_x,
+                i_y: state.i_y,
+                entered_or_exited_frame: state.entered_or_exited_frame,
+                slots: state
+                    .slots
+                    .iter()
+                    .map(|slot| {
+                        let trigger_name = self
+                            .triggers
+                            .iter()
+                            .find(|trigger| trigger.get_id() == slot.trigger_id)
+                            .map(|trigger| trigger.get_trigger_name().to_string())
+                            .unwrap_or_default();
+                        HostTriggerSlotPersist {
+                            trigger_id: slot.trigger_id,
+                            trigger_name,
+                            is_inside: slot.is_inside,
+                            entered: slot.entered,
+                            exited: slot.exited,
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        entries.sort_by_key(|entry| entry.object_id);
+        entries
+    }
+
+    pub fn restore(&mut self, entries: &[HostObjectTriggerPersist]) {
+        let current_frame = self.current_frame;
+        self.objects.clear();
+        self.team_entered_or_exited.clear();
+        self.current_frame = current_frame;
+        for entry in entries {
+            let slots = entry
+                .slots
+                .iter()
+                .map(|slot| {
+                    let trigger_id = if slot.trigger_name.is_empty() {
+                        slot.trigger_id
+                    } else {
+                        self.triggers
+                            .iter()
+                            .find(|trigger| {
+                                trigger.get_trigger_name().to_string() == slot.trigger_name
+                            })
+                            .map(|trigger| trigger.get_id())
+                            .unwrap_or(slot.trigger_id)
+                    };
+                    HostTriggerSlot {
+                        trigger_id,
+                        is_inside: slot.is_inside,
+                        entered: slot.entered,
+                        exited: slot.exited,
+                    }
+                })
+                .collect();
+            self.objects.insert(
+                entry.object_id,
+                HostObjectTriggerState {
+                    i_x: entry.i_x,
+                    i_y: entry.i_y,
+                    entered_or_exited_frame: entry.entered_or_exited_frame,
+                    slots,
+                },
+            );
+        }
+    }
+
+    pub fn did_enter_or_exit(&self, object_id: u32, now: u32) -> bool {
+        self.objects
+            .get(&object_id)
+            .is_some_and(|state| host_flag_window(state.entered_or_exited_frame, now))
+    }
+
+    pub fn did_enter(
+        &self,
+        object_id: u32,
+        trigger: &crate::polygon_trigger::PolygonTrigger,
+        now: u32,
+    ) -> bool {
+        self.objects.get(&object_id).is_some_and(|state| {
+            host_flag_window(state.entered_or_exited_frame, now)
+                && state
+                    .slots
+                    .iter()
+                    .any(|slot| slot.entered && slot.trigger_id == trigger.get_id())
+        })
+    }
+
+    pub fn did_exit(
+        &self,
+        object_id: u32,
+        trigger: &crate::polygon_trigger::PolygonTrigger,
+        now: u32,
+    ) -> bool {
+        self.objects.get(&object_id).is_some_and(|state| {
+            host_flag_window(state.entered_or_exited_frame, now)
+                && state
+                    .slots
+                    .iter()
+                    .any(|slot| slot.exited && slot.trigger_id == trigger.get_id())
+        })
+    }
+
+    pub fn team_did_enter_or_exit(&self, team_name: &str, now: u32) -> bool {
+        self.team_entered_or_exited
+            .get(team_name)
+            .copied()
+            .is_some_and(|frame| host_flag_window(frame, now))
+            || host_script_team_member_ids(team_name)
+                .into_iter()
+                .any(|id| self.did_enter_or_exit(id, now))
+    }
 }
 
 /// C++ `Object::xfer` (`Object.cpp:4218-4246`) per-area slot.
@@ -958,143 +1122,43 @@ pub struct HostObjectTriggerPersist {
     pub slots: Vec<HostTriggerSlotPersist>,
 }
 
-/// Capture live `HOST_TRIGGER_WORLD` slots for WorldSnapshot persist.
-pub fn capture_host_object_trigger_persists() -> Vec<HostObjectTriggerPersist> {
-    let triggers = leftover_polygon_triggers();
-    HOST_TRIGGER_WORLD.with(|world| {
-        let world = world.borrow();
-        let mut entries: Vec<HostObjectTriggerPersist> = world
-            .objects
-            .iter()
-            .map(|(object_id, state)| HostObjectTriggerPersist {
-                object_id: *object_id,
-                i_x: state.i_x,
-                i_y: state.i_y,
-                entered_or_exited_frame: state.entered_or_exited_frame,
-                slots: state
-                    .slots
-                    .iter()
-                    .map(|slot| {
-                        let trigger_name = triggers
-                            .iter()
-                            .find(|trigger| trigger.get_id() == slot.trigger_id)
-                            .map(|trigger| trigger.get_trigger_name().to_string())
-                            .unwrap_or_default();
-                        HostTriggerSlotPersist {
-                            trigger_id: slot.trigger_id,
-                            trigger_name,
-                            is_inside: slot.is_inside,
-                            entered: slot.entered,
-                            exited: slot.exited,
-                        }
-                    })
-                    .collect(),
-            })
-            .collect();
-        entries.sort_by_key(|entry| entry.object_id);
-        entries
-    })
-}
-
-/// Restore slots and integer pose before the first post-load position update.
-pub fn restore_host_object_trigger_persists(entries: &[HostObjectTriggerPersist]) {
-    let triggers = leftover_polygon_triggers();
-    HOST_TRIGGER_WORLD.with(|world| {
-        let mut world = world.borrow_mut();
-        *world = HostTriggerWorld::default();
-        for entry in entries {
-            let slots = entry
-                .slots
-                .iter()
-                .map(|slot| {
-                    let trigger_id = if slot.trigger_name.is_empty() {
-                        slot.trigger_id
-                    } else {
-                        triggers
-                            .iter()
-                            .find(|trigger| {
-                                trigger.get_trigger_name().to_string() == slot.trigger_name
-                            })
-                            .map(|trigger| trigger.get_id())
-                            .unwrap_or(slot.trigger_id)
-                    };
-                    HostTriggerSlot {
-                        trigger_id,
-                        is_inside: slot.is_inside,
-                        entered: slot.entered,
-                        exited: slot.exited,
-                    }
-                })
-                .collect();
-            world.objects.insert(
-                entry.object_id,
-                HostObjectTriggerState {
-                    i_x: entry.i_x,
-                    i_y: entry.i_y,
-                    entered_or_exited_frame: entry.entered_or_exited_frame,
-                    slots,
-                },
-            );
-        }
-    });
-}
-
-pub fn sync_host_trigger_flags_from_snapshot(frame: u32) {
+/// Sync this world's host-object trigger mirror from its current query census.
+pub fn sync_host_trigger_flags_from_snapshot(world: &mut HostTriggerWorld, frame: u32) {
     let snap = HOST_SCRIPT_QUERY.with(|slot| slot.borrow().clone());
+    world.set_current_frame(frame);
     for obj in &snap.objects {
         let team = snap
             .team_instance_ids
             .iter()
             .find_map(|(name, ids)| ids.contains(&obj.id).then_some(name.as_str()));
-        update_host_object_trigger_flags(obj.id, obj.x, obj.z, frame, false, team);
+        world.update_object_flags(obj.id, obj.x, obj.z, frame, false, team);
     }
 }
 
-pub fn host_object_did_enter_or_exit(object_id: u32) -> bool {
-    let now = current_logic_frame();
-    HOST_TRIGGER_WORLD.with(|world| {
-        world
-            .borrow()
-            .objects
-            .get(&object_id)
-            .is_some_and(|state| host_flag_window(state.entered_or_exited_frame, now))
-    })
+pub fn host_object_did_enter_or_exit(
+    world: &HostTriggerWorld,
+    object_id: u32,
+    now: u32,
+) -> bool {
+    world.did_enter_or_exit(object_id, now)
 }
 
 pub fn host_object_did_enter(
+    world: &HostTriggerWorld,
     object_id: u32,
     trigger: &crate::polygon_trigger::PolygonTrigger,
+    now: u32,
 ) -> bool {
-    let now = current_logic_frame();
-    HOST_TRIGGER_WORLD.with(|world| {
-        let world = world.borrow();
-        let Some(state) = world.objects.get(&object_id) else {
-            return false;
-        };
-        host_flag_window(state.entered_or_exited_frame, now)
-            && state
-                .slots
-                .iter()
-                .any(|slot| slot.entered && slot.trigger_id == trigger.get_id())
-    })
+    world.did_enter(object_id, trigger, now)
 }
 
 pub fn host_object_did_exit(
+    world: &HostTriggerWorld,
     object_id: u32,
     trigger: &crate::polygon_trigger::PolygonTrigger,
+    now: u32,
 ) -> bool {
-    let now = current_logic_frame();
-    HOST_TRIGGER_WORLD.with(|world| {
-        let world = world.borrow();
-        let Some(state) = world.objects.get(&object_id) else {
-            return false;
-        };
-        host_flag_window(state.entered_or_exited_frame, now)
-            && state
-                .slots
-                .iter()
-                .any(|slot| slot.exited && slot.trigger_id == trigger.get_id())
-    })
+    world.did_exit(object_id, trigger, now)
 }
 
 /// C++ Team.cpp:142-145 `locoSetMatches`.
@@ -1873,20 +1937,12 @@ fn host_command_identity_token(name: &str) -> String {
         .to_ascii_lowercase()
 }
 
-pub fn host_team_did_enter_or_exit(team_name: &str) -> bool {
-    let now = current_logic_frame();
-    let flagged = HOST_TRIGGER_WORLD.with(|world| {
-        world
-            .borrow()
-            .team_entered_or_exited
-            .get(team_name)
-            .copied()
-            .is_some_and(|frame| host_flag_window(frame, now))
-    });
-    flagged
-        || host_script_team_member_ids(team_name)
-            .into_iter()
-            .any(host_object_did_enter_or_exit)
+pub fn host_team_did_enter_or_exit(
+    world: &HostTriggerWorld,
+    team_name: &str,
+    now: u32,
+) -> bool {
+    world.team_did_enter_or_exit(team_name, now)
 }
 
 fn host_team_area_members(team_name: &str, which_to_consider: u32) -> Vec<(u32, f32, f32)> {
@@ -1904,6 +1960,7 @@ fn host_team_area_members(team_name: &str, which_to_consider: u32) -> Vec<(u32, 
 }
 
 pub fn host_team_all_inside(
+    _world: &HostTriggerWorld,
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
@@ -1916,6 +1973,7 @@ pub fn host_team_all_inside(
 }
 
 pub fn host_team_some_inside_some_outside(
+    _world: &HostTriggerWorld,
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
@@ -1934,18 +1992,20 @@ pub fn host_team_some_inside_some_outside(
 }
 
 pub fn host_team_did_all_enter(
+    world: &HostTriggerWorld,
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
+    now: u32,
 ) -> bool {
-    if !host_team_did_enter_or_exit(team_name) {
+    if !host_team_did_enter_or_exit(world, team_name, now) {
         return false;
     }
     let members = host_team_area_members(team_name, which_to_consider);
     let mut entered = false;
     let mut outside = false;
     for (id, x, z) in members {
-        if host_object_did_enter(id, trigger) {
+        if host_object_did_enter(world, id, trigger, now) {
             entered = true;
         } else if !trigger.point_in_trigger_int(&host_xz_to_trigger_point(x, z)) {
             outside = true;
@@ -1955,24 +2015,28 @@ pub fn host_team_did_all_enter(
 }
 
 pub fn host_team_did_partial_enter(
+    world: &HostTriggerWorld,
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
+    now: u32,
 ) -> bool {
-    if !host_team_did_enter_or_exit(team_name) {
+    if !host_team_did_enter_or_exit(world, team_name, now) {
         return false;
     }
     host_team_area_members(team_name, which_to_consider)
         .into_iter()
-        .any(|(id, _, _)| host_object_did_enter(id, trigger))
+        .any(|(id, _, _)| host_object_did_enter(world, id, trigger, now))
 }
 
 pub fn host_team_did_all_exit(
+    world: &HostTriggerWorld,
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
+    now: u32,
 ) -> bool {
-    if !host_team_did_enter_or_exit(team_name) {
+    if !host_team_did_enter_or_exit(world, team_name, now) {
         return false;
     }
     let members = host_team_area_members(team_name, which_to_consider);
@@ -1981,7 +2045,7 @@ pub fn host_team_did_all_exit(
     let mut any = false;
     for (id, x, z) in members {
         any = true;
-        if host_object_did_exit(id, trigger) {
+        if host_object_did_exit(world, id, trigger, now) {
             exited = true;
         } else if trigger.point_in_trigger_int(&host_xz_to_trigger_point(x, z)) {
             inside = true;
@@ -1991,16 +2055,18 @@ pub fn host_team_did_all_exit(
 }
 
 pub fn host_team_did_partial_exit(
+    world: &HostTriggerWorld,
     team_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
     which_to_consider: u32,
+    now: u32,
 ) -> bool {
-    if !host_team_did_enter_or_exit(team_name) {
+    if !host_team_did_enter_or_exit(world, team_name, now) {
         return false;
     }
     host_team_area_members(team_name, which_to_consider)
         .into_iter()
-        .any(|(id, _, _)| host_object_did_exit(id, trigger))
+        .any(|(id, _, _)| host_object_did_exit(world, id, trigger, now))
 }
 
 /// Wave 271: host-only path has no dual-world factory objects.
