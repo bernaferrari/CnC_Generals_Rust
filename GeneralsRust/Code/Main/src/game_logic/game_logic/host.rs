@@ -87,6 +87,12 @@ pub struct GameLogic {
     /// C++ `getFrameObjectsChangedTriggerAreas`: a synchronous, instance-owned
     /// stamp. Guard queries borrow `&self`; the stamp has no concurrent readers.
     pub(crate) frame_objects_changed_trigger_areas: std::cell::Cell<u32>,
+    /// Host guard scans compare polygon occupants synchronously on this world.
+    /// Ephemeral comparison state; reset/recreation discards it, not saved
+    /// Object trigger membership or ENTERED/EXITED flags.
+    pub(in crate::game_logic) host_guard_area_occupancy: std::cell::RefCell<
+        HashMap<String, std::collections::BTreeSet<u32>>,
+    >,
 
     /// Next unused sequence for an actual accepted WeaponSet discharge.
     ///

@@ -71,6 +71,7 @@ impl GameLogic {
             frame: 0,
             replay_pending: crate::command_system::ReplayPendingState::default(),
             frame_objects_changed_trigger_areas: std::cell::Cell::new(0),
+            host_guard_area_occupancy: Default::default(),
             next_weapon_discharge_sequence: 1,
             weapon_discharge_log:
                 crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeLog::default(),
@@ -758,6 +759,9 @@ impl GameLogic {
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;
         self.frame = 0;
+        // C++ GameLogic::reset (GameLogic.cpp:431).
+        self.frame_objects_changed_trigger_areas.set(0);
+        self.host_guard_area_occupancy.get_mut().clear();
         self.replay_pending.clear();
         self.next_weapon_discharge_sequence = 1;
         self.weapon_discharge_log.clear();

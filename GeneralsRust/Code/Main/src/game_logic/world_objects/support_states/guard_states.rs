@@ -31,37 +31,6 @@ pub(crate) fn host_same_map_status_off(
     )
 }
 
-fn host_area_occupancy()
--> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>> {
-    static SESSIONS: std::sync::LazyLock<
-        std::sync::Mutex<std::collections::HashMap<String, std::collections::BTreeSet<u32>>>,
-    > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-    &SESSIONS
-}
-
-
-fn note_host_guard_area_occupancy(
-    frame: u32,
-    trigger: &gamelogic::polygon_trigger::PolygonTrigger,
-    occupants: impl Iterator<Item = (ObjectId, glam::Vec3)>,
-    ) -> bool {
-    let name = trigger.get_trigger_name().as_str().to_string();
-    let mut current = std::collections::BTreeSet::new();
-    for (id, pos) in occupants {
-        if GameLogic::host_point_in_guard_area(trigger, pos) {
-            current.insert(id.0);
-        }
-    }
-    let mut sessions = host_area_occupancy()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-        if sessions.get(&name) != Some(&current) {
-            sessions.insert(name, current);
-            return true;
-        }
-        false
-}
-
 /// C++ `AIGuardIdleState::update` per-axis 2-cell (`delta*delta > 4*cell^2`).
 pub(crate) fn host_guardee_moved_beyond_return_threshold(
     prev: glam::Vec3,
@@ -75,6 +44,25 @@ fn host_guard_area_stamp_expired(frame: u32, changed: u32, scan_rate: u32) -> bo
 }
 
 impl GameLogic {
+    fn note_host_guard_area_occupancy(
+        &self,
+        trigger: &gamelogic::polygon_trigger::PolygonTrigger,
+    ) -> bool {
+        let name = trigger.get_trigger_name().as_str();
+        let mut current = std::collections::BTreeSet::new();
+        for (id, object) in self.objects.iter() {
+            if Self::host_point_in_guard_area(trigger, object.get_position()) {
+                current.insert(id.0);
+            }
+        }
+        let mut occupancy = self.host_guard_area_occupancy.borrow_mut();
+        if occupancy.get(name) != Some(&current) {
+            occupancy.insert(name.to_owned(), current);
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn host_named_guard_area_polygon(
         name: &str,
     ) -> Option<(glam::Vec3, f32, gamelogic::polygon_trigger::PolygonTrigger)> {
@@ -151,18 +139,12 @@ impl GameLogic {
             return None;
         }
         if let Some(trigger) = polygon {
-            if note_host_guard_area_occupancy(
-                self.frame,
-                trigger,
-                self.objects.iter().map(|(id, obj)| (*id, obj.get_position())),
-            ) {
-                self.frame_objects_changed_trigger_areas
-                    .set(self.frame);
+            if self.note_host_guard_area_occupancy(trigger) {
+                self.frame_objects_changed_trigger_areas.set(self.frame);
             }
             if host_guard_area_stamp_expired(
                 self.frame,
-                self.frame_objects_changed_trigger_areas
-                    .get(),
+                self.frame_objects_changed_trigger_areas.get(),
                 self.host_guard_enemy_scan_rate(),
             ) {
                 return None;
@@ -407,9 +389,10 @@ impl GameLogic {
             return;
         }
         let mut goal = goal;
-        let ground = self.objects.get(&object_id).is_some_and(|o| {
-            crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o)
-        });
+        let ground = self
+            .objects
+            .get(&object_id)
+            .is_some_and(|o| crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(o));
         if ground {
             self.adjust_guard_goal(object_id, &mut goal);
         }

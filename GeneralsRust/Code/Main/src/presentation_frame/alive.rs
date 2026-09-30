@@ -1016,10 +1016,12 @@ impl PresentationFrame {
         if !view_projection.is_finite() {
             return Vec::new();
         }
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_y = start.y.min(end.y);
-        let max_y = start.y.max(end.y);
+        // C++ W3DView requires CameraClass::INSIDE_FRUSTUM before checking
+        // the region. Intersect it with the viewport, retaining inclusive edges.
+        let min_x = start.x.min(end.x).max(0.0);
+        let max_x = start.x.max(end.x).min(viewport_width);
+        let min_y = start.y.min(end.y).max(0.0);
+        let max_y = start.y.max(end.y).min(viewport_height);
 
         let mut candidates = Vec::new();
         for object in &self.objects {
@@ -1061,10 +1063,11 @@ impl PresentationFrame {
         if !view_projection.is_finite() {
             return Vec::new();
         }
-        let min_x = start.x.min(end.x);
-        let max_x = start.x.max(end.x);
-        let min_y = start.y.min(end.y);
-        let max_y = start.y.max(end.y);
+        // This query uses the same clipped drawable region as box selection.
+        let min_x = start.x.min(end.x).max(0.0);
+        let max_x = start.x.max(end.x).min(viewport_width);
+        let min_y = start.y.min(end.y).max(0.0);
+        let max_y = start.y.max(end.y).min(viewport_height);
 
         let mut ids = Vec::new();
         for object in &self.objects {
