@@ -1,12 +1,26 @@
 # Cargo configuration for the single GeneralsRust workspace.
 #
-# Profiles live in Cargo.toml (Cargo ignores [profile.*] here on stable).
+# Profile defaults live in Cargo.toml. The debug overrides below also take
+# precedence over machine-wide Cargo configs that enable line tables.
 # Do not add a second target-dir for rust-analyzer — that doubles disk use.
 
 [build]
 # Let Cargo pick job count from available CPUs. A hardcoded `jobs = 8`
 # under-uses bigger machines and over-subscribes smaller ones.
 target-dir = "target"
+
+[profile.dev]
+debug = false
+
+[profile.test]
+debug = false
+
+[profile.release]
+debug = false
+strip = "symbols"
+
+[profile.bench]
+debug = false
 
 [target.x86_64-pc-windows-msvc]
 rustflags = [
