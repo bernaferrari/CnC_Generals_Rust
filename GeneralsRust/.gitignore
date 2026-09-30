@@ -3,8 +3,9 @@ target/
 debug/
 release/
 
-# Cargo
+# Keep nested legacy locks ignored; the executable workspace lock is versioned.
 Cargo.lock
+!/Cargo.lock
 
 # IDEs
 .vscode/

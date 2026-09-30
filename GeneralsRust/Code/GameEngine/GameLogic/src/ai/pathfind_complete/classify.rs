@@ -1017,8 +1017,8 @@ impl PathfindingSystem {
                         {
                             continue;
                         }
-                        let cell_center =
-                            GridCoord::new(cx, cy).to_world(PathfindLayerEnum::Ground);
+                        let cell_center = self
+                            .world_pos_for_coord(GridCoord::new(cx, cy), PathfindLayerEnum::Ground);
                         let ddx = cell_center.x - pos.x;
                         let ddy = cell_center.y - pos.y;
                         if ddx * ddx + ddy * ddy > eff2 {

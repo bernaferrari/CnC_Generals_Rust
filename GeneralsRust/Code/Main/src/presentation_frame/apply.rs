@@ -92,13 +92,14 @@ impl PresentationFrame {
     /// so a prior live `update_ui_state` walk cannot leave stale identity when a frame
     /// is available.
     pub fn apply_to_ui_state(&self, ui: &mut crate::ui::GameUIState) {
+        let hud = self.hud_read_model();
         self.apply_can_make_cameos_to_ui_state(ui);
 
         ui.rank_level = self.local_rank_level;
         ui.skill_points = self.local_skill_points;
         ui.science_purchase_points = self.local_science_purchase_points;
         ui.rank_progress_percent = self.local_rank_progress_percent;
-        ui.superweapon_timers = self
+        ui.superweapon_timers = hud
             .superweapon_timers
             .iter()
             .map(|t| crate::ui::hud_state::UiSuperweaponTimer {
@@ -114,14 +115,14 @@ impl PresentationFrame {
         use crate::game_logic::victory::PlayerOutcome;
         use crate::ui::{BuildQueueEntry, MinimapDot, color_for_player};
 
-        ui.current_game_time = self.total_play_time_seconds;
-        ui.credits = self.local_supplies as i32;
+        ui.current_game_time = hud.total_play_time_seconds;
+        ui.credits = hud.local_supplies as i32;
         // Prefer produced/consumed residual when present (energy bar parity).
-        ui.power_generated = self.local_power_produced.max(self.local_power).max(0);
-        ui.power_used = self.local_power_consumed.max(0);
+        ui.power_generated = hud.local_power_produced.max(hud.local_power).max(0);
+        ui.power_used = hud.local_power_consumed.max(0);
         ui.max_power = ui.power_generated.max(1);
-        ui.player_id = self.local_player_id;
-        ui.selected_units = self.selected.clone();
+        ui.player_id = hud.local_player_id;
+        ui.selected_units = hud.selected.to_vec();
         ui.match_over = self.match_over;
         ui.selected_unit_infos = self.selected_unit_display_infos();
         // Radar residual from snapshot events (no live update_ui_state re-read).
@@ -188,19 +189,19 @@ impl PresentationFrame {
         if self.military_caption.is_some() {
             ui.military_caption = self.military_caption.clone();
         }
-        ui.radar_enabled = self.radar_ui_enabled;
-        ui.radar_forced = self.radar_forced;
+        ui.radar_enabled = hud.radar_ui_enabled;
+        ui.radar_forced = hud.radar_forced;
         // Script named-timer / cameo / superweapon residual from snapshot.
         ui.named_timers = self.named_timers.clone();
         ui.named_timer_display_shown = self.named_timer_display_shown;
         ui.cameo_flash = self.cameo_flash.clone();
         ui.superweapon_display_enabled = self.superweapon_display_enabled;
         ui.superweapon_hidden_objects = self.superweapon_hidden_objects.clone();
-        ui.objectives = self.objectives.clone();
+        ui.objectives = hud.objectives.to_vec();
         ui.pending_movie = self.pending_movie.clone();
         ui.pending_radar_movie = self.pending_radar_movie.clone();
         ui.pending_music_stop = self.pending_music_stop;
-        ui.pending_popup_messages = self
+        ui.pending_popup_messages = hud
             .pending_popup_messages
             .iter()
             .map(|p| p.message.clone())

@@ -2,74 +2,12 @@
 //!
 //! Re-exported from `crate::game_logic` so public paths stay stable.
 
+pub use generals_game_domain::{ObjectId, Team};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
-/// Unique identifier for game objects
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, Default,
-)]
-pub struct ObjectId(pub u32);
-
-impl std::fmt::Display for ObjectId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
 /// Invalid object ID constant
 pub const INVALID_OBJECT_ID: ObjectId = ObjectId(0);
-
-/// Team/faction identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Team {
-    GLA,
-    USA,
-    China,
-    Neutral,
-}
-
-impl Team {
-    /// Convert player ID to team
-    pub fn from_player_id(player_id: u32) -> Self {
-        match player_id {
-            0 => Team::USA,
-            1 => Team::China,
-            2 => Team::GLA,
-            _ => Team::Neutral,
-        }
-    }
-
-    /// Get the team's primary color for UI display
-    pub fn get_color(&self) -> [f32; 4] {
-        match self {
-            Team::USA => [0.2, 0.4, 0.8, 1.0],     // Blue
-            Team::China => [0.8, 0.2, 0.2, 1.0],   // Red
-            Team::GLA => [0.8, 0.6, 0.2, 1.0],     // Desert/Tan
-            Team::Neutral => [0.5, 0.5, 0.5, 1.0], // Gray
-        }
-    }
-
-    /// Get the team's name as a string
-    pub fn get_name(&self) -> &'static str {
-        match self {
-            Team::USA => "USA",
-            Team::China => "China",
-            Team::GLA => "GLA",
-            Team::Neutral => "Neutral",
-        }
-    }
-
-    /// Get the team's secondary color for highlights
-    pub fn get_highlight_color(&self) -> [f32; 4] {
-        match self {
-            Team::USA => [0.4, 0.6, 1.0, 1.0],     // Light blue
-            Team::China => [1.0, 0.4, 0.4, 1.0],   // Light red
-            Team::GLA => [1.0, 0.8, 0.4, 1.0],     // Light tan
-            Team::Neutral => [0.7, 0.7, 0.7, 1.0], // Light gray
-        }
-    }
-}
 
 /// Object kinds for type checking and behavior
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -475,7 +413,6 @@ impl KindOf {
             Self::CleanupHazard => "CleanupHazard",
         }
     }
-
 
     /// Map one C++ KindOf.h token onto the live host capability set.
     pub fn from_ini_token(token: &str) -> Option<Self> {

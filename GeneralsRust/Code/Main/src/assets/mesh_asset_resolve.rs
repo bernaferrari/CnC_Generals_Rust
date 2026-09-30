@@ -29,10 +29,10 @@ use crate::assets::models::{W3DLoader, W3DModel};
 use crate::game_logic::ThingTemplate;
 use crate::release_candidate;
 use glam::{Mat4, Vec3};
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 /// Sentinel model name for the diagnostic placeholder cube (matches GraphicsSystem).
 pub const PLACEHOLDER_MODEL_KEY: &str = "__fallback_cube__";
@@ -67,15 +67,6 @@ static RESOLVE_LOADED: AtomicUsize = AtomicUsize::new(0);
 static RESOLVE_PLACEHOLDER: AtomicUsize = AtomicUsize::new(0);
 static RESOLVE_MISSING: AtomicUsize = AtomicUsize::new(0);
 static LAST_PLACEHOLDER_KEYS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-/// Negative filesystem-lookup cache: canonical model keys whose W3D
-/// candidate path list was already probed on disk and found absent. The
-/// candidate list is derived purely from the key, so a session miss is
-/// permanent — probe once, never per frame.
-static FILESYSTEM_W3D_MISSES: LazyLock<Mutex<HashSet<String>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-/// Per-key count of real on-disk probes (negative-cache misses).
-static FILESYSTEM_W3D_MISS_PROBES: LazyLock<Mutex<HashMap<String, usize>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Honesty counters for mesh resolve outcomes (production + tests).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1009,106 +1000,20 @@ pub fn filesystem_w3d_candidates(model_key: &str) -> Vec<PathBuf> {
 
     let file_names = w3d_filename_variants(&key);
 
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Ok(cwd) = std::env::current_dir() {
-        roots.push(cwd.clone());
-        // Residual honesty roots (W3DZH/Art/W3D etc.) — keep in sync with constants.
-        for rel in W3D_SEARCH_ROOT_RESIDUALS {
-            roots.push(cwd.join(rel));
-        }
-        // When running from GeneralsRust/Code/Main
-        roots.push(cwd.join("../../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
-        roots.push(cwd.join("../../../windows_game/extracted_big_files/W3DEnglishZH/Art/W3D"));
-        roots.push(cwd.join("../../Tools/w3d_to_gltf/W3D"));
-        roots.push(cwd.join("../Tools/w3d_to_gltf/W3D"));
-    }
-    // CARGO_MANIFEST_DIR for Main crate tests
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    roots.push(manifest.join("assets"));
-    roots.push(manifest.join("../Tools/w3d_to_gltf/W3D"));
-    roots.push(manifest.join("../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
-    roots.push(manifest.join("../../../windows_game/extracted_big_files/W3DZH/Art/W3D"));
-    roots.push(manifest.join("../../../windows_game/extracted_big_files/W3DEnglishZH/Art/W3D"));
-    for rel in W3D_SEARCH_ROOT_RESIDUALS {
-        roots.push(manifest.join("../../../").join(rel));
-    }
-
-    let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for root in roots {
-        for name in &file_names {
-            let p = root.join(name);
-            let key_s = p.to_string_lossy().to_ascii_lowercase();
-            if seen.insert(key_s) {
-                out.push(p);
-            }
-        }
-        // Also try Art/W3D (and art/w3d) under root with original key casing variants
-        for sub in ["Art/W3D", "art/w3d"] {
-            for name in &file_names {
-                let p = root.join(sub).join(name);
-                let key_s = p.to_string_lossy().to_ascii_lowercase();
-                if seen.insert(key_s) {
-                    out.push(p);
-                }
-            }
-        }
-    }
-    out
+    let resolver = super::resolver::LiveAssetResolver::new(super::resolver::default_asset_roots());
+    resolver.candidates(&file_names)
 }
 
-/// First existing filesystem W3D path for a model key, if any.
-///
-/// Negative lookups are cached per key: the candidate path list is static, so
-/// a miss costs exactly one on-disk probe per session instead of one per
-/// frame per unresolvable drawable.
-pub fn find_filesystem_w3d(model_key: &str) -> Option<PathBuf> {
-    let cache_key = model_key.to_ascii_lowercase();
-    if filesystem_w3d_miss_cached(&cache_key) {
+/// Resolve one W3D against an explicitly owned live resolver.
+pub fn find_filesystem_w3d_with_resolver(
+    model_key: &str,
+    resolver: &mut super::resolver::LiveAssetResolver,
+) -> Option<PathBuf> {
+    let key = remap_model_key_alias(model_key);
+    if key.is_empty() || key == PLACEHOLDER_MODEL_KEY {
         return None;
     }
-    let found = filesystem_w3d_candidates(model_key)
-        .into_iter()
-        .find(|p| p.is_file());
-    if found.is_none() {
-        record_filesystem_w3d_miss(&cache_key);
-    }
-    found
-}
-
-fn filesystem_w3d_miss_cached(cache_key: &str) -> bool {
-    FILESYSTEM_W3D_MISSES
-        .lock()
-        .map(|misses| misses.contains(cache_key))
-        .unwrap_or(false)
-}
-
-fn record_filesystem_w3d_miss(cache_key: &str) {
-    if let Ok(mut misses) = FILESYSTEM_W3D_MISSES.lock() {
-        misses.insert(cache_key.to_string());
-    }
-    if let Ok(mut probes) = FILESYSTEM_W3D_MISS_PROBES.lock() {
-        *probes.entry(cache_key.to_string()).or_insert(0) += 1;
-    }
-}
-
-/// True when this key was already probed on disk and found absent
-/// (negative-cache membership observable).
-pub fn filesystem_w3d_miss_cached_for_key(model_key: &str) -> bool {
-    filesystem_w3d_miss_cached(&model_key.to_ascii_lowercase())
-}
-
-/// Number of real filesystem probes recorded for this key this session.
-pub fn filesystem_w3d_miss_probe_count(model_key: &str) -> usize {
-    FILESYSTEM_W3D_MISS_PROBES
-        .lock()
-        .map(|probes| {
-            probes
-                .get(&model_key.to_ascii_lowercase())
-                .copied()
-                .unwrap_or(0)
-        })
-        .unwrap_or(0)
+    resolver.resolve_under_roots(&key.to_ascii_lowercase(), &w3d_filename_variants(&key))
 }
 
 /// Neutral gray unit cube used when retail mesh bytes are missing.
@@ -1236,10 +1141,13 @@ pub fn create_placeholder_mesh_model() -> W3DModel {
     }
 }
 
-/// Try to load a model from filesystem W3D bytes (no AssetManager / GPU).
-pub fn try_load_w3d_from_filesystem(model_key: &str) -> Option<(W3DModel, PathBuf)> {
+/// Try to load a model from filesystem W3D bytes using the supplied owner.
+pub fn try_load_w3d_from_filesystem(
+    model_key: &str,
+    resolver: &mut super::resolver::LiveAssetResolver,
+) -> Option<(W3DModel, PathBuf)> {
     let key = remap_model_key_alias(model_key);
-    let path = find_filesystem_w3d(&key)?;
+    let path = find_filesystem_w3d_with_resolver(&key, resolver)?;
     let loader = W3DLoader::new();
     match loader.load_model_from_path(&path) {
         Ok(model) if !model.meshes.is_empty() => Some((model, path)),
@@ -1282,17 +1190,19 @@ fn mesh_load_key_candidates(model_key: &str) -> Vec<String> {
     keys
 }
 
-/// Try AssetManager cache / load when the global manager is available.
+/// Try the specified owner's AssetManager cache and loader.
 ///
 /// Tries `art/w3d/{key}.w3d`, `{key}.w3d`, retail basename casing, and the
 /// template `get_model_for_object` remap.  Do not replace an absent model with
 /// a construction, damage, snow, or faction variant: those are distinct C++
 /// `ConditionState` assets, not aliases.
-pub fn try_load_w3d_from_asset_manager(model_key: &str) -> Option<W3DModel> {
+pub fn try_load_w3d_from_asset_manager(
+    manager: &mut crate::assets::AssetManager,
+    model_key: &str,
+) -> Option<W3DModel> {
     let remapped = remap_model_key_alias(model_key);
-    let manager_arc = crate::assets::get_asset_manager()?;
-    let mut manager = manager_arc.lock().ok()?;
     let keys = mesh_load_key_candidates(model_key);
+    let mut mapped_keys = Vec::new();
 
     for key in &keys {
         if let Some(model) = manager.get_cached_model(key) {
@@ -1311,16 +1221,41 @@ pub fn try_load_w3d_from_asset_manager(model_key: &str) -> Option<W3DModel> {
                     return Some(model);
                 }
             }
-            if let Ok(model) = manager.load_w3d_model(&mapped_key) {
-                if !model.meshes.is_empty() {
-                    return Some(model);
+            if !mapped_keys
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(&mapped_key))
+            {
+                mapped_keys.push(mapped_key);
+            }
+        }
+    }
+
+    // C++ W3DFileSystem delegates to FileSystem, which opens local/extracted
+    // files before the BIG archive fallback. Resolve every authored key's
+    // local candidate before invoking the archive loader.
+    for key in mapped_keys.iter().chain(keys.iter()) {
+        if manager.w3d_model_known_missing(key) {
+            continue;
+        }
+        if let crate::assets::manager::W3dAssetSource::Extracted(path) =
+            manager.w3d_asset_source(key)
+        {
+            match W3DLoader::new().load_model_from_path(&path) {
+                Ok(model) if !model.meshes.is_empty() => return Some(model),
+                _ => {
+                    // FileSystem selected this local file; C++ does not retry
+                    // the same virtual path from a BIG after the W3D parser
+                    // rejects the selected bytes.
+                    manager.remember_missing_w3d_model(key);
+                    return None;
                 }
             }
         }
     }
 
-    // `load_w3d_model` already probes art/w3d/{name}.w3d and {name}.w3d.
-    for key in &keys {
+    // Keep the normal AssetManager loader/cache and its existing archive path
+    // variants for files not present in extracted roots.
+    for key in mapped_keys.iter().chain(keys.iter()) {
         if let Ok(model) = manager.load_w3d_model(key) {
             if !model.meshes.is_empty() {
                 return Some(model);
@@ -1333,13 +1268,78 @@ pub fn try_load_w3d_from_asset_manager(model_key: &str) -> Option<W3DModel> {
 /// Resolve presentation model_key → W3DModel with honesty bookkeeping.
 ///
 /// Order:
-/// 1. AssetManager (if initialized)
-/// 2. Filesystem extracted / sample W3D
-/// 3. Placeholder cube when `use_placeholder`, else Missing
+/// 1. Resident AssetManager model cache
+/// 2. That manager's local/extracted roots (C++ FileSystem local-first)
+/// 3. BIG archive loader and its normal cache/error handling
+/// 4. Placeholder cube when `use_placeholder`, else Missing
 ///
 /// Fail-closed: not full material/animation/GPU parity.
-pub fn resolve_mesh_for_model_key(model_key: &str, use_placeholder: bool) -> MeshResolveResult {
+pub fn resolve_mesh_for_model_key(
+    manager: &mut crate::assets::AssetManager,
+    model_key: &str,
+    use_placeholder: bool,
+) -> MeshResolveResult {
     let key = remap_model_key_alias(model_key);
+    if key.is_empty() {
+        return resolve_mesh_without_asset(&key, use_placeholder);
+    }
+
+    if key == PLACEHOLDER_MODEL_KEY {
+        RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
+        note_placeholder_key(key.as_str());
+        return MeshResolveResult::Placeholder {
+            requested_key: key,
+            model: create_placeholder_mesh_model(),
+            reason: "explicit placeholder key".into(),
+        };
+    }
+
+    if let Some(model) = try_load_w3d_from_asset_manager(manager, &key) {
+        RESOLVE_LOADED.fetch_add(1, Ordering::Relaxed);
+        return MeshResolveResult::Loaded {
+            model_key: key,
+            model,
+            source_path: None,
+        };
+    }
+
+    resolve_mesh_without_asset(&key, use_placeholder)
+}
+
+/// Standalone resolver path used by asset tests that deliberately do not own
+/// an AssetManager. Production presentation always resolves through its live
+/// AssetManager owner, whose resolver/cache lifetime matches the mounted BIGs.
+#[cfg(test)]
+fn resolve_mesh_for_model_key_with_resolver(
+    model_key: &str,
+    use_placeholder: bool,
+    resolver: &mut super::resolver::LiveAssetResolver,
+) -> MeshResolveResult {
+    let key = remap_model_key_alias(model_key);
+    if key.is_empty() || key == PLACEHOLDER_MODEL_KEY {
+        if key == PLACEHOLDER_MODEL_KEY {
+            RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
+            note_placeholder_key(&key);
+            return MeshResolveResult::Placeholder {
+                requested_key: key,
+                model: create_placeholder_mesh_model(),
+                reason: "explicit placeholder key".into(),
+            };
+        }
+        return resolve_mesh_without_asset(&key, use_placeholder);
+    }
+    if let Some((model, path)) = try_load_w3d_from_filesystem(&key, resolver) {
+        RESOLVE_LOADED.fetch_add(1, Ordering::Relaxed);
+        return MeshResolveResult::Loaded {
+            model_key: key,
+            model,
+            source_path: Some(path),
+        };
+    }
+    resolve_mesh_without_asset(&key, use_placeholder)
+}
+
+fn resolve_mesh_without_asset(key: &str, use_placeholder: bool) -> MeshResolveResult {
     if key.is_empty() {
         RESOLVE_MISSING.fetch_add(1, Ordering::Relaxed);
         release_candidate::note_missing_w3d_model("<empty>");
@@ -1358,87 +1358,31 @@ pub fn resolve_mesh_for_model_key(model_key: &str, use_placeholder: bool) -> Mes
             }
         };
     }
-
-    if key == PLACEHOLDER_MODEL_KEY {
-        RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
-        note_placeholder_key(key.as_str());
-        return MeshResolveResult::Placeholder {
-            requested_key: key,
-            model: create_placeholder_mesh_model(),
-            reason: "explicit placeholder key".into(),
-        };
-    }
-
-    if let Some(model) = try_load_w3d_from_asset_manager(&key) {
-        RESOLVE_LOADED.fetch_add(1, Ordering::Relaxed);
-        return MeshResolveResult::Loaded {
-            model_key: key,
-            model,
-            source_path: None,
-        };
-    }
-
-    if let Some((model, path)) = try_load_w3d_from_filesystem(&key) {
-        RESOLVE_LOADED.fetch_add(1, Ordering::Relaxed);
-        return MeshResolveResult::Loaded {
-            model_key: key,
-            model,
-            source_path: Some(path),
-        };
-    }
-
     RESOLVE_MISSING.fetch_add(1, Ordering::Relaxed);
-    release_candidate::note_missing_w3d_model(&key);
+    release_candidate::note_missing_w3d_model(key);
     if use_placeholder {
         RESOLVE_PLACEHOLDER.fetch_add(1, Ordering::Relaxed);
-        note_placeholder_key(&key);
+        note_placeholder_key(key);
         MeshResolveResult::Placeholder {
-            requested_key: key,
+            requested_key: key.to_string(),
             model: create_placeholder_mesh_model(),
             reason: "W3D asset not found".into(),
         }
     } else {
         MeshResolveResult::Missing {
-            requested_key: key,
+            requested_key: key.to_string(),
             reason: "W3D asset not found".into(),
         }
     }
 }
 
-/// Resolve using presentation fields.
-pub fn resolve_mesh_for_presentation(
-    model_key: Option<&str>,
-    template_name: &str,
-    use_placeholder: bool,
-) -> MeshResolveResult {
-    let key = model_key_from_presentation(model_key, template_name);
-    resolve_mesh_for_model_key(&key, use_placeholder)
-}
-
-/// Resolve from a ThingTemplate (host create_object / presentation path).
-pub fn resolve_mesh_for_template(
-    template: &ThingTemplate,
-    use_placeholder: bool,
-) -> MeshResolveResult {
-    let key = model_key_from_template(template);
-    resolve_mesh_for_model_key(&key, use_placeholder)
-}
-
 /// Whether retail/sample W3D bytes for this key are discoverable right now.
-pub fn mesh_asset_available(model_key: &str) -> bool {
-    if find_filesystem_w3d(model_key).is_some() {
-        return true;
-    }
-    if let Some(manager_arc) = crate::assets::get_asset_manager() {
-        if let Ok(mut manager) = manager_arc.lock() {
-            for path in w3d_archive_path_variants(model_key) {
-                if manager.can_open_file_sync(&path) {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+#[cfg(test)]
+fn mesh_asset_available(
+    model_key: &str,
+    resolver: &mut super::resolver::LiveAssetResolver,
+) -> bool {
+    find_filesystem_w3d_with_resolver(model_key, resolver).is_some()
 }
 
 #[cfg(test)]
@@ -1457,7 +1401,10 @@ mod tests {
     fn failed_model_resolution_warns_once_and_probes_filesystem_once() {
         // Unique key: nothing else in the suite resolves or probes it.
         let key = "zzz_spam_dedup_probe_model";
-        let first = resolve_mesh_for_model_key(key, false);
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        let first = resolve_mesh_for_model_key_with_resolver(key, false, &mut resolver);
         assert!(
             matches!(first, MeshResolveResult::Missing { .. }),
             "absent residual key must stay fail-closed missing"
@@ -1467,41 +1414,29 @@ mod tests {
             1,
             "first failed resolution emits exactly one MISSING_ASSET warn"
         );
-        assert_eq!(
-            filesystem_w3d_miss_probe_count(key),
-            1,
-            "first failed resolution performs exactly one filesystem probe"
-        );
 
-        // The next frame re-resolves the same missing key: the negative
-        // caches must serve the miss with no new warn and no new probe.
-        let second = resolve_mesh_for_model_key(key, false);
+        // The next frame re-resolves the same missing key: warning/cache
+        // behavior remains fail-closed and does not repeat the warning.
+        let second = resolve_mesh_for_model_key_with_resolver(key, false, &mut resolver);
         assert!(matches!(second, MeshResolveResult::Missing { .. }));
+        assert!(resolver.miss_cached(key));
+        assert_eq!(resolver.miss_probe_count(key), 1);
         assert_eq!(
             release_candidate::missing_w3d_warn_count(key),
             1,
             "repeat resolution must not warn again"
         );
-        assert_eq!(
-            filesystem_w3d_miss_probe_count(key),
-            1,
-            "repeat resolution must not re-probe the filesystem"
-        );
-        assert!(filesystem_w3d_miss_cached_for_key(key));
     }
 
     #[test]
     fn empty_model_key_keeps_failing_without_uncached_probe_spam() {
         let key = "";
+        let mut resolver = super::super::resolver::LiveAssetResolver::default();
         for _ in 0..2 {
-            let result = resolve_mesh_for_model_key(key, false);
+            let result = resolve_mesh_for_model_key_with_resolver(key, false, &mut resolver);
             assert!(matches!(result, MeshResolveResult::Missing { .. }));
         }
-        assert_eq!(
-            filesystem_w3d_miss_probe_count(""),
-            0,
-            "empty keys short-circuit before any filesystem probe"
-        );
+        assert_eq!(find_filesystem_w3d_with_resolver(key, &mut resolver), None);
     }
 
     #[test]
@@ -1574,7 +1509,10 @@ mod tests {
 
     #[test]
     fn missing_reskin_mesh_skips_without_invented_geometry() {
-        let result = resolve_mesh_for_model_key("PTXPine03", false);
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        let result = resolve_mesh_for_model_key_with_resolver("PTXPine03", false, &mut resolver);
         match &result {
             MeshResolveResult::Loaded { .. } => {}
             MeshResolveResult::Missing { requested_key, .. } => {
@@ -1590,7 +1528,14 @@ mod tests {
     #[test]
     fn placeholder_mesh_has_geometry_and_honesty() {
         let before = MeshResolveHonesty::snapshot();
-        let result = resolve_mesh_for_model_key("__no_such_unit_mesh_xyz__", true);
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        let result = resolve_mesh_for_model_key_with_resolver(
+            "__no_such_unit_mesh_xyz__",
+            true,
+            &mut resolver,
+        );
         assert!(result.is_placeholder(), "expected placeholder for missing");
         assert!(result.mesh_count() > 0, "placeholder must have mesh tris");
         assert_eq!(result.model().unwrap().name, PLACEHOLDER_MODEL_KEY);
@@ -1614,7 +1559,14 @@ mod tests {
     #[test]
     fn missing_without_placeholder_is_honest_missing() {
         let before = MeshResolveHonesty::snapshot();
-        let result = resolve_mesh_for_model_key("__definitely_missing_mesh__", false);
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        let result = resolve_mesh_for_model_key_with_resolver(
+            "__definitely_missing_mesh__",
+            false,
+            &mut resolver,
+        );
         assert!(result.is_missing());
         assert!(result.model().is_none());
         let after = MeshResolveHonesty::snapshot();
@@ -1631,10 +1583,13 @@ mod tests {
     fn usa_ranger_loads_mesh_when_assets_present_or_skips() {
         let before = MeshResolveHonesty::snapshot();
         let key = "airanger_s";
-        if !mesh_asset_available(key) {
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        if !mesh_asset_available(key, &mut resolver) {
             // Graceful skip when ZH extract / sample W3D not on disk.
             eprintln!("skip: airanger_s W3D not available in workspace");
-            let result = resolve_mesh_for_model_key(key, true);
+            let result = resolve_mesh_for_model_key_with_resolver(key, true, &mut resolver);
             assert!(
                 result.is_placeholder() || result.is_missing(),
                 "without assets, resolve must not invent a loaded retail mesh"
@@ -1642,7 +1597,7 @@ mod tests {
             return;
         }
 
-        let result = resolve_mesh_for_model_key(key, false);
+        let result = resolve_mesh_for_model_key_with_resolver(key, false, &mut resolver);
         assert!(
             result.is_loaded(),
             "airanger_s must load when assets present: {:?}",
@@ -1794,9 +1749,12 @@ mod tests {
         assert!(honesty_placeholder_key_ring_ok());
         MeshResolveHonesty::reset_for_tests();
         // Fill beyond capacity → ring drops oldest.
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
         for i in 0..(PLACEHOLDER_KEY_RING_CAPACITY + 4) {
             let key = format!("__ring_placeholder_{i}__");
-            let _ = resolve_mesh_for_model_key(&key, true);
+            let _ = resolve_mesh_for_model_key_with_resolver(&key, true, &mut resolver);
         }
         let keys = recent_placeholder_model_keys();
         assert!(
@@ -1992,11 +1950,22 @@ mod tests {
 
     #[test]
     fn resolve_garbage_key_is_missing_not_panic() {
-        let result = resolve_mesh_for_model_key("__garbage_stage_a_mesh_xyz__", false);
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        let result = resolve_mesh_for_model_key_with_resolver(
+            "__garbage_stage_a_mesh_xyz__",
+            false,
+            &mut resolver,
+        );
         assert!(result.is_missing(), "garbage key must be honest Missing");
         assert!(!result.is_placeholder());
         assert!(!result.is_loaded());
-        let placeholder = resolve_mesh_for_model_key("__garbage_stage_a_mesh_xyz__", true);
+        let placeholder = resolve_mesh_for_model_key_with_resolver(
+            "__garbage_stage_a_mesh_xyz__",
+            true,
+            &mut resolver,
+        );
         assert!(
             placeholder.is_placeholder(),
             "use_placeholder=true must still placeholder"
@@ -2008,16 +1977,21 @@ mod tests {
     fn sample_w3d_loads_when_present_on_disk() {
         // ABBtCmdHQ.W3D ships under Tools/w3d_to_gltf/W3D and extracted BIG trees.
         let key = "AmericaCommandCenter";
-        if !mesh_asset_available(key) && !mesh_asset_available("abbtcmdhq") {
+        let mut resolver = super::super::resolver::LiveAssetResolver::new(
+            super::super::resolver::default_asset_roots(),
+        );
+        if !mesh_asset_available(key, &mut resolver)
+            && !mesh_asset_available("abbtcmdhq", &mut resolver)
+        {
             eprintln!("skip: ABBtCmdHQ W3D not available in workspace");
-            let result = resolve_mesh_for_model_key(key, false);
+            let result = resolve_mesh_for_model_key_with_resolver(key, false, &mut resolver);
             assert!(
                 result.is_missing(),
                 "without assets, production resolve must stay Missing (not placeholder)"
             );
             return;
         }
-        let result = resolve_mesh_for_model_key(key, false);
+        let result = resolve_mesh_for_model_key_with_resolver(key, false, &mut resolver);
         assert!(
             result.is_loaded(),
             "AmericaCommandCenter must load ABBtCmdHQ when sample W3D is present: {:?}",

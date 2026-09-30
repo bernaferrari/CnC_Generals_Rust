@@ -1,0 +1,15 @@
+[package]
+name = "generals_presentation"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+glam = { workspace = true, features = ["serde"] }
+serde = { workspace = true, features = ["derive"] }
+generals_game_domain = { path = "../GameDomain" }

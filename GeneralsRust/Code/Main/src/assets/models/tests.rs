@@ -10,6 +10,12 @@ use super::w3d_mesh_build::*;
 use super::w3d_model::*;
 use super::*;
 
+fn find_filesystem_w3d(key: &str) -> Option<std::path::PathBuf> {
+    let mut resolver =
+        crate::assets::LiveAssetResolver::new(crate::assets::resolver::default_asset_roots());
+    crate::assets::mesh_asset_resolve::find_filesystem_w3d_with_resolver(key, &mut resolver)
+}
+
 fn chunk(chunk_type: u32, payload: Vec<u8>, container: bool) -> Vec<u8> {
     let mut out = Vec::with_capacity(8 + payload.len());
     out.extend_from_slice(&chunk_type.to_le_bytes());
@@ -2333,7 +2339,7 @@ fn multi_lod_rigid_hlod_uses_cxx_constructor_selection_and_retains_attachment_me
 
 #[test]
 fn retail_america_command_center_hlod_retains_rigid_bone_records_when_available() {
-    let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("ABBtCmdHQ") else {
+    let Some(path) = find_filesystem_w3d("ABBtCmdHQ") else {
         eprintln!("skip: retail ABBtCmdHQ.W3D is not available on disk");
         return;
     };
@@ -2373,8 +2379,7 @@ fn w3d_hlod_visibility_hide_show_subobjects_retail_scorpion_maps_exact_hlod_chil
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let ini_path =
         root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object/GC_Chem_GLAUnits.ini");
-    let Some(w3d_path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("UVLiteTank")
-    else {
+    let Some(w3d_path) = find_filesystem_w3d("UVLiteTank") else {
         eprintln!("skip: retail UVLiteTank.W3D is not available on disk");
         return;
     };
@@ -2461,8 +2466,7 @@ fn w3d_hlod_turret_retail_scorpion_retains_exact_primary_turret_binding_when_ava
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     let ini_path =
         root.join("windows_game/extracted_big_files/INIZH/Data/INI/Object/GC_Chem_GLAUnits.ini");
-    let Some(w3d_path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("UVLiteTank")
-    else {
+    let Some(w3d_path) = find_filesystem_w3d("UVLiteTank") else {
         eprintln!("skip: retail UVLiteTank.W3D is not available on disk");
         return;
     };
@@ -2530,7 +2534,7 @@ fn w3d_hlod_turret_retail_scorpion_retains_exact_primary_turret_binding_when_ava
 
 #[test]
 fn w3d_hlod_visibility_retail_boss_airfield_binds_redlight_bone() {
-    let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("NBAirfield_DS") else {
+    let Some(path) = find_filesystem_w3d("NBAirfield_DS") else {
         eprintln!("skip: retail NBAirfield_DS.W3D is not available on disk");
         return;
     };
@@ -2570,9 +2574,9 @@ fn w3d_hlod_visibility_retail_boss_airfield_binds_redlight_bone() {
 
 #[test]
 fn sample_w3d_still_loads_via_from_path_when_present() {
-    let path = crate::assets::mesh_asset_resolve::find_filesystem_w3d("AmericaCommandCenter")
-        .or_else(|| crate::assets::mesh_asset_resolve::find_filesystem_w3d("ABBtCmdHQ"))
-        .or_else(|| crate::assets::mesh_asset_resolve::find_filesystem_w3d("airanger_s"));
+    let path = find_filesystem_w3d("AmericaCommandCenter")
+        .or_else(|| find_filesystem_w3d("ABBtCmdHQ"))
+        .or_else(|| find_filesystem_w3d("airanger_s"));
     let Some(path) = path else {
         eprintln!("skip: no sample W3D on disk");
         // Candidate list is still the archive contract when bytes are absent.

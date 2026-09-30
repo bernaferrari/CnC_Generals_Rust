@@ -1977,7 +1977,7 @@ fn crusher_combiner_merges_fence_obstacle() {
 fn fence_flag_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(src.contains("obstacle_fence"));
     assert!(src.contains("is_obstacle_fence"));
@@ -2204,7 +2204,7 @@ fn zone_passable_cost_cpp_surface() {
     assert!(prod.contains("set_zone_cell_passable"));
     let astar = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(astar.contains("ZONE_IMPASSABLE_COST"));
     assert!(astar.contains("notZonePassable") || astar.contains("is_zone_passable"));
@@ -3177,7 +3177,7 @@ fn build_actual_path_ally_block_cpp_surface() {
 fn find_path_ex_ally_cost_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(
         src.contains("find_path_ex") && src.contains("extra_cost"),
@@ -3225,7 +3225,7 @@ fn ally_moving_cost_requires_near_start_cpp_surface() {
 fn downhill_only_astar_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(
         src.contains("downhill_only") && src.contains("find_path_ex2"),
@@ -3248,7 +3248,7 @@ fn downhill_only_astar_cpp_surface() {
 fn tunneling_dozer_astar_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(src.contains("force_passable") && src.contains("find_path_ex3"));
     let complete = PATHFIND_COMPLETE_SRC;
@@ -3269,7 +3269,7 @@ fn tunneling_dozer_astar_cpp_surface() {
 fn examine_cells_line_seed_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(
         src.contains("examine_cells_toward_goal")
@@ -3293,7 +3293,7 @@ fn examine_cells_line_seed_cpp_surface() {
 fn tunneling_dynamic_clear_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(
         src.contains("starts_tunneling")
@@ -3329,7 +3329,7 @@ fn find_attack_path_astar_cpp_surface() {
 fn human_logical_extent_astar_cpp_surface() {
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/src/ai/pathfind_astar.rs"
+        "/../Pathfinding/src/lib.rs"
     ));
     assert!(
         src.contains("cell_allowed") && src.contains("logical extent"),
@@ -3534,8 +3534,8 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
         pf.set_cell_obstacle_id(obs, ALLY_OBS_ID, false, false);
     }
 
-    let from = start.to_world(PathfindLayerEnum::Ground);
-    let to = goal.to_world(PathfindLayerEnum::Ground);
+    let from = system.world_pos_for_coord(start, PathfindLayerEnum::Ground);
+    let to = system.world_pos_for_coord(goal, PathfindLayerEnum::Ground);
     let mk = |object_id: ObjectID| PathRequest {
         object_id,
         from,
@@ -3693,4 +3693,33 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
     OBJECT_REGISTRY.clear();
     drop(sentinel);
     assert!(OBJECT_REGISTRY.store_is_empty());
+}
+
+#[test]
+fn cell_center_height_samples_the_requested_bridge_slot() {
+    // TerrainLogic.cpp getLayerHeight selects the requested PathfindLayer, not
+    // whichever bridge happens to occupy the first elevated/Top slot.
+    let cell = GridCoord::new(9, 9);
+    for (top_height, other_height) in [(11.0, 23.0), (101.0, 109.0)] {
+        let sample = |x, y, layer| {
+            assert_eq!((x, y), (95.0, 95.0));
+            match layer {
+                CommonPathfindLayerEnum::Top => top_height,
+                CommonPathfindLayerEnum::Bridge1 => other_height,
+                _ => 0.0,
+            }
+        };
+        assert_eq!(
+            PathfindingSystem::cell_center_with_height(cell, PathfindLayerEnum::Top, sample).z,
+            top_height
+        );
+        assert_eq!(
+            PathfindingSystem::cell_center_with_height(cell, PathfindLayerEnum::Layer3, sample).z,
+            other_height
+        );
+        assert_eq!(
+            PathfindingSystem::cell_center_with_height(cell, PathfindLayerEnum::Ground, sample).z,
+            0.0
+        );
+    }
 }

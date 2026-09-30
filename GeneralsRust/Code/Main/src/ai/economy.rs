@@ -117,11 +117,12 @@ impl AIPlayer {
     /// Prefer an idle dozer, then the nearest other eligible one. Never steal
     /// `m_repairDozer`.
     pub(super) fn find_available_dozer(
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team: Team,
         target: Vec3,
         skip: Option<ObjectId>,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .values()
@@ -157,7 +158,11 @@ impl AIPlayer {
             .map(|(_, _, id)| id)
     }
 
-    pub(super) fn team_has_any_dozer(game_logic: &GameLogic, team: Team) -> bool {
+    pub(super) fn team_has_any_dozer(
+        game_logic: &(impl AiReadSource + ?Sized),
+        team: Team,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .values()
@@ -470,9 +475,10 @@ impl AIPlayer {
     }
 
     pub(super) fn find_rebuild_hole_for_spawner(
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         prior_id: ObjectId,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().iter().find_map(|(&id, object)| {
             (object.is_rebuild_hole && object.rebuild_spawner_id == Some(prior_id)).then_some(id)
         })
@@ -480,9 +486,10 @@ impl AIPlayer {
 
     pub(super) fn sync_build_list_object_status(
         &mut self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         current_time: f32,
     ) {
+        let game_logic = &AiWorldView::new(game_logic);
         for building in &mut self.building_queue {
             let Some(object_id) = building.object_id else {
                 continue;
@@ -523,8 +530,12 @@ impl AIPlayer {
     }
 
     /// C++ `KINDOF_FS_POWER && !KINDOF_CASH_GENERATOR`.
-    pub(super) fn template_is_power_plan(game_logic: &GameLogic, template_name: &str) -> bool {
-        let Some(template) = game_logic.templates.get(template_name) else {
+    pub(super) fn template_is_power_plan(
+        game_logic: &(impl AiReadSource + ?Sized),
+        template_name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
+        let Some(template) = game_logic.template(template_name) else {
             return template_name.contains("PowerPlant");
         };
         let is_power =
@@ -539,10 +550,11 @@ impl AIPlayer {
     /// (`canMakeUnit(dozer, NULL)` → `CANMAKE_NO_PREREQ`).
     pub(super) fn select_priority_or_power_build(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         current_time: f32,
         is_under_powered: bool,
     ) -> Option<usize> {
+        let game_logic = &AiWorldView::new(game_logic);
         let Some(player) = game_logic.get_player(self.player_id) else {
             return None;
         };
@@ -568,7 +580,7 @@ impl AIPlayer {
             {
                 continue;
             }
-            let Some(template) = game_logic.templates.get(&building.template_name) else {
+            let Some(template) = game_logic.template(&building.template_name) else {
                 continue;
             };
             if !player.can_afford(&{
@@ -582,7 +594,7 @@ impl AIPlayer {
             }) {
                 continue;
             }
-            if !self.is_location_safe(game_logic, building.position, Some(template)) {
+            if !self.is_location_safe_in_view(game_logic, building.position, Some(template)) {
                 continue;
             }
 
@@ -645,15 +657,24 @@ impl AIPlayer {
         minimum_cash: i32,
         thing_name: &str,
     ) -> bool {
+        self.build_by_supplies_in_view(game_logic, minimum_cash, thing_name)
+    }
+
+    fn build_by_supplies_in_view(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        minimum_cash: i32,
+        thing_name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let is_cash = game_logic
-            .templates
-            .get(thing_name)
+            .template(thing_name)
             .map(|t| t.is_kind_of(KindOf::SupplyCenter) || t.is_kind_of(KindOf::FSSupplyCenter))
             .unwrap_or_else(|| {
                 thing_name.contains("SupplyCenter") || thing_name.contains("SupplyStash")
             });
         // C++ always findSupplyCenter first; non-cash may then use m_curWarehouseID.
-        let mut warehouse_id = self.find_supply_center(game_logic, minimum_cash);
+        let mut warehouse_id = self.find_supply_center_in_view(game_logic, minimum_cash);
         if !is_cash {
             if let Some(id) = self.current_warehouse_id {
                 if game_logic.host_object(id).is_some() {
@@ -704,6 +725,16 @@ impl AIPlayer {
         thing_name: &str,
         team_name: &str,
     ) -> bool {
+        self.build_specific_building_nearest_team_in_view(game_logic, thing_name, team_name)
+    }
+
+    fn build_specific_building_nearest_team_in_view(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        thing_name: &str,
+        team_name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         if thing_name.trim().is_empty() {
             return false;
         }
@@ -715,7 +746,11 @@ impl AIPlayer {
     }
 
     /// C++ `Team::getEstimateTeamPosition` — first living member's pose.
-    pub(super) fn estimate_team_position(game_logic: &GameLogic, team_name: &str) -> Option<Vec3> {
+    pub(super) fn estimate_team_position(
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+    ) -> Option<Vec3> {
+        let game_logic = &AiWorldView::new(game_logic);
         let needle = team_name.trim();
         if needle.is_empty() {
             return None;
@@ -822,6 +857,15 @@ impl AIPlayer {
         game_logic: &GameLogic,
         minimum_cash: i32,
     ) -> Option<ObjectId> {
+        self.find_supply_center_in_view(game_logic, minimum_cash)
+    }
+
+    fn find_supply_center_in_view(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        minimum_cash: i32,
+    ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let enemy_center = self
             .enemy_structure_bounds_midpoint(game_logic)
             .map(|p| (p.x, p.z));
@@ -885,10 +929,11 @@ impl AIPlayer {
 
     pub(super) fn own_cash_generator_near(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         warehouse_pos: Vec3,
         radius: f32,
     ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic.host_objects().values().any(|cand| {
             if !cand.is_alive()
                 || !Self::is_host_cash_generator(cand)
@@ -905,7 +950,11 @@ impl AIPlayer {
         })
     }
 
-    pub(super) fn enemy_structure_bounds_midpoint(&self, game_logic: &GameLogic) -> Option<Vec3> {
+    pub(super) fn enemy_structure_bounds_midpoint(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> Option<Vec3> {
+        let game_logic = &AiWorldView::new(game_logic);
         let enemy_team = self.skirmish_enemy_team(game_logic)?;
         let mut lo_x = f32::MAX;
         let mut lo_z = f32::MAX;
@@ -934,6 +983,16 @@ impl AIPlayer {
         pos: Vec3,
         template: Option<&ThingTemplate>,
     ) -> bool {
+        self.is_location_safe_in_view(game_logic, pos, template)
+    }
+
+    fn is_location_safe_in_view(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        pos: Vec3,
+        template: Option<&ThingTemplate>,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let Some(template) = template else {
             return false;
         };
@@ -977,14 +1036,23 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::isSupplySourceSafe` — find + isLocationSafe.
     pub fn is_supply_source_safe(&self, game_logic: &GameLogic, min_supplies: i32) -> bool {
-        let Some(warehouse_id) = self.find_supply_center(game_logic, min_supplies) else {
+        self.is_supply_source_safe_in_view(game_logic, min_supplies)
+    }
+
+    fn is_supply_source_safe_in_view(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        min_supplies: i32,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
+        let Some(warehouse_id) = self.find_supply_center_in_view(game_logic, min_supplies) else {
             return true;
         };
         let Some(warehouse) = game_logic.host_object(warehouse_id) else {
             return true;
         };
-        let template = game_logic.templates.get(&warehouse.template_name);
-        self.is_location_safe(game_logic, warehouse.get_position(), template)
+        let template = game_logic.template(&warehouse.template_name);
+        self.is_location_safe_in_view(game_logic, warehouse.get_position(), template)
     }
 
     pub(super) fn aidata_supply_center_safe_radius() -> Option<f32> {
@@ -1008,6 +1076,14 @@ impl AIPlayer {
     /// scan cash generators / dozers / harvesters for recent damage and latch
     /// `m_attackedSupplyCenter`.
     pub fn is_supply_source_attacked(&mut self, game_logic: &GameLogic) -> bool {
+        self.is_supply_source_attacked_in_view(game_logic)
+    }
+
+    fn is_supply_source_attacked_in_view(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         const SCAN_RATE: u32 = 10;
         let cur_frame = game_logic.get_frame();
         if cur_frame == 0 {
@@ -1050,7 +1126,11 @@ impl AIPlayer {
         false
     }
 
-    pub(super) fn skirmish_enemy_team(&self, game_logic: &GameLogic) -> Option<Team> {
+    pub(super) fn skirmish_enemy_team(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> Option<Team> {
+        let game_logic = &AiWorldView::new(game_logic);
         if let Some(enemy_id) = self.enemy_player_id {
             if let Some(enemy) = game_logic.get_player(enemy_id) {
                 if enemy.team != Team::Neutral {
@@ -1067,9 +1147,10 @@ impl AIPlayer {
 
     pub(super) fn named_team_member_ids(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> Vec<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let needle = team_name.trim();
         game_logic
             .host_objects()
@@ -1101,11 +1182,11 @@ impl AIPlayer {
     ) {
         self.supply_source_attack_check_frame = 0;
         let mut warehouse_id = None;
-        if self.is_supply_source_attacked(game_logic) {
+        if self.is_supply_source_attacked_in_view(game_logic) {
             warehouse_id = self.attacked_supply_center;
         }
         if warehouse_id.is_none() {
-            warehouse_id = self.find_supply_center(game_logic, min_supplies);
+            warehouse_id = self.find_supply_center_in_view(game_logic, min_supplies);
         }
         let Some(warehouse_id) = warehouse_id else {
             return;
@@ -1158,7 +1239,11 @@ impl AIPlayer {
     /// Completed allied SupplyCenterDockUpdate owners, in stable object-id
     /// order.  C++ discovers these through its BuildListInfo records; Main's
     /// live objects are the authoritative equivalent after construction.
-    pub(super) fn live_supply_centers(&self, game_logic: &GameLogic) -> Vec<ObjectId> {
+    pub(super) fn live_supply_centers(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) -> Vec<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut centers: Vec<ObjectId> = game_logic
             .host_objects()
             .iter()
@@ -1183,9 +1268,10 @@ impl AIPlayer {
     /// check before the AI assigns additional collectors.
     pub(super) fn nearest_supply_source_for_center(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         center_id: ObjectId,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let center = game_logic.host_object(center_id)?;
         let center_position = center.get_position();
         let maximum_distance = Self::SUPPLY_CENTER_CLOSE_DISTANCE + center.selection_radius;
@@ -1239,9 +1325,10 @@ impl AIPlayer {
 
     pub(super) fn collector_count_for_supply_center(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         center_id: ObjectId,
     ) -> u32 {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .values()
@@ -1259,7 +1346,8 @@ impl AIPlayer {
             .count() as u32
     }
 
-    pub(super) fn total_live_collectors(&self, game_logic: &GameLogic) -> u32 {
+    pub(super) fn total_live_collectors(&self, game_logic: &(impl AiReadSource + ?Sized)) -> u32 {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .values()
@@ -1399,11 +1487,12 @@ impl AIPlayer {
     /// the old unit-name factory guessing and preserves C++'s real typed
     /// ProductionUpdate authorization/queue/money path.
     pub(super) fn supply_center_factory_for_collector(
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         center_id: ObjectId,
         collector_template: &str,
         team: Team,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let center = game_logic.host_object(center_id)?;
         if center.team != team
             || !center.is_alive()
@@ -1412,8 +1501,7 @@ impl AIPlayer {
             || (!center.is_kind_of(KindOf::SupplyCenter)
                 && !center.is_kind_of(KindOf::FSSupplyCenter))
             || !game_logic
-                .templates
-                .get(collector_template)
+                .template(collector_template)
                 .is_some_and(|template| template.is_kind_of(KindOf::Harvester))
         {
             return None;

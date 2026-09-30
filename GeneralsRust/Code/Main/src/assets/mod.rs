@@ -17,6 +17,7 @@ pub mod local_file_system;
 pub mod manager;
 pub mod mesh_asset_resolve;
 pub mod models;
+pub mod resolver;
 pub mod sound_effects;
 pub mod textures;
 pub mod ww3d_asset_manager;
@@ -34,10 +35,10 @@ pub use manager::*;
 pub use mesh_asset_resolve::{
     MeshResolveHonesty, MeshResolveResult, PLACEHOLDER_MODEL_KEY, create_placeholder_mesh_model,
     drawable_w3d_model_key, model_key_from_presentation, model_key_from_template,
-    remap_model_key_alias, resolve_mesh_for_model_key, resolve_mesh_for_presentation,
-    resolve_mesh_for_template,
+    remap_model_key_alias, resolve_mesh_for_model_key,
 };
 pub use models::*;
+pub use resolver::LiveAssetResolver;
 pub use sound_effects::*;
 pub use textures::*;
 pub use ww3d_asset_manager::*;

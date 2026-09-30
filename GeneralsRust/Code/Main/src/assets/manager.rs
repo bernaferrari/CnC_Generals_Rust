@@ -75,6 +75,12 @@ pub struct AssetManager {
     manual_big_files: Vec<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum W3dAssetSource {
+    Extracted(PathBuf),
+    Archive,
+}
+
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for AssetManager {}
 
@@ -680,6 +686,10 @@ impl AssetManager {
         for language_path in self.language_specific_paths() {
             asset_paths.insert(0, language_path);
         }
+
+        let default_roots = super::resolver::default_asset_roots();
+        self.archive_system
+            .set_local_search_roots(super::resolver::prepend_roots(&default_roots, &asset_paths));
 
         self.register_search_paths(asset_paths);
 
@@ -1702,6 +1712,22 @@ impl AssetManager {
         self.archive_system.open_reader(filename).is_ok()
     }
 
+    /// Resolve an extracted W3D file through this owner's configured language,
+    /// mod, install, and repository roots. The owned miss cache follows this
+    /// AssetManager's lifetime and cannot suppress another manager's lookup.
+    pub fn find_filesystem_w3d(&mut self, model_key: &str) -> Option<PathBuf> {
+        self.archive_system.find_filesystem_w3d(model_key)
+    }
+
+    /// C++ W3DFileSystem asks FileSystem to open the local file before the
+    /// ArchiveFileSystem fallback. Keep this source choice attached to the
+    /// manager that owns both the local roots and BIG mounts.
+    pub(crate) fn w3d_asset_source(&mut self, model_key: &str) -> W3dAssetSource {
+        self.find_filesystem_w3d(model_key)
+            .map(W3dAssetSource::Extracted)
+            .unwrap_or(W3dAssetSource::Archive)
+    }
+
     /// Extract raw file data from archives
     pub async fn extract_file(&mut self, filename: &str) -> Result<Vec<u8>> {
         if !self.initialized {
@@ -1842,6 +1868,16 @@ impl AssetManager {
     pub fn get_cached_model(&self, unit_name: &str) -> Option<W3DModel> {
         let unit_key = unit_name.to_lowercase();
         self.model_cache.get(&unit_key).cloned()
+    }
+
+    pub(crate) fn w3d_model_known_missing(&self, model_name: &str) -> bool {
+        self.missing_model_keys
+            .contains(&model_name.to_ascii_lowercase())
+    }
+
+    pub(crate) fn remember_missing_w3d_model(&mut self, model_name: &str) {
+        self.missing_model_keys
+            .insert(model_name.to_ascii_lowercase());
     }
 
     pub fn get_cached_model_ref(&self, unit_name: &str) -> Option<&W3DModel> {
@@ -2606,11 +2642,135 @@ pub fn toggle_cnc_music() {
 mod tests {
     use super::*;
     use crate::assets::{
-        AuthoredDrawWeaponBoneBindings, AuthoredDrawWeaponBoneSlot, W3dHierarchy, W3dHlod,
-        W3dHlodLod, W3dHmodel, W3dHmodelNode, W3dHmodelNodeKind, W3dPivot,
+        AuthoredDrawWeaponBoneBindings, AuthoredDrawWeaponBoneSlot, W3DMesh, W3DModel,
+        W3dHierarchy, W3dHlod, W3dHlodLod, W3dHmodel, W3dHmodelNode, W3dHmodelNodeKind, W3dPivot,
     };
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::time::{Duration, SystemTime};
+
+    fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) {
+        use std::io::Write;
+
+        let data_offset = 0x10 + 8 + virtual_path.len() + 1;
+        let archive_size = data_offset + data.len();
+        let mut file = std::fs::File::create(path).unwrap();
+        file.write_all(b"BIGF").unwrap();
+        file.write_all(&(archive_size as u32).to_le_bytes())
+            .unwrap();
+        file.write_all(&1u32.to_be_bytes()).unwrap();
+        file.write_all(&(data_offset as u32).to_be_bytes()).unwrap();
+        file.write_all(&(data_offset as u32).to_be_bytes()).unwrap();
+        file.write_all(&(data.len() as u32).to_be_bytes()).unwrap();
+        file.write_all(virtual_path.as_bytes()).unwrap();
+        file.write_all(&[0]).unwrap();
+        file.write_all(data).unwrap();
+    }
+
+    #[test]
+    fn local_mod_w3d_source_precedes_same_named_big_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        let local_root = temp.path().join("mod");
+        let local_w3d = local_root.join("Art/W3D/Collision.W3D");
+        std::fs::create_dir_all(local_w3d.parent().unwrap()).unwrap();
+        std::fs::write(&local_w3d, b"local override").unwrap();
+
+        let big_path = temp.path().join("collision.big");
+        create_single_file_big(&big_path, "Art/W3D/Collision.W3D", b"archive fallback");
+        let mut manager = AssetManager::new().unwrap();
+        futures::executor::block_on(manager.archive_system.load_big_file(&big_path)).unwrap();
+        manager.archive_system.set_local_search_roots(Vec::new());
+
+        assert_eq!(
+            manager
+                .archive_system
+                .open_file_sync("Art/W3D/Collision.W3D")
+                .unwrap(),
+            b"archive fallback",
+            "the fixture must contain a colliding BIG entry"
+        );
+        manager.archive_system.set_local_search_roots([local_root]);
+        let selected_path = match manager.w3d_asset_source("Collision") {
+            W3dAssetSource::Extracted(path) => path,
+            W3dAssetSource::Archive => {
+                panic!("C++ FileSystem chooses the local override before ArchiveFileSystem")
+            }
+        };
+        assert_eq!(
+            std::fs::canonicalize(selected_path).unwrap(),
+            std::fs::canonicalize(local_w3d).unwrap(),
+            "the selected local override must identify the authored file regardless of casing"
+        );
+    }
+
+    #[test]
+    fn canonical_mesh_resolver_uses_the_supplied_asset_manager_owner() {
+        fn cached_marker(name: &str) -> W3DModel {
+            let mut model = W3DModel::new(name.to_string());
+            model.meshes.push(W3DMesh::new(format!("{name}_mesh")));
+            model
+        }
+
+        let key = "codex_owner_cache_unique";
+        let first_root = tempfile::tempdir().unwrap();
+        let second_root = tempfile::tempdir().unwrap();
+        let relative_asset = format!(
+            "codex_owner_{}.asset",
+            first_root.path().file_name().unwrap().to_string_lossy()
+        );
+        assert!(!Path::new(&relative_asset).exists());
+        std::fs::write(first_root.path().join(&relative_asset), b"first root").unwrap();
+        std::fs::write(second_root.path().join(&relative_asset), b"second root").unwrap();
+        let mut first = AssetManager::new().unwrap();
+        let mut second = AssetManager::new().unwrap();
+        first
+            .archive_system
+            .set_local_search_roots([first_root.path().to_path_buf()]);
+        second
+            .archive_system
+            .set_local_search_roots([second_root.path().to_path_buf()]);
+        first.remember_missing_w3d_model("first_owner_missing");
+        second.remember_missing_w3d_model("second_owner_missing");
+        first
+            .model_cache
+            .insert(key.to_ascii_lowercase(), cached_marker("first_owner"));
+        second
+            .model_cache
+            .insert(key.to_ascii_lowercase(), cached_marker("second_owner"));
+
+        let first_model =
+            crate::assets::mesh_asset_resolve::resolve_mesh_for_model_key(&mut first, key, false);
+        let second_model =
+            crate::assets::mesh_asset_resolve::resolve_mesh_for_model_key(&mut second, key, false);
+        assert_eq!(first_model.model().unwrap().name, "first_owner");
+        assert_eq!(second_model.model().unwrap().name, "second_owner");
+
+        first.model_cache.clear();
+        first.missing_model_keys.clear();
+        first.archive_system.set_local_search_roots(Vec::new());
+
+        assert!(first.get_cached_model(key).is_none());
+        assert!(!first.w3d_model_known_missing("first_owner_missing"));
+        assert!(second.w3d_model_known_missing("second_owner_missing"));
+        assert!(
+            first
+                .archive_system
+                .resolve_local_file(&relative_asset)
+                .is_none()
+        );
+        let second_root_file = second
+            .archive_system
+            .resolve_local_file(&relative_asset)
+            .unwrap();
+        assert_eq!(std::fs::read(second_root_file).unwrap(), b"second root");
+        assert_eq!(
+            second.get_cached_model(key).unwrap().name,
+            "second_owner",
+            "resetting one manager must not clear the other owner's model cache"
+        );
+        let second_again =
+            crate::assets::mesh_asset_resolve::resolve_mesh_for_model_key(&mut second, key, false);
+        assert_eq!(second_again.model().unwrap().name, "second_owner");
+    }
 
     #[test]
     fn synchronous_w3d_misses_inside_multithread_runtime_do_not_panic() {

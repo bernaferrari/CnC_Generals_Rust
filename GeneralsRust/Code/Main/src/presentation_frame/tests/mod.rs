@@ -13,6 +13,7 @@ mod fow_own_team;
 mod freeze_queries;
 mod render_overlay;
 mod runtime_heightmap;
+mod shared_contract;
 mod weapon_readiness;
 
 mod shroud_ownership;

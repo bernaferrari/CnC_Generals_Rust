@@ -1,9 +1,5 @@
 use super::*;
 
-/// Logic-frame index (30 Hz authority).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct LogicFrame(pub u32);
-
 /// ControlBar production cameo CanMake residual frozen for presentation/UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PresentationCanMakeCameo {

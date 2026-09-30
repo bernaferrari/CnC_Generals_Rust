@@ -131,14 +131,18 @@ impl AIPlayer {
 
     /// C++ `isPossibleToBuildTeam` unit-cost residual:
     /// `cost += thingCost * ((minUnits+maxUnits)/2.0f)` then Int-truncate.
-    pub(super) fn estimate_team_unit_cost(&self, game_logic: &GameLogic, team_name: &str) -> u32 {
+    pub(super) fn estimate_team_unit_cost(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+    ) -> u32 {
+        let game_logic = &AiWorldView::new(game_logic);
         let units = self.prototype_unit_infos(team_name);
         if !units.is_empty() {
             let mut cost: i32 = 0;
             for (name, min_u, max_u) in units {
                 let unit_cost = game_logic
-                    .templates
-                    .get(&name)
+                    .template(&name)
                     .map(|t| t.build_cost.supplies)
                     .unwrap_or(0) as i32;
                 // C++: cost += thingCost * ((maxUnits+minUnits)/2.0f);
@@ -150,8 +154,7 @@ impl AIPlayer {
         let mut cost = 0u32;
         for order in orders {
             let unit_cost = game_logic
-                .templates
-                .get(&order.template_name)
+                .template(&order.template_name)
                 .map(|t| t.build_cost.supplies)
                 .unwrap_or(0);
             cost = cost.saturating_add(unit_cost.saturating_mul(order.num_required as u32));
@@ -182,7 +185,12 @@ impl AIPlayer {
 
     /// C++ `isPossibleToBuildTeam` money residual:
     /// `cost *= m_teamResourcesToBuild` then require `money >= cost`.
-    pub(super) fn can_afford_team_start(&self, game_logic: &GameLogic, team_name: &str) -> bool {
+    pub(super) fn can_afford_team_start(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let Some(player) = game_logic.get_player(self.player_id) else {
             return false;
         };
@@ -196,9 +204,10 @@ impl AIPlayer {
     /// Production-condition scripts / maxInstances remain unported.
     pub(super) fn is_possible_to_build_team(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         self.can_afford_team_start(game_logic, team_name)
             && self.team_factories_ready(game_logic, team_name)
     }
@@ -247,9 +256,10 @@ impl AIPlayer {
     /// C++ `Team::hasAnyUnits` on one instance, using live host objects.
     pub(super) fn leftover_instance_has_any_host_units(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_id: u32,
     ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         self.leftover_instance_member_ids(Some(team_id))
             .into_iter()
             .any(|id| {
@@ -265,10 +275,11 @@ impl AIPlayer {
     /// C++ `Team::countObjectsByThingTemplate` on one instance.
     pub(super) fn leftover_instance_count_template(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_id: u32,
         template_name: &str,
     ) -> u32 {
+        let game_logic = &AiWorldView::new(game_logic);
         self.leftover_instance_member_ids(Some(team_id))
             .into_iter()
             .filter(|&id| {
@@ -281,9 +292,10 @@ impl AIPlayer {
 
     pub(super) fn leftover_instance_first_member_pos(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_id: u32,
     ) -> Option<Vec3> {
+        let game_logic = &AiWorldView::new(game_logic);
         for id in self.leftover_instance_member_ids(Some(team_id)) {
             if let Some(obj) = game_logic.host_object(ObjectId(id)) {
                 return Some(obj.get_position());
@@ -416,7 +428,11 @@ impl AIPlayer {
         }
     }
 
-    pub(super) fn queue_team_members_wiped(game_logic: &GameLogic, team: &AITeamQueue) -> bool {
+    pub(super) fn queue_team_members_wiped(
+        game_logic: &(impl AiReadSource + ?Sized),
+        team: &AITeamQueue,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut any = false;
         for order in &team.work_orders {
             for &id in &order.observed_unit_ids {
@@ -430,7 +446,11 @@ impl AIPlayer {
     }
 
     /// C++ Team::~Team → Player::preTeamDestroy: free the AI slot immediately.
-    pub(super) fn purge_destroyed_or_wiped_queued_teams(&mut self, game_logic: &GameLogic) {
+    pub(super) fn purge_destroyed_or_wiped_queued_teams(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut doomed: Vec<(Option<u32>, String)> = Vec::new();
         for team in self.team_ready_queue.iter() {
             if self.leftover_team_instance_gone(team.team_id)
@@ -1290,9 +1310,10 @@ impl AIPlayer {
     /// only the loose queue checks must NOT be selected.
     pub(super) fn find_upgrade_producer(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         upgrade_name: &str,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
         game_logic.host_objects().iter().find_map(|(&id, object)| {
             let name_ok = preferred.iter().any(|name| {
@@ -1387,7 +1408,8 @@ impl AIPlayer {
     }
 
     /// Check if AI should build a new team
-    pub(super) fn should_build_new_team(&self, game_logic: &GameLogic) -> bool {
+    pub(super) fn should_build_new_team(&self, game_logic: &(impl AiReadSource + ?Sized)) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         if !game_logic
             .get_player(self.player_id)
             .map(|p| p.can_build_units)
@@ -1460,7 +1482,12 @@ impl AIPlayer {
     /// TeamSeconds*FPS divided by TeamsPoorRate / TeamsWealthyRate only.
     /// Difficulty does not rewrite TeamSeconds (`setAIDifficulty` assigns
     /// `m_difficulty` only).
-    pub(super) fn arm_team_timer_after_build(&mut self, game_logic: &GameLogic, current_time: f32) {
+    pub(super) fn arm_team_timer_after_build(
+        &mut self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        current_time: f32,
+    ) {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut timer = (self.team_seconds.max(0.0) * LOGIC_FRAMES_PER_SECOND) as u32;
         let money = game_logic
             .get_player(self.player_id)
@@ -1539,9 +1566,10 @@ impl AIPlayer {
     /// C++ `AIPlayer::isAGoodIdeaToBuildTeam`.
     pub(super) fn is_a_good_idea_to_build_team(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let factory = &self.team_factory;
         let Ok(guard) = factory.lock() else {
             return false;
@@ -1712,9 +1740,10 @@ impl AIPlayer {
 
     pub(super) fn count_owned_template_units(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         template_name: &str,
     ) -> u32 {
+        let game_logic = &AiWorldView::new(game_logic);
         game_logic
             .host_objects()
             .values()
@@ -1752,12 +1781,13 @@ impl AIPlayer {
 
     pub(super) fn try_to_recruit(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         dest_team_name: &str,
         template_name: &str,
         home: Vec3,
         max_dist: Option<f32>,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let mut assigned: HashSet<ObjectId> = HashSet::new();
         for team in self.team_queue.iter().chain(self.team_ready_queue.iter()) {
             for order in &team.work_orders {
@@ -1787,9 +1817,10 @@ impl AIPlayer {
     }
 
     pub(super) fn source_is_default_team(
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         object: &crate::game_logic::Object,
     ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let name = object.team_instance_name.trim();
         if name.is_empty() {
             return true;
@@ -1836,13 +1867,14 @@ impl AIPlayer {
 
     pub(super) fn try_to_recruit_excluding(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         dest_team_name: &str,
         template_name: &str,
         home: Vec3,
         max_dist: f32,
         assigned: &HashSet<ObjectId>,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let dest_priority = self.dest_team_production_priority(dest_team_name);
         let mut dist_sqr = max_dist * max_dist;
         let mut recruit: Option<ObjectId> = None;
@@ -2336,8 +2368,13 @@ impl AIPlayer {
             .collect()
     }
 
-    pub(super) fn unit_template_known(&self, game_logic: &GameLogic, name: &str) -> bool {
-        if game_logic.templates.contains_key(name) {
+    pub(super) fn unit_template_known(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
+        if game_logic.contains_template(name) {
             return true;
         }
         if gamelogic::helpers::TheThingFactory::find_template(name).is_some() {
@@ -2351,9 +2388,10 @@ impl AIPlayer {
     /// prepended, then required (min) prepended.
     pub(super) fn build_team_work_orders(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> Vec<AIWorkOrder> {
+        let game_logic = &AiWorldView::new(game_logic);
         let units = self.prototype_unit_infos(team_name);
         if units.is_empty() {
             return self.create_work_orders_for_team(team_name);
@@ -2385,9 +2423,10 @@ impl AIPlayer {
     /// C++ `isPossibleToBuildTeam(..., requireIdleFactory=false)` factory residual.
     pub(super) fn team_factories_exist(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         orders: &[AIWorkOrder],
     ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         if orders.is_empty() {
             return false;
         }
@@ -2400,18 +2439,20 @@ impl AIPlayer {
     /// Find factory that can produce a specific unit
     pub(super) fn find_factory_for_unit(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         unit_template_name: &str,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         Self::find_factory_for_unit_static(game_logic, unit_template_name, self.team)
     }
 
     /// Static version to avoid borrowing conflicts
     pub(super) fn find_factory_for_unit_static(
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         unit_template_name: &str,
         team: Team,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         // Prefer idle factory (C++ findFactory(thing, busyOk=false) residual).
         Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, false)
             .or_else(|| Self::find_factory_for_unit_ex(game_logic, unit_template_name, team, true))
@@ -2514,11 +2555,12 @@ impl AIPlayer {
 
     /// Find constructed factory; `busy_ok=false` requires idle queue (C++ findFactory).
     pub(super) fn find_factory_for_unit_ex(
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         unit_template_name: &str,
         team: Team,
         busy_ok: bool,
     ) -> Option<ObjectId> {
+        let game_logic = &AiWorldView::new(game_logic);
         let factory_name = Self::factory_template_for_unit(unit_template_name, team)?;
         // Pure residual acquire: prefer idle factories (priority 0) over busy (1)
         // when busy_ok; nearest 3D tiebreak for stable multi-factory choice.
@@ -2561,7 +2603,12 @@ impl AIPlayer {
 
     /// C++ `isPossibleToBuildTeam` factory residual (requireIdleFactory=true):
     /// every unit type has a factory, and at least one factory is idle.
-    pub(super) fn team_factories_ready(&self, game_logic: &GameLogic, team_name: &str) -> bool {
+    pub(super) fn team_factories_ready(
+        &self,
+        game_logic: &(impl AiReadSource + ?Sized),
+        team_name: &str,
+    ) -> bool {
+        let game_logic = &AiWorldView::new(game_logic);
         let names = self.team_unit_template_names(game_logic, team_name);
         if names.is_empty() {
             return false;
@@ -2583,9 +2630,10 @@ impl AIPlayer {
     /// a fallback for scripted alias names that have no TeamPrototype units.
     pub(super) fn team_unit_template_names(
         &self,
-        game_logic: &GameLogic,
+        game_logic: &(impl AiReadSource + ?Sized),
         team_name: &str,
     ) -> Vec<String> {
+        let game_logic = &AiWorldView::new(game_logic);
         let units = self.prototype_unit_infos(team_name);
         if !units.is_empty() {
             return units

@@ -238,7 +238,10 @@ impl GroupPathfinder {
 
             adjusted.insert(
                 unit_id,
-                adjusted_pos.to_world(super::pathfind_astar::PathfindLayerEnum::Ground),
+                pathfinder.world_pos_for_coord(
+                    adjusted_pos,
+                    super::pathfind_astar::PathfindLayerEnum::Ground,
+                ),
             );
         }
 
@@ -461,12 +464,15 @@ mod tests {
         let pathfinder = PathfindingSystem::new(16, 16);
         let blocked = GridCoord::new(5, 5);
         pathfinder.set_cell_type(
-            &blocked.to_world(PathfindLayerEnum::Ground),
+            &pathfinder.world_pos_for_coord(blocked, PathfindLayerEnum::Ground),
             PathfindCellType::Impassable,
         );
 
         let mut positions = HashMap::new();
-        positions.insert(1, blocked.to_world(PathfindLayerEnum::Ground));
+        positions.insert(
+            1,
+            pathfinder.world_pos_for_coord(blocked, PathfindLayerEnum::Ground),
+        );
 
         let group_pathfinder = GroupPathfinder::new(20.0);
         let adjusted =

@@ -770,6 +770,11 @@ impl RenderPipeline {
                         }
                         model_missing += 1;
                     }
+                    RenderModelLoadResult::Deferred => {
+                        // AssetManager is not initialized (or is currently
+                        // unavailable). Leave the key retryable next frame.
+                        model_missing += 1;
+                    }
                     RenderModelLoadResult::Failed => {
                         if self.debug_last_missing_model_samples.len() < 16 {
                             // Prefer presentation/live-resolved model hint (no re-read of Object).
@@ -1178,6 +1183,7 @@ impl RenderPipeline {
             }
             return RenderModelLoadResult::Failed;
         }
+
         if !allow_sync_model_loads && *deferred_model_load_budget == 0 {
             if trace_this_attempt {
                 info!(
@@ -1188,57 +1194,53 @@ impl RenderPipeline {
             return RenderModelLoadResult::SkippedByBudget;
         }
 
+        // Hold the live owner's guard once across the normal loader and the
+        // explicit mesh resolver. Before initialization, leave the model
+        // retryable rather than caching a process-wide-looking filesystem
+        // miss from a temporary resolver. Check the budget first so an
+        // uncached object with no remaining budget does not contend on this
+        // lock every frame.
+        let Some(asset_manager_arc) = crate::assets::get_asset_manager() else {
+            return RenderModelLoadResult::Deferred;
+        };
+        let mut asset_manager = match asset_manager_arc.lock() {
+            Ok(manager) => manager,
+            Err(err) => {
+                if trace_this_attempt {
+                    warn!(
+                        "Startup model load: asset manager lock poisoned for template='{}' model='{}': {}",
+                        template_name, model_name, err
+                    );
+                }
+                return RenderModelLoadResult::Deferred;
+            }
+        };
+        if !asset_manager.is_initialized() {
+            return RenderModelLoadResult::Deferred;
+        }
+
         if !allow_sync_model_loads {
             *deferred_model_load_budget -= 1;
         }
 
         let requested_model_name = resolved_key.clone();
-        if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
-            let loaded_model = match asset_manager_arc.lock() {
-                Ok(mut asset_manager) => {
-                    if trace_this_attempt {
-                        info!(
-                            "Startup model load: template='{}' exact_model='{}' requested='{}'",
-                            template_name, model_name, requested_model_name
-                        );
-                    }
+        if trace_this_attempt {
+            info!(
+                "Startup model load: template='{}' exact_model='{}' requested='{}'",
+                template_name, model_name, requested_model_name
+            );
+        }
 
-                    // Audio-only host templates (Amb_* ambient loops) are
-                    // seeded deliberately with no drawable/model. Resolution
-                    // can never succeed; record the failure once, silently —
-                    // no per-frame warn, no filesystem probe.
-                    if Self::template_definition_is_audio_only(&asset_manager, template_name) {
-                        failed_model_resolutions.record(model_name);
-                        return RenderModelLoadResult::Failed;
-                    }
+        // Audio-only host templates (Amb_* ambient loops) are seeded
+        // deliberately with no drawable/model. Resolution cannot succeed.
+        if Self::template_definition_is_audio_only(&asset_manager, template_name) {
+            failed_model_resolutions.record(model_name);
+            return RenderModelLoadResult::Failed;
+        }
 
-                    match asset_manager.load_w3d_model(&requested_model_name) {
-                        Ok(model) => Some(model),
-                        Err(err) => {
-                            // Do not turn a pristine model miss into a damaged,
-                            // construction, snow, or faction variant.  Those are
-                            // distinct retail W3D assets selected by C++
-                            // ConditionState logic, not aliases.
-                            warn!(
-                                "Failed to load W3D model '{}' for object '{}': {}",
-                                requested_model_name, template_name, err
-                            );
-                            None
-                        }
-                    }
-                }
-                Err(err) => {
-                    if trace_this_attempt {
-                        warn!(
-                            "Startup model load: asset manager lock poisoned for template='{}' model='{}': {}",
-                            template_name, model_name, err
-                        );
-                    }
-                    None
-                }
-            };
-
-            if let Some(model) = loaded_model {
+        match asset_manager.load_w3d_model(&requested_model_name) {
+            Ok(model) => {
+                drop(asset_manager);
                 graphics_system.cache_model(requested_model_name.clone(), model.clone());
                 if requested_model_name != resolved_key {
                     graphics_system.cache_model(resolved_key.clone(), model.clone());
@@ -1252,6 +1254,19 @@ impl RenderPipeline {
                         template_name, requested_model_name
                     );
                 }
+                let ready_model = graphics_system
+                    .get_model(&resolved_key)
+                    .cloned()
+                    .unwrap_or_else(|| std::sync::Arc::new(model));
+                return RenderModelLoadResult::Ready(ready_model);
+            }
+            Err(err) => {
+                // Do not turn a pristine model miss into a damaged,
+                // construction, snow, or faction variant.
+                warn!(
+                    "Failed to load W3D model '{}' for object '{}': {}",
+                    requested_model_name, template_name, err
+                );
             }
         }
 
@@ -1272,7 +1287,10 @@ impl RenderPipeline {
             // use_placeholder only when debug cubes are enabled (production remains fail-closed
             // for missing retail meshes unless opt-in).
             let use_placeholder = Self::missing_model_debug_cubes_enabled();
-            match resolve_mesh_for_model_key(&resolved_key, use_placeholder) {
+            let mesh_resolution =
+                resolve_mesh_for_model_key(&mut asset_manager, &resolved_key, use_placeholder);
+            drop(asset_manager);
+            match mesh_resolution {
                 MeshResolveResult::Loaded {
                     model_key,
                     model,
@@ -1823,6 +1841,7 @@ impl RenderPipeline {
                         }
                     }
                 }
+                RenderModelLoadResult::Deferred => {}
             }
         }
 

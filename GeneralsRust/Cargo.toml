@@ -23,6 +23,9 @@ members = [
     "Code/GameEngine/GameEngineDevice",
     "Code/GameEngine/GameNetwork",
     "Code/GameEngine/GameLogic",
+    "Code/GameEngine/Pathfinding",
+    "Code/GameEngine/GameDomain",
+    "Code/GameEngine/Presentation",
     "Code/GameEngine/GameClient",
     "Code/Integration",
 

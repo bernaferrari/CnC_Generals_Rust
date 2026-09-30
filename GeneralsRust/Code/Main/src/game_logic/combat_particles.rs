@@ -9,83 +9,10 @@
 //! rebind after load.
 
 use super::{ObjectId, Team};
+pub use generals_game_domain::CombatParticleKind;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-
-/// Kind of combat feedback particle system (host registry).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum CombatParticleKind {
-    /// Death blast at destroyed unit/structure.
-    DeathExplosion,
-    /// Lingering smoke after death.
-    DeathSmoke,
-    /// Flame / burned death residual (DEATH_BURNED).
-    DeathBurn,
-    /// Poison cloud residual (DEATH_POISONED*).
-    DeathPoison,
-    /// Laser vapor residual (DEATH_LASERED).
-    DeathLaser,
-    /// Muzzle flash when a weapon fires.
-    WeaponMuzzleFlash,
-    /// Impact / hit feedback at target position.
-    WeaponImpact,
-    /// In-flight projectile exhaust residual (Weapon.ini ProjectileExhaust).
-    ProjectileExhaust,
-    /// C++ `ParticleSysBone` attached to a live drawable (exhaust, stacks, clouds).
-    ParticleSysBone,
-    /// C++ ActiveBody AutoFire bone fire (FIRESMALL/MEDIUM/LARGE).
-    BodyFire,
-    /// C++ ActiveBody AutoSmoke bone smoke (SMOKESMALL/MEDIUM/LARGE).
-    BodySmoke,
-    /// C++ SpecialAbilityUpdate DisableFX BinaryShower (not ParticleSysBone).
-    DisableFx,
-}
-
-impl CombatParticleKind {
-    /// Template name matching GameClient particle_presets where applicable.
-    pub fn template_name(self) -> &'static str {
-        match self {
-            CombatParticleKind::DeathExplosion => "MediumExplosion",
-            CombatParticleKind::DeathSmoke => "SmokePlume",
-            // Fail-closed: reuse nearest GameClient presets until full FXList.ini.
-            CombatParticleKind::DeathBurn => "SmokePlume",
-            CombatParticleKind::DeathPoison => "SmokePlume",
-            CombatParticleKind::DeathLaser => "BulletImpact",
-            CombatParticleKind::WeaponMuzzleFlash => "MuzzleFlash",
-            CombatParticleKind::WeaponImpact => "BulletImpact",
-            CombatParticleKind::ProjectileExhaust => "MissileExhaust",
-            CombatParticleKind::ParticleSysBone => "SmokePlume",
-            CombatParticleKind::BodyFire => "FireSmall",
-            CombatParticleKind::BodySmoke => "SmokeSmall",
-            CombatParticleKind::DisableFx => "DisabledEffectBinaryShower0",
-        }
-    }
-
-    /// Host sweep lifetime (logic frames) for one-shot feedback kinds,
-    /// mirroring the GameClient preset `SystemLifetime` (C++ ParticleSys.cpp:
-    /// 2066-2081: the system dies once the lifetime expires and emitted
-    /// particles drain). `None` = attached/continuous kind owned by object
-    /// updates — never swept.
-    pub fn sweep_system_lifetime(self) -> Option<u32> {
-        match self {
-            CombatParticleKind::DeathExplosion
-            | CombatParticleKind::DeathLaser
-            | CombatParticleKind::WeaponMuzzleFlash
-            | CombatParticleKind::WeaponImpact => Some(2),
-            CombatParticleKind::DeathSmoke
-            | CombatParticleKind::DeathBurn
-            | CombatParticleKind::DeathPoison => Some(600),
-            // Authored BinaryShower lifetimes vary per template; the host
-            // marker is only a residual, so cap it at a bounded fallback.
-            CombatParticleKind::DisableFx => Some(30),
-            CombatParticleKind::ProjectileExhaust
-            | CombatParticleKind::ParticleSysBone
-            | CombatParticleKind::BodyFire
-            | CombatParticleKind::BodySmoke => None,
-        }
-    }
-}
 
 /// One active combat particle system entry in the host registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1986,8 +1913,7 @@ mod tests {
         // authored DetonationFX list — never a generic BulletImpact preset.
         assert_eq!(ids.len(), 1, "only the muzzle entry may spawn");
         assert!(
-            !reg
-                .systems
+            !reg.systems
                 .values()
                 .any(|entry| entry.kind == CombatParticleKind::WeaponImpact),
         );

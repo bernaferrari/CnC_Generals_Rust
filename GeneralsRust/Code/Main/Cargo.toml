@@ -67,6 +67,8 @@ bincode_legacy = { workspace = true }
 # Core game engine dependencies
 game_engine = { path = "../GameEngine/Common" }
 gamelogic = { path = "../GameEngine/GameLogic" }
+generals_game_domain = { path = "../GameEngine/GameDomain" }
+generals_presentation = { path = "../GameEngine/Presentation" }
 integration = { path = "../Integration", optional = true }
 game_client = { path = "../GameEngine/GameClient", package = "game-client-rust", optional = true }
 game_engine_device = { path = "../GameEngine/GameEngineDevice", optional = true }
