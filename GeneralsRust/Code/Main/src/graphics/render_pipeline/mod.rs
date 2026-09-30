@@ -729,6 +729,9 @@ pub struct RenderPipeline {
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
     presentation_frame: Option<Rc<crate::presentation_frame::PresentationFrame>>,
+    /// Frozen specialized module values bound to this exact immutable frame.
+    #[cfg(feature = "game_client")]
+    frozen_specialized_draw: Option<specialized_draw_inputs::FrozenSpecializedDrawFrame>,
     /// Immutable direct-host shroud visibility captured from GameClient for
     /// this presentation frame. It is replaced, never merged, at every Main
     /// render boundary so object IDs cannot carry across frame/world changes.
@@ -908,6 +911,8 @@ mod pipeline_lifecycle;
 mod pipeline_minimap;
 mod pipeline_prewarm;
 mod residuals;
+#[cfg(feature = "game_client")]
+mod specialized_draw_inputs;
 pub use residuals::*;
 
 #[cfg(test)]

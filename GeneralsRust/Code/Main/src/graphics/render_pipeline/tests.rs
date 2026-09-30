@@ -1306,7 +1306,20 @@ fn projectile_mesh_pass_uses_presentation_inputs() {
 fn execute_packs_presentation_fx_segments_from_frame() {
     let src = crate::graphics::render_pipeline::RENDER_PIPELINE_SRC;
     let i = src.find("pub fn execute").expect("execute");
-    let body = &src[i..src.len().min(i + 3500)];
+    // Inspect the actual function boundary rather than a byte window that
+    // silently drops later FX calls when an explicit input is added.
+    let function = &src[i..];
+    let brace = function.find('{').expect("execute body");
+    let mut depth = 0;
+    let end = function[brace..].char_indices().find_map(|(offset, character)| {
+        if character == '{' { depth += 1; }
+        if character == '}' {
+            depth -= 1;
+            if depth == 0 { return Some(brace + offset + 1); }
+        }
+        None
+    }).expect("execute closing brace");
+    let body = &function[..end];
     assert!(
         body.contains("pack_presentation_laser_segments")
             && body.contains("pack_presentation_projectiles")

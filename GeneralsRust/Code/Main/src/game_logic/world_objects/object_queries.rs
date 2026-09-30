@@ -1254,6 +1254,11 @@ impl GameLogic {
 
     /// Clear all objects (for snapshot restoration)
     pub fn clear_all_objects(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            *self.host_physics_visuals.get_mut() = Default::default();
+        }
+        self.visual_world_epoch = self.visual_world_epoch.wrapping_add(1).max(1);
         self.objects.clear();
         self.host_move_attack_machines.clear();
         self.host_view_dirty.clear();

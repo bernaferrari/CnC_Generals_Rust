@@ -46,6 +46,8 @@ impl GameLogic {
             // Construction is inert (no active-slot write); Main installs
             // the bundle at the explicit world-start boundaries below.
             engine_stores: gamelogic::system::engine_stores::new_for_world(),
+            #[cfg(feature = "game_client")]
+            host_physics_visuals: Default::default(),
             drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes::default(),
             attack_priority_sets: std::collections::HashMap::new(),
             team_common_attack_targets: std::collections::HashMap::new(),
@@ -743,6 +745,10 @@ impl GameLogic {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .reset_for_new_game();
+        #[cfg(feature = "game_client")]
+        {
+            *self.host_physics_visuals.get_mut() = Default::default();
+        }
         self.drawable_tint_envelopes.clear();
         self.objects.clear();
         self.host_move_attack_machines.clear();

@@ -90,6 +90,8 @@ impl RenderPipeline {
             frozen_ghost_scene: None,
             last_frame_time: 0.0,
             presentation_frame: None,
+            #[cfg(feature = "game_client")]
+            frozen_specialized_draw: None,
             presentation_direct_shroud_states: HashMap::new(),
             presentation_direct_shroud_host_epoch: None,
             debug_last_laser_segments_packed: 0,
@@ -136,6 +138,11 @@ impl RenderPipeline {
         &mut self,
         frame: Option<Rc<crate::presentation_frame::PresentationFrame>>,
     ) {
+        #[cfg(feature = "game_client")]
+        specialized_draw_inputs::FrozenSpecializedDrawFrame::retain_for_frame(
+            &mut self.frozen_specialized_draw,
+            frame.as_ref(),
+        );
         // Direct-host shroud state is meaningful only for this exact frozen
         // topology. Main installs its replacement sidecar immediately after
         // this call; every other handoff intentionally stays empty rather
@@ -152,6 +159,40 @@ impl RenderPipeline {
             self.prepare_pending_client_drawable_restore_for_frame(frame);
         }
         self.presentation_frame = frame;
+    }
+
+    /// Capture completed module values after the driving client has synced.
+    /// Weak frame identity permits first-frame seeding without retaining or
+    /// copying the large PresentationFrame allocation.
+    #[cfg(feature = "game_client")]
+    pub(crate) fn capture_specialized_draw_inputs(
+        &mut self,
+        frame: &Rc<crate::presentation_frame::PresentationFrame>,
+        client: &game_client::core::GameClient,
+        host_epoch: u64,
+    ) {
+        self.frozen_specialized_draw = Some(
+            specialized_draw_inputs::FrozenSpecializedDrawFrame::capture(
+                frame,
+                host_epoch,
+                client.presentation_specialized_draw_snapshots(host_epoch),
+            ),
+        );
+    }
+
+    #[cfg(feature = "game_client")]
+    pub(crate) fn ensure_specialized_draw_inputs(
+        &mut self,
+        frame: &Rc<crate::presentation_frame::PresentationFrame>,
+        client: &game_client::core::GameClient,
+        host_epoch: u64,
+    ) {
+        specialized_draw_inputs::FrozenSpecializedDrawFrame::ensure_for_frame(
+            &mut self.frozen_specialized_draw,
+            frame,
+            host_epoch,
+            || client.presentation_specialized_draw_snapshots(host_epoch),
+        );
     }
 
     /// C++ `W3DView::setHeight` — 3D viewport is the top `frac` of the window.
@@ -317,6 +358,10 @@ impl RenderPipeline {
     pub fn set_presentation_object_ids(&mut self, ids: Option<Vec<ObjectID>>) {
         if ids.is_none() {
             self.presentation_frame = None;
+            #[cfg(feature = "game_client")]
+            {
+                self.frozen_specialized_draw = None;
+            }
         }
         // IDs-only path no longer used; clear frame when None.
     }

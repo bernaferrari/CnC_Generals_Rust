@@ -267,7 +267,7 @@ impl SnapshotBuilder {
             }
         }
 
-        game_logic.objects.insert(snapshot.id, object);
+        game_logic.admit_host_object(object);
         Ok(())
     }
 

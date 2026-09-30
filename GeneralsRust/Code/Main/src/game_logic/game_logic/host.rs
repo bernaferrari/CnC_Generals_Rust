@@ -11,6 +11,8 @@ use super::*;
 
 pub struct GameLogic {
     /// Client tint history is scoped to this instance, including synthetic render IDs.
+    #[cfg(feature = "game_client")]
+    pub(crate) host_physics_visuals: std::cell::RefCell<crate::presentation_frame::physics_visual_host::HostPhysicsVisualState>,
     pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
     /// Created inertly and installed as the active bundle at the world-start

@@ -11,7 +11,6 @@
 // This residual attaches typed live modules and ticks them on the host
 // presentation path so those effects actually run.
 
-
 /// C++ draw-module class attached to a live presentation drawable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PresentationSpecializedDrawKind {
@@ -101,7 +100,7 @@ impl PresentationSpecializedDrawKind {
 }
 
 /// Frozen live residual consumed by the Main WGPU collect pass.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct PresentationSpecializedDrawSnapshot {
     pub kind: PresentationSpecializedDrawKind,
     pub module_name: String,
@@ -127,18 +126,18 @@ impl PresentationSpecializedDrawSnapshot {
             return None;
         }
         let leaf = mesh_name.rsplit('.').next().unwrap_or(mesh_name);
-        if leaf.len() < 6 || !leaf[..6].eq_ignore_ascii_case("TREADS") {
+        if !leaf
+            .as_bytes()
+            .get(..6)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"TREADS"))
+        {
             return None;
         }
         let u = match leaf.as_bytes().get(6) {
             Some(b'L' | b'l') => self.tread_uv,
             Some(b'R' | b'r') => {
                 let v = 1.0 - self.tread_uv;
-                if v >= 1.0 {
-                    0.0
-                } else {
-                    v
-                }
+                if v >= 1.0 { 0.0 } else { v }
             }
             _ => self.tread_uv,
         };
@@ -170,37 +169,56 @@ const DEBRIS_MIN_FINAL_FRAMES: u32 = 3;
 /// C++ `W3DTankDrawModuleData` default drive-scroll when INI rate is 0.
 const DEFAULT_TREAD_SCROLL: f32 = 0.05;
 
-static SPECIALIZED_DRAW_STATES: OnceLock<Mutex<HashMap<u32, PresentationSpecializedDrawSnapshot>>> =
-    OnceLock::new();
-
-/// Live host query for the WGPU collect / Overlord rider pass.
-pub fn presentation_specialized_draw_snapshot(
-    object_id: u32,
-) -> Option<PresentationSpecializedDrawSnapshot> {
-    SPECIALIZED_DRAW_STATES
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .ok()?
-        .get(&object_id)
-        .cloned()
+/// Runtime-only residual belongs to one exact Drawable lifetime. Constructing
+/// another client cannot publish it, and dropping/replacing a Drawable also
+/// drops its prior pose. C++ retains these fields on its Draw modules.
+#[derive(Debug)]
+pub(crate) struct PresentationSpecializedDrawState {
+    snapshot: PresentationSpecializedDrawSnapshot,
+    last_pos: [f32; 3],
+    last_orientation: f32,
 }
 
-pub fn prune_presentation_specialized_draw(object_id: u32) {
-    if let Ok(mut map) = SPECIALIZED_DRAW_STATES
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-    {
-        map.remove(&object_id);
+impl GameClient {
+    pub fn presentation_specialized_draw_snapshot(
+        &self,
+        object_id: u32,
+    ) -> Option<&PresentationSpecializedDrawSnapshot> {
+        let drawable_id = self.drawable_object_map.get(&object_id)?;
+        let drawable = self.drawable_map.get(drawable_id)?;
+        let basic = drawable.as_any().downcast_ref::<BasicDrawable>()?;
+        basic
+            .presentation_specialized_draw
+            .as_ref()
+            .map(|state| &state.snapshot)
     }
-    prune_live_host_animated_particle_sys_bones(object_id);
-}
 
-fn store_specialized_draw_snapshot(snapshot: PresentationSpecializedDrawSnapshot) {
-    if let Ok(mut map) = SPECIALIZED_DRAW_STATES
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-    {
-        map.insert(snapshot.object_id, snapshot);
+    /// Explicit client→renderer freeze source; values remain borrowed until
+    /// Main captures a small completed visual bundle, once per Drawable.
+    pub fn presentation_specialized_draw_snapshots(
+        &self,
+        host_epoch: u64,
+    ) -> impl Iterator<Item = (u32, &PresentationSpecializedDrawSnapshot)> {
+        self.drawable_object_map
+            .iter()
+            .filter_map(move |(&object_id, drawable_id)| {
+                let binding = self
+                    .presentation_direct_drawable_bindings
+                    .get(drawable_id)?;
+                if binding.binding_key.host_epoch != host_epoch
+                    || binding.binding_key.object_id != object_id
+                    || binding.binding_key.drawable_id != *drawable_id
+                {
+                    return None;
+                }
+                let drawable = self.drawable_map.get(drawable_id)?;
+                if drawable.get_object_id() != Some(object_id) {
+                    return None;
+                }
+                let basic = drawable.as_any().downcast_ref::<BasicDrawable>()?;
+                let state = basic.presentation_specialized_draw.as_ref()?;
+                Some((object_id, &state.snapshot))
+            })
     }
 }
 
@@ -226,7 +244,8 @@ pub fn infer_presentation_draw_module_names(
     if t.contains("policecar") || t.contains("police_car") || t.contains("civiliansedans") {
         return vec!["W3DPoliceCarDraw".to_string()];
     }
-    if t.contains("science") && (t.contains("model") || t.contains("particle") || t.contains("uplink"))
+    if t.contains("science")
+        && (t.contains("model") || t.contains("particle") || t.contains("uplink"))
     {
         return vec!["W3DScienceModelDraw".to_string()];
     }
@@ -248,16 +267,11 @@ pub fn infer_presentation_draw_module_names(
     if t.contains("police") {
         return vec!["W3DPoliceCarDraw".to_string()];
     }
-    if t.contains("truck")
-        || t.contains("humvee")
-        || t.contains("convoy")
-        || t.contains("dozer")
-    {
+    if t.contains("truck") || t.contains("humvee") || t.contains("convoy") || t.contains("dozer") {
         return vec!["W3DTruckDraw".to_string()];
     }
     Vec::new()
 }
-
 
 fn wrap_uv(offset: f32) -> f32 {
     offset - offset.floor()
@@ -300,7 +314,6 @@ fn leftover_truck_draw_module_data(template_name: &str) -> Option<W3DTruckDrawMo
     }
     None
 }
-
 
 /// Live residual attached to a presentation `BasicDrawable`.
 #[derive(Debug)]
@@ -348,17 +361,17 @@ impl PresentationSpecializedDrawModule {
         }
     }
 
-    fn snapshot(&self) -> PresentationSpecializedDrawSnapshot {
+    fn into_snapshot(self, module_name: String) -> PresentationSpecializedDrawSnapshot {
         PresentationSpecializedDrawSnapshot {
             kind: self.kind,
-            module_name: self.kind.module_name().to_string(),
+            module_name,
             object_id: self.object_id,
             tread_uv: self.tread_uv,
             wheel_angle: self.wheel_angle,
             laser_width: self.laser_width,
             debris_state: self.debris_state,
             debris_anim_time: self.debris_anim_time,
-            model_name: self.model_name.clone(),
+            model_name: self.model_name,
             science_hidden: self.science_hidden,
         }
     }
@@ -391,8 +404,9 @@ impl PresentationSpecializedDrawModule {
             }
             if self.kind.spins_wheels() {
                 // C++ W3DTruckDraw wheel rotation from ground travel.
-                self.wheel_angle = wrap_uv((self.wheel_angle + ground_speed * 0.25) / std::f32::consts::TAU)
-                    * std::f32::consts::TAU;
+                self.wheel_angle =
+                    wrap_uv((self.wheel_angle + ground_speed * 0.25) / std::f32::consts::TAU)
+                        * std::f32::consts::TAU;
             }
         }
         self.last_pos = pos;
@@ -421,7 +435,6 @@ impl PresentationSpecializedDrawModule {
         if leftover_template_uses_animated_particle_sys_bones(visual) {
             tick_live_host_animated_particle_sys_bones(e.object_id);
         }
-        store_specialized_draw_snapshot(self.snapshot());
     }
 
     fn tick_debris(&mut self, e: &PresentationDrawableSync) {
@@ -500,9 +513,7 @@ impl DrawModule for PresentationSpecializedDrawModule {
         0
     }
 
-    fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {
-        store_specialized_draw_snapshot(self.snapshot());
-    }
+    fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {}
 
     /// C++ `ObjectDrawInterface::getCurrentBonePositions` via W3D HTree.
     fn get_current_bone_positions(
@@ -549,11 +560,7 @@ fn presentation_draw_module_names_for(e: &PresentationDrawableSync) -> Vec<Strin
     let mut names: Vec<String> = e
         .draw_module_names
         .iter()
-        .filter_map(|raw| {
-            raw.split_whitespace()
-                .next()
-                .map(|token| token.to_string())
-        })
+        .filter_map(|raw| raw.split_whitespace().next().map(|token| token.to_string()))
         .filter(|name| PresentationSpecializedDrawKind::from_module_name(name).is_some())
         .collect();
     if names.is_empty() {
@@ -633,36 +640,51 @@ impl GameClient {
             return;
         };
         let visual = if e.visual_template_name.is_empty() {
-            e.template_name.clone()
+            e.template_name.as_str()
         } else {
-            e.visual_template_name.clone()
+            e.visual_template_name.as_str()
         };
-        let prev = presentation_specialized_draw_snapshot(e.object_id);
-        let mut module = PresentationSpecializedDrawModule::new(
-            name.clone(),
-            kind,
-            e.object_id,
-            prev.as_ref()
-                .map(|s| s.model_name.clone())
-                .filter(|n| !n.is_empty())
-                .unwrap_or(visual),
-        );
-        if let Some(prev) = prev {
-            module.tread_uv = prev.tread_uv;
-            module.wheel_angle = prev.wheel_angle;
-            module.laser_width = prev.laser_width;
-            module.debris_state = prev.debris_state;
-            module.debris_anim_time = prev.debris_anim_time;
-            module.debris_frames = if prev.debris_state > 0 { 4 } else { 0 };
-        }
-        if let Some(pos) = prev_last_pos(e.object_id) {
-            module.last_pos = pos;
-            module.last_orientation = prev_last_ori(e.object_id).unwrap_or(e.orientation);
+        // Preserve the current residual transition/tick order while changing
+        // ownership. Move retained strings through the temporary tick module;
+        // render projection only borrows the resulting immutable snapshot.
+        let previous = drawable.presentation_specialized_draw.take();
+        let previous_pose = previous
+            .as_ref()
+            .map(|state| (state.last_pos, state.last_orientation));
+        let mut module =
+            PresentationSpecializedDrawModule::new(String::new(), kind, e.object_id, String::new());
+        let module_name = if let Some(previous) = previous {
+            let snapshot = previous.snapshot;
+            module.tread_uv = snapshot.tread_uv;
+            module.wheel_angle = snapshot.wheel_angle;
+            module.laser_width = snapshot.laser_width;
+            module.debris_state = snapshot.debris_state;
+            module.debris_anim_time = snapshot.debris_anim_time;
+            // Full authored debris timing remains hq-q6sza. This migration
+            // intentionally retains the existing presentation counter rule.
+            module.debris_frames = if snapshot.debris_state > 0 { 4 } else { 0 };
+            module.model_name = snapshot.model_name;
+            module.last_pos = previous.last_pos;
+            module.last_orientation = previous.last_orientation;
             module.has_last_pose = true;
+            if snapshot.kind == kind {
+                snapshot.module_name
+            } else {
+                kind.module_name().to_string()
+            }
+        } else {
+            kind.module_name().to_string()
+        };
+        if module.model_name.is_empty() {
+            module.model_name = visual.to_string();
         }
         module.tick(e);
-        tick_persistent_live_host_draws(drawable, e);
-        store_last_pose(e.object_id, e.position, e.orientation);
+        drawable.presentation_specialized_draw = Some(PresentationSpecializedDrawState {
+            snapshot: module.into_snapshot(module_name),
+            last_pos: e.position,
+            last_orientation: e.orientation,
+        });
+        tick_persistent_live_host_draws(drawable, e, previous_pose);
     }
 }
 
@@ -681,16 +703,19 @@ struct LiveHostTick {
     physics: TruckDrawLivePhysics,
 }
 
-fn live_host_tick_from_sync(e: &PresentationDrawableSync) -> LiveHostTick {
+fn live_host_tick_from_sync(
+    e: &PresentationDrawableSync,
+    previous_pose: Option<([f32; 3], f32)>,
+) -> LiveHostTick {
     let pos = e.position;
     let mut vel_mag_sq = 0.0;
     let mut had_pose = false;
     let mut last_pos = pos;
     let mut last_ori = e.orientation;
-    if let Some(prev) = prev_last_pos(e.object_id) {
+    if let Some((previous_pos, previous_orientation)) = previous_pose {
         had_pose = true;
-        last_pos = prev;
-        last_ori = prev_last_ori(e.object_id).unwrap_or(e.orientation);
+        last_pos = previous_pos;
+        last_ori = previous_orientation;
         let dx = pos[0] - last_pos[0];
         let dy = pos[1] - last_pos[1];
         vel_mag_sq = dx * dx + dy * dy;
@@ -796,8 +821,7 @@ fn push_logic_draw(
     module: Box<dyn game_engine::common::thing::module::Module>,
 ) {
     drawable.add_draw_module(Box::new(LogicDrawModuleSnapshotAdapter::draw_module(
-        name,
-        module,
+        name, module,
     )));
 }
 
@@ -887,7 +911,11 @@ fn apply_live_host_draw(
     }
 }
 
-fn tick_persistent_live_host_draws(drawable: &mut BasicDrawable, e: &PresentationDrawableSync) {
+fn tick_persistent_live_host_draws(
+    drawable: &mut BasicDrawable,
+    e: &PresentationDrawableSync,
+    previous_pose: Option<([f32; 3], f32)>,
+) {
     let names = presentation_draw_module_names_for(e);
     let Some(name) = names.first() else {
         return;
@@ -896,40 +924,11 @@ fn tick_persistent_live_host_draws(drawable: &mut BasicDrawable, e: &Presentatio
         return;
     };
     ensure_live_host_draw(drawable, e, kind);
-    let ctx = live_host_tick_from_sync(e);
+    let ctx = live_host_tick_from_sync(e, previous_pose);
     for module in drawable.get_draw_modules_mut() {
         let Some(logic) = module.logic_module_mut() else {
             continue;
         };
         apply_live_host_draw(logic, kind, &ctx);
     }
-}
-
-static LAST_POSE: OnceLock<Mutex<HashMap<u32, ([f32; 3], f32)>>> = OnceLock::new();
-
-fn store_last_pose(object_id: u32, pos: [f32; 3], ori: f32) {
-    if let Ok(mut map) = LAST_POSE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-    {
-        map.insert(object_id, (pos, ori));
-    }
-}
-
-fn prev_last_pos(object_id: u32) -> Option<[f32; 3]> {
-    LAST_POSE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .ok()?
-        .get(&object_id)
-        .map(|(p, _)| *p)
-}
-
-fn prev_last_ori(object_id: u32) -> Option<f32> {
-    LAST_POSE
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock()
-        .ok()?
-        .get(&object_id)
-        .map(|(_, o)| *o)
 }

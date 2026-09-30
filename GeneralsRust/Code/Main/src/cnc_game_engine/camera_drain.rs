@@ -2084,6 +2084,15 @@ impl CnCGameEngine {
         if n > 0 {
             log::trace!("presentation pose applied to {n} drawables");
         }
+        // Freeze specialized state after sync and pose application. Sharing
+        // this small completed bundle never mutates/copies the shared frame.
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            self.render_pipeline.capture_specialized_draw_inputs(
+                frame,
+                &self.game_client,
+                self.host_direct_visual_world_epoch,
+            );
+        }
     }
 
     /// Wave 590: boot/render residual — freeze a PresentationFrame if none installed.

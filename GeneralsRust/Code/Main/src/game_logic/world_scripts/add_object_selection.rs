@@ -8,9 +8,30 @@ impl GameLogic {
     /// Add object to the game world
     pub fn add_object(&mut self, object: Object) -> ObjectId {
         let id = object.id;
-        self.objects.insert(id, object);
+        self.admit_host_object(object);
         self.host_radar_add_object(id);
         id
+    }
+
+    /// A new admission receives fresh visual identity, even when the incoming
+    /// object was cloned. Temporary extraction/reinsertion uses the live map.
+    pub(crate) fn admit_host_object(&mut self, mut object: Object) {
+        object.visual_object_generation = self.allocate_visual_object_generation();
+        self.objects.insert(object.id, object);
+    }
+
+    /// Runtime visual identity belongs to an admission, including replacing a
+    /// cloned object. Temporary extraction/reinsertion preserves its identity.
+    pub(crate) fn allocate_visual_object_generation(&mut self) -> u64 {
+        let generation = self.next_visual_object_generation.max(1);
+        self.next_visual_object_generation = generation
+            .checked_add(1)
+            .expect("visual object generation exhausted");
+        generation
+    }
+
+    pub(crate) fn host_visual_world_epoch(&self) -> u64 {
+        self.visual_world_epoch
     }
 
     // ====== ENHANCED RTS COMMAND SYSTEM ======
@@ -234,7 +255,7 @@ impl GameLogic {
                     obj.stop_moving();
                     obj.stop_attack();
                     if obj.ai_state != AIState::Idle {
-                    obj.set_ai_state(AIState::Idle);
+                        obj.set_ai_state(AIState::Idle);
                     }
                     if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                         crate::game_logic::host_ai_decision_log::record_set_state(object_id, 0);
@@ -641,7 +662,13 @@ impl GameLogic {
         // (FactionBuilding.ini / faction unit INIs). Buildings author
         // ShroudClearingRange == VisionRange; units leave it at the -1
         // default so it resolves to VisionRange.
-        fn structure(name: &str, kinds: &[KindOf], hp: f32, cost: u32, vision: f32) -> ThingTemplate {
+        fn structure(
+            name: &str,
+            kinds: &[KindOf],
+            hp: f32,
+            cost: u32,
+            vision: f32,
+        ) -> ThingTemplate {
             let mut t = ThingTemplate::new(name);
             t.set_health(hp);
             t.set_cost(cost, 0);
@@ -1313,7 +1340,7 @@ impl GameLogic {
                         AIState::Moving | AIState::Constructing | AIState::Repairing
                     ) {
                         if obj.ai_state != AIState::Idle {
-                        obj.set_ai_state(AIState::Idle);
+                            obj.set_ai_state(AIState::Idle);
                         }
                     }
                 }
