@@ -82,7 +82,6 @@ pub(crate) fn template_has_worker_ai_update(template_name: &str) -> bool {
     })
 }
 
-
 /// C++ `ActiveBodyModuleData::m_initialHealth` from leftover factory when loaded.
 /// Never calls `find_template(..., true)` (that lazy-inits Object INI).
 fn leftover_factory_body_initial_health(template_name: &str) -> Option<f32> {
@@ -915,6 +914,7 @@ impl Object {
             contained_items_mass: 0.0,
             shock_resistance,
             physics_accel: glam::Vec3::ZERO,
+            physics_previous_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
             do_final_position: false,
@@ -1839,6 +1839,7 @@ impl Object {
             contained_items_mass: 0.0,
             shock_resistance,
             physics_accel: glam::Vec3::ZERO,
+            physics_previous_accel: glam::Vec3::ZERO,
             motive_frames_remaining: 0,
             waiting_for_path: false,
             do_final_position: false,
@@ -2527,11 +2528,7 @@ impl Object {
         } else {
             self.max_health
         };
-        if max_h > 0.0 {
-            current / max_h
-        } else {
-            0.0
-        }
+        if max_h > 0.0 { current / max_h } else { 0.0 }
     }
 
     /// C++ `BodyModule::getInitialHealth`. Legacy/missing 0 falls back to the live max.

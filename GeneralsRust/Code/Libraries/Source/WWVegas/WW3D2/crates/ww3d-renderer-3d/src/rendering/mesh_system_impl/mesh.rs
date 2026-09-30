@@ -173,6 +173,18 @@ impl MeshClass {
     pub fn set_bone_palette_slice(&mut self, matrices: &[Mat4]) {
         self.bone_palette.clear();
         self.bone_palette.extend_from_slice(matrices);
+        self.refresh_bone_palette();
+    }
+
+    /// Retain an already sampled palette's allocation when its caller owns it.
+    /// C++ skins consume their container's HTree transforms without copying a
+    /// second palette (mesh.cpp:412-437); deformation remains identical here.
+    pub fn set_bone_palette(&mut self, matrices: Vec<Mat4>) {
+        self.bone_palette = matrices;
+        self.refresh_bone_palette();
+    }
+
+    fn refresh_bone_palette(&mut self) {
         self.bone_palette_version = self.bone_palette_version.wrapping_add(1);
         if self.bone_palette.is_empty() {
             self.deformed_world_vertices = None;

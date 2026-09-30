@@ -382,6 +382,65 @@ mod tests {
     }
 
     #[test]
+    fn presentation_power_is_owned_by_each_control_bar() {
+        // W3DControlBar.cpp:90-126 reads the selected local/observer player's
+        // Energy. Another bar's frozen input cannot replace that player's pair.
+        struct RestorePlayers(gamelogic::player::PlayerList);
+        impl Drop for RestorePlayers {
+            fn drop(&mut self) {
+                *gamelogic::player::player_list().write().unwrap() =
+                    std::mem::replace(&mut self.0, gamelogic::player::PlayerList::new());
+                crate::gui::with_window_manager(|manager| manager.destroy_all_windows());
+            }
+        }
+        let old = {
+            let mut players = gamelogic::player::player_list().write().unwrap();
+            std::mem::replace(&mut *players, gamelogic::player::PlayerList::new())
+        };
+        let _restore = RestorePlayers(old);
+        let power = crate::gui::with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            let power = manager.create_window(None, 0, 0, 80, 24).unwrap();
+            power.borrow_mut().set_name("ControlBar.wnd:PowerWindow");
+            power
+        });
+        let check = |bar: &mut ControlBar, produced, consumed| {
+            bar.update_money_and_power_windows();
+            assert_eq!(
+                power.borrow().get_text(),
+                ControlBar::format_control_bar_power_display(produced, consumed)
+            );
+        };
+        let mut a = ControlBar::new();
+        a.apply_presentation_money(100);
+        a.apply_presentation_power(80, 20);
+        let mut b = ControlBar::new();
+        b.apply_presentation_money(200);
+        b.apply_presentation_power(10, 50);
+        check(&mut a, 80, 20);
+        check(&mut b, 10, 50);
+
+        let mut fresh = ControlBar::new();
+        fresh.apply_presentation_money(300);
+        check(&mut fresh, 0, 0);
+        check(&mut a, 80, 20);
+        a.apply_presentation_power(-3, -5);
+        check(&mut a, 0, 0);
+        a.apply_presentation_power(80, 20);
+        a.reset().unwrap();
+        a.apply_presentation_money(100);
+        check(&mut a, 0, 0);
+        check(&mut b, 10, 50);
+        assert!(!power.borrow().is_hidden());
+        b.reset().unwrap();
+        b.update_money_and_power_windows();
+        assert!(
+            power.borrow().is_hidden(),
+            "no money player hides PowerWindow"
+        );
+    }
+
+    #[test]
     fn presentation_money_is_written_after_the_window_appears_and_reappears() {
         // InGameUI.cpp:1776-1810 reads the current local player's money and
         // writes MoneyDisplay when it changes. A host presentation stamp is

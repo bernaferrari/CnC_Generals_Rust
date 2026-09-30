@@ -1,15 +1,9 @@
 // Split from `gui/control_bar/control_bar.rs` dump. Included by `control_bar_impl/mod.rs`.
 
-static PRESENTATION_POWER_PRODUCED: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(0);
-static PRESENTATION_POWER_CONSUMED: std::sync::atomic::AtomicI32 =
-    std::sync::atomic::AtomicI32::new(0);
 static PRESENTATION_CAN_MAKE: std::sync::Mutex<Vec<(String, u32)>> =
     std::sync::Mutex::new(Vec::new());
 static PRESENTATION_UNLOCKED_SCIENCES: std::sync::Mutex<Vec<String>> =
     std::sync::Mutex::new(Vec::new());
-
-
 
 impl ControlBar {
     pub fn new() -> Self {
@@ -60,6 +54,7 @@ impl ControlBar {
             displayed_construct_percent: -1.0,
             displayed_ocl_timer_seconds: 0,
             presentation_money: None,
+            presentation_power: (0, 0),
             last_displayed_money: -1,
             presentation_can_make: Vec::new(),
             ingame_entry_context_applied: false,
@@ -77,7 +72,6 @@ impl ControlBar {
     pub fn set_window_manager(&mut self, manager: Arc<WindowManager>) {
         self.window_manager = Some(manager);
     }
-
 
     // ---------------------------------------------------------------------------
     // markUIDirty / onDrawableSelected / onDrawableDeselected
@@ -114,7 +108,6 @@ impl ControlBar {
         self.presentation_selection_controllable = controllable;
     }
 
-
     // ---------------------------------------------------------------------------
     // update - main per-frame update
     // C++ ControlBar.cpp:1359-1580
@@ -138,8 +131,7 @@ impl ControlBar {
         // contexts on ui_dirty; force one entry evaluation once the
         // ControlBar.wnd layout is live so parity does not depend on a host
         // event arriving first.
-        if !self.ingame_entry_context_applied
-            && leftover_find_window(CONTROL_BAR_PARENT).is_some()
+        if !self.ingame_entry_context_applied && leftover_find_window(CONTROL_BAR_PARENT).is_some()
         {
             self.ingame_entry_context_applied = true;
             // C++ initControlBarObserver (ControlBar.cpp:2741) puts observer
@@ -175,7 +167,6 @@ impl ControlBar {
         // from presentation apply, so this is the live InGameUI money path.
         self.update_money_and_power_windows();
 
-
         if self.observer_mode {
             self.update_observer_portrait()?;
             return Ok(());
@@ -188,7 +179,6 @@ impl ControlBar {
             }
             self.update_context_purchase_science();
         }
-
 
         self.update_flash_buttons();
 
@@ -256,7 +246,6 @@ impl ControlBar {
             return Ok(());
         }
 
-
         match current_state {
             ControlBarState::None => {}
             ControlBarState::Command => {
@@ -316,13 +305,12 @@ impl ControlBar {
     /// Keep that input separate from the last value actually written to a WND.
     pub fn update_money_and_power_windows(&mut self) {
         let money_player = if self.observer_mode {
-            self.get_observer_look_at_player_index()
-                .and_then(|idx| {
-                    logic_player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(idx as PlayerIndex).cloned())
-                })
+            self.get_observer_look_at_player_index().and_then(|idx| {
+                logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(idx as PlayerIndex).cloned())
+            })
         } else {
             logic_player_list()
                 .read()
@@ -361,7 +349,7 @@ impl ControlBar {
                 let _ = win.borrow_mut().hide(money.is_none());
             }
             if let Some(win) = power_win.as_ref() {
-                let presentation = Self::presentation_power();
+                let presentation = self.presentation_power;
                 let (produced, consumed) = match crate_power {
                     Some((produced, consumed))
                         if produced != 0 || consumed != 0 || presentation == (0, 0) =>
@@ -429,25 +417,10 @@ impl ControlBar {
         })
     }
 
-    /// Stamp host presentation-freeze energy onto ControlBar PowerWindow.
-    ///
-    /// Called from `PresentationFrame` freeze and `apply_presentation_power`
-    /// so PowerWindow is not forced 0 when crate Energy is missing.
-    pub fn stamp_presentation_power(produced: i32, consumed: i32) {
-        PRESENTATION_POWER_PRODUCED.store(produced.max(0), std::sync::atomic::Ordering::Relaxed);
-        PRESENTATION_POWER_CONSUMED.store(consumed.max(0), std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Instance stamp matching `apply_presentation_money`.
+    /// Supply this bar's frozen player Energy for its next PowerWindow update.
+    /// C++ W3DControlBar.cpp:90-126 reads the local/observer player's Energy.
     pub fn apply_presentation_power(&mut self, produced: i32, consumed: i32) {
-        Self::stamp_presentation_power(produced, consumed);
-    }
-
-    fn presentation_power() -> (i32, i32) {
-        (
-            PRESENTATION_POWER_PRODUCED.load(std::sync::atomic::Ordering::Relaxed),
-            PRESENTATION_POWER_CONSUMED.load(std::sync::atomic::Ordering::Relaxed),
-        )
+        self.presentation_power = (produced.max(0), consumed.max(0));
     }
 
     /// Host-testable money format residual (C++ `GUI:ControlBarMoneyDisplay` %d).
@@ -469,7 +442,6 @@ impl ControlBar {
     pub fn format_control_bar_power_display(produced: i32, consumed: i32) -> String {
         format!("{produced} / {consumed}")
     }
-
 
     fn apply_live_hook_events(&mut self) {
         let events = drain_live_control_bar_events();
@@ -575,8 +547,7 @@ impl ControlBar {
                     .ok()
                     .and_then(|list| list.get_player(obj_player_id).cloned());
                 if let (Some(local_arc), Some(obj_player)) = (local_arc, obj_player) {
-                    if let (Ok(local_guard), Ok(obj_guard)) =
-                        (local_arc.read(), obj_player.read())
+                    if let (Ok(local_guard), Ok(obj_guard)) = (local_arc.read(), obj_player.read())
                     {
                         return local_guard.get_relationship(&obj_guard)
                             == gamelogic::common::Relationship::Neutral;
@@ -585,8 +556,7 @@ impl ControlBar {
                 return false;
             }
         }
-        let catalog =
-            crate::presentation_translator_residual::translator_catalog_entry(obj_id);
+        let catalog = crate::presentation_translator_residual::translator_catalog_entry(obj_id);
         let garrisonable = self.presentation_max_garrison > 0
             || catalog
                 .as_ref()
@@ -600,7 +570,6 @@ impl ControlBar {
             .unwrap_or(false)
     }
 
-
     // ---------------------------------------------------------------------------
     // evaluateContextUI - determine what context to show
     // C++ ControlBar.cpp:1689-1888
@@ -611,7 +580,6 @@ impl ControlBar {
         if self.science_state.is_visible || !leftover_window_is_hidden(GEN_EXP_PARENT) {
             self.show_purchase_science();
         }
-
 
         let mut context = {
             let mut guard = self
@@ -645,8 +613,7 @@ impl ControlBar {
         // except controlling-player beacon template and NEUTRAL garrisonable peek.
         if let Some(&first_id) = context.selected_objects.first() {
             if !self.first_selected_is_controllable(first_id) {
-                let peek_neutral_garrison =
-                    self.non_controllable_neutral_garrison_peek(first_id);
+                let peek_neutral_garrison = self.non_controllable_neutral_garrison_peek(first_id);
                 let is_beacon = self.first_selected_is_beacon(first_id);
                 if is_beacon {
                     context.current_state = ControlBarState::Beacon;
@@ -672,7 +639,6 @@ impl ControlBar {
                 }
             }
         }
-
 
         let multi_select = context.selected_objects.len() > 1;
         let single_drawable_id = if multi_select {

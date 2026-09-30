@@ -2,6 +2,84 @@
 use super::*;
 
 #[test]
+fn previous_acceleration_is_owned_even_when_object_ids_match() {
+    use glam::Vec3;
+    let mut first = Object::new(
+        ThingTemplate::new("PhysicsOwnerFirst"),
+        ObjectId(934101),
+        Team::USA,
+    );
+    let mut second = Object::new(
+        ThingTemplate::new("PhysicsOwnerSecond"),
+        first.id,
+        Team::GLA,
+    );
+    first.physics_accel = Vec3::new(1.0, 2.0, 3.0);
+    first.integrate_physics_accel();
+    assert_eq!(second.previous_acceleration(), Vec3::ZERO);
+    second.physics_accel = Vec3::new(4.0, 5.0, 6.0);
+    second.integrate_physics_accel();
+    assert_eq!(first.previous_acceleration(), Vec3::new(1.0, 2.0, 3.0));
+    assert_eq!(second.previous_acceleration(), Vec3::new(4.0, 5.0, 6.0));
+    let replacement = Object::new(
+        ThingTemplate::new("PhysicsOwnerReplacement"),
+        first.id,
+        Team::USA,
+    );
+    assert_eq!(replacement.previous_acceleration(), Vec3::ZERO);
+    assert_eq!(first.previous_acceleration(), Vec3::new(1.0, 2.0, 3.0));
+}
+
+#[test]
+fn previous_acceleration_clears_with_cpp_dynamic_physics_reset() {
+    use glam::Vec3;
+    let mut object = Object::new(
+        ThingTemplate::new("PhysicsOwnerReset"),
+        ObjectId(934102),
+        Team::USA,
+    );
+    object.physics_accel = Vec3::ONE;
+    object.integrate_physics_accel();
+    assert_eq!(object.previous_acceleration(), Vec3::ONE);
+    object.reset_dynamic_physics();
+    assert_eq!(object.previous_acceleration(), Vec3::ZERO);
+}
+
+#[test]
+fn previous_acceleration_survives_clone_and_object_serde_round_trip() {
+    use glam::Vec3;
+    let mut object = Object::new(
+        ThingTemplate::new("PhysicsOwnerSave"),
+        ObjectId(934103),
+        Team::USA,
+    );
+    object.physics_accel = Vec3::new(7.0, 8.0, 9.0);
+    object.integrate_physics_accel();
+    let mut cloned = object.clone();
+    let saved = serde_json::to_value(&object).unwrap();
+    assert_eq!(
+        saved["physics_previous_accel"],
+        serde_json::json!([7.0, 8.0, 9.0])
+    );
+    object.physics_accel = Vec3::ZERO;
+    object.integrate_physics_accel();
+    assert_eq!(object.previous_acceleration(), Vec3::ZERO);
+    assert_eq!(cloned.previous_acceleration(), Vec3::new(7.0, 8.0, 9.0));
+    let loaded: Object = serde_json::from_value(saved.clone()).unwrap();
+    assert_eq!(loaded.previous_acceleration(), Vec3::new(7.0, 8.0, 9.0));
+    let mut missing_field = saved;
+    missing_field
+        .as_object_mut()
+        .unwrap()
+        .remove("physics_previous_accel");
+    let defaulted: Object = serde_json::from_value(missing_field).unwrap();
+    assert_eq!(defaulted.previous_acceleration(), Vec3::ZERO);
+    cloned.integrate_physics_accel();
+    assert_eq!(cloned.previous_acceleration(), Vec3::ZERO);
+    assert_eq!(loaded.previous_acceleration(), Vec3::new(7.0, 8.0, 9.0));
+}
+
+#[test]
 fn return_to_base_blocks_fire_until_rearm() {
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
     use glam::Vec3;
@@ -457,6 +535,7 @@ fn own_tank_is_blocked_by_own_infantry() {
     let mut vt = ThingTemplate::new("OwnCrushTank");
     vt.add_kind_of(KindOf::Vehicle);
     let mut tank = Object::new(vt, ObjectId(501), Team::USA);
+    bind_blocking_fixture_locomotor(&mut tank, "CrusaderLocomotor");
     tank.crusher_level = 1;
     tank.owner_player_id = Some(0);
     tank.set_orientation(0.0);
@@ -467,6 +546,7 @@ fn own_tank_is_blocked_by_own_infantry() {
     let mut it = ThingTemplate::new("OwnCrushInf");
     it.add_kind_of(KindOf::Infantry);
     let mut inf = Object::new(it, ObjectId(502), Team::USA);
+    bind_blocking_fixture_locomotor(&mut inf, "BasicHumanLocomotor");
     inf.crushable_level = 0;
     inf.owner_player_id = Some(0);
     inf.set_position(glam::Vec3::new(4.0, 0.0, 0.0));
@@ -1775,26 +1855,79 @@ fn jet_takeoff_pause_afterburner_and_lift_ramp() {
     let mut t = ThingTemplate::new("AmericaJetRaptor");
     t.add_kind_of(KindOf::Aircraft);
     let mut jet = Object::new(t, ObjectId(4), Team::USA);
-    jet.max_lift = 8.0;
+    let flight_binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+        "RaptorJetLocomotor",
+    )
+    .expect("authored Raptor flight locomotor");
     jet.set_position(Vec3::new(0.0, 0.0, 0.0));
     jet.apply_taxiing_locomotor_set();
     assert_eq!(jet.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
-    assert!((jet.movement.max_speed - 25.0).abs() < 0.05);
+    // Retail Locomotor.ini: BasicJetTaxiLocomotor Speed = 50 dist/sec.
+    assert!((jet.movement.max_speed - 50.0).abs() < 0.05);
 
     jet.begin_jet_runway_takeoff(0, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
     assert!(jet.jet_ai.afterburners_on);
     assert!(jet.jet_ai.takeoff_in_progress);
     assert_eq!(jet.max_lift, 0.0);
+    assert!(
+        !jet.jet_ai.allow_air_loco,
+        "pause still uses the taxi locomotor"
+    );
     assert!(!jet.jet_should_transfer_runway(0));
     assert!(jet.jet_should_transfer_runway(1));
     let _ = jet.tick_jet_takeoff_lift(1);
     jet.set_position(Vec3::new(50.0, 0.0, 0.0));
     let _ = jet.tick_jet_takeoff_lift(jet.jet_ai.takeoff_pause_until);
+    assert_eq!(
+        jet.jet_ai.takeoff_max_lift, flight_binding.max_lift,
+        "C++ captures flight lift when the pause ends and NORMAL is selected"
+    );
     assert!(
-        jet.max_lift > 0.0 && jet.max_lift < 8.0,
+        jet.max_lift > 0.0 && jet.max_lift < flight_binding.max_lift,
         "lift={}",
         jet.max_lift
     );
+    assert_eq!(jet.max_lift, flight_binding.max_lift * 0.25);
+}
+
+#[test]
+fn jet_takeoff_recaptures_damage_conditioned_flight_lift_each_episode() {
+    use crate::game_logic::host_enum_table_residual::HostBodyDamageType;
+    use glam::Vec3;
+    let mut template = ThingTemplate::new("AmericaJetRaptor");
+    template.add_kind_of(KindOf::Aircraft);
+    let mut jet = Object::new(template, ObjectId(944103), Team::USA);
+    let flight_binding = crate::game_logic::locomotor_bootstrap::resolve_host_locomotor_binding(
+        "RaptorJetLocomotor",
+    )
+    .unwrap();
+    for (now, damage, expected_lift) in [
+        (0, HostBodyDamageType::Pristine, flight_binding.max_lift),
+        (
+            100,
+            HostBodyDamageType::ReallyDamaged,
+            flight_binding.max_lift_damaged,
+        ),
+    ] {
+        jet.body_damage_state = damage;
+        jet.set_position(Vec3::ZERO);
+        jet.begin_jet_runway_takeoff(now, Vec3::new(100.0, 0.0, 0.0), 100.0, false);
+        assert_eq!(
+            jet.jet_ai.takeoff_max_lift, 0.0,
+            "no stale previous episode cap"
+        );
+        let deadline = jet.jet_ai.takeoff_pause_until;
+        let _ = jet.tick_jet_ai_update(deadline - 1);
+        assert!(!jet.jet_ai.allow_air_loco);
+        assert_eq!(jet.max_lift, 0.0);
+        jet.set_position(Vec3::new(50.0, 0.0, 0.0));
+        let _ = jet.tick_jet_ai_update(deadline);
+        assert!(jet.jet_ai.allow_air_loco);
+        assert_eq!(jet.jet_ai.takeoff_max_lift, expected_lift);
+        assert_eq!(jet.max_lift, expected_lift * 0.25);
+        jet.finish_jet_takeoff();
+        assert_eq!(jet.max_lift, expected_lift);
+    }
 }
 
 #[test]
@@ -2388,6 +2521,8 @@ fn blocked_by_ignores_near_goal_and_reverse() {
 fn blocked_by_same_cell_uses_path_priority() {
     let mut dozer = make_ground_unit("PrioDozer", 6104, KindOf::Dozer);
     let mut inf = make_ground_unit("PrioInf", 6105, KindOf::Infantry);
+    bind_blocking_fixture_locomotor(&mut dozer, "AmericaVehicleDozerLocomotor");
+    bind_blocking_fixture_locomotor(&mut inf, "BasicHumanLocomotor");
     // Same cell (dsqr ~ 0).
     dozer.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
     inf.set_position(glam::Vec3::new(0.0, 0.0, 0.0));
@@ -2405,6 +2540,11 @@ fn blocked_by_same_cell_uses_path_priority() {
 fn blocked_by_off_angle_higher_priority_yields() {
     let mut dozer = make_ground_unit("OffAngleDozer", 6106, KindOf::Dozer);
     let mut truck = make_ground_unit("OffAngleTruck", 6107, KindOf::Vehicle);
+    bind_blocking_fixture_locomotor(&mut dozer, "AmericaVehicleDozerLocomotor");
+    bind_blocking_fixture_locomotor(&mut truck, "SupplyTruckLocomotor");
+    // C++ AIUpdate.cpp:1310 tests locomotor goals, not current velocity.
+    dozer.locomotor_goal_type = LocoGoalType::PositionOnPath;
+    truck.locomotor_goal_type = LocoGoalType::PositionOnPath;
     dozer.set_position(glam::Vec3::ZERO);
     dozer.set_orientation(0.0);
     dozer.movement.velocity = glam::Vec3::new(8.0, 0.0, 0.0);
@@ -2432,6 +2572,8 @@ fn blocked_speed_applies_formation_crowd_factor() {
     b.set_position(glam::Vec3::new(10.0, 0.0, 0.0));
     b.set_orientation(0.0);
     b.movement.velocity = glam::Vec3::new(10.0, 0.0, 0.0);
+    // C++ AIUpdate.cpp:2281 resets the previous collision cap for a new frame.
+    a.clear_blocked_frame_state();
     let raw = a.calculate_max_blocked_speed(&b);
     a.formation_id = 7;
     b.formation_id = 7;
@@ -2444,4 +2586,17 @@ fn blocked_speed_applies_formation_crowd_factor() {
         (crowded - 5.5).abs() < 1e-4,
         "same formation scales blocked speed by 0.55, got {crowded}"
     );
+}
+
+// Only blocking fixtures use this: an absent current locomotor deliberately
+// returns false in C++ isDoingGroundMovement (AIUpdate.cpp:2353-2356).
+fn bind_blocking_fixture_locomotor(object: &mut Object, name: &str) {
+    use crate::game_logic::locomotor_bootstrap::{
+        apply_host_locomotor_binding, resolve_host_locomotor_binding,
+    };
+    let binding = resolve_host_locomotor_binding(name).expect("authored ground locomotor");
+    object.cur_locomotor_name = Some(name.to_owned());
+    object.locomotor_set_names = vec![name.to_owned()];
+    apply_host_locomotor_binding(object, &binding);
+    assert!(crate::game_logic::PathfindingGrid::is_doing_ground_movement_full(object));
 }

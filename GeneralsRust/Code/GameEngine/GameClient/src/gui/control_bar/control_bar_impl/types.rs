@@ -283,6 +283,8 @@ pub struct ControlBar {
     displayed_ocl_timer_seconds: u32,
     /// Host freeze cash waiting for the next MoneyDisplay WND update.
     presentation_money: Option<i32>,
+    /// This bar's frozen local/observer player Energy (produced, consumed).
+    presentation_power: (i32, i32),
     /// C++ InGameUI.cpp lastMoney — cash successfully written to MoneyDisplay.
     last_displayed_money: i32,
     /// Presentation CanMake residual (template → CANMAKE_* ordinal).

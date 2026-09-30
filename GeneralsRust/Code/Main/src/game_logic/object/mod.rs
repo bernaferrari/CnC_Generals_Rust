@@ -706,6 +706,9 @@ pub struct Object {
     /// C++ PhysicsBehavior m_accel residual (integrated each frame).
     #[serde(default)]
     pub physics_accel: glam::Vec3,
+    /// C++ PhysicsBehavior::m_prevAccel, retained for drawable locomotor visuals.
+    #[serde(default)]
+    pub(crate) physics_previous_accel: glam::Vec3,
     /// C++ isMotive residual frames remaining (0 = not motive / accept full force).
     #[serde(default)]
     pub motive_frames_remaining: u32,

@@ -304,7 +304,7 @@ impl ForwardPass {
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
+            });
             render_pass.set_pipeline(pack.pipeline.as_ref());
             render_pass.set_bind_group(0, Some(pack.camera_bg.as_ref()), &[]);
             render_pass.set_vertex_buffer(0, pack.buffer.slice(..));
@@ -616,7 +616,9 @@ impl ForwardPass {
             if message.contains("surface occluded") || message.contains("surface timeout") {
                 return Ok(());
             }
-            return Err(anyhow::anyhow!("WW3D renderer begin_frame failed: {message}"));
+            return Err(anyhow::anyhow!(
+                "WW3D renderer begin_frame failed: {message}"
+            ));
         }
 
         let mut queued_count_total = 0usize;
@@ -1097,7 +1099,7 @@ impl ForwardPass {
         }
 
         if let Some(matrices) = palette {
-            mesh.set_bone_palette_slice(&matrices);
+            mesh.set_bone_palette(matrices);
         }
 
         Ok(Some(Arc::new(mesh)))
@@ -1231,9 +1233,10 @@ fn sample_resolved_hierarchy_bind_pose_palette(
                 .iter()
                 .find(|hierarchy| hierarchy.name.eq_ignore_ascii_case(first_name))
                 .or_else(|| {
-                    w3d_model.hierarchy.as_ref().filter(|hierarchy| {
-                        hierarchy.name.eq_ignore_ascii_case(first_name)
-                    })
+                    w3d_model
+                        .hierarchy
+                        .as_ref()
+                        .filter(|hierarchy| hierarchy.name.eq_ignore_ascii_case(first_name))
                 })?
         }
     };
