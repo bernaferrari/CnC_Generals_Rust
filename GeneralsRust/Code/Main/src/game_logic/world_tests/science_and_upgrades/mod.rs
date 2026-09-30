@@ -24,3 +24,5 @@ fn mark_guard_scan_due(logic: &mut GameLogic, id: crate::game_logic::ObjectId) {
 mod guards_and_retaliation;
 mod player_events_and_crates;
 mod upgrades_power_capture;
+
+mod guard_trigger_ownership;

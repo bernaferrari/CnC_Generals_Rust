@@ -1254,6 +1254,9 @@ impl GameLogic {
 
     /// Clear all objects (for snapshot restoration)
     pub fn clear_all_objects(&mut self) {
+        // Recreated ObjectIDs must not inherit the old roster's comparisons.
+        // Keep authoritative saved trigger flags, restored before this call.
+        self.host_guard_area_occupancy.get_mut().clear();
         #[cfg(feature = "game_client")]
         {
             *self.host_physics_visuals.get_mut() = Default::default();

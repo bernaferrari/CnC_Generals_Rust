@@ -211,11 +211,12 @@ fn hotkey_selection_helpers_from_presentation() {
 }
 
 #[test]
-fn control_group_recall_keeps_contained_and_non_local_like_cpp() {
-    // C++ Squad::getLiveObjects uses Object::isSelectable (no contained/masked
-    // peel). SELECT_TEAM then keeps local owner; ADD_TEAM / lookAt do not.
+fn control_group_recall_drops_enclosed_unselectable_and_keeps_live_non_local_like_cpp() {
+    // C++ OpenContain::addToContain -> Object::onContainedBy sets UNSELECTABLE;
+    // Squad::getLiveObjects filters through Object::isSelectable. Enclosing
+    // containment also hides the drawable, while a non-local live object stays
+    // eligible for ADD_TEAM but not SELECT_TEAM.
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    use crate::unit_control::UnitControlSystem;
     let mut logic = crate::game_logic::GameLogic::new();
     let mut t = ThingTemplate::new("Ranger");
     t.set_health(100.0);
@@ -248,22 +249,20 @@ fn control_group_recall_keeps_contained_and_non_local_like_cpp() {
     let click = frame.filter_alive_selectable_ids(&stored, Team::USA);
     assert_eq!(click, vec![local], "click path still peels contained");
     assert!(
-        !UnitControlSystem::presentation_is_selectable(
-            frame.objects.iter().find(|o| o.id == garrisoned).unwrap()
-        ),
-        "CanSelectDrawable still rejects contained"
+        frame.objects.iter().all(|o| o.id != garrisoned),
+        "enclosing containment hides the drawable from presentation"
     );
     let select_team = frame.filter_live_squad_ids(&stored, true);
     assert_eq!(
         select_team,
-        vec![local, garrisoned],
-        "SELECT_TEAM keeps garrisoned local, drops captured"
+        vec![local],
+        "SELECT_TEAM keeps local live member"
     );
     let add_team = frame.filter_live_squad_ids(&stored, false);
     assert_eq!(
         add_team,
-        vec![local, garrisoned, captured],
-        "ADD_TEAM / double-tap keep captured last live member"
+        vec![local, captured],
+        "ADD_TEAM / double-tap keep non-local selectable member"
     );
     assert_eq!(
         *add_team.last().unwrap(),
@@ -397,6 +396,11 @@ fn unit_render_inputs_keep_distinct_source_draw_modules() {
         },
     ];
 
+    // Exercise the ordinary frozen-row handoff with its authored models.
+    // A resident drawable supplies its own immutable visual template instead.
+    frame
+        .direct_host_drawables
+        .retain(|direct| direct.object.id != id);
     let inputs = frame.unit_render_inputs();
     let input = inputs
         .iter()
@@ -660,8 +664,11 @@ fn select_similar_is_structure_aware_and_alt_selects_across_map() {
     let on_screen = logic
         .create_object("Ranger", Team::USA, Vec3::new(0.0, 0.0, 0.0))
         .expect("on-screen ranger");
+    // Off-camera but within GameLogic's default playable bounds (-256..256).
+    // x=40 is outside the view frustum below, while C++ Object::isOffMap stays
+    // false, so ALT's map-wide pass must include it.
     let off_screen = logic
-        .create_object("Ranger", Team::USA, Vec3::new(400.0, 0.0, 400.0))
+        .create_object("Ranger", Team::USA, Vec3::new(40.0, 0.0, 0.0))
         .expect("off-screen ranger");
     let barracks_a = logic
         .create_object("AmericaBarracks", Team::USA, Vec3::new(2.0, 0.0, 2.0))
@@ -671,7 +678,7 @@ fn select_similar_is_structure_aware_and_alt_selects_across_map() {
         .expect("barracks b");
 
     let frame = PresentationFrame::build_from_logic(&logic, 0);
-    let view = Mat4::look_at_rh(Vec3::new(70.0, 90.0, 110.0), Vec3::ZERO, Vec3::Y);
+    let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
     let projection = Mat4::perspective_rh(60.0_f32.to_radians(), 1.0, 1.0, 2_000.0);
     let viewport = Vec2::splat(1_000.0);
 
@@ -996,7 +1003,11 @@ fn weapon_and_stealth_freeze_from_host() {
     assert_eq!(u.team_color, Team::USA.get_color());
     let e = frame.objects.iter().find(|o| o.id == eid).expect("e");
     assert!(e.disguised);
-    assert_eq!(e.team_color, Team::China.get_color(), "enemy view uses disguise color");
+    assert_eq!(
+        e.team_color,
+        Team::China.get_color(),
+        "enemy view uses disguise color"
+    );
     assert_eq!(frame.attacking_units().len(), 1);
     assert_eq!(frame.contained_units().len(), 1);
     // pure stealth unit without disguise
@@ -1913,4 +1924,105 @@ fn select_all_uses_locally_controlled_not_faction_team() {
             .any(|o| o.id == ally && o.team == Team::USA && o.owner_player_id == Some(1)),
         "ally must be same-faction but not locally controlled"
     );
+}
+
+#[test]
+fn screen_box_select_rejects_drawable_centers_outside_camera_frustum_xy() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::{Mat4, Vec2, Vec3};
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut unit = ThingTemplate::new("NdcBoundaryBoxUnit");
+    unit.set_health(100.0);
+    unit.add_kind_of(KindOf::Infantry);
+    unit.add_kind_of(KindOf::Selectable);
+    logic.templates.insert("NdcBoundaryBoxUnit".into(), unit);
+    let offscreen = logic
+        .create_object("NdcBoundaryBoxUnit", Team::USA, Vec3::new(11.0, 0.0, 0.0))
+        .expect("offscreen unit");
+    let frame = PresentationFrame::build_from_logic(&logic, 0);
+
+    // A 90-degree perspective camera at (0,0,10) looking at the origin puts
+    // world center (11,0,0) at NDC x=1.1 / screen x=1050 for a 1000px view.
+    // The endpoint is outside the viewport, which the live input path permits.
+    // C++ CameraClass::Project returns OUTSIDE_FRUSTUM for x > 1, so
+    // W3DView::iterateDrawablesInRegion excludes this center even though the
+    // pixel drag region reaches it.
+    let selected = frame.box_select_unit_ids_in_screen_rect(
+        Team::USA,
+        Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y),
+        Mat4::perspective_rh(90.0_f32.to_radians(), 1.0, 1.0, 100.0),
+        Vec2::new(950.0, 450.0),
+        Vec2::new(1_100.0, 550.0),
+        Vec2::splat(1_000.0),
+    );
+    assert!(!selected.contains(&offscreen));
+}
+
+#[test]
+fn screen_region_queries_keep_inclusive_frustum_edges_in_both_drag_directions() {
+    use crate::game_logic::{KindOf, Team, ThingTemplate};
+    use glam::{Mat4, Vec2, Vec3};
+
+    let mut logic = crate::game_logic::GameLogic::new();
+    let mut template = ThingTemplate::new("FrustumEdgeGarrison");
+    template.set_health(100.0);
+    template.add_kind_of(KindOf::Structure);
+    template.add_kind_of(KindOf::Selectable);
+    template.garrison_contain_max = Some(4);
+    logic
+        .templates
+        .insert("FrustumEdgeGarrison".into(), template);
+    let id = logic
+        .create_object("FrustumEdgeGarrison", Team::USA, Vec3::ZERO)
+        .unwrap();
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    assert_eq!(frame.objects.len(), 1);
+    assert_eq!(frame.objects[0].max_garrison, 4);
+
+    // Unit clip-space projection puts the inclusive frustum edges exactly at
+    // pixel 0 and 1000; the drag extends beyond each side of the viewport.
+    for (x, y, visible) in [
+        (-1.01, 0.0, false),
+        (1.01, 0.0, false),
+        (0.0, -1.01, false),
+        (0.0, 1.01, false),
+        (-1.0, 0.0, true),
+        (1.0, 0.0, true),
+        (0.0, -1.0, true),
+        (0.0, 1.0, true),
+        (-1.0, 1.0, true),
+        (1.0, -1.0, true),
+    ] {
+        frame.objects[0].position = Vec3::new(x, y, 0.5);
+        let expected = if visible { vec![id] } else { Vec::new() };
+        for (start, end) in [
+            (Vec2::splat(-100.0), Vec2::splat(1100.0)),
+            (Vec2::splat(1100.0), Vec2::splat(-100.0)),
+        ] {
+            assert_eq!(
+                frame.box_select_unit_ids_in_screen_rect(
+                    Team::USA,
+                    Mat4::IDENTITY,
+                    Mat4::IDENTITY,
+                    start,
+                    end,
+                    Vec2::splat(1000.0),
+                ),
+                expected,
+                "box center ({x}, {y})"
+            );
+            assert_eq!(
+                frame.garrisonable_building_ids_in_screen_rect(
+                    Mat4::IDENTITY,
+                    Mat4::IDENTITY,
+                    start,
+                    end,
+                    Vec2::splat(1000.0),
+                ),
+                expected,
+                "garrison center ({x}, {y})"
+            );
+        }
+    }
 }
