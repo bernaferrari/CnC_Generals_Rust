@@ -46,6 +46,15 @@ impl BodyModuleInterface for ImmortalBody {
         self.active_body.attempt_damage(damage_info)
     }
 
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: &super::body_module::BodyDamageContext,
+    ) -> BodyResult<()> {
+        self.active_body
+            .attempt_damage_with_context(damage_info, context)
+    }
+
     fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {
         self.active_body.do_damage_fx_after_death(damage_info);
     }

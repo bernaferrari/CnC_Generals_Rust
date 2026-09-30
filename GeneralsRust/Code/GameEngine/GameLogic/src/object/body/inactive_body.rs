@@ -5,8 +5,6 @@
 //! These bodies have no health, cannot be damaged normally, and are effectively
 //! already "dead" from a game logic perspective.
 
-use std::sync::{Arc, RwLock};
-
 use super::body_module::{
     ArmorSetType, BodyDamageType, BodyError, BodyModule, BodyModuleData, BodyModuleInterface,
     BodyResult, DamageInfo, DamageInfoInput, DamageType, MaxHealthChangeType, ObjectId,
@@ -16,19 +14,12 @@ use crate::common::INVALID_ID;
 use crate::helpers::TheGameLogic;
 use game_engine::common::system::{Snapshotable, Xfer};
 
-/// Thread-safe state for inactive body
-#[derive(Debug, Default)]
-struct InactiveBodyState {
-    /// Whether onDie has been called already
-    die_called: bool,
-}
-
 /// Inactive body implementation - indestructible objects with no health
 pub struct InactiveBody {
     /// Base body module
     base: BodyModule,
-    /// Thread-safe mutable state
-    state: Arc<RwLock<InactiveBodyState>>,
+    /// Whether onDie has been called already
+    die_called: bool,
     /// Owning object ID (legacy handle lookup)
     owner_id: ObjectId,
 }
@@ -37,7 +28,6 @@ impl InactiveBody {
     /// Create a new inactive body with a known owner ID.
     pub fn new_with_owner(module_data: BodyModuleData, owner_id: ObjectId) -> Self {
         let base = BodyModule::new(module_data);
-        let state = Arc::new(RwLock::new(InactiveBodyState::default()));
 
         if owner_id != INVALID_ID {
             if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
@@ -49,7 +39,7 @@ impl InactiveBody {
 
         Self {
             base,
-            state,
+            die_called: false,
             owner_id,
         }
     }
@@ -61,20 +51,13 @@ impl InactiveBody {
 
     /// Check if onDie has been called
     pub fn is_die_called(&self) -> bool {
-        self.state
-            .read()
-            .map(|state| state.die_called)
-            .unwrap_or(false)
+        self.die_called
     }
 
     /// Mark that onDie has been called
     fn set_die_called(&mut self) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
-            state.die_called = true;
-            Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
-        }
+        self.die_called = true;
+        Ok(())
     }
 }
 
@@ -344,6 +327,17 @@ mod tests {
         assert!(body.is_indestructible());
         assert!(!body.has_any_subdual_damage());
         assert!(!body.is_die_called());
+    }
+
+    #[test]
+    fn test_die_called_state_is_owned_and_mutable() {
+        let mut body = create_test_inactive_body();
+
+        assert!(!body.is_die_called());
+        assert!(body.set_die_called().is_ok());
+        assert!(body.is_die_called());
+        assert!(body.set_die_called().is_ok());
+        assert!(body.is_die_called());
     }
 
     #[test]

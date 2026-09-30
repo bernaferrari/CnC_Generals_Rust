@@ -1,6 +1,40 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+pub(super) fn mouse_wheel_delta_y(delta: &winit::event::MouseScrollDelta) -> f32 {
+    use winit::event::MouseScrollDelta;
+
+    match delta {
+        MouseScrollDelta::LineDelta(_, y) => *y,
+        MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
+    }
+}
+
+pub(super) fn mouse_wheel_has_vertical_delta(delta: &winit::event::MouseScrollDelta) -> bool {
+    mouse_wheel_delta_y(delta) != 0.0
+}
+
+pub(super) fn mouse_wheel_detents(delta: &winit::event::MouseScrollDelta) -> f32 {
+    match delta {
+        // Winit Windows LineDelta is raw WM_MOUSEWHEEL delta / 120. C++
+        // Mouse::createStreamMessages divides each event's integer raw delta
+        // by 120, truncating toward zero (Mouse.cpp:794-801).
+        winit::event::MouseScrollDelta::LineDelta(_, delta_y) => delta_y.trunc(),
+        // PixelDelta is a platform-specific Main extension; retain its prior
+        // normalization and rounding policy without claiming CPP parity.
+        winit::event::MouseScrollDelta::PixelDelta(pos) => {
+            let delta_y = pos.y as f32 / 100.0;
+            if delta_y == 0.0 {
+                0.0
+            } else if delta_y.abs() < 0.5 {
+                delta_y.signum()
+            } else {
+                delta_y.round()
+            }
+        }
+    }
+}
+
 /// C++ `InGameUI::createCommandHint` `MSG_DO_MOVETO_HINT` cursor sub-case
 /// (`InGameUI.cpp:2595-2607`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15,12 +49,14 @@ impl CnCGameEngine {
         &mut self,
         delta: &winit::event::MouseScrollDelta,
     ) {
-        use winit::event::MouseScrollDelta;
+        let delta_y = mouse_wheel_delta_y(delta);
 
-        let delta_y = match delta {
-            MouseScrollDelta::LineDelta(_, y) => *y,
-            MouseScrollDelta::PixelDelta(pos) => pos.y as f32 / 100.0,
-        };
+        // C++ Mouse.cpp emits no MSG_RAW_MOUSE_WHEEL for raw wheelPos == 0.
+        // In particular, horizontal-only and signed-zero vertical events do
+        // not stamp mouse activity, inject into GameClient, or stop scrolling.
+        if !mouse_wheel_has_vertical_delta(delta) {
+            return;
+        }
 
         // C++ LookAtXlat.cpp:335 stamps m_lastMouseMoveFrame on every wheel.
         lookat_stamp_mouse_activity(self.frame_counter);
@@ -41,11 +77,7 @@ impl CnCGameEngine {
 
         // C++ LookAtXlat wheel -> View::zoomIn/Out: HAG +/- 10wu per detent,
         // W3DView clamps to GameData Min/MaxCameraHeight when zoomLimited.
-        let detents = if delta_y.abs() < 0.5 {
-            delta_y.signum()
-        } else {
-            delta_y.round()
-        };
+        let detents = mouse_wheel_detents(delta);
         if detents.abs() >= 0.5 {
             self.apply_player_height_zoom_steps(-detents);
             if matches!(self.current_state, GameState::InGame | GameState::Paused) {
@@ -947,8 +979,7 @@ impl CnCGameEngine {
         };
         let object = hover.and_then(|id| frame.objects.iter().find(|o| o.id == id));
         let draw_selectable = object.is_some_and(|o| {
-            !o.destroyed
-                && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
+            !o.destroyed && crate::unit_control::UnitControlSystem::presentation_is_selectable(o)
         });
         if !draw_selectable {
             let selected = self.ui_selected_ids(self.current_player_id);
@@ -985,7 +1016,6 @@ impl CnCGameEngine {
             MoveToHintCursorClass::MoveTo
         }
     }
-
 
     pub(in crate::cnc_game_engine) fn lookat_input_enabled(&self) -> bool {
         #[cfg(feature = "game_client")]

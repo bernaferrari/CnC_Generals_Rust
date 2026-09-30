@@ -653,6 +653,9 @@ pub struct RenderableObject {
     #[serde(default)]
     pub disabled_hacked: bool,
     pub disabled_unmanned: bool,
+    /// C++ DISABLED_HELD exempts disabled objects from blue health-bar colors.
+    #[serde(default)]
+    pub disabled_held: bool,
     /// C++ DISABLED_FREEFALL residual for Drawable TINT_STATUS_DISABLED.
     #[serde(default)]
     pub disabled_freefall: bool,

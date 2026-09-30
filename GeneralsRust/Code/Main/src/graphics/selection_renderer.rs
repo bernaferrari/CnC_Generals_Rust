@@ -1075,8 +1075,7 @@ pub fn pack_health_bar_quads(
             host_model_condition_has(object.model_condition_bits, MC_BIT_REALLYDAMAGED);
         let damaged = host_model_condition_has(object.model_condition_bits, MC_BIT_DAMAGED);
         // C++ `isDisabled() && !isDisabledByType(DISABLED_HELD)` (`:3872`);
-        // DISABLED_FREEFALL is the presentation's held-class residual.
-        let disabled_not_held = object.disabled && !object.disabled_freefall;
+        let disabled_not_held = object.disabled && !object.disabled_held;
         let (fill, outline) = game_client::drawable::drawable::health_bar_colors(
             ratio,
             object.under_construction || disabled_not_held,
@@ -1735,14 +1734,16 @@ mod presentation_selection_tests {
             "InGame render must call enqueue_selection_render"
         );
         assert!(
-            src.contains("last_presentation_frame.as_ref()"),
+            src.contains("last_presentation_frame.as_deref()"),
             "selection enqueue must pass presentation snapshot"
         );
         // Selection enqueue is presentation-only (no GameLogic argument).
         let idx = src.find("enqueue_selection_render").expect("enqueue site");
-        let window = &src[idx..idx + 450];
+        let (window, _) = src[idx..]
+            .split_once(");")
+            .expect("selection enqueue statement end");
         assert!(
-            window.contains("last_presentation_frame.as_ref()")
+            window.contains("last_presentation_frame.as_deref()")
                 && !window.contains("game_logic")
                 && !window.contains("Some(&self.game_logic)"),
             "selection overlay must not take live GameLogic: {window}"
@@ -1762,6 +1763,77 @@ mod presentation_selection_tests {
             "selection overlay must pack selected structure rally lines"
         );
     }
+    #[test]
+    fn health_bar_disabled_colors_follow_cpp_held_mask() {
+        // Drawable.cpp:3872 exempts DISABLED_HELD, not DISABLED_FREEFALL.
+        use crate::game_logic::{KindOf, ThingTemplate};
+        game_engine::common::ini::ini_game_data::init_global_data();
+        super::force_retail_game_data_probe_for_tests(1);
+        game_engine::common::ini::get_global_data()
+            .expect("GameData")
+            .write()
+            .show_object_health = true;
+        game_client::helpers::TheInGameUI::set_moused_over_drawable_id(0);
+
+        let mut logic = GameLogic::new();
+        let mut template = ThingTemplate::new("HeldHealthColorUnit");
+        template.set_health(100.0);
+        template.add_kind_of(KindOf::Infantry);
+        template.add_kind_of(KindOf::Selectable);
+        logic.templates.insert(template.name.clone(), template);
+        let id = logic
+            .create_object("HeldHealthColorUnit", Team::USA, Vec3::ZERO)
+            .expect("unit");
+        let view = Mat4::look_at_rh(Vec3::new(0.0, 30.0, 80.0), Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::perspective_rh(1.0, 640.0 / 384.0, 1.0, 800.0);
+
+        for (held, freefall, emp, construction, expected) in [
+            (true, false, false, false, [0.25, 1.0, 0.0]),
+            (false, true, false, false, [0.0, 0.75, 1.0]),
+            (true, true, false, false, [0.25, 1.0, 0.0]),
+            (true, false, true, false, [0.25, 1.0, 0.0]),
+            (false, false, true, false, [0.0, 0.75, 1.0]),
+            (true, false, false, true, [0.0, 0.75, 1.0]),
+        ] {
+            let object = logic.host_object_mut(id).expect("unit");
+            object.selected = true;
+            object.status.selected = true;
+            object.health.current = 75.0;
+            object.health.maximum = 100.0;
+            object.status.disabled_held = held;
+            object.status.disabled_freefall = freefall;
+            object.status.disabled_emp = emp;
+            object.status.under_construction = construction;
+            let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+            assert_eq!(frame.objects[0].disabled_held, held);
+            // The late host overlay must retain the same raw held fact.
+            frame.objects[0].disabled_held = !held;
+            frame.overlay_host_fx_residual(&logic);
+            assert_eq!(frame.objects[0].disabled_held, held);
+            let mut encoded = serde_json::to_value(&frame.objects[0]).expect("encode frame object");
+            let restored: crate::presentation_frame::RenderableObject =
+                serde_json::from_value(encoded.clone()).expect("decode held fact");
+            assert_eq!(restored.disabled_held, held);
+            encoded.as_object_mut().unwrap().remove("disabled_held");
+            let older: crate::presentation_frame::RenderableObject =
+                serde_json::from_value(encoded).expect("older JSON frame object");
+            assert!(!older.disabled_held, "missing held fact defaults inactive");
+            let packed =
+                pack_health_bar_quads(&frame, &view, &proj, (640.0, 384.0), (640.0, 480.0), 1.0);
+            assert_eq!(packed.len(), 180, "one outlined health bar");
+            let fill = &packed[packed.len() - 36..];
+            for channel in 0..3 {
+                assert!(
+                    (fill[channel + 2] - expected[channel]).abs() < 0.01,
+                    "held={held} freefall={freefall} emp={emp} construction={construction}: \
+                     fill RGB {:?}, expected {expected:?}",
+                    &fill[2..5]
+                );
+            }
+        }
+        super::force_retail_game_data_probe_for_tests(0);
+    }
+
     #[test]
     fn health_bar_packs_cpp_quads_when_gate_open() {
         // C++ Drawable::drawHealthBar (`Drawable.cpp:3825-3937`): one open-rect

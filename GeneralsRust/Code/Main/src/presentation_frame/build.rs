@@ -941,6 +941,7 @@ impl PresentationFrame {
                 disabled_underpowered: obj.status.disabled_underpowered,
                 disabled_hacked: obj.status.disabled_hacked,
                 disabled_unmanned: obj.status.disabled_unmanned,
+                disabled_held: obj.status.disabled_held,
                 disabled_freefall: obj.status.disabled_freefall,
                 disabled_default: obj.status.disabled_default,
                 disabled_script_underpowered: obj.status.disabled_script_underpowered,

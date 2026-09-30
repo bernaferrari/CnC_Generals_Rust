@@ -52,6 +52,19 @@ impl BodyModuleInterface for HighlanderBody {
         self.active_body.attempt_damage(damage_info)
     }
 
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: &super::body_module::BodyDamageContext,
+    ) -> BodyResult<()> {
+        if damage_info.input.damage_type != DamageType::Unresistable {
+            let current_health = self.get_health();
+            damage_info.input.amount = damage_info.input.amount.min(current_health - 1.0);
+        }
+        self.active_body
+            .attempt_damage_with_context(damage_info, context)
+    }
+
     fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {
         self.active_body.do_damage_fx_after_death(damage_info);
     }

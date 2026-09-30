@@ -106,7 +106,8 @@ impl Weapon {
         _distance_to_target: f32,
         target_object_type: ObjectType,
     ) -> Coord3D {
-        self.scatter_aim_point(target, target_object_type, PathfindLayerEnum::Ground).0
+        self.scatter_aim_point(target, target_object_type, PathfindLayerEnum::Ground)
+            .0
     }
 
     /// Returns `(aim_point, rolled_scatter_radius)` after C++ randomization.
@@ -442,8 +443,8 @@ impl Weapon {
                     if dlen <= f32::EPSILON {
                         continue;
                     }
-                    let slen = (x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z)
-                        .sqrt();
+                    let slen =
+                        (x_axis.x * x_axis.x + x_axis.y * x_axis.y + x_axis.z * x_axis.z).sqrt();
                     if slen <= f32::EPSILON {
                         continue;
                     }
@@ -485,7 +486,11 @@ impl Weapon {
                     self.template.get_secondary_damage(bonus),
                 );
 
-                if damage_amount > 0.0 {
+                // C++ applies the KILLS_SELF override after selecting the
+                // primary/secondary amount, even when that amount is zero
+                // (Weapon.cpp:1438-1453). Keep ordinary zero-damage radius
+                // hits gated out while allowing this explicit self-kill.
+                if damage_amount > 0.0 || kill_self {
                     let mut target_damage_info = damage_info.clone();
                     target_damage_info.input.amount = if kill_self {
                         HUGE_DAMAGE_AMOUNT
@@ -749,9 +754,9 @@ impl Weapon {
         let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
             return Err(WeaponError::InvalidTarget);
         };
-        let obj_guard = obj_arc.try_read().map_err(|_| {
-            WeaponError::SystemError("Failed to lock object position".to_string())
-        })?;
+        let obj_guard = obj_arc
+            .try_read()
+            .map_err(|_| WeaponError::SystemError("Failed to lock object position".to_string()))?;
         Ok(*obj_guard.get_position())
     }
 
@@ -1284,7 +1289,10 @@ impl Weapon {
         let mut handled = false;
         if !stealthed_hidden {
             let drawable = TheGameLogic::find_object_by_id(source_obj_id).and_then(|source_arc| {
-                source_arc.try_read().ok().and_then(|source| source.get_drawable())
+                source_arc
+                    .try_read()
+                    .ok()
+                    .and_then(|source| source.get_drawable())
             });
             if let Some(drawable) = drawable {
                 if let Ok(mut draw) = drawable.try_write() {
@@ -1309,34 +1317,33 @@ impl Weapon {
 
         if !handled {
             if let Some(fx_list) = fx {
-                let (where_pos, matrix) = if let Some(source_arc) =
-                    TheGameLogic::find_object_by_id(source_obj_id)
-                {
-                    source_arc
-                        .try_read()
-                        .ok()
-                        .and_then(|source| source.get_drawable())
-                        .and_then(|drawable| {
-                            drawable.try_read().ok().map(|draw| {
-                                let pos = if self.template.is_contact_weapon() {
-                                    *impact_pos
-                                } else {
-                                    draw.get_position()
-                                };
-                                (pos, Some(draw.get_transform_matrix()))
+                let (where_pos, matrix) =
+                    if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
+                        source_arc
+                            .try_read()
+                            .ok()
+                            .and_then(|source| source.get_drawable())
+                            .and_then(|drawable| {
+                                drawable.try_read().ok().map(|draw| {
+                                    let pos = if self.template.is_contact_weapon() {
+                                        *impact_pos
+                                    } else {
+                                        draw.get_position()
+                                    };
+                                    (pos, Some(draw.get_transform_matrix()))
+                                })
                             })
-                        })
-                        .unwrap_or((*source_pos, None))
-                } else {
-                    (
-                        if self.template.is_contact_weapon() {
-                            *impact_pos
-                        } else {
-                            *source_pos
-                        },
-                        None,
-                    )
-                };
+                            .unwrap_or((*source_pos, None))
+                    } else {
+                        (
+                            if self.template.is_contact_weapon() {
+                                *impact_pos
+                            } else {
+                                *source_pos
+                            },
+                            None,
+                        )
+                    };
                 let _ = fx_list.do_fx_pos(
                     &where_pos,
                     matrix.as_ref(),
@@ -1402,9 +1409,7 @@ impl Weapon {
             return Ok(Vec::new());
         }
 
-        use crate::object::collide::partition_distance::{
-            DistanceCalculationType, within_radius,
-        };
+        use crate::object::collide::partition_distance::{DistanceCalculationType, within_radius};
         use crate::object::registry::OBJECT_REGISTRY;
 
         // C++ Weapon.cpp:71 FROM_BOUNDINGSPHERE_3D, not a 2D center test.
@@ -1428,23 +1433,25 @@ impl Weapon {
                     None
                 }
             } else {
-                OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                    let pos = *obj.get_position();
-                    let geom = crate::object::Object::collision_geometry_from_bounds(
-                        obj.get_geometry_info(),
-                        None,
-                    );
-                    if !within_radius(
-                        center,
-                        &pos,
-                        &geom,
-                        radius,
-                        DistanceCalculationType::FromBoundingSphere3D,
-                    ) {
-                        return None;
-                    }
-                    Some(pos)
-                }).flatten()
+                OBJECT_REGISTRY
+                    .with_object(obj_id, |obj| {
+                        let pos = *obj.get_position();
+                        let geom = crate::object::Object::collision_geometry_from_bounds(
+                            obj.get_geometry_info(),
+                            None,
+                        );
+                        if !within_radius(
+                            center,
+                            &pos,
+                            &geom,
+                            radius,
+                            DistanceCalculationType::FromBoundingSphere3D,
+                        ) {
+                            return None;
+                        }
+                        Some(pos)
+                    })
+                    .flatten()
             };
             let Some(pos) = pos else {
                 continue;
@@ -1477,10 +1484,7 @@ impl Weapon {
             WeaponError::SystemError(format!("Failed to read object manager: {}", e))
         })?;
 
-        if self
-            .caller_held_source
-            .is_some_and(|(id, _)| id == obj_id)
-        {
+        if self.caller_held_source.is_some_and(|(id, _)| id == obj_id) {
             self.queue_self_damage(self.build_engine_damage_info(damage_info));
             return Ok(damage_info.input.amount);
         }

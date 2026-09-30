@@ -242,9 +242,7 @@ impl HiveStructureBody {
 
         let (had_spawn, closest_slave, contain) = match owner.read() {
             Ok(guard) => {
-                let had_spawn = guard
-                    .with_spawn_behavior_full_interface(|_| ())
-                    .is_some();
+                let had_spawn = guard.with_spawn_behavior_full_interface(|_| ()).is_some();
                 let closest = if had_spawn {
                     guard
                         .with_spawn_behavior_full_interface(|spawn| {
@@ -312,8 +310,12 @@ impl HiveStructureBody {
 
 // Delegate most BodyModuleInterface methods to the underlying StructureBody
 // The key override is attempt_damage to handle damage propagation
-impl BodyModuleInterface for HiveStructureBody {
-    fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+impl HiveStructureBody {
+    fn attempt_damage_with_context_inner(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: Option<&super::body_module::BodyDamageContext>,
+    ) -> BodyResult<()> {
         // Wave 389: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
@@ -324,7 +326,8 @@ impl BodyModuleInterface for HiveStructureBody {
                 HiveRedirect::Propagated => return Ok(()),
                 HiveRedirect::NoTarget
                     if self.should_swallow_if_no_slaves(damage_info)
-                        && TheGameLogic::find_object_by_id(damage_info.input.source_id).is_some() =>
+                        && TheGameLogic::find_object_by_id(damage_info.input.source_id)
+                            .is_some() =>
                 {
                     damage_info.output.actual_damage_dealt = 0.0;
                     damage_info.output.actual_damage_clipped = 0.0;
@@ -335,10 +338,28 @@ impl BodyModuleInterface for HiveStructureBody {
             }
         }
 
-
         // Either not a propagated damage type, or no slaves to propagate to
         // and not a swallowed type, so damage ourselves normally
-        self.structure_body.attempt_damage(damage_info)
+        if let Some(context) = context {
+            self.structure_body
+                .attempt_damage_with_context(damage_info, context)
+        } else {
+            self.structure_body.attempt_damage(damage_info)
+        }
+    }
+}
+
+impl BodyModuleInterface for HiveStructureBody {
+    fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+        self.attempt_damage_with_context_inner(damage_info, None)
+    }
+
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: &super::body_module::BodyDamageContext,
+    ) -> BodyResult<()> {
+        self.attempt_damage_with_context_inner(damage_info, Some(context))
     }
 
     fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {

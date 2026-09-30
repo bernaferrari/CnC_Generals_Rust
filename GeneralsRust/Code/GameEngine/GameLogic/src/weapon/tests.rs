@@ -15,6 +15,79 @@ fn weapon_range_test_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+// Historic bonuses need the retention window supplied by GameData. Keep the
+// shared native clock/config fixture scoped, including restoration on panic.
+struct HistoricWeaponFixture {
+    _isolation: std::sync::MutexGuard<'static, ()>,
+    previous_frame: u64,
+    previous_limit: u32,
+}
+
+impl HistoricWeaponFixture {
+    fn new() -> Self {
+        let isolation = weapon_range_test_guard();
+        let previous_frame = {
+            let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+            let frame = logic.get_current_frame();
+            logic.set_current_frame(100);
+            frame
+        };
+        let previous_limit = {
+            let mut data = game_engine::common::global_data::write();
+            let limit = data.historic_damage_limit;
+            data.historic_damage_limit = 90;
+            limit
+        };
+        Self {
+            _isolation: isolation,
+            previous_frame,
+            previous_limit,
+        }
+    }
+}
+
+impl Drop for HistoricWeaponFixture {
+    fn drop(&mut self) {
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .set_current_frame(self.previous_frame);
+        game_engine::common::global_data::write().historic_damage_limit = self.previous_limit;
+    }
+}
+
+struct RestorePlayerList {
+    players: Vec<Arc<RwLock<crate::player::Player>>>,
+    local_player_index: i32,
+}
+
+impl RestorePlayerList {
+    fn with_player(player: Arc<RwLock<crate::player::Player>>) -> Self {
+        let mut list = crate::player::player_list().write().unwrap();
+        let previous = Self {
+            players: list.iter().cloned().collect(),
+            local_player_index: list.get_local_player_index(),
+        };
+        list.clear();
+        list.add_player(player);
+        list.set_local_player_index(0);
+        previous
+    }
+}
+
+impl Drop for RestorePlayerList {
+    fn drop(&mut self) {
+        let mut list = crate::player::player_list()
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        list.clear();
+        for player in self.players.drain(..) {
+            list.add_player(player);
+        }
+        list.set_local_player_index(self.local_player_index);
+    }
+}
+
 #[test]
 fn test_weapon_bonus() {
     let mut bonus = WeaponBonus::new();
@@ -673,6 +746,150 @@ fn test_deal_damage_radius() {
             panic!("Unexpected error: {:?}", e);
         }
     }
+}
+
+#[test]
+fn kills_self_dies_on_zero_secondary_radius_damage() {
+    let _guard = weapon_range_test_guard();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+
+    let register_at = |mut object: crate::object::Object, id, x| {
+        object
+            .set_position(&Coord3D::new(x, 0.0, 0.0))
+            .expect("set object position");
+        let mut geometry = crate::common::GeometryInfo::default();
+        geometry.bounds.min = Coord3D::new(-5.0, 0.0, 0.0);
+        geometry.bounds.max = Coord3D::new(5.0, 0.0, 0.0);
+        object.set_geometry_info(geometry);
+
+        let object = Arc::new(RwLock::new(object));
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, &object);
+        object
+    };
+
+    // The blast center is 20 units from both object centers. Their 5-unit
+    // bounding spheres therefore lie outside the primary radius but inside
+    // the secondary radius, exactly as the C++ range iterator requires.
+    let source_id = 96_001;
+    let target_id = 96_002;
+
+    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+    let mut player_template = crate::player::PlayerTemplate::new("SelfKillPlayable".to_string());
+    player_template.playable = true;
+    player.write().unwrap().init(Arc::new(player_template));
+    let _restore_players = RestorePlayerList::with_player(Arc::clone(&player));
+    let team = Arc::new(RwLock::new(crate::team::Team::new(
+        "SelfKillTeam".into(),
+        96_000,
+    )));
+    team.write().unwrap().set_controlling_player_id(Some(0));
+
+    let mut source_template = crate::common::DefaultThingTemplate::new("SelfKillSource".into());
+    source_template.add_kind_of(crate::common::KindOf::Vehicle);
+    source_template.add_kind_of(crate::common::KindOf::Score);
+    let source = register_at(
+        crate::object::Object::new_test_from_template(source_id, 100.0, Arc::new(source_template)),
+        source_id,
+        0.0,
+    );
+    source
+        .write()
+        .unwrap()
+        .set_team(Some(team))
+        .expect("assign playable source team");
+    let target = register_at(
+        crate::object::Object::new_test(target_id, 100.0),
+        target_id,
+        40.0,
+    );
+    assert!(crate::object::registry::OBJECT_REGISTRY.contains(source_id));
+    assert!(crate::object::registry::OBJECT_REGISTRY.contains(target_id));
+    assert_eq!(
+        source.read().unwrap().get_controlling_player_id(),
+        Some(0),
+        "source must resolve to the playable owner used by the kill-score path"
+    );
+    let lost_before = player
+        .read()
+        .unwrap()
+        .get_score_keeper()
+        .get_total_units_lost();
+    let destroyed_before = player
+        .read()
+        .unwrap()
+        .get_score_keeper()
+        .get_total_units_destroyed();
+
+    let mut weapon = create_test_weapon();
+    let template = Arc::make_mut(&mut weapon.template);
+    template.primary_damage = 100.0;
+    template.primary_damage_radius = 5.0;
+    template.secondary_damage = 0.0;
+    template.secondary_damage_radius = 30.0;
+    template.damage_type = DamageType::Flame;
+    template.death_type = crate::damage::DeathType::Burned;
+    template.affects_mask =
+        WeaponAffectsMask::new(WeaponAffectsMask::KILLS_SELF | WeaponAffectsMask::NEUTRALS);
+
+    // C++ Weapon.cpp:1438-1453 sets huge damage for KILLS_SELF after the
+    // secondary-radius hit is selected, regardless of its configured zero
+    // amount. Ordinary bystanders still receive zero secondary damage.
+    weapon
+        .deal_damage_internal(
+            source_id,
+            None,
+            &Coord3D::new(20.0, 0.0, 0.0),
+            &WeaponBonus::default(),
+            false,
+        )
+        .expect("apply radius damage");
+
+    let source = source.read().expect("source read lock");
+    assert!(source.is_effectively_dead(), "KILLS_SELF source must die");
+    assert_eq!(
+        source.get_health(),
+        0.0,
+        "self-kill must exhaust hull health"
+    );
+    assert_eq!(
+        source.get_last_death_type(),
+        Some(crate::damage::DeathType::Burned),
+        "self-kill must preserve the weapon's authored death type"
+    );
+    let expected_source_template = source.get_template().get_name().as_str().to_string();
+    let recorded_source_template = source
+        .get_last_damage_info()
+        .and_then(|info| info.input.source_template)
+        .map(|template| template.get_name().as_str().to_string());
+    assert_eq!(
+        recorded_source_template,
+        Some(expected_source_template),
+        "self-sourced damage must retain the actual source template"
+    );
+    drop(source);
+    let score = player.read().unwrap();
+    assert_eq!(
+        score.get_score_keeper().get_total_units_lost(),
+        lost_before + 1,
+        "self-kill must record exactly one playable owner loss"
+    );
+    assert_eq!(
+        score.get_score_keeper().get_total_units_destroyed(),
+        destroyed_before,
+        "self-kill must not award attacker destruction credit"
+    );
+    drop(score);
+
+    let target = target.read().expect("target read lock");
+    assert_eq!(
+        target.get_health(),
+        100.0,
+        "zero-secondary-damage bystander must remain unchanged"
+    );
+    assert!(!target.is_destroyed());
+    drop(target);
+
+    crate::object::registry::OBJECT_REGISTRY.clear();
 }
 
 #[test]
@@ -1778,6 +1995,7 @@ fn cpp_parity_get_status_pre_attack_is_pure_frame_test() {
 
 #[test]
 fn historic_bonus_weapon_dispatches_on_nth_qualifying_hit() {
+    let _fixture = HistoricWeaponFixture::new();
     // C++ Weapon.cpp:1214-1251 dealDamageInternal — count >= historicBonusCount-1
     // fires TheWeaponStore->createAndFireTempWeapon and clears the list.
     let mut bonus = WeaponTemplate::new("NapalmFirestormSmallCreationWeapon".to_string());
@@ -1816,7 +2034,7 @@ fn historic_bonus_weapon_dispatches_on_nth_qualifying_hit() {
 
 #[test]
 fn historic_bonus_weapon_resolves_by_name_when_weak_is_dead() {
-    let _guard = weapon_range_test_guard();
+    let _fixture = HistoricWeaponFixture::new();
     let _ = initialize_weapon_store();
 
     let mut bonus = WeaponTemplate::new("BlackNapalmFirestormSmallCreationWeapon".to_string());
@@ -1846,6 +2064,7 @@ fn historic_bonus_weapon_resolves_by_name_when_weak_is_dead() {
 
 #[test]
 fn historic_bonus_weapon_ignores_far_hits() {
+    let _fixture = HistoricWeaponFixture::new();
     let mut bonus = WeaponTemplate::new("FirestormFar".to_string());
     bonus.attack_range = 999_999.0;
     let bonus = Arc::new(bonus);
@@ -1868,6 +2087,7 @@ fn historic_bonus_weapon_ignores_far_hits() {
 
 #[test]
 fn deal_damage_internal_dispatches_historic_bonus_weapon() {
+    let _fixture = HistoricWeaponFixture::new();
     // Canonical damage path: Weapon::deal_damage_internal (Weapon.cpp:1197).
     let mut bonus = WeaponTemplate::new("DealDamageFirestorm".to_string());
     bonus.attack_range = 999_999.0;
@@ -1897,6 +2117,7 @@ fn deal_damage_internal_dispatches_historic_bonus_weapon() {
 
 #[test]
 fn projectile_detonation_dispatches_historic_bonus_weapon() {
+    let _fixture = HistoricWeaponFixture::new();
     // Inferno / napalm: dealDamageInternal is the detonation path (Weapon.cpp:1265).
     let mut bonus = WeaponTemplate::new("DetonationFirestorm".to_string());
     bonus.attack_range = 999_999.0;
