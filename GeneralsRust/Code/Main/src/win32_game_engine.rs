@@ -77,8 +77,6 @@ pub struct Win32GameEngine {
 
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for Win32GameEngine {}
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for Win32GameEngine {}
 
 use crate::subsystem_interfaces::SubsystemManager;
 
@@ -89,7 +87,10 @@ impl Win32GameEngine {
         info!("Creating Win32GameEngine with provided window...");
 
         // Initialize graphics (equivalent to C++ W3DDisplay creation)
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
 
         let surface = instance.create_surface(window.clone())?;
 
@@ -98,7 +99,7 @@ impl Win32GameEngine {
                 power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
-            apply_limit_buckets: false,
+                apply_limit_buckets: false,
             })
             .await?;
 

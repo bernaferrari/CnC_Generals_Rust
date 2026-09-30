@@ -9,20 +9,47 @@
 )]
 use super::*;
 
-/// Session negative-cache for model keys whose full resolution chain —
-/// asset-manager load plus filesystem residual — already failed. Without it
-/// every unresolvable drawable re-attempted `load_w3d_model` +
-/// `resolve_mesh_for_model_key` (warn + note + filesystem probe) on every
-/// frame. A failed key now costs exactly one attempt and one warn per
-/// session. Cleared by [`RenderPipeline::clear_failed_model_resolutions`]
-/// when late archive providers install so keys that failed early can
-/// re-resolve; `RenderModelLoadResult::Failed` is a retry policy, not a
-/// forever-blacklist.
-static FAILED_MODEL_RESOLUTIONS: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashSet<String>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+/// Negative resolutions owned by one pipeline. Collection borrows this state
+/// synchronously; independent pipelines must not suppress one another's loads.
+/// Successful model-cache lookups still precede this retry policy.
+#[derive(Default)]
+pub(super) struct FailedModelResolutions {
+    keys: HashSet<String>,
+}
+
+impl FailedModelResolutions {
+    fn canonical_key(model_name: &str) -> String {
+        crate::assets::mesh_asset_resolve::canonical_model_key(model_name).to_ascii_lowercase()
+    }
+
+    fn contains(&self, model_name: &str) -> bool {
+        let canonical = Self::canonical_key(model_name);
+        !canonical.is_empty() && self.keys.contains(&canonical)
+    }
+
+    fn record(&mut self, model_name: &str) {
+        let canonical = Self::canonical_key(model_name);
+        if !canonical.is_empty() {
+            self.keys.insert(canonical);
+        }
+    }
+
+    /// Invalidate only this pipeline after an asset-provider change.
+    fn clear(&mut self) {
+        let cleared = self.keys.len();
+        self.keys.clear();
+        if cleared > 0 {
+            info!("Cleared {cleared} failed model resolutions for late archive provider recovery");
+        }
+    }
+}
 
 impl RenderPipeline {
+    /// Late-provider recovery invalidates only this pipeline's retry history.
+    pub(super) fn clear_failed_model_resolutions(&mut self) {
+        self.failed_model_resolutions.clear();
+    }
+
     /// Retain the exact source stamp and authored weapon-bone bases on every
     /// RenderItem emitted from one GameClient DrawSubmission.  This is a pure
     /// transport boundary: the active bridge still does not dispatch recoil
@@ -361,6 +388,7 @@ impl RenderPipeline {
 
                 let model_load_started = Instant::now();
                 let render_model_load_result = Self::ensure_render_model_loaded(
+                    &mut self.failed_model_resolutions,
                     graphics_system,
                     template_name_for_cull,
                     model_name,
@@ -796,6 +824,7 @@ impl RenderPipeline {
                     p.projectile_object_name.as_str()
                 };
                 let render_model_load_result = Self::ensure_render_model_loaded(
+                    &mut self.failed_model_resolutions,
                     graphics_system,
                     template_name,
                     model_name,
@@ -1051,48 +1080,6 @@ impl RenderPipeline {
         }
     }
 
-    /// True when this model key already failed a full resolution this session.
-    fn failed_model_resolution_cached(model_name: &str) -> bool {
-        let canonical =
-            crate::assets::mesh_asset_resolve::canonical_model_key(model_name).to_ascii_lowercase();
-        if canonical.is_empty() {
-            return false;
-        }
-        FAILED_MODEL_RESOLUTIONS
-            .lock()
-            .map(|failed| failed.contains(&canonical))
-            .unwrap_or(false)
-    }
-
-    /// Record a failed model resolution for session-wide negative caching.
-    fn record_failed_model_resolution(model_name: &str) {
-        let canonical =
-            crate::assets::mesh_asset_resolve::canonical_model_key(model_name).to_ascii_lowercase();
-        if canonical.is_empty() {
-            return;
-        }
-        if let Ok(mut failed) = FAILED_MODEL_RESOLUTIONS.lock() {
-            failed.insert(canonical);
-        }
-    }
-
-    /// Late-provider recovery hook: drop the session failed-resolution cache
-    /// so keys that failed before the archive-backed providers installed can
-    /// re-attempt resolution. Called from pipeline lifecycle initialization.
-    pub(super) fn clear_failed_model_resolutions() {
-        let cleared = match FAILED_MODEL_RESOLUTIONS.lock() {
-            Ok(mut failed) => {
-                let cleared = failed.len();
-                failed.clear();
-                cleared
-            }
-            Err(_) => 0,
-        };
-        if cleared > 0 {
-            info!("Cleared {cleared} failed model resolutions for late archive provider recovery");
-        }
-    }
-
     /// True when the authored Object INI template is a sound-only host
     /// template: no drawable/model, but an ambient loop. Those `Amb_*` map
     /// objects are seeded deliberately (host ambient audio); mesh resolution
@@ -1108,6 +1095,7 @@ impl RenderPipeline {
     }
 
     pub(super) fn ensure_render_model_loaded(
+        failed_model_resolutions: &mut FailedModelResolutions,
         graphics_system: &mut GraphicsSystem,
         template_name: &str,
         model_name: &str,
@@ -1151,11 +1139,11 @@ impl RenderPipeline {
             }
         }
         // Known-failed negative cache: the full chain (asset manager +
-        // filesystem residual) already failed for this key this session.
+        // filesystem residual) already failed for this key in this pipeline.
         // Short-circuit before the budget gate so deferred startup loads do
         // not burn their budget on unresolvable keys, and before the asset
         // manager lock so repeats are O(1) with no warns or probes.
-        if Self::failed_model_resolution_cached(model_name) {
+        if failed_model_resolutions.contains(model_name) {
             if trace_this_attempt {
                 info!(
                     "Startup model load: known-failed negative cache hit template='{}' model='{}'",
@@ -1194,7 +1182,7 @@ impl RenderPipeline {
                     // can never succeed; record the failure once, silently —
                     // no per-frame warn, no filesystem probe.
                     if Self::template_definition_is_audio_only(&asset_manager, template_name) {
-                        Self::record_failed_model_resolution(model_name);
+                        failed_model_resolutions.record(model_name);
                         return RenderModelLoadResult::Failed;
                     }
 
@@ -1300,9 +1288,9 @@ impl RenderPipeline {
             );
         }
         if resolved.is_none() {
-            // Session negative cache: this key must not re-attempt the asset
+            // Pipeline negative cache: this key must not re-attempt the asset
             // manager load + filesystem residual chain on the next frame.
-            Self::record_failed_model_resolution(model_name);
+            failed_model_resolutions.record(model_name);
         }
         resolved
             .map(RenderModelLoadResult::Ready)
@@ -1352,6 +1340,7 @@ impl RenderPipeline {
                 continue;
             }
             let _ = Self::ensure_render_model_loaded(
+                &mut self.failed_model_resolutions,
                 graphics_system,
                 model_name,
                 model_name,
@@ -1532,6 +1521,7 @@ impl RenderPipeline {
             // applied by the direct frozen-unit path above.
 
             let load_result = Self::ensure_render_model_loaded(
+                &mut self.failed_model_resolutions,
                 graphics_system,
                 model_name,
                 model_name,
@@ -2284,29 +2274,53 @@ mod failed_model_resolution_cache_tests {
     use super::*;
 
     #[test]
-    fn failed_resolution_is_cached_per_session_until_invalidated() {
+    fn failed_resolution_is_cached_per_pipeline_until_invalidated() {
+        let mut cache = FailedModelResolutions::default();
         let key = "zzz_failed_resolution_cache_probe";
-        assert!(
-            !RenderPipeline::failed_model_resolution_cached(key),
-            "fresh key must not start cached"
-        );
+        assert!(!cache.contains(key), "fresh key must not start cached");
 
-        RenderPipeline::record_failed_model_resolution(key);
+        cache.record(key);
         assert!(
-            RenderPipeline::failed_model_resolution_cached(key),
-            "the next frame must short-circuit on the session negative cache"
+            cache.contains(key),
+            "the next frame must short-circuit on the pipeline negative cache"
         );
         // Presentation keys can arrive with path or extension decoration;
         // canonicalization must still hit the cached failure.
-        assert!(RenderPipeline::failed_model_resolution_cached(&format!(
-            "Art/W3D/{key}.w3d"
-        )));
+        assert!(cache.contains(&format!("Art/W3D/{key}.w3d")));
 
         // Late-provider invalidation must allow a re-attempt.
-        RenderPipeline::clear_failed_model_resolutions();
+        cache.clear();
         assert!(
-            !RenderPipeline::failed_model_resolution_cached(key),
+            !cache.contains(key),
             "provider install must clear the failed-resolution cache"
+        );
+    }
+
+    #[test]
+    fn failed_resolution_state_isolated_between_pipeline_owners() {
+        let mut first = FailedModelResolutions::default();
+        let second = FailedModelResolutions::default();
+        let key = "zzz_pipeline_isolation_probe";
+        first.record(key);
+        assert!(first.contains("Art/W3D/ZZZ_PIPELINE_ISOLATION_PROBE.w3d"));
+        assert!(
+            !second.contains(key),
+            "another pipeline must retry its own model resolution"
+        );
+    }
+
+    #[test]
+    fn invalidating_one_pipeline_retains_other_pipeline_failures() {
+        let mut first = FailedModelResolutions::default();
+        let mut second = FailedModelResolutions::default();
+        let key = "zzz_pipeline_invalidation_probe";
+        first.record(key);
+        second.record(key);
+        first.clear();
+        assert!(!first.contains(key));
+        assert!(
+            second.contains(key),
+            "provider recovery cannot reset another pipeline"
         );
     }
 

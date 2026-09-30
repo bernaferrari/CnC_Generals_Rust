@@ -10,6 +10,8 @@ use super::script_camera::*;
 use super::*;
 
 pub struct GameLogic {
+    /// Client tint history is scoped to this instance, including synthetic render IDs.
+    pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     /// GameLogic-owned engine stores (C++ TheUpgradeCenter / TheAI context).
     /// Created inertly and installed as the active bundle at the world-start
     /// boundaries (`GameLogic::new` outside a staged restore, `reset` for

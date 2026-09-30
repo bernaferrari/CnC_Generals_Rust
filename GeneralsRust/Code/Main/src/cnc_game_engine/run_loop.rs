@@ -35,22 +35,44 @@ pub(super) const W3D_FRAME_LENGTH_MS: u32 = 33;
 /// C++ `W3DDisplay::draw` `minTime = 30` present cap (busy-wait `< minTime-1`).
 pub(super) const W3D_DRAW_MIN_TIME_MS: u32 = 30;
 
-fn ww3d_sync_ms() -> &'static std::sync::atomic::AtomicU32 {
-    static SYNC: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-    &SYNC
+/// C++ W3DDisplay::draw's synchronous clock and fast-time residuals.
+pub(super) struct VisualClock {
+    sync_ms: u32,
+    last_client_frame: u32,
+    time_multiplier_counter: i32,
 }
 
-fn last_ww3d_client_frame() -> &'static std::sync::atomic::AtomicU32 {
-    static LAST: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(u32::MAX);
-    &LAST
+impl VisualClock {
+    pub(super) const fn new() -> Self {
+        Self {
+            sync_ms: 0,
+            last_client_frame: u32::MAX,
+            time_multiplier_counter: 1,
+        }
+    }
+
+    fn advance(&mut self, frame: u32, frozen: bool) -> u32 {
+        let same_client_frame = self.last_client_frame == frame;
+        self.last_client_frame = frame;
+        if !frozen && !same_client_frame {
+            self.sync_ms = self.sync_ms.wrapping_add(W3D_FRAME_LENGTH_MS);
+        }
+        self.sync_ms
+    }
+
+    fn multiplier_allows_draw(&mut self, multiplier: i32) -> bool {
+        if multiplier > 1 {
+            self.time_multiplier_counter -= 1;
+            if self.time_multiplier_counter > 1 {
+                return false;
+            }
+            self.time_multiplier_counter = multiplier;
+        }
+        true
+    }
 }
 
-fn time_multiplier_counter() -> &'static std::sync::atomic::AtomicI32 {
-    static COUNTER: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
-    &COUNTER
-}
-
-struct AverageFpsTracker {
+pub(super) struct AverageFpsTracker {
     history: [f64; 30],
     offset: usize,
     samples: usize,
@@ -59,7 +81,7 @@ struct AverageFpsTracker {
 }
 
 impl AverageFpsTracker {
-    const fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self {
             history: [0.0; 30],
             offset: 0,
@@ -70,8 +92,11 @@ impl AverageFpsTracker {
     }
 
     fn note_frame(&mut self) -> f32 {
+        self.note_frame_at(Instant::now())
+    }
+
+    fn note_frame_at(&mut self, now: Instant) -> f32 {
         const MAX_FRAME_TIME_CUTOFF: f64 = 0.5;
-        let now = Instant::now();
         let elapsed = match self.last {
             Some(prev) => now.saturating_duration_since(prev).as_secs_f64(),
             None => 1.0 / 30.0,
@@ -88,12 +113,6 @@ impl AverageFpsTracker {
         }
         self.average
     }
-}
-
-fn average_fps_tracker() -> std::sync::MutexGuard<'static, AverageFpsTracker> {
-    static TRACKER: std::sync::LazyLock<std::sync::Mutex<AverageFpsTracker>> =
-        std::sync::LazyLock::new(|| std::sync::Mutex::new(AverageFpsTracker::new()));
-    TRACKER.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// WndProc records activation before CreateGameEngine applies it. Keep that
@@ -1048,18 +1067,12 @@ impl CnCGameEngine {
     }
 
     /// C++ W3DDisplay.cpp:1730-1781 freeze-aware virtual clock.
-    pub(super) fn advance_ww3d_visual_sync(&self) -> u32 {
+    pub(super) fn advance_ww3d_visual_sync(&mut self) -> u32 {
         let frame = self.host_match_logic_frame.unwrap_or(0);
-        let last = last_ww3d_client_frame().swap(frame, std::sync::atomic::Ordering::SeqCst);
-        let same_client_frame = last == frame;
         let freeze = self.presentation_or_boot_time_frozen()
             || self.game_paused
-            || matches!(self.current_state, GameState::Paused)
-            || same_client_frame;
-        if !freeze {
-            ww3d_sync_ms().fetch_add(W3D_FRAME_LENGTH_MS, std::sync::atomic::Ordering::SeqCst);
-        }
-        ww3d_sync_ms().load(std::sync::atomic::Ordering::SeqCst)
+            || matches!(self.current_state, GameState::Paused);
+        self.visual_clock.advance(frame, freeze)
     }
 
     /// C++ `TheScriptEngine->isTimeFast()` analog: visual speed at/above logic Hz.
@@ -1068,7 +1081,7 @@ impl CnCGameEngine {
     }
 
     /// C++ W3DDisplay.cpp:1741-1795 + 1852-1855 render-throttle contract.
-    pub(super) fn should_present_w3d_frame(&self) -> bool {
+    pub(super) fn should_present_w3d_frame(&mut self) -> bool {
         let freeze = self.presentation_or_boot_time_frozen()
             || self.game_paused
             || matches!(self.current_state, GameState::Paused);
@@ -1076,12 +1089,8 @@ impl CnCGameEngine {
             return false;
         }
         let multiplier = self.presentation_or_boot_visual_speed().max(1.0) as i32;
-        if multiplier > 1 {
-            let prev = time_multiplier_counter().fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            if prev - 1 > 1 {
-                return false;
-            }
-            time_multiplier_counter().store(multiplier, std::sync::atomic::Ordering::SeqCst);
+        if !self.visual_clock.multiplier_allows_draw(multiplier) {
+            return false;
         }
         let tivo = game_engine::common::global_data::read_safe()
             .map(|data| data.tivo_fast_mode)
@@ -1121,8 +1130,8 @@ impl CnCGameEngine {
     }
 
     /// C++ `W3DDisplay::updateAverageFPS` + `findDynamicLODLevel` / force VERY_HIGH.
-    pub(super) fn apply_live_draw_dynamic_lod(&self) {
-        let average = average_fps_tracker().note_frame();
+    pub(super) fn apply_live_draw_dynamic_lod(&mut self) {
+        let average = self.average_fps_tracker.note_frame();
         game_engine::common::game_engine::GameEngine::apply_draw_dynamic_lod(average);
     }
 }
@@ -1131,6 +1140,65 @@ impl CnCGameEngine {
 mod tests {
     use super::{DEFAULT_MAX_FPS, FRAME_INTERVAL, HEADLESS_LOGIC_INTERVAL, execute_wait_deadline};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn owned_visual_clock_preserves_freeze_and_frame_cadence() {
+        let mut first = super::VisualClock::new();
+        let mut second = super::VisualClock::new();
+        assert_eq!(first.advance(0, false), 33);
+        assert_eq!(first.advance(0, false), 33);
+        assert_eq!(first.advance(1, true), 33);
+        // C++ remembers the client frame even while frozen.
+        assert_eq!(first.advance(1, false), 33);
+        assert_eq!(first.advance(2, false), 66);
+        assert_eq!(second.advance(2, false), 33);
+        first.sync_ms = u32::MAX - 10;
+        assert_eq!(first.advance(3, false), 22);
+    }
+
+    #[test]
+    fn owned_visual_clock_preserves_multiplier_counter_and_isolation() {
+        let mut first = super::VisualClock::new();
+        let mut second = super::VisualClock::new();
+        let draws: Vec<_> = (0..7).map(|_| first.multiplier_allows_draw(4)).collect();
+        assert_eq!(draws, [true, false, false, true, false, false, true]);
+        assert!(second.multiplier_allows_draw(4));
+        assert!(first.multiplier_allows_draw(1));
+        // Dropping back to normal speed does not reset the C++ counter.
+        assert!(!first.multiplier_allows_draw(4));
+    }
+
+    #[test]
+    fn owned_fps_history_keeps_instances_independent_and_rejects_spikes() {
+        let start = Instant::now();
+        let mut first = super::AverageFpsTracker::new();
+        let mut second = super::AverageFpsTracker::new();
+        assert_eq!(first.note_frame_at(start), 30.0);
+        assert_eq!(
+            first.note_frame_at(start + Duration::from_millis(100)),
+            20.0
+        );
+        assert_eq!(second.note_frame_at(start + Duration::from_secs(1)), 30.0);
+        // The C++ cutoff discards a stalled frame but advances the timestamp.
+        assert_eq!(first.note_frame_at(start + Duration::from_secs(1)), 20.0);
+        let fps = first.note_frame_at(start + Duration::from_millis(1_100));
+        assert!((fps - 50.0 / 3.0).abs() < 0.001);
+        assert_eq!(second.samples, 1);
+        assert_eq!(second.offset, 1);
+    }
+
+    #[test]
+    fn owned_fps_history_wraps_at_thirty_samples() {
+        let start = Instant::now();
+        let mut tracker = super::AverageFpsTracker::new();
+        tracker.note_frame_at(start);
+        for frame in 1..=60 {
+            tracker.note_frame_at(start + Duration::from_millis(frame * 100));
+        }
+        assert_eq!(tracker.samples, 30);
+        assert_eq!(tracker.average, 10.0);
+        assert_eq!(tracker.offset, 1);
+    }
 
     #[test]
     fn startup_focus_retains_latest_owner_event_until_engine_install() {

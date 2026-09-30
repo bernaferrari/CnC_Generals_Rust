@@ -56,6 +56,8 @@ pub use session::*;
 /// Session holding GameWorld + stable host↔entity ID maps.
 #[derive(Debug)]
 pub struct GameWorldShadow {
+    /// Tint owner when a presentation has no authoritative Main world.
+    pub(crate) drawable_tint_envelopes: crate::game_logic::DrawableTintEnvelopes,
     world: GameWorld,
     host_to_entity: HashMap<u32, EntityId>,
     entity_to_host: HashMap<u32, u32>,

@@ -360,7 +360,11 @@ impl CnCGameEngine {
         if let Some(pres) = self.render_pipeline.presentation_frame_mut() {
             pres.pending_popup_messages.clear();
         }
-        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
+        if let Some(pres) = self
+            .last_presentation_frame
+            .as_mut()
+            .map(std::rc::Rc::make_mut)
+        {
             pres.pending_popup_messages.clear();
         }
         if let Some(ui) = self.last_ui_state.as_mut() {

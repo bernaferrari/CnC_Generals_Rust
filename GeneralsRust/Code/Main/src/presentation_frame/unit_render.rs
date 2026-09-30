@@ -442,23 +442,7 @@ impl UnitRenderInput {
             fow_visibility: ro.fow_visibility,
             presentation_opacity: 1.0,
             second_material_pass_opacity: 0.0,
-            status_tint: crate::game_logic::sample_drawable_status_tint(
-                ro.id.0,
-                0,
-                crate::game_logic::drawable_disabled_dark_tint(
-                    ro.disabled_emp,
-                    ro.disabled_hacked,
-                    ro.disabled_paralyzed,
-                    ro.disabled_underpowered,
-                    ro.disabled_freefall,
-                    ro.disabled_subdued,
-                    ro.disabled_default,
-                    ro.disabled_script_underpowered,
-                ),
-                ro.gaining_subdual,
-                ro.weapon_bonus_frenzy,
-                matches!(ro.object_type, PresentationObjectType::Infantry),
-            ),
+            status_tint: ro.status_tint,
             stored_supplies: ro.stored_supplies,
             drawable_supply_boxes: if ro.dock_kind == crate::game_logic::DockKind::SupplyWarehouse {
                 ro.drawable_supply_boxes
@@ -492,23 +476,6 @@ impl UnitRenderInput {
         input.world_is_snow = world_is_snow;
         input.world_is_night = world_is_night;
         input.logic_frame = logic_frame;
-        input.status_tint = crate::game_logic::sample_drawable_status_tint(
-            ro.id.0,
-            logic_frame,
-            crate::game_logic::drawable_disabled_dark_tint(
-                ro.disabled_emp,
-                ro.disabled_hacked,
-                ro.disabled_paralyzed,
-                ro.disabled_underpowered,
-                ro.disabled_freefall,
-                ro.disabled_subdued,
-                ro.disabled_default,
-                ro.disabled_script_underpowered,
-            ),
-            ro.gaining_subdual,
-            ro.weapon_bonus_frenzy,
-            matches!(ro.object_type, PresentationObjectType::Infantry),
-        );
         input.resolve_draw_models_for_frozen_conditions();
         input
     }
@@ -1410,9 +1377,165 @@ impl UnitRenderInput {
     }
 }
 
+impl PresentationFrame {
+    pub(crate) fn freeze_drawable_status_tints_from_logic(
+        &mut self,
+        logic: &GameLogic,
+        shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
+    ) {
+        logic.drawable_tint_envelopes.retain(|id| {
+            if id & 0x8000_0000 == 0 {
+                logic.host_object(crate::game_logic::ObjectId(id)).is_some()
+                    || shadow.is_some_and(|shadow| {
+                        shadow
+                            .entity_for_host(crate::game_logic::ObjectId(id))
+                            .is_some_and(|entity| shadow.world().entity(entity).is_some())
+                    })
+            } else {
+                shadow.is_some_and(|shadow| {
+                    shadow
+                        .world()
+                        .entity(gamelogic::world::entities::EntityId::from_raw(
+                            id & 0x7fff_ffff,
+                        ))
+                        .is_some()
+                })
+            }
+        });
+        self.freeze_drawable_status_tints(&logic.drawable_tint_envelopes);
+    }
+
+    pub(super) fn freeze_drawable_status_tints_from_shadow(
+        &mut self,
+        shadow: &crate::gameworld_shadow::GameWorldShadow,
+    ) {
+        shadow.drawable_tint_envelopes.retain(|id| {
+            let entity = if id & 0x8000_0000 == 0 {
+                shadow.entity_for_host(crate::game_logic::ObjectId(id))
+            } else {
+                Some(gamelogic::world::entities::EntityId::from_raw(
+                    id & 0x7fff_ffff,
+                ))
+            };
+            entity.is_some_and(|entity| shadow.world().entity(entity).is_some())
+        });
+        self.freeze_drawable_status_tints(&shadow.drawable_tint_envelopes);
+    }
+
+    /// Sample client tint once after all object/authority overlays are complete.
+    fn freeze_drawable_status_tints(&mut self, owner: &crate::game_logic::DrawableTintEnvelopes) {
+        for ro in &mut self.objects {
+            ro.status_tint = owner.sample(
+                ro.id.0,
+                self.frame.0,
+                crate::game_logic::drawable_disabled_dark_tint(
+                    ro.disabled_emp,
+                    ro.disabled_hacked,
+                    ro.disabled_paralyzed,
+                    ro.disabled_underpowered,
+                    ro.disabled_freefall,
+                    ro.disabled_subdued,
+                    ro.disabled_default,
+                    ro.disabled_script_underpowered,
+                ),
+                ro.gaining_subdual,
+                ro.weapon_bonus_frenzy,
+                matches!(ro.object_type, PresentationObjectType::Infantry),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn owned_tint_world(
+        disabled: bool,
+    ) -> (crate::game_logic::GameLogic, crate::game_logic::ObjectId) {
+        use crate::game_logic::{GameLogic, Team, ThingTemplate};
+        let mut logic = GameLogic::new();
+        logic
+            .templates
+            .insert("TintOwner".into(), ThingTemplate::new("TintOwner"));
+        let id = logic
+            .create_object("TintOwner", Team::USA, glam::Vec3::ZERO)
+            .unwrap();
+        logic
+            .host_object_mut(id)
+            .unwrap()
+            .status
+            .disabled_underpowered = disabled;
+        (logic, id)
+    }
+
+    #[test]
+    fn owned_tint_same_id_worlds_do_not_share_envelope() {
+        let (mut first, id) = owned_tint_world(true);
+        let _ = PresentationFrame::build_from_logic(&first, 0).unit_render_inputs();
+        first.frame = 30;
+        let dark = PresentationFrame::build_from_logic(&first, 0).unit_render_inputs();
+        assert!(dark[0].status_tint[0] < -0.45);
+        let (second, second_id) = owned_tint_world(false);
+        assert_eq!(id, second_id, "exercise identical world-scoped object IDs");
+        let clear = PresentationFrame::build_from_logic(&second, 0).unit_render_inputs();
+        assert_eq!(
+            clear[0].status_tint, [0.0; 3],
+            "a fresh world must not release another world's envelope"
+        );
+    }
+
+    #[test]
+    fn owned_tint_frozen_frame_conversion_does_not_advance_envelope() {
+        let (mut logic, _) = owned_tint_world(true);
+        let _ = PresentationFrame::build_from_logic(&logic, 0).unit_render_inputs();
+        logic.frame = 10;
+        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let first = frame.unit_render_inputs()[0].status_tint;
+        let again = frame.unit_render_inputs()[0].status_tint;
+        assert_eq!(
+            first, again,
+            "render queries must read the same frozen tint sample"
+        );
+    }
+
+    #[test]
+    fn owned_tint_removed_objects_and_reset_do_not_retain_envelopes() {
+        let (mut logic, id) = owned_tint_world(true);
+        let _ = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(logic.drawable_tint_envelopes.capture(id.0).is_some());
+        logic.objects.remove(&id);
+        let _ = PresentationFrame::build_from_logic(&logic, 0);
+        assert!(logic.drawable_tint_envelopes.capture(id.0).is_none());
+        logic
+            .drawable_tint_envelopes
+            .sample(id.0, 30, true, false, false, false);
+        logic.reset();
+        assert!(logic.drawable_tint_envelopes.capture(id.0).is_none());
+    }
+
+    #[test]
+    fn owned_tint_hostless_shadow_preserves_and_isolates_samples() {
+        let (logic, id) = owned_tint_world(true);
+        let mut first = crate::gameworld_shadow::GameWorldShadow::new(64);
+        first.sync_from_host(&logic);
+        first
+            .drawable_tint_envelopes
+            .sample(id.0, 0, true, false, false, false);
+        let dark = first
+            .drawable_tint_envelopes
+            .sample(id.0, 30, true, false, false, false);
+        let frame = PresentationFrame::build_from_gameworld(&first, 0, None);
+        assert_eq!(frame.unit_render_inputs()[0].status_tint, dark);
+        let mut second = crate::gameworld_shadow::GameWorldShadow::new(64);
+        second.sync_from_host(&logic);
+        let fresh = PresentationFrame::build_from_gameworld(&second, 0, None);
+        assert!(fresh.unit_render_inputs()[0].status_tint[0] > dark[0]);
+        let entity = first.entity_for_host(id).unwrap();
+        first.world_mut().world_mut().remove_entity(entity);
+        let _ = PresentationFrame::build_from_gameworld(&first, 0, None);
+        assert!(first.drawable_tint_envelopes.capture(id.0).is_none());
+    }
 
     #[test]
     fn projectile_clip_visibility_uses_cxx_slot_order_override_and_last_write_order() {
@@ -1754,10 +1877,7 @@ mod tests {
 
     #[test]
     fn status_tint_gate_skips_unmanned_and_tints_underpowered() {
-        use crate::game_logic::{
-            GameLogic, Player, Team, ThingTemplate, reset_drawable_tint_envelopes,
-        };
-        reset_drawable_tint_envelopes();
+        use crate::game_logic::{GameLogic, Player, Team, ThingTemplate};
         let mut logic = GameLogic::new();
         logic.add_player(Player::new(0, Team::USA, "Local", true));
         let mut template = ThingTemplate::new("AmericaTankCrusader");
@@ -1784,7 +1904,7 @@ mod tests {
             .expect("unmanned input");
         assert_eq!(unmanned.status_tint, [0.0, 0.0, 0.0]);
 
-        reset_drawable_tint_envelopes();
+        logic.drawable_tint_envelopes.clear();
         {
             let o = logic.host_object_mut(id).expect("tank obj");
             o.status.disabled_unmanned = false;
@@ -1799,7 +1919,7 @@ mod tests {
         assert!(underpowered.status_tint[0] < -0.01);
         assert!(underpowered.status_tint[0] > -0.5);
 
-        reset_drawable_tint_envelopes();
+        logic.drawable_tint_envelopes.clear();
         {
             let o = logic.host_object_mut(id).expect("tank obj");
             o.status.disabled_underpowered = false;
@@ -1816,7 +1936,7 @@ mod tests {
         );
         assert!(subdued.status_tint[2] < 0.0);
 
-        reset_drawable_tint_envelopes();
+        logic.drawable_tint_envelopes.clear();
         {
             let o = logic.host_object_mut(id).expect("tank obj");
             o.status.disabled_subdued = false;
@@ -1827,9 +1947,10 @@ mod tests {
             .into_iter()
             .find(|u| u.id == id)
             .expect("subdual input");
-        assert!(subdual.status_tint[2] > 0.01);
+        // C++ TintEnvelope::setAttackFrames: one update adds peak * reciprocal frames.
+        assert_eq!(subdual.status_tint[2], 0.8 * (1.0 / 150.0));
 
-        reset_drawable_tint_envelopes();
+        logic.drawable_tint_envelopes.clear();
         {
             let o = logic.host_object_mut(id).expect("tank obj");
             o.subdual_damage = 0.0;

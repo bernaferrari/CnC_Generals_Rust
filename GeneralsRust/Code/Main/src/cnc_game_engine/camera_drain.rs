@@ -758,7 +758,7 @@ impl CnCGameEngine {
     /// with gameMode / difficulty / rankPoints. Keep the last Challenge
     /// PlayerTemplate instead of `without_player_template`.
     pub(super) fn host_restart_mission_from_ui(&mut self) {
-        if let Some(identity) = super::dispatch::last_new_game_identity() {
+        if let Some(identity) = self.last_new_game_identity() {
             info!(
                 "UI requested restart: mode={:?} difficulty={} rank={} faction={} map={}",
                 identity.dispatch.game_mode,
@@ -1792,7 +1792,11 @@ impl CnCGameEngine {
         self.last_presentation_frame = Some(pres.into());
         // C++ does not evaluate victory on the load frame. A just-seeded
         // alpine/empty world would otherwise stamp match_over and jump to Defeat.
-        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
+        if let Some(pres) = self
+            .last_presentation_frame
+            .as_mut()
+            .map(std::rc::Rc::make_mut)
+        {
             pres.match_over = false;
         }
         self.host_match_over = Some(false);

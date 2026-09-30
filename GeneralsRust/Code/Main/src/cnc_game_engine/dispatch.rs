@@ -11,25 +11,17 @@ pub(super) struct LastNewGameIdentity {
     pub(super) map: String,
 }
 
-static LAST_NEW_GAME_IDENTITY: std::sync::Mutex<Option<LastNewGameIdentity>> =
-    std::sync::Mutex::new(None);
-
-pub(super) fn record_last_new_game_identity(identity: LastNewGameIdentity) {
-    if let Ok(mut guard) = LAST_NEW_GAME_IDENTITY.lock() {
-        *guard = Some(identity);
+impl CnCGameEngine {
+    pub(super) fn record_last_new_game_identity(&mut self, identity: LastNewGameIdentity) {
+        self.last_new_game_identity = Some(identity);
     }
-}
 
-pub(super) fn last_new_game_identity() -> Option<LastNewGameIdentity> {
-    LAST_NEW_GAME_IDENTITY
-        .lock()
-        .ok()
-        .and_then(|guard| guard.clone())
-}
+    pub(super) fn last_new_game_identity(&self) -> Option<LastNewGameIdentity> {
+        self.last_new_game_identity.clone()
+    }
 
-pub(super) fn update_last_new_game_dispatch(dispatch: StartupNewGameDispatch) {
-    if let Ok(mut guard) = LAST_NEW_GAME_IDENTITY.lock() {
-        if let Some(identity) = guard.as_mut() {
+    pub(super) fn update_last_new_game_dispatch(&mut self, dispatch: StartupNewGameDispatch) {
+        if let Some(identity) = self.last_new_game_identity.as_mut() {
             identity.dispatch = dispatch;
         }
     }
@@ -250,7 +242,7 @@ impl CnCGameEngine {
     /// Decode MSG_NEW_GAME from the common stream without discarding it.
     /// Host start still consumes the payload; `propagate_messages` can deliver
     /// the same message to crate GameLogic (C++ `logicMessageDispatcher`).
-    pub(super) fn take_pending_new_game_start_request(&self) -> Option<HostStartRequest> {
+    pub(super) fn take_pending_new_game_start_request(&mut self) -> Option<HostStartRequest> {
         let dispatch = Self::peek_new_game_dispatch_from_common_stream()?;
         self.build_start_request_from_pending_globals(Some(dispatch))
     }
@@ -521,9 +513,9 @@ impl CnCGameEngine {
     /// C++ `restartMissionMenu` (QuitMenu.cpp:175-226): re-apply MSG_NEW_GAME
     /// mode/difficulty/rank and keep the last Challenge PlayerTemplate.
     pub(super) fn host_restart_mission_from_dispatch(&mut self, dispatch: StartupNewGameDispatch) {
-        update_last_new_game_dispatch(dispatch);
+        self.update_last_new_game_dispatch(dispatch);
         let prepared_map = Self::apply_startup_new_game_dispatch(dispatch);
-        let identity = last_new_game_identity();
+        let identity = self.last_new_game_identity();
         let map = prepared_map
             .filter(|name| !name.trim().is_empty())
             .or_else(|| identity.as_ref().map(|id| id.map.clone()))
@@ -550,7 +542,7 @@ impl CnCGameEngine {
                 HostStartRequest::without_player_template(dispatch.game_mode, faction, map, None)
             }
         };
-        record_last_new_game_identity(LastNewGameIdentity {
+        self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),
             faction: request.faction.clone(),
@@ -561,7 +553,7 @@ impl CnCGameEngine {
 
     /// Resolve map/faction/skirmish config after a NewGame dispatch (or helper flag).
     pub(super) fn build_start_request_from_pending_globals(
-        &self,
+        &mut self,
         dispatch: Option<StartupNewGameDispatch>,
     ) -> Option<HostStartRequest> {
         let dispatch = dispatch.unwrap_or(StartupNewGameDispatch {
@@ -671,7 +663,7 @@ impl CnCGameEngine {
             ),
             None => HostStartRequest::without_player_template(mode, faction, map, skirmish),
         };
-        record_last_new_game_identity(LastNewGameIdentity {
+        self.record_last_new_game_identity(LastNewGameIdentity {
             dispatch,
             player_template: request.player_template.clone(),
             faction: request.faction.clone(),

@@ -366,7 +366,6 @@ fn default_unset_pathfind_cell() -> (i32, i32) {
     (-1, -1)
 }
 
-
 /// Game Object - the main entity class for all game units, buildings, etc.
 fn default_adjust_destinations() -> bool {
     true
@@ -3105,7 +3104,6 @@ fn default_true() -> bool {
     true
 }
 
-
 fn default_physics_mass() -> f32 {
     1.0
 }
@@ -3225,17 +3223,15 @@ pub use jets::{
     JET_WHEEL_SCREECH_SOUND, JET_WHEEL_SCREECH_Z_SLOP, JetAiTickAction,
     STEALTH_FIGHTER_LOCKON_CURSOR, STEALTH_FIGHTER_LOCKON_TIME_FRAMES,
 };
-#[cfg(test)]
-pub use stealth::reset_drawable_tint_envelopes;
+pub(crate) use stealth::DrawableTintEnvelopes;
 pub use stealth::{
     DRAWABLE_FADE_IN, DRAWABLE_FADE_NONE, DRAWABLE_FADE_OUT, DrawableTintEnvelopePersist,
     MATERIAL_PASS_OPACITY_FADE_SCALAR, SOUND_STEALTH_OFF, SOUND_STEALTH_ON,
     STEALTH_UPDATE_PULSE_PHASE_RATE, TINT_DISABLED_ATTACK_FRAMES, TINT_DISABLED_COLOR,
     TINT_FRENZY_COLOR, TINT_FRENZY_COLOR_INFANTRY, TINT_SUBDUAL_ATTACK_FRAMES, TINT_SUBDUAL_COLOR,
-    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY, capture_drawable_tint_envelope,
-    drawable_disabled_dark_tint, drawable_explicit_fade_opacity, drawable_status_tint_rgb,
-    friendly_stealth_pulse_opacity, is_live_stealth_black_market, order_idle_enemies_on_reveal,
-    restore_drawable_tint_envelope, sample_drawable_status_tint,
+    VERY_TRANSPARENT_MATERIAL_PASS_OPACITY, drawable_disabled_dark_tint,
+    drawable_explicit_fade_opacity, drawable_status_tint_rgb, friendly_stealth_pulse_opacity,
+    is_live_stealth_black_market, order_idle_enemies_on_reveal,
     stealth_second_material_pass_opacity, stealth_update_pulse_opacity,
 };
 pub use visual::ObjectVisualInfo;
