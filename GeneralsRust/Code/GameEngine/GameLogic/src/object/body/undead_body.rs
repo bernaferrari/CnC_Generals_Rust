@@ -5,7 +5,7 @@
 //! Second death is handled normally.
 
 use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use super::active_body::{ActiveBody, ActiveBodyModuleData};
 use super::body_module::{
@@ -102,11 +102,7 @@ impl Snapshotable for UndeadBody {
 
         self.active_body.xfer(xfer)?;
 
-        let mut state = self
-            .state
-            .write()
-            .map_err(|_| "UndeadBody state lock poisoned".to_string())?;
-        xfer.xfer_bool(&mut state.is_second_life)
+        xfer.xfer_bool(&mut self.is_second_life)
             .map_err(|e| e.to_string())?;
 
         Ok(())
@@ -117,52 +113,36 @@ impl Snapshotable for UndeadBody {
     }
 }
 
-/// Thread-safe state specific to undead bodies
-#[derive(Debug, Default)]
-struct UndeadBodyState {
-    /// Whether we're in our second life (after first death)
-    is_second_life: bool,
-}
-
 /// Undead body implementation - revivable units
 pub struct UndeadBody {
     /// Base active body functionality
     active_body: ActiveBody,
     /// Undead-specific configuration
     module_data: Arc<UndeadBodyModuleData>,
-    /// Thread-safe mutable state
-    state: Arc<RwLock<UndeadBodyState>>,
+    /// Whether the first death has started this body's second life.
+    is_second_life: bool,
 }
 
 impl UndeadBody {
     /// Create a new undead body
     pub fn new(module_data: UndeadBodyModuleData, owner_id: ObjectId) -> Self {
         let active_body = ActiveBody::new_with_owner(module_data.base.clone(), owner_id);
-        let state = Arc::new(RwLock::new(UndeadBodyState {
-            is_second_life: false,
-        }));
-
         Self {
             active_body,
             module_data: Arc::new(module_data),
-            state,
+            is_second_life: false,
         }
     }
 
     /// Check if this body is in its second life
     pub fn is_second_life(&self) -> bool {
-        self.state
-            .read()
-            .map(|state| state.is_second_life)
-            .unwrap_or(false)
+        self.is_second_life
     }
 
     /// Start the second life after first death
     fn start_second_life(&mut self, damage_info: &DamageInfo) -> BodyResult<()> {
         // Mark as second life
-        if let Ok(mut state) = self.state.write() {
-            state.is_second_life = true;
-        }
+        self.is_second_life = true;
 
         // Set max health to second life value and fully heal
         self.active_body.set_max_health(
@@ -292,8 +272,12 @@ fn with_slow_death_interface<R>(
 
 // Delegate most BodyModuleInterface methods to the underlying ActiveBody
 // The key override is attempt_damage to intercept the first death
-impl BodyModuleInterface for UndeadBody {
-    fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+impl UndeadBody {
+    fn attempt_damage_with_context_inner(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: Option<&super::body_module::BodyDamageContext>,
+    ) -> BodyResult<()> {
         // Check if we should start second life
         // This happens when:
         // 1. We're on our first life (not second life yet)
@@ -317,7 +301,12 @@ impl BodyModuleInterface for UndeadBody {
         }
 
         // Apply the damage
-        self.active_body.attempt_damage(damage_info)?;
+        if let Some(context) = context {
+            self.active_body
+                .attempt_damage_with_context(damage_info, context)?;
+        } else {
+            self.active_body.attempt_damage(damage_info)?;
+        }
 
         // After applying damage, start second life if needed
         if should_start_second_life {
@@ -325,6 +314,20 @@ impl BodyModuleInterface for UndeadBody {
         }
 
         Ok(())
+    }
+}
+
+impl BodyModuleInterface for UndeadBody {
+    fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+        self.attempt_damage_with_context_inner(damage_info, None)
+    }
+
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: &super::body_module::BodyDamageContext,
+    ) -> BodyResult<()> {
+        self.attempt_damage_with_context_inner(damage_info, Some(context))
     }
 
     fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {
@@ -498,6 +501,8 @@ impl BodyModuleInterface for UndeadBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     fn create_test_undead_body() -> UndeadBody {
         let mut module_data = UndeadBodyModuleData::default();
@@ -525,6 +530,30 @@ mod tests {
         assert_eq!(body.get_initial_health(), 100.0);
         assert_eq!(body.get_damage_state(), BodyDamageType::Pristine);
         assert!(!body.is_second_life());
+    }
+
+    #[test]
+    fn undead_body_xfer_roundtrips_second_life_after_active_body() {
+        let mut saved = create_test_undead_body();
+        saved.is_second_life = true;
+        saved
+            .active_body
+            .set_max_health(25.0, MaxHealthChangeType::FullyHeal)
+            .expect("set second-life health");
+
+        let mut backing = Cursor::new(Vec::new());
+        let mut save_xfer = XferSave::new(&mut backing, 1);
+        Snapshotable::xfer(&mut saved, &mut save_xfer).expect("save UndeadBody");
+        drop(save_xfer);
+        let bytes = backing.into_inner();
+
+        let mut restored = create_test_undead_body();
+        let mut load_xfer = XferLoad::new(Cursor::new(bytes), 1);
+        Snapshotable::xfer(&mut restored, &mut load_xfer).expect("load UndeadBody");
+
+        assert!(restored.is_second_life());
+        assert_eq!(restored.get_health(), 25.0);
+        assert_eq!(restored.get_max_health(), 25.0);
     }
 
     #[test]

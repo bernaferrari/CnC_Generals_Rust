@@ -1071,6 +1071,182 @@ fn admitted_supply_dock_still_transfers_if_relationship_changes_in_transit() {
 }
 
 #[test]
+fn supply_warehouse_scan_uses_cpp_strict_radius_and_zero_semantics() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+
+    fn routes_to_source(scan: f32, distance: f32, preferred: bool) -> bool {
+        let mut logic = GameLogic::new();
+        logic.add_player(Player::new(0, Team::USA, "Collector", true));
+        let mut truck = ThingTemplate::new("ScanBoundaryTruck");
+        truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+        truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+            max_boxes: 4,
+            warehouse_scan_distance: scan,
+            warehouse_delay_frames: 0,
+            center_delay_frames: 0,
+            upgraded_supply_boost: 0,
+        });
+        logic.templates.insert(truck.name.clone(), truck);
+        let mut warehouse = ThingTemplate::new("ScanBoundaryWarehouse");
+        warehouse
+            .add_kind_of(KindOf::SupplySource)
+            .set_health(100.0);
+        warehouse.dock_kind = DockKind::SupplyWarehouse;
+        logic.templates.insert(warehouse.name.clone(), warehouse);
+        let source = logic
+            .create_object(
+                "ScanBoundaryWarehouse",
+                Team::Neutral,
+                Vec3::new(distance, 0.0, 0.0),
+            )
+            .expect("warehouse");
+        logic
+            .host_object_mut(source)
+            .unwrap()
+            .set_stored_supplies(750);
+        let collector = logic
+            .create_object_for_player("ScanBoundaryTruck", 0, Vec3::ZERO)
+            .expect("collector");
+        {
+            let object = logic.host_object_mut(collector).unwrap();
+            object.preferred_dock_id = preferred.then_some(source);
+            object.supply_truck_force_pending = true;
+            object.supply_truck_state = SupplyTruckState::Wanting;
+            object.set_ai_state(AIState::Idle);
+        }
+        logic.update_support_states(&[collector], 1.0 / 30.0);
+        logic.host_object(collector).unwrap().target == Some(source)
+    }
+
+    assert!(
+        routes_to_source(100.0, 99.75, false),
+        "inside radius is eligible"
+    );
+    assert!(
+        !routes_to_source(100.0, 100.0, false),
+        "the C++ scan rejects distanceSquared == maxDistanceSquared"
+    );
+    assert!(
+        !routes_to_source(100.0, 100.25, false),
+        "outside radius is rejected"
+    );
+    assert!(
+        !routes_to_source(0.0, 50.0, false),
+        "configured zero scan has no ordinary candidates"
+    );
+    assert!(
+        routes_to_source(0.0, 50.0, true),
+        "a valid preferred warehouse bypasses the ordinary scan radius, including zero"
+    );
+}
+
+#[test]
+fn supply_center_deposit_reselects_preference_instead_of_reusing_enemy_source() {
+    use crate::game_logic::{DockKind, SupplyTruckMetadata, SupplyTruckState};
+    use gamelogic::common::Relationship;
+
+    let mut logic = GameLogic::new();
+    let mut collector_player = Player::new(0, Team::USA, "Collector", true);
+    collector_player.set_map_relationship(1, Relationship::Allies);
+    logic.add_player(collector_player);
+    let mut former_source_player = Player::new(1, Team::China, "FormerWarehouseOwner", false);
+    former_source_player.set_map_relationship(0, Relationship::Enemies);
+    logic.add_player(former_source_player);
+
+    let mut truck = ThingTemplate::new("PostDepositTruck");
+    truck.add_kind_of(KindOf::Harvester).set_health(100.0);
+    truck.supply_truck_metadata = Some(SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    logic.templates.insert(truck.name.clone(), truck);
+    let mut warehouse = ThingTemplate::new("PostDepositWarehouse");
+    warehouse
+        .add_kind_of(KindOf::SupplySource)
+        .set_health(100.0);
+    warehouse.dock_kind = DockKind::SupplyWarehouse;
+    logic.templates.insert(warehouse.name.clone(), warehouse);
+    let mut center = ThingTemplate::new("PostDepositCenter");
+    center
+        .add_kind_of(KindOf::Structure)
+        .add_kind_of(KindOf::SupplyCenter)
+        .set_health(1000.0);
+    center.dock_kind = DockKind::SupplyCenter;
+    logic.templates.insert(center.name.clone(), center);
+
+    let former_source = logic
+        .create_object_for_player("PostDepositWarehouse", 1, Vec3::new(40.0, 0.0, 0.0))
+        .expect("former enemy source");
+    let preferred = logic
+        .create_object(
+            "PostDepositWarehouse",
+            Team::Neutral,
+            Vec3::new(80.0, 0.0, 0.0),
+        )
+        .expect("new preferred source");
+    for source in [former_source, preferred] {
+        logic
+            .host_object_mut(source)
+            .unwrap()
+            .set_stored_supplies(750);
+    }
+    let center_id = logic
+        .create_object_for_player("PostDepositCenter", 0, Vec3::ZERO)
+        .expect("supply center");
+    let collector = logic
+        .create_object_for_player("PostDepositTruck", 0, Vec3::new(12.5, 0.0, 0.0))
+        .expect("collector");
+    {
+        let object = logic.host_object_mut(collector).unwrap();
+        object.set_target(Some(former_source));
+        object.preferred_dock_id = Some(former_source);
+        object.set_stored_supplies(75);
+        object.set_ai_state(AIState::ReturningResources);
+        object.supply_truck_state = SupplyTruckState::DockingCenter;
+        object.supply_truck_next_dock_action_frame = 0;
+    }
+    // Change the preferred warehouse while returning. The source that was
+    // preferred on departure has become enemy-owned; a new WANTING session
+    // must query a legal destination after the center deposit.
+    logic.host_object_mut(collector).unwrap().preferred_dock_id = Some(preferred);
+
+    logic.update_support_states(&[collector, center_id], 1.0 / 30.0);
+
+    assert_eq!(
+        logic
+            .host_object(collector)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        0
+    );
+    assert_eq!(
+        logic.host_object(collector).unwrap().target,
+        Some(preferred)
+    );
+    assert_eq!(
+        logic
+            .host_object(former_source)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        750
+    );
+    assert_eq!(
+        logic
+            .host_object(preferred)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        750
+    );
+    assert_eq!(logic.get_player(0).unwrap().resources.supplies, 10_075);
+}
+
+#[test]
 fn steal_cash_from_broke_victim_is_zero() {
     let mut logic = GameLogic::new();
     logic

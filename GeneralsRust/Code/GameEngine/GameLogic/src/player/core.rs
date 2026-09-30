@@ -380,29 +380,44 @@ impl Player {
             return;
         }
 
+        let found = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object| {
+            self.add_owned_object_for_object_inner(object_id, object);
+        });
+        if found.is_none() {
+            self.add_owned_object_id(object_id);
+        }
+    }
+
+    /// Add an object whose caller already owns or borrowed its Object value.
+    /// C++ Object::setOrRestoreTeam passes `this` to becomingTeamMember rather
+    /// than finding the same object again by ID.
+    pub(crate) fn add_owned_object_for_object(&mut self, object: &Object) {
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        self.add_owned_object_for_object_inner(object.get_id(), object);
+    }
+
+    fn add_owned_object_id(&mut self, object_id: ObjectID) {
         if !self.owned_objects.contains(&object_id) {
             self.owned_objects.push(object_id);
         }
+    }
 
-        let Some((under_construction, power, disabled, is_dozer, idle_dozer)) =
-            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
-                let under_construction =
-                    object_guard.test_status(ObjectStatusTypes::UnderConstruction);
-                let power = object_guard.get_template().get_energy_production();
-                let disabled = object_guard.is_disabled();
-                let is_dozer = object_guard.is_kind_of(crate::common::KindOf::Dozer);
-                let idle_dozer = if is_dozer {
-                    object_guard
-                        .get_ai_update_interface()
-                        .and_then(|ai| ai.lock().ok().map(|g| g.is_idle()))
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-                (under_construction, power, disabled, is_dozer, idle_dozer)
-            })
-        else {
-            return;
+    fn add_owned_object_for_object_inner(&mut self, object_id: ObjectID, object: &Object) {
+        self.add_owned_object_id(object_id);
+
+        let under_construction = object.test_status(ObjectStatusTypes::UnderConstruction);
+        let power = object.get_template().get_energy_production();
+        let disabled = object.is_disabled();
+        let is_dozer = object.is_kind_of(crate::common::KindOf::Dozer);
+        let idle_dozer = if is_dozer {
+            object
+                .get_ai_update_interface()
+                .and_then(|ai| ai.lock().ok().map(|g| g.is_idle()))
+                .unwrap_or(false)
+        } else {
+            false
         };
 
         if !under_construction {
@@ -415,12 +430,8 @@ impl Player {
             }
         }
 
-        // Idle-worker UI still needs a short Arc borrow (callback takes &Object).
         if is_dozer && idle_dozer {
-            let _ =
-                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
-                    crate::helpers::TheInGameUI::add_idle_worker(object_guard, self.player_index);
-                });
+            crate::helpers::TheInGameUI::add_idle_worker(object, self.player_index);
         }
     }
 
@@ -468,27 +479,40 @@ impl Player {
             return;
         }
 
-        self.owned_objects.retain(|&id| id != object_id);
+        let found = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object| {
+            self.remove_owned_object_for_object_inner(object_id, object);
+        });
+        if found.is_none() {
+            self.remove_owned_object_id(object_id);
+        }
+    }
 
-        let Some((under_construction, power, disabled, is_dozer, idle_dozer)) =
-            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
-                let under_construction =
-                    object_guard.test_status(ObjectStatusTypes::UnderConstruction);
-                let power = object_guard.get_template().get_energy_production();
-                let disabled = object_guard.is_disabled();
-                let is_dozer = object_guard.is_kind_of(crate::common::KindOf::Dozer);
-                let idle_dozer = if is_dozer {
-                    object_guard
-                        .get_ai_update_interface()
-                        .and_then(|ai| ai.lock().ok().map(|g| g.is_idle()))
-                        .unwrap_or(false)
-                } else {
-                    false
-                };
-                (under_construction, power, disabled, is_dozer, idle_dozer)
-            })
-        else {
+    /// Remove an object whose caller already owns or borrowed its Object value.
+    pub(crate) fn remove_owned_object_for_object(&mut self, object: &Object) {
+        if dual_world_registry_unavailable() {
             return;
+        }
+        self.remove_owned_object_for_object_inner(object.get_id(), object);
+    }
+
+    fn remove_owned_object_id(&mut self, object_id: ObjectID) {
+        self.owned_objects.retain(|&id| id != object_id);
+    }
+
+    fn remove_owned_object_for_object_inner(&mut self, object_id: ObjectID, object: &Object) {
+        self.remove_owned_object_id(object_id);
+
+        let under_construction = object.test_status(ObjectStatusTypes::UnderConstruction);
+        let power = object.get_template().get_energy_production();
+        let disabled = object.is_disabled();
+        let is_dozer = object.is_kind_of(crate::common::KindOf::Dozer);
+        let idle_dozer = if is_dozer {
+            object
+                .get_ai_update_interface()
+                .and_then(|ai| ai.lock().ok().map(|g| g.is_idle()))
+                .unwrap_or(false)
+        } else {
+            false
         };
 
         if !under_construction {
@@ -502,13 +526,7 @@ impl Player {
         }
 
         if is_dozer && idle_dozer {
-            let _ =
-                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
-                    crate::helpers::TheInGameUI::remove_idle_worker(
-                        object_guard,
-                        self.player_index,
-                    );
-                });
+            crate::helpers::TheInGameUI::remove_idle_worker(object, self.player_index);
         }
     }
 
@@ -778,7 +796,6 @@ impl Player {
                 }
             }
         }
-
     }
 
     // Getters for core properties

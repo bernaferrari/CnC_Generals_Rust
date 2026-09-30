@@ -2,6 +2,156 @@
 use super::*;
 
 #[test]
+fn mouse_wheel_quantization_matches_cpp_per_event_spin_count() {
+    use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+
+    // C++ Mouse::processMouseEvent resets wheelPos for every raw event and
+    // Mouse::createStreamMessages emits wheelPos / 120 only when nonzero
+    // (Mouse.cpp:167-174, 678-685, 794-801). Winit's Windows LineDelta is
+    // raw WM_MOUSEWHEEL delta / 120, so quantize each event independently.
+    let cases = [
+        (MouseScrollDelta::LineDelta(1.0, 0.0), 0.0), // horizontal only
+        (MouseScrollDelta::LineDelta(0.0, 0.0), 0.0),
+        (MouseScrollDelta::LineDelta(0.0, -0.0), 0.0), // signed zero
+        (MouseScrollDelta::LineDelta(0.0, 0.5), 0.0),
+        (MouseScrollDelta::LineDelta(0.0, -0.5), 0.0),
+        (MouseScrollDelta::LineDelta(0.0, 1.0), 1.0),
+        (MouseScrollDelta::LineDelta(0.0, -1.0), -1.0),
+        (MouseScrollDelta::LineDelta(0.0, 1.5), 1.0),
+        (MouseScrollDelta::LineDelta(0.0, -1.5), -1.0),
+        (MouseScrollDelta::LineDelta(0.0, 3.0), 3.0),
+        (MouseScrollDelta::LineDelta(0.0, -3.0), -3.0),
+        (
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 0.0)),
+            0.0,
+        ),
+    ];
+
+    for (event, expected_spin) in cases {
+        assert_eq!(
+            super::camera::mouse_wheel_detents(&event),
+            expected_spin,
+            "event {event:?} must produce C++ spin count {expected_spin}"
+        );
+    }
+
+    // Two half-detent events in one render/logic interval still each emit
+    // zero C++ wheel messages; Main must not carry or combine their remainder.
+    let half_detent = MouseScrollDelta::LineDelta(0.0, 0.5);
+    assert_eq!(super::camera::mouse_wheel_detents(&half_detent), 0.0);
+    assert_eq!(super::camera::mouse_wheel_detents(&half_detent), 0.0);
+}
+
+#[test]
+fn zero_vertical_wheel_does_not_reach_lookat_side_effects() {
+    use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+
+    let zero_events = [
+        MouseScrollDelta::LineDelta(0.0, 0.0),
+        MouseScrollDelta::LineDelta(1.0, 0.0), // horizontal-only
+        MouseScrollDelta::LineDelta(0.0, -0.0),
+        MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 0.0)),
+    ];
+    for event in zero_events {
+        assert!(!super::camera::mouse_wheel_has_vertical_delta(&event));
+        assert_eq!(super::camera::mouse_wheel_detents(&event), 0.0);
+    }
+
+    for delta in [0.5, -0.5] {
+        let event = MouseScrollDelta::LineDelta(0.0, delta);
+        assert!(super::camera::mouse_wheel_has_vertical_delta(&event));
+        assert_eq!(super::camera::mouse_wheel_detents(&event), 0.0);
+    }
+
+    // The production handler returns for zero before any C++ wheel-message
+    // side effect (stamp, GameClient injection, zoom, or stopScrolling).
+    let src = MOUSE_SOURCE;
+    let start = src.find("fn handle_mouse_wheel(").expect("wheel handler");
+    let end = src[start..]
+        .find("fn remirror_host_replay_observer_selection(")
+        .map(|offset| start + offset)
+        .expect("next camera helper");
+    let handler = &src[start..end];
+    let zero_guard = handler
+        .find("if !mouse_wheel_has_vertical_delta(delta)")
+        .expect("zero-wheel early return");
+    for side_effect in [
+        "lookat_stamp_mouse_activity",
+        "inject_game_client_mouse_scroll",
+        "apply_player_height_zoom_steps",
+        "stop_rmb_lookat_scroll",
+        "wheel_stopped_scroll = true",
+    ] {
+        let side_effect = handler.find(side_effect).expect("wheel side effect");
+        assert!(
+            zero_guard < side_effect,
+            "zero wheel must return before {side_effect}"
+        );
+    }
+}
+
+#[cfg(feature = "game_client")]
+#[test]
+fn wnd_wheel_mapping_matches_cpp_zero_spin_direction() {
+    use game_client::gui::game_window::WindowMessage;
+    use winit::{dpi::PhysicalPosition, event::MouseScrollDelta};
+
+    let map = super::ui_dispatch::window_message_for_mouse_wheel;
+
+    // C++ emits no message for raw wheelPos == 0. For a nonzero raw event
+    // whose /120 spin truncates to zero, WindowXlat's spin > 0 / else branch
+    // still maps the message to WHEEL_DOWN (WindowXlat.cpp:106-112).
+    assert_eq!(map(&MouseScrollDelta::LineDelta(0.0, 0.0)), None);
+    assert_eq!(map(&MouseScrollDelta::LineDelta(1.0, 0.0)), None);
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, -0.0)),
+        None,
+        "signed zero vertical delta has no C++ raw wheel message"
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, 0.5)),
+        Some(WindowMessage::WheelDown),
+        "raw +60 becomes spin 0, whose WindowXlat else branch is WheelDown"
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, -0.5)),
+        Some(WindowMessage::WheelDown),
+        "raw -60 also becomes spin 0 and WheelDown"
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, 1.0)),
+        Some(WindowMessage::WheelUp)
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, -1.0)),
+        Some(WindowMessage::WheelDown)
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, 3.0)),
+        Some(WindowMessage::WheelUp)
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::LineDelta(0.0, -3.0)),
+        Some(WindowMessage::WheelDown)
+    );
+
+    // Retain Main's existing PixelDelta-to-lines WND policy; CPP parity for
+    // platform pixel deltas is not established by this test.
+    assert_eq!(
+        map(&MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+            0.0, 16.0
+        ))),
+        Some(WindowMessage::WheelUp)
+    );
+    assert_eq!(
+        map(&MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+            0.0, -16.0
+        ))),
+        Some(WindowMessage::WheelDown)
+    );
+}
+
+#[test]
 fn mouse_ray_extrapolates_beyond_viewport_like_cpp() {
     // W3DConvert.cpp:75-76 converts the raw screen pixel, even when capture
     // delivers coordinates outside the tactical view. A clamp would yield -1.

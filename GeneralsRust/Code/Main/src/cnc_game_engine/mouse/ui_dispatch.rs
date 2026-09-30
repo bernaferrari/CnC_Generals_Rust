@@ -1,6 +1,41 @@
 #![allow(unused_imports, unused_variables, dead_code, non_snake_case)]
 use super::*;
 
+#[cfg(feature = "game_client")]
+pub(super) fn window_message_for_mouse_wheel(
+    delta: &winit::event::MouseScrollDelta,
+) -> Option<game_client::gui::game_window::WindowMessage> {
+    use game_client::gui::game_window::WindowMessage;
+
+    match delta {
+        winit::event::MouseScrollDelta::LineDelta(_, y) => {
+            // Windows Winit LineDelta is the raw WM_MOUSEWHEEL integer / 120.
+            // C++ emits no raw message only for raw zero; a nonzero raw delta
+            // whose spin truncates to zero takes WindowXlat's else branch and
+            // dispatches WHEEL_DOWN (Mouse.cpp:794-801; WindowXlat.cpp:106-112).
+            if *y == 0.0 {
+                None
+            } else if y.trunc() > 0.0 {
+                Some(WindowMessage::WheelUp)
+            } else {
+                Some(WindowMessage::WheelDown)
+            }
+        }
+        // PixelDelta remains Main's platform extension; preserve its existing
+        // /16 scaling and sign-only WND direction behavior.
+        winit::event::MouseScrollDelta::PixelDelta(p) => {
+            let lines = (p.y as f32) / 16.0;
+            if lines.abs() < f32::EPSILON {
+                None
+            } else if lines > 0.0 {
+                Some(WindowMessage::WheelUp)
+            } else {
+                Some(WindowMessage::WheelDown)
+            }
+        }
+    }
+}
+
 impl CnCGameEngine {
     /// Feed Main-owned OS keyboard state into GameClient Keyboard device residual.
     /// Main still owns command translation / hotkeys.
@@ -368,18 +403,9 @@ impl CnCGameEngine {
     ) -> bool {
         #[cfg(feature = "game_client")]
         {
-            use game_client::gui::game_window::{WindowInputReturnCode, WindowMessage};
-            let lines = match delta {
-                winit::event::MouseScrollDelta::LineDelta(_, y) => *y,
-                winit::event::MouseScrollDelta::PixelDelta(p) => (p.y as f32) / 16.0,
-            };
-            if lines.abs() < f32::EPSILON {
+            use game_client::gui::game_window::WindowInputReturnCode;
+            let Some(msg) = window_message_for_mouse_wheel(delta) else {
                 return false;
-            }
-            let msg = if lines > 0.0 {
-                WindowMessage::WheelUp
-            } else {
-                WindowMessage::WheelDown
             };
             game_client::gui::dispatch_os_mouse_to_window_manager(msg, x, y)
                 == WindowInputReturnCode::Used

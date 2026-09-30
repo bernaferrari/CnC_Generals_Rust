@@ -3712,7 +3712,13 @@ impl GameLogic {
                                 .record_shoes_drop_off_boost(worker_shoes_boost);
                         }
                         if deposit_amount > 0 {
-                            let source_id = target_id
+                            let has_supply_truck = self
+                                .objects
+                                .get(&object_id)
+                                .is_some_and(|o| o.thing.template.supply_truck_metadata.is_some());
+                            let source_id = (!has_supply_truck)
+                                .then_some(target_id)
+                                .flatten()
                                 .filter(|sid| self.objects.get(sid).is_some_and(|s| s.is_alive()));
                             if let Some(sid) = source_id {
                                 if let Some(object) = self.objects.get_mut(&object_id) {

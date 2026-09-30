@@ -1595,6 +1595,7 @@ impl PresentationFrame {
             disabled_underpowered: ent.disabled_underpowered,
             disabled_hacked: ent.disabled_hacked,
             disabled_unmanned: ent.disabled_unmanned,
+            disabled_held: false,
             disabled_freefall: false,
             disabled_default: false,
             disabled_script_underpowered: false,
@@ -2092,6 +2093,10 @@ impl PresentationFrame {
             let gaining_subdual = obj.subdual_damage > 0.0;
             if ro.gaining_subdual != gaining_subdual {
                 ro.gaining_subdual = gaining_subdual;
+                dirty = true;
+            }
+            if ro.disabled_held != obj.status.disabled_held {
+                ro.disabled_held = obj.status.disabled_held;
                 dirty = true;
             }
             if ro.disabled_freefall != obj.status.disabled_freefall {

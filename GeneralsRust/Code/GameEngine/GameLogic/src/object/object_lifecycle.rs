@@ -390,7 +390,8 @@ impl Object {
     pub(crate) fn run_destructor_tail(&mut self) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = crate::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
                     pf.remove_object_from_map(self.id, &footprint);
@@ -785,14 +786,14 @@ impl Object {
                         if self.modules_ready && player_guard.get_num_battle_plans_active() > 0 {
                             player_guard.remove_battle_plan_bonuses_for_object(self);
                         }
-                        player_guard.remove_owned_object(self.id);
+                        player_guard.remove_owned_object_for_object(self);
                     }
                 }
             }
             if let Some(new_id) = new_player_id {
                 if let Some(player_arc) = list_guard.get_player(new_id as PlayerIndex).cloned() {
                     if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard.add_owned_object(self.id);
+                        player_guard.add_owned_object_for_object(self);
                         if self.modules_ready && player_guard.get_num_battle_plans_active() > 0 {
                             player_guard.apply_battle_plan_bonuses_for_object(self);
                         }
@@ -1060,7 +1061,6 @@ impl Object {
             }
         }
 
-
         self.on_die_remove_from_radar();
 
         // Just in case I have been sporting one of those fancy Terrain Decals,
@@ -1243,5 +1243,141 @@ impl Object {
 impl Drop for Object {
     fn drop(&mut self) {
         self.on_destroy();
+    }
+}
+
+#[cfg(test)]
+mod team_membership_borrow_tests {
+    use super::*;
+    use crate::common::DefaultThingTemplate;
+    use crate::object::registry::{OBJECT_REGISTRY, test_isolation_lock};
+    use crate::player::{Player, PlayerTemplate, player_list};
+    use std::sync::{Arc, Mutex, OnceLock, RwLock};
+
+    struct RestorePlayers {
+        players: Vec<Arc<RwLock<Player>>>,
+        local_player_index: i32,
+    }
+
+    impl RestorePlayers {
+        fn replace(players: &[Arc<RwLock<Player>>]) -> Self {
+            let mut list = player_list().write().unwrap();
+            let previous = Self {
+                players: list.iter().cloned().collect(),
+                local_player_index: list.get_local_player_index(),
+            };
+            list.clear();
+            for player in players {
+                list.add_player(Arc::clone(player));
+            }
+            list.set_local_player_index(0);
+            previous
+        }
+    }
+
+    impl Drop for RestorePlayers {
+        fn drop(&mut self) {
+            let mut list = player_list()
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            list.clear();
+            for player in self.players.drain(..) {
+                list.add_player(player);
+            }
+            list.set_local_player_index(self.local_player_index);
+        }
+    }
+
+    fn make_playable_player(index: i32, name: &str) -> Arc<RwLock<Player>> {
+        let player = Arc::new(RwLock::new(Player::new(index)));
+        let mut template = PlayerTemplate::new(name.to_string());
+        template.playable = true;
+        player.write().unwrap().init(Arc::new(template));
+        player
+    }
+
+    fn team_for_player(index: u32, player_index: u32) -> Arc<RwLock<Team>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("OwnershipTeam{index}").into(),
+            index,
+        )));
+        team.write()
+            .unwrap()
+            .set_controlling_player_id(Some(player_index));
+        team
+    }
+
+    #[test]
+    fn registered_object_team_reassignment_keeps_owned_ids_and_power_balanced() {
+        static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _state_guard = TEST_STATE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _registry_guard = test_isolation_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        OBJECT_REGISTRY.clear();
+
+        let first = make_playable_player(0, "OwnershipFirst");
+        let second = make_playable_player(1, "OwnershipSecond");
+        let _restore_players = RestorePlayers::replace(&[Arc::clone(&first), Arc::clone(&second)]);
+        let first_team = team_for_player(96_101, 0);
+        let second_team = team_for_player(96_102, 1);
+
+        let first_power_before = first.read().unwrap().get_energy().production();
+        let second_power_before = second.read().unwrap().get_energy().production();
+        let mut template = DefaultThingTemplate::new("PowerPlantMembershipTest".to_string());
+        template.set_energy_production(10);
+        template.add_kind_of(crate::common::KindOf::Structure);
+        let object_id = 96_103;
+        let object = Arc::new(RwLock::new(Object::new_test_from_template(
+            object_id,
+            100.0,
+            Arc::new(template),
+        )));
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        object
+            .write()
+            .unwrap()
+            .set_team(Some(Arc::clone(&first_team)))
+            .expect("assign first playable team");
+        assert_eq!(first.read().unwrap().get_all_objects(), vec![object_id]);
+        assert!(second.read().unwrap().get_all_objects().is_empty());
+        let first_power_after_add = first.read().unwrap().get_energy().production();
+        let first_power_delta = first_power_after_add - first_power_before;
+        assert!(
+            first_power_delta > 0,
+            "first owner should receive plant power"
+        );
+
+        object
+            .write()
+            .unwrap()
+            .set_team(Some(Arc::clone(&second_team)))
+            .expect("reassign second playable team");
+        assert!(first.read().unwrap().get_all_objects().is_empty());
+        assert_eq!(second.read().unwrap().get_all_objects(), vec![object_id]);
+        let second_power_after_add = second.read().unwrap().get_energy().production();
+        assert_eq!(
+            second_power_after_add - second_power_before,
+            first_power_delta,
+            "reassignment must transfer the same production delta"
+        );
+
+        object
+            .write()
+            .unwrap()
+            .set_team(None)
+            .expect("remove final playable team");
+        assert!(second.read().unwrap().get_all_objects().is_empty());
+        assert_eq!(
+            second.read().unwrap().get_energy().production(),
+            second_power_before,
+            "removing ownership must restore the prior power production"
+        );
+
+        OBJECT_REGISTRY.clear();
     }
 }

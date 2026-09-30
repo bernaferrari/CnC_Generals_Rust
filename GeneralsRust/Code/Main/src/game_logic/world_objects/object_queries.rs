@@ -201,6 +201,15 @@ impl GameLogic {
                 // C++ `computeRelativeCost`: occupied approach-queues score FLT_MAX.
                 if obj.thing.template.dock_kind == DockKind::SupplyWarehouse {
                     if supply_truck_query {
+                        if let Some(scan_limit) = max_scan {
+                            let in_range =
+                                obj.get_position().distance_squared(from) < scan_limit * scan_limit;
+                            if !in_range {
+                                // ResourceGatheringManager uses strict
+                                // distanceSquared < maxDistanceSquared.
+                                return None;
+                            }
+                        }
                         if !self.supply_warehouse_available_for(id, query_id) {
                             return None;
                         }

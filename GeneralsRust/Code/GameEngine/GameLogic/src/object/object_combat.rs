@@ -45,9 +45,9 @@ impl Object {
             .body
             .as_ref()
             .and_then(|body| {
-                body.lock().ok().map(|guard| {
-                    guard.get_damage_state() == crate::common::BodyDamageType::Rubble
-                })
+                body.lock()
+                    .ok()
+                    .map(|guard| guard.get_damage_state() == crate::common::BodyDamageType::Rubble)
             })
             .unwrap_or(false);
         if !is_rubble {
@@ -122,8 +122,6 @@ impl Object {
         amount: Real,
         source: Option<&Object>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
-
         let source_id = source.map(|obj| obj.get_id()).unwrap_or(INVALID_ID);
         let mut healing_info = DamageInfo {
             input: DamageInfoInput {
@@ -190,7 +188,6 @@ impl Object {
         }
         Ok(false)
     }
-
 
     pub fn attempt_healing_from_sole_benefactor(
         &mut self,
@@ -263,7 +260,11 @@ impl Object {
         if let Some(helper) = &self.subdual_damage_helper {
             let heal_rate = self
                 .get_body_module()
-                .and_then(|body| body.lock().ok().map(|guard| guard.get_subdual_damage_heal_rate()))
+                .and_then(|body| {
+                    body.lock()
+                        .ok()
+                        .map(|guard| guard.get_subdual_damage_heal_rate())
+                })
                 .unwrap_or(0);
             if let Ok(mut helper_guard) = helper.lock() {
                 helper_guard.notify_subdual_damage(amount, heal_rate);
@@ -284,7 +285,6 @@ impl Object {
             }
         }
     }
-
 
     pub fn do_status_damage(&mut self, status: ObjectStatusTypes, duration: Real) {
         let Some(helper) = &self.status_damage_helper else {
@@ -321,7 +321,9 @@ impl Object {
         self.weapon_bonus_condition.set_condition(condition);
         if old != self.weapon_bonus_condition {
             let flags = self.weapon_bonus_condition
-                | crate::weapon::weapon_bonus::container_passenger_bonus_flags(self.get_contained_by());
+                | crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+                    self.get_contained_by(),
+                );
             let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(flags);
         }
     }
@@ -332,7 +334,9 @@ impl Object {
         self.weapon_bonus_condition.clear(condition);
         if old != self.weapon_bonus_condition {
             let flags = self.weapon_bonus_condition
-                | crate::weapon::weapon_bonus::container_passenger_bonus_flags(self.get_contained_by());
+                | crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+                    self.get_contained_by(),
+                );
             let _ = self.weapon_set.weapon_set_on_weapon_bonus_change(flags);
         }
     }
@@ -439,8 +443,7 @@ impl Object {
         let template_trainable = self.get_template().is_trainable();
         let promotion = if let Some(tracker) = &self.experience_tracker {
             if let Ok(mut tracker_guard) = tracker.lock() {
-                let accepting =
-                    template_trainable || tracker_guard.has_experience_sink();
+                let accepting = template_trainable || tracker_guard.has_experience_sink();
                 if accepting {
                     // srj sez: per dustin, no experience (et al) for killing things under construction.
                     if !victim.test_status(ObjectStatusTypes::UnderConstruction) {
@@ -453,8 +456,7 @@ impl Object {
                         // C++ ExperienceTracker::getExperienceValue: ally → 0,
                         // else template table at the victim's current level.
                         // score_the_kill has already required Enemies.
-                        let experience_value =
-                            victim.get_template().get_experience_value(level);
+                        let experience_value = victim.get_template().get_experience_value(level);
                         let required = [
                             self.get_template().get_experience_required(0),
                             self.get_template().get_experience_required(1),
@@ -467,9 +469,7 @@ impl Object {
                                 true,
                                 &required,
                             )
-                            .map(|old_level| {
-                                (old_level, tracker_guard.get_veterancy_level())
-                            })
+                            .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
                     } else {
                         None
                     }
@@ -484,6 +484,26 @@ impl Object {
         };
         if let Some((old_level, new_level)) = promotion {
             self.on_veterancy_level_changed(old_level, new_level, true);
+        }
+    }
+
+    /// C++ Object::scoreTheKill when killer and victim are the same object.
+    /// The playable/non-ignored victim loss is recorded before the relationship
+    /// check; self-relationship means no killer rewards are issued.
+    pub(crate) fn score_self_kill(&mut self) {
+        let Some(victim_controller) = self.get_controlling_player() else {
+            return;
+        };
+        if !victim_controller
+            .read()
+            .map(|player| player.is_playable_side())
+            .unwrap_or(false)
+            || self.is_kind_of(KindOf::IgnoredInGui)
+        {
+            return;
+        }
+        if let Ok(mut player) = victim_controller.write() {
+            player.get_score_keeper_mut().add_object_lost_obj(self);
         }
     }
 
@@ -838,7 +858,9 @@ impl Object {
                 }
                 if let Some(drawable) = self.get_drawable() {
                     if let Ok(draw) = drawable.try_read() {
-                        weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
+                        weapon.set_caller_barrel_count(
+                            draw.get_barrel_count(weapon.get_weapon_slot()),
+                        );
                     }
                 }
                 let reloaded = weapon.fire_weapon_at_position_with_bonus_and_reload_flag(
@@ -848,7 +870,8 @@ impl Object {
                     container_bonus_flags,
                 );
                 weapon.clear_caller_held_source();
-                let reloaded = reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
+                let reloaded =
+                    reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
 
                 // Note: C++ Object.cpp does NOT set OBJECT_STATUS_IS_FIRING_WEAPON here;
                 // that is done in AIUpdate, not in fireCurrentWeapon.
@@ -962,9 +985,8 @@ impl Object {
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let reloaded = if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(slot) {
             let source_pos = *self.get_position();
-            let mut flags = crate::weapon::helpers::map_common_bonus_flags(
-                self.get_weapon_bonus_condition(),
-            );
+            let mut flags =
+                crate::weapon::helpers::map_common_bonus_flags(self.get_weapon_bonus_condition());
             let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
                 self.get_contained_by(),
             );
@@ -1005,7 +1027,6 @@ impl Object {
                 .release_weapon_lock(WeaponLockType::LockedTemporarily);
         }
     }
-
 
     fn record_pending_mine_cleared(&mut self) {
         if let Some(mut info) = self.weapon_set.take_pending_self_damage() {
@@ -1069,7 +1090,6 @@ impl Object {
         }
         self.weapon_set = weapon_set;
     }
-
 
     pub(super) fn notify_firing_tracker_shot_fired(
         &mut self,
@@ -1175,7 +1195,8 @@ impl Object {
         {
             return false;
         }
-        if self.is_kind_of(KindOf::PortableStructure) || self.is_kind_of(KindOf::SpawnsAreTheWeapons)
+        if self.is_kind_of(KindOf::PortableStructure)
+            || self.is_kind_of(KindOf::SpawnsAreTheWeapons)
         {
             if self.is_disabled_by_type(DisabledType::DisabledHacked)
                 || self.is_disabled_by_type(DisabledType::DisabledEmp)
@@ -1230,7 +1251,8 @@ impl Object {
         }
         if let Some(contain) = self.get_contain() {
             if let Ok(contain) = contain.try_lock() {
-                if contain.is_passenger_allowed_to_fire(Some(self.id)) && contain.get_contain_count() > 0
+                if contain.is_passenger_allowed_to_fire(Some(self.id))
+                    && contain.get_contain_count() > 0
                 {
                     return true;
                 }
@@ -1810,6 +1832,10 @@ impl Object {
         if self.is_effectively_dead() {
             return Err(ObjectError::AlreadyDead);
         }
+        let health_before_damage = self.get_health();
+        if damage_info.input.source_id == self.id {
+            damage_info.input.source_template = Some(self.get_template().clone());
+        }
 
         // C++ does not reject a negative non-healing amount here. Armor clamps
         // it to 0, except unresistable, and doDamageFX still runs.
@@ -1817,9 +1843,14 @@ impl Object {
         // Delegate to body module for damage processing
         if let Some(body) = &self.body {
             let mut body_guard = body.lock().map_err(|_| ObjectError::LockPoisoned)?;
+            let body_context = crate::object::body::BodyDamageContext {
+                owner_is_preferred_source: self.is_kind_of(KindOf::Vehicle)
+                    || self.is_kind_of(KindOf::Infantry)
+                    || self.is_faction_structure(),
+            };
 
             body_guard
-                .attempt_damage(damage_info)
+                .attempt_damage_with_context(damage_info, &body_context)
                 .map_err(|e| ObjectError::BodyModuleError(e.to_string()))?;
             drop(body_guard);
         }
@@ -1827,6 +1858,16 @@ impl Object {
         // C++ ActiveBody.cpp:649-653: onDie, then doDamageFX. The body skipped
         // FX because this caller holds the object write lock.
         if self.get_health() <= 0.0 {
+            if health_before_damage > 0.0 && damage_info.input.source_id != INVALID_ID {
+                if damage_info.input.source_id == self.id {
+                    self.score_self_kill();
+                } else {
+                    let _ = crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(damage_info.input.source_id, |damager| {
+                            damager.score_the_kill(self)
+                        });
+                }
+            }
             self.handle_death(Some(damage_info));
             if let Some(body) = &self.body {
                 if let Ok(mut body_guard) = body.lock() {
@@ -1905,15 +1946,18 @@ impl Object {
             if self.radar_data.is_some() {
                 // C++ Object.cpp:1847-1854 gate: source mask differs from the
                 // controlling player's and the victim is the local player.
-                let under_attack_local = self.get_controlling_player().and_then(|player| {
-                    player.read().ok().map(|guard| {
-                        !damage_info
-                            .input
-                            .source_player_mask
-                            .intersects(guard.get_player_mask())
-                            && guard.is_local_player()
+                let under_attack_local = self
+                    .get_controlling_player()
+                    .and_then(|player| {
+                        player.read().ok().map(|guard| {
+                            !damage_info
+                                .input
+                                .source_player_mask
+                                .intersects(guard.get_player_mask())
+                                && guard.is_local_player()
+                        })
                     })
-                }).unwrap_or(false);
+                    .unwrap_or(false);
                 if under_attack_local {
                     // C++ Object.cpp:1854 — TheRadar->tryUnderAttackEvent(this):
                     // single pipeline — throttled UnderAttack ping, then
@@ -2090,7 +2134,9 @@ impl Object {
                 }
                 if let Some(drawable) = self.get_drawable() {
                     if let Ok(draw) = drawable.try_read() {
-                        weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
+                        weapon.set_caller_barrel_count(
+                            draw.get_barrel_count(weapon.get_weapon_slot()),
+                        );
                     }
                 }
                 let reloaded = weapon.fire_weapon_with_bonus_and_reload_flag(
@@ -2129,11 +2175,7 @@ impl Object {
         // Fire weapon fired event
         self.fire_weapon_fired_event(&weapon_name, Some(target_id));
 
-        log::trace!(
-            "Object {} fired weapon at object {}",
-            self.id,
-            target_id
-        );
+        log::trace!("Object {} fired weapon at object {}", self.id, target_id);
 
         Ok(())
     }
@@ -2434,7 +2476,10 @@ mod veterancy_side_effect_tests {
     fn tracked_object(id: ObjectID) -> Object {
         let mut obj = Object::new_test(id, 100.0);
         let tracker = Arc::new(Mutex::new(ExperienceTracker::new(id)));
-        tracker.lock().expect("tracker").set_trainable_override(true);
+        tracker
+            .lock()
+            .expect("tracker")
+            .set_trainable_override(true);
         obj.experience_tracker = Some(tracker);
         obj
     }

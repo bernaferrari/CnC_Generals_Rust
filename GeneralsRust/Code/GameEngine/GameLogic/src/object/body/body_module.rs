@@ -123,6 +123,18 @@ pub trait BodyModuleInterface: Send + Sync {
     /// Try to damage this object
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()>;
 
+    /// Apply damage with facts about the owner already borrowed by Object.
+    /// This context is synchronous and transient; it is not part of DamageInfo
+    /// or the Xfer format. Most body types do not need owner facts.
+    #[doc(hidden)]
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        _context: &BodyDamageContext,
+    ) -> BodyResult<()> {
+        self.attempt_damage(damage_info)
+    }
+
     /// C++ doDamageFX after onDie. Default is a no-op for bodies that do not FX.
     fn do_damage_fx_after_death(&mut self, _damage_info: &DamageInfo) {}
     /// Try to heal this object  
@@ -295,6 +307,14 @@ pub trait BodyModuleInterface: Send + Sync {
     ) -> Result<(), String> {
         Ok(())
     }
+}
+
+/// Owner facts needed when damage is applied while Object already owns its
+/// registry write guard. In particular, the active body must not reacquire the
+/// owner's registry lock to classify a self-source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BodyDamageContext {
+    pub(crate) owner_is_preferred_source: bool,
 }
 
 /// Base body module implementation

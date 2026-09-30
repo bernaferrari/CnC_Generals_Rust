@@ -102,7 +102,8 @@ fn should_retaliate_against_aggressor(obj: &Object, damager: &Object) -> bool {
     if damager.relationship_to(obj) != Relationship::Enemies {
         return false;
     }
-    let ai_store = the_ai();let max_dist = ai_store
+    let ai_store = the_ai();
+    let max_dist = ai_store
         .read()
         .ok()
         .and_then(|ai| {
@@ -169,7 +170,8 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
     if !should_retaliate_against_aggressor(victim, damager) {
         return;
     }
-    let ai_store = the_ai();let friends_radius = ai_store
+    let ai_store = the_ai();
+    let friends_radius = ai_store
         .read()
         .ok()
         .and_then(|ai| {
@@ -184,8 +186,7 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
         return;
     };
     let damager_id = damager.get_id();
-    let candidates =
-        partition.get_objects_in_range(victim.get_position(), friends_radius);
+    let candidates = partition.get_objects_in_range(victim.get_position(), friends_radius);
     for friend_id in candidates {
         if friend_id == victim.get_id() || friend_id == damager_id {
             continue;
@@ -630,7 +631,7 @@ fn snapshot_object_for_damage_fx(object_id: ObjectId) -> Option<DamageFxObjectSn
     })
 }
 
-/// Thread-safe state for active body
+/// Mutable state owned by an active body.
 #[derive(Debug)]
 struct ActiveBodyState {
     /// Current health of the object
@@ -708,11 +709,10 @@ pub struct ActiveBody {
     base: BodyModule,
     /// Module-specific configuration
     module_data: Arc<ActiveBodyModuleData>,
-    /// Thread-safe mutable state
-    state: Arc<RwLock<ActiveBodyState>>,
+    /// Mutable simulation state; writes require exclusive access to this body.
+    state: ActiveBodyState,
     /// Current armor. C++ `m_curArmor` is a plain member of the body the
-    /// caller already owns. An inner `RwLock` deadlocks if attempt_damage
-    /// holds it and then locks it again.
+    /// caller already owns; the outer body-module mutex is the shared handle.
     armor: Armor,
     /// Name of the currently applied armor template (if any)
     armor_template_name: Option<AsciiString>,
@@ -739,14 +739,11 @@ impl ActiveBody {
         ensure_default_templates_loaded();
         let module_data = Arc::new(module_data);
         let base = BodyModule::new(module_data.base.clone());
-        let state = {
-            let mut initial_state = ActiveBodyState::default();
-            initial_state.current_health = module_data.initial_health;
-            initial_state.previous_health = module_data.initial_health;
-            initial_state.max_health = module_data.max_health;
-            initial_state.initial_health = module_data.initial_health;
-            Arc::new(RwLock::new(initial_state))
-        };
+        let mut state = ActiveBodyState::default();
+        state.current_health = module_data.initial_health;
+        state.previous_health = module_data.initial_health;
+        state.max_health = module_data.max_health;
+        state.initial_health = module_data.initial_health;
 
         let mut body = Self {
             base,
@@ -786,7 +783,8 @@ impl ActiveBody {
     /// Provide the engine ThingTemplate backing this body for parity lookups.
     pub fn set_engine_template(&mut self, template: Arc<DefaultThingTemplate>) {
         self.engine_template = Some(template);
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.armor_flags_dirty = true;
         }
     }
@@ -794,7 +792,8 @@ impl ActiveBody {
     /// Clear the cached engine template handle (used during deletion).
     pub fn clear_engine_template(&mut self) {
         self.engine_template = None;
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.armor_flags_dirty = true;
         }
     }
@@ -857,9 +856,13 @@ impl ActiveBody {
     fn set_correct_damage_state(&mut self) -> BodyResult<()> {
         let is_structure = self.is_structure_for_damage_state();
         let thresholds = global_data::read_safe().ok().map(|global| {
-            (global.unit_damaged_thresh, global.unit_really_damaged_thresh)
+            (
+                global.unit_damaged_thresh,
+                global.unit_really_damaged_thresh,
+            )
         });
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             // C++ calcDamageState returns BODY_PRISTINE before the divide when
             // TheGlobalData is null. Rubble pose is applied by the Object that
             // already holds this body, after the guard drops.
@@ -875,8 +878,6 @@ impl ActiveBody {
                 BodyDamageType::Pristine
             };
             state.current_damage_state = new_state;
-        } else {
-            return Err(BodyError::OperationNotSupported);
         };
 
         Ok(())
@@ -885,16 +886,12 @@ impl ActiveBody {
     /// Validate armor and damage FX against the active template.
     ///
     /// `&mut self` because C++ `m_curArmor` is a plain member. `estimate_damage`
-    /// is `&self` (trait / C++ const) and must not lock this field; it resolves
-    /// a temporary armor instead.
+    /// is `&self` (trait / C++ const) and resolves a temporary armor instead.
     fn validate_armor_and_damage_fx(&mut self) -> BodyResult<()> {
         let engine_template = self.engine_template.clone();
 
         let (flags, dirty) = {
-            let state = self
-                .state
-                .read()
-                .unwrap_or_else(|err| err.into_inner());
+            let state = &self.state;
             (state.armor_set_flags.clone(), state.armor_flags_dirty)
         };
 
@@ -925,10 +922,7 @@ impl ActiveBody {
         }
 
         {
-            let mut state = self
-                .state
-                .write()
-                .unwrap_or_else(|err| err.into_inner());
+            let state = &mut self.state;
             state.resolved_armor_flags = flags;
             state.armor_flags_dirty = false;
             state.current_damage_fx_name = damage_fx_name;
@@ -965,14 +959,11 @@ impl ActiveBody {
         (desired_armor_name, damage_fx_name)
     }
 
-    /// Same armor `validate_armor_and_damage_fx` would store, without locking
-    /// or writing. Used by `&self` estimate so the call stack never re-locks armor.
+    /// Same armor `validate_armor_and_damage_fx` would store, without mutating
+    /// the cache. Used by the immutable `estimate_damage` path.
     fn armor_resolved_for_read(&self) -> BodyResult<Armor> {
         let (flags, dirty) = {
-            let state = self
-                .state
-                .read()
-                .unwrap_or_else(|err| err.into_inner());
+            let state = &self.state;
             (state.armor_set_flags.clone(), state.armor_flags_dirty)
         };
         if !dirty && self.armor.template().is_some() {
@@ -996,7 +987,8 @@ impl ActiveBody {
     /// Replace the current armor with the template referenced by name.
     pub fn set_armor_by_name(&mut self, name: AsciiString) -> BodyResult<()> {
         self.apply_named_armor(Some(name))?;
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.resolved_armor_flags = state.armor_set_flags.clone();
             state.armor_flags_dirty = false;
             state.current_damage_fx_name = None;
@@ -1007,7 +999,8 @@ impl ActiveBody {
     /// Replace the current armor with an explicit template reference.
     pub fn set_armor_template(&mut self, template: Arc<ArmorTemplate>) -> BodyResult<()> {
         self.apply_armor_template(template, None)?;
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.resolved_armor_flags = state.armor_set_flags.clone();
             state.armor_flags_dirty = false;
             state.current_damage_fx_name = None;
@@ -1055,10 +1048,7 @@ impl ActiveBody {
 
     /// Retrieve the active damage FX name, if any.
     pub fn current_damage_fx_name(&self) -> Option<AsciiString> {
-        self.state
-            .read()
-            .ok()
-            .and_then(|state| state.current_damage_fx_name.clone())
+        self.state.current_damage_fx_name.clone()
     }
 
     /// Perform damage FX using the resolved template, respecting throttling.
@@ -1076,10 +1066,7 @@ impl ActiveBody {
         let current_time = current_frame();
 
         let (fx_name, next_allowed, last_damage_fx_done) = {
-            let state = self
-                .state
-                .read()
-                .map_err(|_| BodyError::ArmorValidationFailed)?;
+            let state = &self.state;
             (
                 state.current_damage_fx_name.clone(),
                 state.next_damage_fx_time,
@@ -1133,10 +1120,7 @@ impl ActiveBody {
         };
 
         {
-            let mut state = self
-                .state
-                .write()
-                .map_err(|_| BodyError::ArmorValidationFailed)?;
+            let state = &mut self.state;
             state.last_damage_fx_done = damage_type_to_use;
             state.next_damage_fx_time = current_time.saturating_add(throttle);
         }
@@ -1293,36 +1277,33 @@ impl ActiveBody {
 
     /// Internal method to add subdual damage
     fn internal_add_subdual_damage(&mut self, delta: f32) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.current_subdual_damage += delta;
             state.current_subdual_damage = state
                 .current_subdual_damage
                 .min(self.module_data.subdual_damage_cap);
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
     /// Delete all particle systems
     fn delete_all_particle_systems(&mut self) -> BodyResult<()> {
         if let Some(ps_manager) = TheParticleSystemManager::get() {
-            if let Ok(state) = self.state.read() {
+            {
+                let state = &self.state;
                 let mut cursor = state.particle_systems.as_ref();
                 while let Some(system) = cursor {
                     ps_manager.destroy_particle_system(system.particle_system_id);
                     cursor = system.next.as_ref();
                 }
-            } else {
-                return Err(BodyError::OperationNotSupported);
             }
         }
 
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.particle_systems = None;
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
@@ -1346,8 +1327,7 @@ impl ActiveBody {
         // C++ ActiveBody.cpp:963-969. MAX_BONES is 16. maxSystems only limits
         // how many systems are spawned, not how many bones are queried.
         const MAX_BONES: usize = 16;
-        let bone_positions =
-            owner_guard.get_multi_logical_bone_position(bone_base_name, MAX_BONES);
+        let bone_positions = owner_guard.get_multi_logical_bone_position(bone_base_name, MAX_BONES);
         drop(owner_guard);
 
         let num_bones = bone_positions.len();
@@ -1395,13 +1375,12 @@ impl ActiveBody {
             spawned_ids.push(system_id);
         }
 
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             for system_id in spawned_ids {
-                record_body_particle_system(&mut state, system_id);
+                record_body_particle_system(state, system_id);
             }
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
@@ -1412,10 +1391,9 @@ impl ActiveBody {
 
     /// Check if this body is currently subdued
     pub fn is_subdued(&self) -> bool {
-        if let Ok(state) = self.state.read() {
+        {
+            let state = &self.state;
             state.max_health <= state.current_subdual_damage
-        } else {
-            false
         }
     }
 
@@ -1462,12 +1440,12 @@ impl ActiveBody {
     }
 }
 
-impl BodyModuleInterface for ActiveBody {
-    fn do_damage_fx_after_death(&mut self, damage_info: &DamageInfo) {
-        let _ = self.do_damage_fx(damage_info);
-    }
-
-    fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+impl ActiveBody {
+    fn attempt_damage_with_owner_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: Option<&super::body_module::BodyDamageContext>,
+    ) -> BodyResult<()> {
         // C++ ActiveBody::attemptDamage always applies local HP damage and records
         // lastDamageInfo (including death type). Owner/registry lookups already
         // no-op when the dual-world registry is empty; do not skip the hull path.
@@ -1479,10 +1457,7 @@ impl BodyModuleInterface for ActiveBody {
 
         // C++ ActiveBody.cpp:329 returns before clearing output.
         {
-            let state = self
-                .state
-                .read()
-                .map_err(|_| BodyError::OperationNotSupported)?;
+            let state = &self.state;
             if state.indestructible {
                 return Ok(());
             }
@@ -1504,7 +1479,8 @@ impl BodyModuleInterface for ActiveBody {
                     return Err(BodyError::OperationNotSupported);
                 }
             }
-        } else if let Ok(state) = self.state.read() {
+        } else {
+            let state = &self.state;
             if state.current_health <= 0.0 {
                 return Ok(());
             }
@@ -1744,10 +1720,7 @@ impl BodyModuleInterface for ActiveBody {
             }
 
             let (previous_health, current_health, max_health) = {
-                let state = self
-                    .state
-                    .read()
-                    .map_err(|_| BodyError::OperationNotSupported)?;
+                let state = &self.state;
                 damage_info.output.actual_damage_dealt = amount;
                 damage_info.output.actual_damage_clipped =
                     state.previous_health - state.current_health;
@@ -1762,7 +1735,8 @@ impl BodyModuleInterface for ActiveBody {
             let frame_now = current_frame();
             let mut should_overwrite_last_damage = true;
             let mut existing_source_id = INVALID_ID;
-            if let Ok(state) = self.state.read() {
+            {
+                let state = &self.state;
                 let is_same_or_next_frame = state.last_damage_timestamp == frame_now
                     || state.last_damage_timestamp == frame_now.wrapping_sub(1);
                 if is_same_or_next_frame {
@@ -1776,15 +1750,24 @@ impl BodyModuleInterface for ActiveBody {
             }
 
             if !should_overwrite_last_damage {
-                let src2_is_preferred =
+                let src2_is_preferred = if damage_info.input.source_id == self.owner_id {
+                    context
+                        .map(|context| context.owner_is_preferred_source)
+                        .or_else(|| {
+                            OBJECT_REGISTRY.with_object(damage_info.input.source_id, |guard| {
+                                guard.is_kind_of(crate::common::KindOf::Vehicle)
+                                    || guard.is_kind_of(crate::common::KindOf::Infantry)
+                                    || guard.is_faction_structure()
+                            })
+                        })
+                } else {
                     OBJECT_REGISTRY.with_object(damage_info.input.source_id, |guard| {
                         guard.is_kind_of(crate::common::KindOf::Vehicle)
                             || guard.is_kind_of(crate::common::KindOf::Infantry)
                             || guard.is_faction_structure()
-                    });
-                let src1_exists = OBJECT_REGISTRY
-                    .with_object(existing_source_id, |_| ())
-                    .is_some();
+                    })
+                };
+                let src1_exists = OBJECT_REGISTRY.contains(existing_source_id);
 
                 if let Some(src2_is_preferred) = src2_is_preferred {
                     if !src1_exists || src2_is_preferred {
@@ -1798,7 +1781,8 @@ impl BodyModuleInterface for ActiveBody {
                 // with input so last death type (e.g. DEATH_FLOODED) is readable
                 // from either DamageInfo.death_type or input.death_type.
                 damage_info.sync_from_input();
-                if let Ok(mut state) = self.state.write() {
+                {
+                    let state = &mut self.state;
                     state.last_damage_info = Some(damage_info.clone());
                     state.last_damage_cleared = false;
                     state.last_damage_timestamp = frame_now;
@@ -1808,14 +1792,9 @@ impl BodyModuleInterface for ActiveBody {
             // C++ ActiveBody.cpp:574-583 — victim player remembers who attacked.
             let last_source_id = self
                 .state
-                .read()
-                .ok()
-                .and_then(|state| {
-                    state
-                        .last_damage_info
-                        .as_ref()
-                        .map(|info| info.input.source_id)
-                })
+                .last_damage_info
+                .as_ref()
+                .map(|info| info.input.source_id)
                 .unwrap_or(INVALID_ID);
             if last_source_id != INVALID_ID {
                 if let Some(owner) = self.get_owner() {
@@ -1886,14 +1865,22 @@ impl BodyModuleInterface for ActiveBody {
             // there. A direct body caller does not hold that lock; C++
             // ActiveBody.cpp:641-649 still scores and calls onDie here.
             if current_health <= 0.0 && previous_health > 0.0 {
-                if damage_info.input.source_id != INVALID_ID {
+                if damage_info.input.source_id != INVALID_ID && context.is_none() {
                     let source_id = damage_info.input.source_id;
                     let owner_id = self.owner_id;
-                    let _ = OBJECT_REGISTRY.with_object_mut(source_id, |damager_guard| {
-                        let _ = OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
-                            damager_guard.score_the_kill(owner_guard);
+                    if source_id == owner_id {
+                        if let Some(owner) = self.get_owner() {
+                            if let Ok(mut owner_guard) = owner.try_write() {
+                                owner_guard.score_self_kill();
+                            }
+                        }
+                    } else {
+                        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |damager_guard| {
+                            let _ = OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                                damager_guard.score_the_kill(owner_guard);
+                            });
                         });
-                    });
+                    }
                 }
                 if let Some(owner) = self.get_owner() {
                     if let Ok(mut owner_guard) = owner.try_write() {
@@ -1915,6 +1902,24 @@ impl BodyModuleInterface for ActiveBody {
 
         Ok(())
     }
+}
+
+impl BodyModuleInterface for ActiveBody {
+    fn do_damage_fx_after_death(&mut self, damage_info: &DamageInfo) {
+        let _ = self.do_damage_fx(damage_info);
+    }
+
+    fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
+        self.attempt_damage_with_owner_context(damage_info, None)
+    }
+
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: &super::body_module::BodyDamageContext,
+    ) -> BodyResult<()> {
+        self.attempt_damage_with_owner_context(damage_info, Some(context))
+    }
 
     fn attempt_healing(&mut self, healing_info: &mut DamageInfo) -> BodyResult<()> {
         self.validate_armor_and_damage_fx()?;
@@ -1932,7 +1937,8 @@ impl BodyModuleInterface for ActiveBody {
                     return Ok(());
                 }
             }
-        } else if let Ok(state) = self.state.read() {
+        } else {
+            let state = &self.state;
             if state.current_health <= 0.0 {
                 return Ok(());
             }
@@ -1951,10 +1957,7 @@ impl BodyModuleInterface for ActiveBody {
             self.internal_change_health(amount)?;
 
             let (previous_health, current_health) = {
-                let state = self
-                    .state
-                    .read()
-                    .map_err(|_| BodyError::OperationNotSupported)?;
+                let state = &self.state;
                 healing_info.output.actual_damage_dealt = amount;
                 healing_info.output.actual_damage_clipped =
                     state.previous_health - state.current_health;
@@ -1963,7 +1966,8 @@ impl BodyModuleInterface for ActiveBody {
 
             let frame_now = current_frame();
 
-            if let Ok(mut state) = self.state.write() {
+            {
+                let state = &mut self.state;
                 state.last_damage_info = Some(healing_info.clone());
                 state.last_damage_cleared = false;
                 state.last_damage_timestamp = frame_now;
@@ -1991,7 +1995,7 @@ impl BodyModuleInterface for ActiveBody {
         // C++ estimateDamage is const and calls validateArmorAndDamageFX, which
         // mutates mutable armor fields. That cache write needs `&mut self` here.
         // Resolve the same armor into a local value so this `&self` path does
-        // not lock `armor` (and cannot lock it a second time).
+        // not mutate the cached armor.
         let armor = self.armor_resolved_for_read()?;
 
         // Handle subdual damage
@@ -2040,33 +2044,19 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn get_health(&self) -> f32 {
-        // Poison must not become 0 HP. That fake value makes kill-damage and
-        // the immortal floor treat a living object as dead.
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .current_health
+        self.state.current_health
     }
 
     fn get_max_health(&self) -> f32 {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .max_health
+        self.state.max_health
     }
 
     fn get_initial_health(&self) -> f32 {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .initial_health
+        self.state.initial_health
     }
 
     fn get_previous_health(&self) -> f32 {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .previous_health
+        self.state.previous_health
     }
 
     fn get_subdual_damage_heal_rate(&self) -> u32 {
@@ -2078,25 +2068,15 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn has_any_subdual_damage(&self) -> bool {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .current_subdual_damage
-            > 0.0
+        self.state.current_subdual_damage > 0.0
     }
 
     fn get_current_subdual_damage_amount(&self) -> f32 {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .current_subdual_damage
+        self.state.current_subdual_damage
     }
 
     fn get_damage_state(&self) -> BodyDamageType {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .current_damage_state
+        self.state.current_damage_state
     }
 
     fn set_damage_state(&mut self, new_state: BodyDamageType) -> BodyResult<()> {
@@ -2205,62 +2185,51 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn set_armor_set_flag(&mut self, armor_type: ArmorSetType) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             let index = armor_type as usize;
             if !state.armor_set_flags.test(index) {
                 state.armor_set_flags.set(index, true);
                 state.armor_flags_dirty = true;
             }
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
     fn clear_armor_set_flag(&mut self, armor_type: ArmorSetType) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             let index = armor_type as usize;
             if state.armor_set_flags.test(index) {
                 state.armor_set_flags.set(index, false);
                 state.armor_flags_dirty = true;
             }
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
     fn test_armor_set_flag(&self, armor_type: ArmorSetType) -> bool {
-        if let Ok(state) = self.state.read() {
+        {
+            let state = &self.state;
             state.armor_set_flags.test(armor_type as usize)
-        } else {
-            false
         }
     }
 
     fn get_last_damage_info(&self) -> Option<DamageInfo> {
-        self.state
-            .read()
-            .ok()
-            .and_then(|state| state.last_damage_info.clone())
+        self.state.last_damage_info.clone()
     }
 
     fn get_last_damage_timestamp(&self) -> u32 {
-        self.state
-            .read()
-            .map(|state| state.last_damage_timestamp)
-            .unwrap_or(0)
+        self.state.last_damage_timestamp
     }
 
     fn get_last_healing_timestamp(&self) -> u32 {
-        self.state
-            .read()
-            .map(|state| state.last_healing_timestamp)
-            .unwrap_or(0)
+        self.state.last_healing_timestamp
     }
 
     fn get_clearable_last_attacker(&self) -> ObjectId {
-        if let Ok(state) = self.state.read() {
+        {
+            let state = &self.state;
             if state.last_damage_cleared {
                 INVALID_ID
             } else {
@@ -2270,29 +2239,22 @@ impl BodyModuleInterface for ActiveBody {
                     .map(|info| info.source_id)
                     .unwrap_or(INVALID_ID)
             }
-        } else {
-            INVALID_ID
         }
     }
 
     fn clear_last_attacker(&mut self) {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.last_damage_cleared = true;
         }
     }
 
     fn get_front_crushed(&self) -> bool {
-        self.state
-            .read()
-            .map(|state| state.front_crushed)
-            .unwrap_or(false)
+        self.state.front_crushed
     }
 
     fn get_back_crushed(&self) -> bool {
-        self.state
-            .read()
-            .map(|state| state.back_crushed)
-            .unwrap_or(false)
+        self.state.back_crushed
     }
 
     fn set_initial_health(&mut self, initial_percent: i32) -> BodyResult<()> {
@@ -2317,11 +2279,10 @@ impl BodyModuleInterface for ActiveBody {
         let prev_max_health = self.get_max_health();
         let current_health = self.get_health();
 
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.max_health = max_health;
             state.initial_health = max_health;
-        } else {
-            return Err(BodyError::OperationNotSupported);
         }
 
         match change_type {
@@ -2354,20 +2315,18 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn set_front_crushed(&mut self, crushed: bool) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.front_crushed = crushed;
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
     fn set_back_crushed(&mut self, crushed: bool) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.back_crushed = crushed;
             Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
         }
     }
 
@@ -2394,9 +2353,13 @@ impl BodyModuleInterface for ActiveBody {
             delta
         };
         let thresholds = global_data::read_safe().ok().map(|global| {
-            (global.unit_damaged_thresh, global.unit_really_damaged_thresh)
+            (
+                global.unit_damaged_thresh,
+                global.unit_really_damaged_thresh,
+            )
         });
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.previous_health = state.current_health;
 
             state.current_health += delta;
@@ -2405,27 +2368,24 @@ impl BodyModuleInterface for ActiveBody {
             state.current_health = state.current_health.clamp(floor.min(high), high);
 
             let old_state = state.current_damage_state;
-            state.current_damage_state = if let Some((damaged_thresh, really_damaged_thresh)) =
-                thresholds
-            {
-                Self::calc_damage_state(
-                    state.current_health,
-                    state.max_health,
-                    is_structure,
-                    damaged_thresh,
-                    really_damaged_thresh,
-                )
-            } else {
-                BodyDamageType::Pristine
-            };
+            state.current_damage_state =
+                if let Some((damaged_thresh, really_damaged_thresh)) = thresholds {
+                    Self::calc_damage_state(
+                        state.current_health,
+                        state.max_health,
+                        is_structure,
+                        damaged_thresh,
+                        really_damaged_thresh,
+                    )
+                } else {
+                    BodyDamageType::Pristine
+                };
 
             if state.current_damage_state != old_state {
                 changed_state = true;
             }
 
             effectively_dead = state.current_health <= 0.0;
-        } else {
-            return Err(BodyError::OperationNotSupported);
         }
 
         if changed_state {
@@ -2464,10 +2424,9 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn set_indestructible(&mut self, indestructible: bool) -> BodyResult<()> {
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.indestructible = indestructible;
-        } else {
-            return Err(BodyError::OperationNotSupported);
         }
         // C++ ActiveBody.cpp:1350-1384 — bridges mirror to towers.
         self.mirror_indestructible_to_bridge_towers(indestructible);
@@ -2475,10 +2434,7 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn is_indestructible(&self) -> bool {
-        self.state
-            .read()
-            .unwrap_or_else(|err| err.into_inner())
-            .indestructible
+        self.state.indestructible
     }
 
     fn evaluate_visual_condition(&mut self) -> BodyResult<()> {
@@ -2626,10 +2582,7 @@ impl Snapshotable for ActiveBody {
 
         self.base.xfer(xfer)?;
 
-        let mut state = self
-            .state
-            .write()
-            .map_err(|_| "ActiveBody state lock poisoned".to_string())?;
+        let state = &mut self.state;
 
         xfer.xfer_real(&mut state.current_health)
             .map_err(|e| e.to_string())?;
@@ -2735,7 +2688,8 @@ impl Snapshotable for ActiveBody {
             armor_bits = 0;
             for _ in 0..count {
                 let mut name = String::new();
-                xfer.xfer_ascii_string(&mut name).map_err(|e| e.to_string())?;
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| e.to_string())?;
                 if let Some(index) = ARMOR_SET_NAMES
                     .iter()
                     .position(|bit| bit.eq_ignore_ascii_case(&name))
@@ -2757,7 +2711,8 @@ impl Snapshotable for ActiveBody {
                     continue;
                 }
                 let mut name = (*bit_name).to_string();
-                xfer.xfer_ascii_string(&mut name).map_err(|e| e.to_string())?;
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| e.to_string())?;
             }
         } else {
             // C++ CRC is xferUser(this, sizeof(this)): pointer-sized, not names.
@@ -2771,10 +2726,106 @@ impl Snapshotable for ActiveBody {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()?;
-        if let Ok(mut state) = self.state.write() {
+        {
+            let state = &mut self.state;
             state.armor_flags_dirty = true;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod owned_state_xfer_tests {
+    use super::*;
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    fn create_test_active_body() -> ActiveBody {
+        let mut module_data = ActiveBodyModuleData::default();
+        module_data.max_health = 100.0;
+        module_data.initial_health = 100.0;
+        module_data.subdual_damage_cap = 50.0;
+        module_data.subdual_damage_heal_rate = 30;
+        module_data.subdual_damage_heal_amount = 10.0;
+
+        ActiveBody::new(module_data)
+    }
+
+    #[test]
+    fn active_body_xfer_roundtrips_owned_state_and_particle_ids() {
+        let mut saved_body = create_test_active_body();
+        saved_body.state.current_health = 61.0;
+        saved_body.state.previous_health = 72.0;
+        saved_body.state.max_health = 120.0;
+        saved_body.state.initial_health = 110.0;
+        saved_body.state.current_subdual_damage = 17.0;
+        saved_body.state.current_damage_state = BodyDamageType::Damaged;
+        saved_body.state.next_damage_fx_time = 234;
+        saved_body.state.last_damage_fx_done = DamageType::Flame;
+        saved_body.state.last_damage_info = Some(DamageInfo::new());
+        saved_body.state.last_damage_timestamp = 123;
+        saved_body.state.last_healing_timestamp = 101;
+        saved_body.state.front_crushed = true;
+        saved_body.state.back_crushed = true;
+        saved_body.state.last_damage_cleared = true;
+        saved_body.state.indestructible = true;
+        saved_body
+            .set_armor_set_flag(ArmorSetType::Veteran)
+            .expect("armor flag");
+        saved_body.state.particle_systems = Some(Box::new(BodyParticleSystem {
+            particle_system_id: 0x1234,
+            next: Some(Box::new(BodyParticleSystem {
+                particle_system_id: 0x5678,
+                next: None,
+            })),
+        }));
+
+        let mut backing = Cursor::new(Vec::new());
+        let mut save_xfer = XferSave::new(&mut backing, 1);
+        Snapshotable::xfer(&mut saved_body, &mut save_xfer).expect("save ActiveBody");
+        drop(save_xfer);
+        let bytes = backing.into_inner();
+        // C++ ActiveBody -> BodyModule -> BehaviorModule -> ObjectModule ->
+        // Module version chain, then damage scalar and the five hull values.
+        let mut expected_prefix = vec![1_u8; 5];
+        for value in [1.0_f32, 61.0, 17.0, 72.0, 120.0, 110.0] {
+            expected_prefix.extend_from_slice(&value.to_le_bytes());
+        }
+        expected_prefix
+            .extend_from_slice(&body_damage_type_to_u32(BodyDamageType::Damaged).to_le_bytes());
+        expected_prefix.extend_from_slice(&234_u32.to_le_bytes());
+        expected_prefix.extend_from_slice(&(DamageType::Flame as u32).to_le_bytes());
+        assert!(bytes.starts_with(&expected_prefix), "C++ body field order");
+
+        let mut restored_body = create_test_active_body();
+        let mut load_xfer = XferLoad::new(Cursor::new(bytes), 1);
+        Snapshotable::xfer(&mut restored_body, &mut load_xfer).expect("load ActiveBody");
+
+        assert_eq!(restored_body.get_health(), 61.0);
+        assert_eq!(restored_body.get_previous_health(), 72.0);
+        assert_eq!(restored_body.get_max_health(), 120.0);
+        assert_eq!(restored_body.get_initial_health(), 110.0);
+        assert_eq!(restored_body.get_current_subdual_damage_amount(), 17.0);
+        assert_eq!(restored_body.get_damage_state(), BodyDamageType::Damaged);
+        assert_eq!(restored_body.state.next_damage_fx_time, 234);
+        assert_eq!(restored_body.state.last_damage_fx_done, DamageType::Flame);
+        assert_eq!(restored_body.get_last_damage_timestamp(), 123);
+        assert_eq!(restored_body.get_last_healing_timestamp(), 101);
+        assert!(restored_body.get_front_crushed());
+        assert!(restored_body.get_back_crushed());
+        assert_eq!(restored_body.get_clearable_last_attacker(), INVALID_ID);
+        assert!(restored_body.is_indestructible());
+        assert!(restored_body.test_armor_set_flag(ArmorSetType::Veteran));
+        let particles = restored_body
+            .state
+            .particle_systems
+            .as_ref()
+            .expect("restored particle systems");
+        assert_eq!(particles.particle_system_id, 0x5678);
+        assert_eq!(
+            particles.next.as_ref().map(|next| next.particle_system_id),
+            Some(0x1234)
+        );
     }
 }
 

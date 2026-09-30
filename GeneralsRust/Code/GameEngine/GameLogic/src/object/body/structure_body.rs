@@ -8,8 +8,8 @@ use std::sync::{Arc, RwLock};
 
 use super::active_body::{ActiveBody, ActiveBodyModuleData};
 use super::body_module::{
-    ArmorSetType, BodyDamageType, BodyError, BodyModuleData, BodyModuleInterface, BodyResult,
-    DamageInfo, DamageInfoInput, MaxHealthChangeType, ObjectId, VeterancyLevel,
+    ArmorSetType, BodyDamageType, BodyModuleData, BodyModuleInterface, BodyResult, DamageInfo,
+    DamageInfoInput, MaxHealthChangeType, ObjectId, VeterancyLevel,
 };
 use crate::common::INVALID_ID;
 use game_engine::common::ini::{INI, INIError};
@@ -73,11 +73,7 @@ impl Snapshotable for StructureBody {
 
         self.active_body.xfer(xfer)?;
 
-        let mut state = self
-            .state
-            .write()
-            .map_err(|_| "StructureBody state lock poisoned".to_string())?;
-        xfer.xfer_unsigned_int(&mut state.constructor_object_id)
+        xfer.xfer_unsigned_int(&mut self.constructor_object_id)
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -87,13 +83,6 @@ impl Snapshotable for StructureBody {
     }
 }
 
-/// Thread-safe state specific to structure bodies
-#[derive(Debug, Default)]
-struct StructureBodyState {
-    /// ID of the object that constructed this structure
-    constructor_object_id: ObjectId,
-}
-
 /// Structure body implementation - extends ActiveBody for structures
 pub struct StructureBody {
     /// Base active body functionality
@@ -101,8 +90,8 @@ pub struct StructureBody {
     /// Structure-specific configuration
     #[allow(dead_code)]
     module_data: Arc<StructureBodyModuleData>,
-    /// Thread-safe mutable state
-    state: Arc<RwLock<StructureBodyState>>,
+    /// ID of the object that constructed this structure.
+    constructor_object_id: ObjectId,
 }
 
 impl StructureBody {
@@ -110,14 +99,10 @@ impl StructureBody {
     pub fn new(module_data: StructureBodyModuleData, owner_id: ObjectId) -> Self {
         let mut active_body = ActiveBody::new_with_owner(module_data.base.clone(), owner_id);
         active_body.set_treat_as_structure(true);
-        let state = Arc::new(RwLock::new(StructureBodyState {
-            constructor_object_id: INVALID_ID,
-        }));
-
         Self {
             active_body,
             module_data: Arc::new(module_data),
-            state,
+            constructor_object_id: INVALID_ID,
         }
     }
 
@@ -126,12 +111,8 @@ impl StructureBody {
         let Some(object_id) = object_id else {
             return Ok(());
         };
-        if let Ok(mut state) = self.state.write() {
-            state.constructor_object_id = object_id;
-            Ok(())
-        } else {
-            Err(BodyError::OperationNotSupported)
-        }
+        self.constructor_object_id = object_id;
+        Ok(())
     }
 
     /// Resolve the owning object handle if available.
@@ -141,10 +122,7 @@ impl StructureBody {
 
     /// Get the constructor object ID
     pub fn get_constructor_object_id(&self) -> ObjectId {
-        self.state
-            .read()
-            .map(|state| state.constructor_object_id)
-            .unwrap_or(INVALID_ID)
+        self.constructor_object_id
     }
 
     /// Get the active body reference for delegated operations
@@ -164,6 +142,15 @@ impl StructureBody {
 impl BodyModuleInterface for StructureBody {
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> BodyResult<()> {
         self.active_body.attempt_damage(damage_info)
+    }
+
+    fn attempt_damage_with_context(
+        &mut self,
+        damage_info: &mut DamageInfo,
+        context: &super::body_module::BodyDamageContext,
+    ) -> BodyResult<()> {
+        self.active_body
+            .attempt_damage_with_context(damage_info, context)
     }
 
     fn do_damage_fx_after_death(&mut self, damage_info: &crate::damage::DamageInfo) {
@@ -323,6 +310,8 @@ impl BodyModuleInterface for StructureBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     fn create_test_structure_body() -> StructureBody {
         let mut base_data = ActiveBodyModuleData::default();
@@ -367,6 +356,28 @@ mod tests {
         // C++ null does not clear a constructor that was already set.
         assert!(body.set_constructor_object(None).is_ok());
         assert_eq!(body.get_constructor_object_id(), constructor_id);
+    }
+
+    #[test]
+    fn structure_body_xfer_roundtrips_constructor_after_active_body() {
+        let mut saved = create_test_structure_body();
+        let constructor_id = 0x1234_5678;
+        saved
+            .set_constructor_object(Some(constructor_id))
+            .expect("set constructor");
+
+        let mut backing = Cursor::new(Vec::new());
+        let mut save_xfer = XferSave::new(&mut backing, 1);
+        Snapshotable::xfer(&mut saved, &mut save_xfer).expect("save StructureBody");
+        drop(save_xfer);
+        let bytes = backing.into_inner();
+
+        let mut restored = create_test_structure_body();
+        let mut load_xfer = XferLoad::new(Cursor::new(bytes), 1);
+        Snapshotable::xfer(&mut restored, &mut load_xfer).expect("load StructureBody");
+
+        assert_eq!(restored.get_constructor_object_id(), constructor_id);
+        assert_eq!(restored.get_health(), 200.0);
     }
 
     #[test]
