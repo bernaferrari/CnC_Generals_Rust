@@ -33,6 +33,16 @@ Completion: every unit in the packet has an honest reviewed mapping or an exact 
 
 Completion: the C++-derived regression is green without weakening assertions or introducing unrelated modernization.
 
+## Ownership migration
+
+1. Trace the production readers and writers, including callbacks and startup workers. Name the owner and its lifetime in the Bead. Distinguish mutable world state, immutable asset data, and queued commands; preserve the actual concurrency boundary when choosing borrows, owned values, handles, or synchronization.
+2. Define a small domain interface around the owner's behavior. Keep fields private where callers need operations rather than storage. Pass the driving instance or frozen presentation values explicitly. Constructors remain inert; rendering reads completed snapshots without advancing simulation. Use `src/game_logic/object/unit_ai_runtime.rs` and `src/presentation_frame/mod.rs` as concrete examples, not proof that their surrounding systems are isolated.
+3. Compare C++ initialization, update order, frame boundaries, RNG consumption, and Xfer before changing Rust. Trace create/admit, ordinary clone, temporary removal/reinsertion, destroy, reset, and restore separately: a query clone and a new world's admitted object can require different runtime identity.
+4. Exercise the actual production boundary with two worlds using the same ObjectId and different values. Check interleaved operations, constructor inactivity, reset, and the relevant clone/restore paths. Verify the old implementation fails the intended assertion when fixing an existing bug. Run the containing behavior suite, applicable save/load gates, and native/WASM checks. Record the matched test count; zero matching tests is not verification.
+5. Record the changed owner, eliminated ambient accesses, preserved C++ behavior, executable evidence, and remaining unknowns. Track independent ambient dependencies with linked Beads. Performance claims require measurements from the affected path; removing a lock alone does not establish a frame-rate gain.
+
+Completion: callers reach the new owner explicitly, the lifetime regressions and relevant gates pass, and the Bead distinguishes implemented / explicitly owned / instance-isolated / original-compared / save-load-verified / unsafe-boundary-reviewed. A temporary scoped context remains a documented dependency until its callers use explicit ownership.
+
 ## Finish
 
 Record commands and results in the Bead. Create a `discovered-from` Bead with acceptance criteria for any independent failure. Close the claimed Bead only when every acceptance condition passes; otherwise leave exact remaining evidence in its notes. Then follow the repository landing workflow in `AGENTS.md`.

@@ -409,12 +409,11 @@ generals_compression = { path = "Code/Libraries/Source/Compression" }
 bincode_legacy = { path = "Code/Libraries/Source/bincode_legacy" }
 rodio_compat = { path = "Code/Libraries/Source/rodio_compat" }
 
-# Profiles — keep target/ bounded. Full debug + packed dSYM previously
-# pushed this workspace past ~70 GB (deps/ + incremental + per-hash .dSYM).
+# Normal builds omit debug information to keep compile output bounded.
+# Use release-with-debug explicitly when source-level diagnosis is needed.
 [profile.dev]
 opt-level = 0
-debug = "line-tables-only"
-split-debuginfo = "unpacked"
+debug = false
 incremental = true
 
 # Dependencies: no debuginfo; mild opts so the game is playable in dev.
@@ -428,8 +427,7 @@ opt-level = 3
 debug = false
 
 [profile.test]
-debug = "line-tables-only"
-split-debuginfo = "unpacked"
+debug = false
 incremental = true
 [profile.test.package."*"]
 debug = false
@@ -450,7 +448,7 @@ split-debuginfo = "unpacked"
 
 [profile.bench]
 inherits = "release"
-debug = "line-tables-only"
+debug = false
 
 [workspace.lints.rust]
 unsafe_code = "warn"
