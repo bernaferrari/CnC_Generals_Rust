@@ -669,7 +669,6 @@ impl AIPlayer {
         template_name.contains("CommandCenter")
     }
 
-
     pub(super) fn aidata_rotate_skirmish_bases() -> bool {
         ensure_aidata_loaded_from_game_fs();
         let store = game_engine::common::ini::get_ai_data_store();

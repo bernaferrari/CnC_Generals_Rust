@@ -26,12 +26,25 @@ impl GameLogic {
                         player_id,
                         self.frame
                     );
-                    self.partition_manager
-                        .reveal_map_for_player_permanently(&mut self.engine_stores.shroud().lock().unwrap_or_else(|e| e.into_inner()), player_id);
+                    self.partition_manager.reveal_map_for_player_permanently(
+                        &mut self
+                            .engine_stores
+                            .shroud()
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()),
+                        player_id,
+                    );
                 }
                 ScriptEvent::RevealMapForPlayer { player_id } => {
                     log::debug!("📜 Script event: reveal map for player {}", player_id);
-                    self.partition_manager.reveal_map_for_player(&mut self.engine_stores.shroud().lock().unwrap_or_else(|e| e.into_inner()), player_id);
+                    self.partition_manager.reveal_map_for_player(
+                        &mut self
+                            .engine_stores
+                            .shroud()
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner()),
+                        player_id,
+                    );
                 }
                 ScriptEvent::CompletedSpecialPower {
                     player_id,

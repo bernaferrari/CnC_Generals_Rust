@@ -526,13 +526,11 @@ impl GameLogic {
 
         if let Some(source_player_id) = source_owner {
             if !target_team_instance.is_empty() {
-                if let Some(rel) =
-                    leftover_team_relationship_override(
-                        team_factory,
-                        source_player_id,
-                        target_team_instance,
-                    )
-                {
+                if let Some(rel) = leftover_team_relationship_override(
+                    team_factory,
+                    source_player_id,
+                    target_team_instance,
+                ) {
                     return rel;
                 }
                 if let Some(source_player) = players.get(&source_player_id) {

@@ -14,7 +14,10 @@ pub(super) struct DirectShroudFrameFacts {
 
 impl DirectShroudFrameFacts {
     /// O(1) membership probe using the already borrowed frame owner.
-    pub(super) fn freeze(guard: Option<&gamelogic::system::shroud_manager::ShroudManager>, local_player_id: u32) -> Option<Self> {
+    pub(super) fn freeze(
+        guard: Option<&gamelogic::system::shroud_manager::ShroudManager>,
+        local_player_id: u32,
+    ) -> Option<Self> {
         let guard = guard?;
         Some(Self {
             runtime_active: guard.has_any_visible_object(local_player_id)
@@ -424,19 +427,35 @@ impl PresentationFrame {
         let (fow_grid, frozen_object_shrouds) = {
             let manager = logic.engine_stores.shroud().lock().ok();
             let shroud = manager.as_deref();
-            let grid = FOWRenderingBridge::snapshot_terrain_grid(shroud, local_player_id, fow_shell_bypass);
+            let grid = FOWRenderingBridge::snapshot_terrain_grid(
+                shroud,
+                local_player_id,
+                fow_shell_bypass,
+            );
             let facts = DirectShroudFrameFacts::freeze(shroud, local_player_id);
-            let objects: Vec<_> = logic.host_objects().values().map(|obj| {
-                let owner = obj.owner_player_id.or_else(|| logic.player_id_for_team(obj.team));
-                let visibility = if fow_shell_bypass || owner == Some(local_player_id) {
-                    ObjectVisibility::FULLY_VISIBLE
-                } else {
-                    FOWRenderingBridge::get_object_visibility(shroud, local_player_id, obj.id)
-                };
-                let drawable = freeze_direct_object_shroud_facts_with_frame_facts(
-                    shroud, obj, local_player_id, local_team, fow_shell_bypass, facts.as_ref());
-                (visibility, drawable)
-            }).collect();
+            let objects: Vec<_> = logic
+                .host_objects()
+                .values()
+                .map(|obj| {
+                    let owner = obj
+                        .owner_player_id
+                        .or_else(|| logic.player_id_for_team(obj.team));
+                    let visibility = if fow_shell_bypass || owner == Some(local_player_id) {
+                        ObjectVisibility::FULLY_VISIBLE
+                    } else {
+                        FOWRenderingBridge::get_object_visibility(shroud, local_player_id, obj.id)
+                    };
+                    let drawable = freeze_direct_object_shroud_facts_with_frame_facts(
+                        shroud,
+                        obj,
+                        local_player_id,
+                        local_team,
+                        fow_shell_bypass,
+                        facts.as_ref(),
+                    );
+                    (visibility, drawable)
+                })
+                .collect();
             (grid, objects)
         };
         // C++ W3DShroud copies logical cells into a padded destination texture
@@ -466,7 +485,9 @@ impl PresentationFrame {
         let weapon_ready_time_seconds = logic.frame as f32 / 30.0;
         let mut objects = Vec::with_capacity(logic.host_objects().len());
         let mut direct_host_drawables = Vec::with_capacity(logic.host_objects().len());
-        for (obj, (fow_visibility, drawable_shroud)) in logic.host_objects().values().zip(frozen_object_shrouds) {
+        for (obj, (fow_visibility, drawable_shroud)) in
+            logic.host_objects().values().zip(frozen_object_shrouds)
+        {
             // C++ Drawable::setDrawableHidden — ride-hide hijacker has no mesh.
             if obj.drawable_hidden {
                 continue;
@@ -657,10 +678,7 @@ impl PresentationFrame {
             };
             let renderable = RenderableObject {
                 status_tint: [0.0; 3],
-                draw_playback_identity: Some(logic.live_draw_playback_identity(
-                    obj.id,
-                    obj.visual_object_generation,
-                )),
+                draw_playback_identity: Some(logic.live_draw_playback_identity(obj)),
                 id: obj.id,
                 template_name: obj.template_name.clone(),
                 team: garrison_apparent_team,
@@ -965,9 +983,8 @@ impl PresentationFrame {
                 projectile_clip_statuses,
                 ammo_pip_total: obj.get_ammo_pip_showing_info().map(|(t, _)| t).unwrap_or(0),
                 ammo_pip_full: obj.get_ammo_pip_showing_info().map(|(_, f)| f).unwrap_or(0),
-                weapon_ready_percent: obj.get_most_percent_ready_to_fire_any_weapon(
-                    weapon_ready_time_seconds,
-                ),
+                weapon_ready_percent: obj
+                    .get_most_percent_ready_to_fire_any_weapon(weapon_ready_time_seconds),
                 weapon_can_target_air: obj
                     .weapon
                     .as_ref()

@@ -902,7 +902,10 @@ impl GameLogic {
         self.sync_legacy_player_list_from_side_dicts(&side_dicts);
     }
 
-    pub(in super::super) fn sync_legacy_team_factory_from_team_dicts(&mut self, team_dicts: &[Dict]) {
+    pub(in super::super) fn sync_legacy_team_factory_from_team_dicts(
+        &mut self,
+        team_dicts: &[Dict],
+    ) {
         let Ok(mut team_factory) = self.team_factory.try_lock() else {
             log::warn!("Skipping per-world TeamFactory sync because its owner is busy");
             return;

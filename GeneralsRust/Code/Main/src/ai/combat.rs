@@ -103,7 +103,8 @@ impl AIPlayer {
     /// script-absent fallback in `evaluate_attack_opportunities` must leave
     /// it alone.
     fn ready_team_has_on_create_orders(&self, team: &AITeamQueue) -> bool {
-        let on_create = self.team_factory
+        let on_create = self
+            .team_factory
             .lock()
             .ok()
             .and_then(|factory| {

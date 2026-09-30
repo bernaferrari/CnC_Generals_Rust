@@ -124,7 +124,6 @@ impl ScriptEngine {
 
                 campaign_victorious: false,
 
-
                 sequential_scripts: Vec::new(),
                 next_sequential_runtime_token: 1,
 
@@ -1203,12 +1202,7 @@ impl ScriptEngine {
         false
     }
 
-    pub fn set_priority_thing(
-        &self,
-        set_name: &str,
-        type_or_list: &str,
-        priority: i32,
-    ) -> bool {
+    pub fn set_priority_thing(&self, set_name: &str, type_or_list: &str, priority: i32) -> bool {
         if let Some(list) = self.get_object_types(type_or_list) {
             for type_name in list.iter() {
                 let Some(template) = TheThingFactory::find_template(type_name.as_str()) else {
@@ -1455,7 +1449,6 @@ impl ScriptEngine {
             inner.win_lose_window_layout = None;
 
             inner.campaign_victorious = false;
-
 
             inner.sequential_scripts.clear();
             inner.next_sequential_runtime_token = 1;

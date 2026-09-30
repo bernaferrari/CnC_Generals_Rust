@@ -1164,15 +1164,65 @@ fn wave14_triangle_area() -> crate::polygon_trigger::PolygonTrigger {
 }
 
 #[test]
+fn explicit_empty_trigger_owner_does_not_fall_back_to_other_world_terrain() {
+    let _lock = crate::test_sync::lock();
+    let trigger = crate::polygon_trigger::PolygonTrigger::new(
+        98_771,
+        crate::common::AsciiString::from("OwnerIsolationSentinel"),
+        vec![
+            crate::common::ICoord3D::new(0, 0, 0),
+            crate::common::ICoord3D::new(20, 0, 0),
+            crate::common::ICoord3D::new(0, 20, 0),
+        ],
+    );
+    let original_triggers = {
+        let mut terrain = crate::terrain::get_terrain_logic()
+            .write()
+            .expect("terrain");
+        let original = terrain.get_trigger_areas().get_triggers().to_vec();
+        terrain.get_trigger_areas_mut().add(trigger.clone());
+        original
+    };
+
+    let engine = get_script_engine();
+    let standalone = ScriptEvaluator::new(engine.clone());
+    assert!(
+        standalone
+            .get_trigger_area("OwnerIsolationSentinel")
+            .is_some()
+    );
+
+    let empty_owner = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::scripting::HostTriggerWorld::default(),
+    ));
+    let owned = ScriptEvaluator::new_with_host_trigger_world(engine, empty_owner);
+    assert!(
+        owned.get_trigger_area("OwnerIsolationSentinel").is_none(),
+        "an explicit empty Main owner is authoritative even when process TerrainLogic holds another world's polygon",
+    );
+    let mut terrain = crate::terrain::get_terrain_logic()
+        .write()
+        .expect("terrain");
+    let areas = terrain.get_trigger_areas_mut();
+    areas.clear();
+    for trigger in original_triggers {
+        areas.add(trigger);
+    }
+}
+
+#[test]
 fn live_named_inside_uses_point_in_trigger_not_aabb() {
     // Triangle (0,0)-(20,0)-(0,20): (18,18) is inside the AABB but outside C++ pointInTrigger.
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
     crate::scripting::clear_host_script_query_snapshot();
-    crate::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain")
-        .add_trigger_area(wave14_triangle_area());
+    let host_trigger_world = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::scripting::HostTriggerWorld::default(),
+    ));
+    host_trigger_world
+        .lock()
+        .expect("trigger world")
+        .set_trigger_areas(&[wave14_triangle_area()]);
 
     crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
         named: [("Scout".into(), 7)].into_iter().collect(),
@@ -1188,7 +1238,8 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
         ..Default::default()
     });
 
-    let evaluator = ScriptEvaluator::new(get_script_engine());
+    let evaluator =
+        ScriptEvaluator::new_with_host_trigger_world(get_script_engine(), host_trigger_world);
     let mut inside = Condition::new(ConditionType::NamedInsideArea);
     inside
         .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
@@ -1246,10 +1297,6 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         crate::scripting::HostTriggerWorld::default(),
     ));
     let trigger = wave14_triangle_area();
-    crate::terrain::get_terrain_logic()
-        .write()
-        .expect("terrain")
-        .add_trigger_area(trigger.clone());
     host_trigger_world
         .lock()
         .expect("trigger world")

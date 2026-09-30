@@ -36,12 +36,8 @@ impl AIManager {
 
     /// Add AI player
     pub fn add_ai_player(&mut self, player_id: u32, team: Team, difficulty: AIDifficulty) {
-        let mut ai_player = AIPlayer::new_with_team_factory(
-            player_id,
-            team,
-            difficulty,
-            self.team_factory.clone(),
-        );
+        let mut ai_player =
+            AIPlayer::new_with_team_factory(player_id, team, difficulty, self.team_factory.clone());
 
         // Initialize with team-appropriate base position
         // Keep pads inside default 512×512 world with MinDistFromEdgeOfMapForBuild=30

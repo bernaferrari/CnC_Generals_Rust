@@ -79,12 +79,10 @@ impl MissionScriptHooks {
     ) -> GameLogicResult<Arc<Self>> {
         let pending_script_enabled_updates = Arc::new(Mutex::new(Vec::new()));
         Ok(Arc::new(Self {
-            runtime: Mutex::new(
-                MissionScriptRuntime::new_with_host_trigger_world(
-                    Arc::clone(&pending_script_enabled_updates),
-                    host_trigger_world,
-                )?,
-            ),
+            runtime: Mutex::new(MissionScriptRuntime::new_with_host_trigger_world(
+                Arc::clone(&pending_script_enabled_updates),
+                host_trigger_world,
+            )?),
             pending_script_enabled_updates,
             messages: Mutex::new(Vec::new()),
             sounds: Mutex::new(Vec::new()),

@@ -619,7 +619,8 @@ impl GameLogic {
             legal_build_objects_in_the_way_residual, legal_build_too_close_to_supplies_residual,
         };
         use crate::game_logic::host_structure_economy_residual::{
-            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER, is_legal_build_height_variation,
+            MIN_DIST_FROM_EDGE_OF_MAP_FOR_BUILD, SUPPLY_BUILD_BORDER,
+            is_legal_build_height_variation,
         };
         let (min, max) = self.world_bounds();
         // Use real map extent (no generous pad) for C++ off-map / edge residual.

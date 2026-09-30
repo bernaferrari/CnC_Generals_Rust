@@ -222,14 +222,11 @@ impl AITeamQueue {
         team_factory: &gamelogic::team::TeamFactoryHandle,
         team_id: u32,
     ) -> Option<String> {
-        team_factory
-            .lock()
-            .ok()
-            .and_then(|factory| {
-                factory
-                    .find_team_by_id(team_id)
-                    .and_then(|arc| arc.read().ok().map(|t| t.get_name().to_string()))
-            })
+        team_factory.lock().ok().and_then(|factory| {
+            factory
+                .find_team_by_id(team_id)
+                .and_then(|arc| arc.read().ok().map(|t| t.get_name().to_string()))
+        })
     }
 
     fn leftover_initial_idle_frames(
@@ -450,9 +447,9 @@ mod player_core;
 mod teams;
 
 #[cfg(test)]
-mod cpp_parity_tests;
-#[cfg(test)]
 mod construction_parity_tests;
+#[cfg(test)]
+mod cpp_parity_tests;
 #[cfg(test)]
 mod ownership_tests;
 

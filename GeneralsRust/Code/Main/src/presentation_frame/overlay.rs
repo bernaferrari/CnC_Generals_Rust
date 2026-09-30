@@ -2373,10 +2373,7 @@ impl PresentationFrame {
             let Some(object) = logic.host_object(renderable.id) else {
                 continue;
             };
-            renderable.draw_playback_identity = Some(logic.live_draw_playback_identity(
-                object.id,
-                object.visual_object_generation,
-            ));
+            renderable.draw_playback_identity = Some(logic.live_draw_playback_identity(object));
         }
     }
 

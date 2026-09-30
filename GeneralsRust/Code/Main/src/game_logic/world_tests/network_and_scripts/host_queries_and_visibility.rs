@@ -570,7 +570,6 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
     };
     use gamelogic::common::Dict;
     use gamelogic::object::registry::OBJECT_REGISTRY;
-    use gamelogic::team::get_team_factory;
 
     OBJECT_REGISTRY.clear();
     let mut logic = GameLogic::new();
@@ -585,9 +584,7 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
     }
 
     {
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return;
-        };
+        let mut factory = logic.team_factory.lock().expect("world team factory");
         let mut dict = Dict::new();
         dict.set_ascii_string(key_team_name(), "HostHookSquad");
         dict.set_ascii_string(key_team_owner(), "PlyrCivilian");
@@ -607,9 +604,7 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
     logic.activate_leftover_team_for_host_object(id);
     logic.inject_host_script_query_snapshot();
     {
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return;
-        };
+        let mut factory = logic.team_factory.lock().expect("world team factory");
         let team = factory.find_team("HostHookSquad").expect("leftover team");
         {
             let mut guard = team.write().expect("write");
@@ -627,9 +622,7 @@ fn live_host_team_hooks_add_member_and_notify_death_once() {
     logic.notify_leftover_team_of_host_object_death(id);
     logic.notify_leftover_team_of_host_object_death(id);
     {
-        let Ok(mut factory) = get_team_factory().lock() else {
-            return;
-        };
+        let mut factory = logic.team_factory.lock().expect("world team factory");
         let team = factory.find_team("HostHookSquad").expect("leftover team");
         let guard = team.read().expect("read");
         assert!(
@@ -650,16 +643,6 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
 
     assert!(OBJECT_REGISTRY.is_empty());
     clear_host_script_query_snapshot();
-    let trigger = PolygonTrigger::new(
-        1412,
-        AsciiString::from("LivePolyPad"),
-        vec![
-            ICoord3D::new(0, 0, 0),
-            ICoord3D::new(30, 0, 0),
-            ICoord3D::new(30, 30, 0),
-            ICoord3D::new(0, 30, 0),
-        ],
-    );
     let trigger = PolygonTrigger::new(
         1412,
         AsciiString::from("LivePolyPad"),
@@ -696,12 +679,9 @@ fn live_host_polygon_inside_and_enter_without_object_registry() {
         host_script_named_unit_in_named_area("MapNamedScout", "LivePolyPad"),
         Some(true)
     );
-    let trigger = gamelogic::scripting::host_script_lookup_polygon_trigger("LivePolyPad")
-        .expect("poly");
-    let host_trigger_world = logic
-        .host_trigger_world
-        .lock()
-        .expect("host trigger owner");
+    let trigger =
+        gamelogic::scripting::host_script_lookup_polygon_trigger("LivePolyPad").expect("poly");
+    let host_trigger_world = logic.host_trigger_world.lock().expect("host trigger owner");
     assert!(gamelogic::scripting::host_object_did_enter(
         &host_trigger_world,
         id.0,
@@ -3080,7 +3060,9 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
     for world in [&mut world_a, &mut world_b] {
         let mut template = ThingTemplate::new("TriggerOwnerProbeUnit");
         template.set_health(100.0);
-        world.templates.insert("TriggerOwnerProbeUnit".into(), template);
+        world
+            .templates
+            .insert("TriggerOwnerProbeUnit".into(), template);
     }
     let id_a = world_a
         .create_object(
@@ -3139,6 +3121,46 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
         "world B's same-ID census must not replace world A's trigger pose"
     );
 
+    // Admission must rebind a cloned Object's weak owner without changing its
+    // restored trigger pose. A later pose change belongs only to the receiving
+    // world even though the clone still carried world A's handle beforehand.
+    let mut world_c = GameLogic::new();
+    world_c
+        .host_trigger_world
+        .lock()
+        .expect("host trigger owner")
+        .set_trigger_areas(&[trigger_b.clone()]);
+    let cloned_a = world_a
+        .host_object(id_a)
+        .expect("world A source object")
+        .clone();
+    world_c.add_object(cloned_a);
+    world_c
+        .host_object_mut(id_a)
+        .expect("admitted clone")
+        .set_position(Vec3::new(210.0, 0.0, 210.0));
+
+    let snapshot_c = builder
+        .create_world_snapshot(&world_c)
+        .expect("capture receiving world after clone move");
+    let c_record = snapshot_c
+        .object_triggers
+        .iter()
+        .find(|entry| entry.object_id == id_a)
+        .expect("receiving-world trigger record");
+    assert_eq!((c_record.i_x, c_record.i_y), (210, 210));
+    assert_eq!(c_record.slots[0].trigger_id, 19022);
+    let snapshot_a_after_clone_move = builder
+        .create_world_snapshot(&world_a)
+        .expect("world A must remain isolated after clone admission");
+    let a_after_clone_move = snapshot_a_after_clone_move
+        .object_triggers
+        .iter()
+        .find(|entry| entry.object_id == id_a)
+        .expect("source-world trigger record after clone move");
+    assert_eq!((a_after_clone_move.i_x, a_after_clone_move.i_y), (110, 110));
+    assert_eq!(a_after_clone_move.slots[0].trigger_id, 19021);
+
     let saved_trigger_state = world_a
         .host_trigger_world
         .lock()
@@ -3148,14 +3170,7 @@ fn host_trigger_snapshot_capture_is_isolated_between_live_worlds() {
     restored_trigger_world.set_trigger_areas(&[trigger_a.clone()]);
     restored_trigger_world.set_current_frame(world_a.frame);
     restored_trigger_world.restore(&saved_trigger_state);
-    restored_trigger_world.update_object_flags(
-        id_a.0,
-        110.0,
-        110.0,
-        world_a.frame,
-        false,
-        None,
-    );
+    restored_trigger_world.update_object_flags(id_a.0, 110.0, 110.0, world_a.frame, false, None);
     assert!(restored_trigger_world.did_enter(id_a.0, &trigger_a, world_a.frame));
 
     clear_host_script_query_snapshot();

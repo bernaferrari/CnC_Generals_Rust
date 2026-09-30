@@ -182,9 +182,7 @@ impl TeamFactoryDeferredEffects {
 static THE_TEAM_FACTORY: OnceLock<TeamFactoryHandle> = OnceLock::new();
 
 fn global_team_factory_handle() -> &'static TeamFactoryHandle {
-    THE_TEAM_FACTORY.get_or_init(|| {
-        TeamFactoryHandle::new()
-    })
+    THE_TEAM_FACTORY.get_or_init(|| TeamFactoryHandle::new())
 }
 
 /// Get the compatibility singleton used by legacy engine-only callers.

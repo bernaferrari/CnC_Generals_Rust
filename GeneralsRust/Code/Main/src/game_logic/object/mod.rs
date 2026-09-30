@@ -1542,6 +1542,12 @@ pub struct Object {
     pub last_weapon_discharge_frame: u32,
     #[serde(skip)]
     pub visual_object_generation: u64,
+    /// Per-admission weak lease target for renderer-local state. Presentation
+    /// snapshots retain a strong clone while frozen; when the object and its
+    /// snapshots retire, RenderPipeline can reclaim generation state without
+    /// dropping culled-but-live objects.
+    #[serde(skip)]
+    pub visual_draw_identity_token: std::sync::Arc<()>,
     #[serde(skip)]
     pub visual_draw_state_revision: u64,
     #[serde(skip)]

@@ -149,7 +149,7 @@ async fn test_create_unit_action() {
             objectives: vec![],
         },
         host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        };
+    };
 
     let result = action.execute(&params, &context).await.unwrap();
     assert!(matches!(result, ScriptResult::Success(_)));
