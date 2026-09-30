@@ -27,13 +27,6 @@ pub use super::host_live_host_ui_framework_clippy_residual_wave881::{
     simulate_live_host_ui_framework_clippy_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_ui_minimap_presentation_peel_residual_wave952::{
-    honesty_host_ui_minimap_presentation_peel_method_names_residual_wave952,
-    honesty_host_ui_minimap_presentation_peel_nav_commands_residual_wave952,
-    honesty_host_ui_minimap_presentation_peel_residual_pack_wave952,
-    simulate_live_host_ui_minimap_presentation_peel_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_ui_observe_failclosed_residual_wave905::{
     honesty_host_ui_observe_failclosed_method_names_residual_wave905,
     honesty_host_ui_observe_failclosed_nav_commands_residual_wave905,

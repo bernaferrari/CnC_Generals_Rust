@@ -41,8 +41,6 @@ pub mod skirmish_menu;
 pub mod themes;
 pub mod ui_manager;
 pub mod victory_screen;
-pub mod wgpu_renderer;
-pub mod wgpu_ui_system;
 pub mod widgets;
 
 // Re-exports for convenience
@@ -76,7 +74,6 @@ pub use skirmish_menu::{GameRules, GameSlot, MAX_SLOTS, PlayerColor, PlayerType,
 pub use themes::{Colors, GeneralsTheme, UITheme};
 pub use ui_manager::{UIEvent, UIManager, UIState};
 pub use victory_screen::{VictoryScreen, VictoryScreenType};
-pub use wgpu_ui_system::{UISystemEvent, UISystemState, WgpuUISystem};
 pub use widgets::{Button, Panel, ProgressBar, Slider, Text, UIWidget};
 
 /// UI Screen types that can be displayed

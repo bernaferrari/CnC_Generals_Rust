@@ -859,16 +859,8 @@ impl CnCGameEngine {
         hits
     }
 
-    pub(super) fn set_runtime_ui_state_projection(&mut self, state: UISystemState) {
-        let projected = match state {
-            UISystemState::MainMenu => "MainMenu",
-            UISystemState::FactionSelection => "FactionSelection",
-            UISystemState::InGame => "GameHUD",
-            UISystemState::PauseMenu => "PauseMenu",
-            UISystemState::Victory => "Victory",
-            UISystemState::Loading => "Loading",
-        };
-        self.runtime_host_base_ui_screen = Some(projected.to_string());
+    pub(super) fn set_runtime_ui_state_projection(&mut self, screen: Screen) {
+        self.runtime_host_base_ui_screen = Some(format!("{screen:?}"));
     }
 
     pub(super) fn set_runtime_host_ui_screen_override(&mut self, screen: Option<&str>) {

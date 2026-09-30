@@ -44,6 +44,7 @@ SCHEMA_VERSION = 1
 REVIEWED_MAPPINGS_FILE = "PORT_PROVENANCE_REVIEWED.json"
 CPP_TRANSLATION_SUFFIXES = (".cpp", ".cxx", ".cc", ".c")
 CPP_HEADER_SUFFIXES = (".h", ".hpp", ".inl")
+GPUI_CATALOGUE_PACKAGE = Path("Code/GameEngine/GameClient/gui")
 
 
 @dataclass(frozen=True)
@@ -378,6 +379,14 @@ def cargo_roots(rust_repo_root: Path) -> list[Path]:
         if "target" in manifest.parts:
             continue
         crate = manifest.parent
+        # This excluded package is a GPUI catalogue of sample models. It is
+        # deliberately outside production port discovery even though its
+        # Cargo.toml makes the local crawler treat it as a standalone root.
+        try:
+            if crate.relative_to(rust_repo_root) == GPUI_CATALOGUE_PACKAGE:
+                continue
+        except ValueError:
+            pass
         for conventional in (crate / "src/lib.rs", crate / "src/main.rs"):
             if conventional.is_file():
                 roots.add(conventional.resolve())
@@ -450,6 +459,11 @@ def collect_rust_files(repo_root: Path) -> tuple[list[RustFileInfo], set[Path]]:
     for path in sorted((rust_repo_root / "Code").rglob("*.rs")):
         if "target" in path.parts or any(part.startswith(".cargo-") for part in path.parts):
             continue
+        try:
+            if path.relative_to(rust_repo_root).is_relative_to(GPUI_CATALOGUE_PACKAGE):
+                continue
+        except ValueError:
+            pass
         content = path.read_text(encoding="utf-8", errors="ignore")
         symbols = tuple(
             (kind, name, content.count("\n", 0, match.start()) + 1)

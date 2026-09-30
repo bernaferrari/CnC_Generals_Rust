@@ -2260,8 +2260,6 @@
 ../GeneralsRust/Code/Main/src/ui/themes.rs
 ../GeneralsRust/Code/Main/src/ui/ui_manager.rs
 ../GeneralsRust/Code/Main/src/ui/victory_screen.rs
-../GeneralsRust/Code/Main/src/ui/wgpu_renderer.rs
-../GeneralsRust/Code/Main/src/ui/wgpu_ui_system.rs
 ../GeneralsRust/Code/Main/src/ui/widgets.rs
 ../GeneralsRust/Code/Main/src/unit_control.rs
 ../GeneralsRust/Code/Main/src/unit_input_handler.rs

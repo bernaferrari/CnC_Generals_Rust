@@ -23346,7 +23346,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/animate_window_manager.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/animate_window_manager.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/AnimateWindowManager.cpp",
@@ -23477,7 +23477,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/challenge_generals.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/challenge_generals.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ChallengeGenerals.cpp",
@@ -23711,7 +23711,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/commands.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBar.cpp",
@@ -24121,7 +24121,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_beacon.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_beacon.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarBeacon.cpp",
@@ -24148,14 +24148,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_command.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_command.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarCommand.cpp",
@@ -24214,14 +24215,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_command_processing.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_command_processing.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarCommandProcessing.cpp",
@@ -24255,7 +24257,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_multi_select.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_multi_select.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarMultiSelect.cpp",
@@ -24293,7 +24295,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_ocl_timer.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_ocl_timer.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarOCLTimer.cpp",
@@ -24327,7 +24329,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_observer.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_observer.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarObserver.cpp",
@@ -24365,7 +24367,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_print_positions.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_print_positions.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarPrintPositions.cpp",
@@ -24395,7 +24397,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_resizer.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_resizer.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarResizer.cpp",
@@ -24454,16 +24456,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_scheme.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarScheme.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBarScheme.cpp",
@@ -24632,7 +24630,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_structure_inventory.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_structure_inventory.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarStructureInventory.cpp",
@@ -24666,7 +24664,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/control_bar/control_bar_under_construction.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/control_bar/control_bar_under_construction.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ControlBar/ControlBarUnderConstruction.cpp",
@@ -24888,14 +24886,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/control_bar_callback.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_callback.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/ControlBarCallback.cpp",
@@ -24941,7 +24940,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/control_bar_popup_description.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/control_bar_popup_description.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/ControlBarPopupDescription.cpp",
@@ -25093,7 +25092,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/diplomacy.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/diplomacy.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Diplomacy.cpp",
@@ -25164,14 +25163,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/extended_message_box.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/extended_message_box.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/ExtendedMessageBox.cpp",
@@ -25229,7 +25229,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/generals_exp_points.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/generals_exp_points.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/GeneralsExpPoints.cpp",
@@ -25259,7 +25259,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/ime_candidate.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/ime_candidate.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/IMECandidate.cpp",
@@ -25290,14 +25290,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/in_game_chat.rs"
+              "cargo_reachable": false,
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/in_game_chat.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/InGameChat.cpp",
@@ -25355,7 +25356,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/in_game_popup_message.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/in_game_popup_message.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/InGamePopupMessage.cpp",
@@ -25389,7 +25390,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/challenge_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/challenge_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/ChallengeMenu.cpp",
@@ -25463,14 +25464,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/credits_menu.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/credits_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/CreditsMenu.cpp",
@@ -25512,7 +25514,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/difficulty_select.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/difficulty_select.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/DifficultySelect.cpp",
@@ -25543,14 +25545,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/disconnect_window.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/disconnect_window.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/DisconnectWindow.cpp",
@@ -25592,7 +25595,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/download_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/download_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/DownloadMenu.cpp",
@@ -25675,14 +25678,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/establish_connections_window.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/establish_connections_window.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/EstablishConnectionsWindow.cpp",
@@ -25777,7 +25781,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/game_info_window.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/game_info_window.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/GameInfoWindow.cpp",
@@ -25823,7 +25827,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/keyboard_options_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/keyboard_options_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/KeyboardOptionsMenu.cpp",
@@ -25889,7 +25893,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/lan_game_options_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/lan_game_options_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/LanGameOptionsMenu.cpp",
@@ -26003,7 +26007,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/lan_lobby_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/lan_lobby_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/LanLobbyMenu.cpp",
@@ -26113,7 +26117,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/lan_map_select_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/lan_map_select_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/LanMapSelectMenu.cpp",
@@ -26157,13 +26161,14 @@
         {
           "blockers": [
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership"
+            "unreviewed_symbol_ownership",
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/main_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/MainMenu.cpp",
@@ -26294,14 +26299,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/map_select_menu.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/map_select_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/MapSelectMenu.cpp",
@@ -26359,7 +26365,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/network_direct_connect.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/network_direct_connect.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/NetworkDirectConnect.cpp",
@@ -26443,14 +26449,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/options_menu.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/options_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/OptionsMenu.cpp",
@@ -26711,7 +26718,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_communicator.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_communicator.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupCommunicator.cpp",
@@ -26753,7 +26760,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_host_game.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_host_game.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupHostGame.cpp",
@@ -26811,7 +26818,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_join_game.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_join_game.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupJoinGame.cpp",
@@ -26849,7 +26856,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_ladder_select.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_ladder_select.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupLadderSelect.cpp",
@@ -26919,7 +26926,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_player_info.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_player_info.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupPlayerInfo.cpp",
@@ -27025,7 +27032,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_replay.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_replay.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupReplay.cpp",
@@ -27128,7 +27135,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/popup_save_load.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/popup_save_load.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/PopupSaveLoad.cpp",
@@ -27198,7 +27205,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/quit_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/quit_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/QuitMenu.cpp",
@@ -27264,7 +27271,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/replay_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/ReplayMenu.cpp",
@@ -27342,7 +27349,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/score_screen.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/score_screen.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/ScoreScreen.cpp",
@@ -27469,14 +27476,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/single_player_menu.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gui_callbacks/menus/single_player_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/SinglePlayerMenu.cpp",
@@ -27522,7 +27530,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/skirmish_game_options_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_game_options_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/SkirmishGameOptionsMenu.cpp",
@@ -27740,7 +27748,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/skirmish_map_select_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/skirmish_map_select_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/SkirmishMapSelectMenu.cpp",
@@ -27794,7 +27802,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_buddy_overlay.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_buddy_overlay.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLBuddyOverlay.cpp",
@@ -27915,7 +27923,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_custom_score_screen.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_custom_score_screen.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLCustomScoreScreen.cpp",
@@ -27957,7 +27965,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_game_setup_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_game_setup_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLGameSetupMenu.cpp",
@@ -28124,7 +28132,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_ladder_screen.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_ladder_screen.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLLadderScreen.cpp",
@@ -28166,7 +28174,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_lobby_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_lobby_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLLobbyMenu.cpp",
@@ -28285,7 +28293,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_locale_select_popup.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_locale_select_popup.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLLocaleSelectPopup.cpp",
@@ -28327,7 +28335,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_login_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_login_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLLoginMenu.cpp",
@@ -28522,7 +28530,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_map_select_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_map_select_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLMapSelectMenu.cpp",
@@ -28617,7 +28625,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_message_window.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_message_window.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLMessageWindow.cpp",
@@ -28659,7 +28667,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_qm_score_screen.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wolqm_score_screen.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLQMScoreScreen.cpp",
@@ -28701,7 +28709,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_quick_match_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_quick_match_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLQuickMatchMenu.cpp",
@@ -28807,7 +28815,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_status_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_status_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLStatusMenu.cpp",
@@ -28849,7 +28857,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/menus/wol_welcome_menu.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/wol_welcome_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/Menus/WOLWelcomeMenu.cpp",
@@ -28931,7 +28939,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/message_box.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/message_box.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/MessageBox.cpp",
@@ -28985,7 +28993,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/callbacks/replay_controls.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/callbacks/replay_controls.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GUICallbacks/ReplayControls.cpp",
@@ -29008,14 +29016,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_check_box.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_check_box.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetCheckBox.cpp",
@@ -29054,14 +29063,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_combo_box.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_combo_box.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetComboBox.cpp",
@@ -29172,14 +29182,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_horizontal_slider.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_horizontal_slider.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetHorizontalSlider.cpp",
@@ -29202,14 +29213,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_list_box.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_list_box.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetListBox.cpp",
@@ -29515,14 +29527,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_progress_bar.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_progress_bar.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetProgressBar.cpp",
@@ -29545,14 +29558,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_push_button.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_push_button.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetPushButton.cpp",
@@ -29635,14 +29649,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_radio_button.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_radio_button.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetRadioButton.cpp",
@@ -29685,14 +29700,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_static_text.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_static_text.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetStaticText.cpp",
@@ -29772,14 +29788,15 @@
       "units": [
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_tab_control.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_tab_control.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetTabControl.cpp",
@@ -29826,14 +29843,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_text_entry.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_text_entry.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetTextEntry.cpp",
@@ -29864,14 +29882,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/gadget/gadget_vertical_slider.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/gadget/gadget_vertical_slider.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Gadget/GadgetVerticalSlider.cpp",
@@ -29901,7 +29920,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/game_font.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_font.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GameFont.cpp",
@@ -30373,7 +30392,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/game_window_global.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_global.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GameWindowGlobal.cpp",
@@ -30440,14 +30459,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/game_window_manager.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_manager.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GameWindowManager.cpp",
@@ -30795,7 +30815,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/game_window_manager_script.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_manager_script.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GameWindowManagerScript.cpp",
@@ -31055,7 +31075,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/game_window_transitions.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_transitions.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GameWindowTransitions.cpp",
@@ -31337,7 +31357,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/game_window_transitions_styles.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/game_window_transitions_styles.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/GameWindowTransitionsStyles.cpp",
@@ -31795,7 +31815,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/header_template.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/header_template.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/HeaderTemplate.cpp",
@@ -31877,7 +31897,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/ime_manager.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/ime_manager.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/IMEManager.cpp",
@@ -32319,14 +32339,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/process_animate_window.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/process_animate_window.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/ProcessAnimateWindow.cpp",
@@ -32535,24 +32556,13 @@
           "blockers": [
             "unreviewed_mapping",
             "unreviewed_symbol_ownership",
-            "unreviewed_source_range_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/shell/shell_menu_scheme.rs"
+            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/shell/mod.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/shell/shell.rs"
-            },
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/shell/shell_menu_scheme.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/Shell/Shell.cpp",
@@ -32739,17 +32749,12 @@
       "units": [
         {
           "blockers": [
+            "missing_mapping",
+            "no_reachable_implementation",
             "unreviewed_mapping",
-            "unreviewed_symbol_ownership",
-            "duplicate_implementation_destination:GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/shell/shell_menu_scheme.rs"
+            "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/shell/shell_menu_scheme.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "game_engine:Source/GameClient/GUI/Shell/ShellMenuScheme.cpp",
           "source": {
             "path": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/Shell/ShellMenuScheme.cpp",
@@ -32860,14 +32865,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/win_instance_data.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/win_instance_data.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/WinInstanceData.cpp",
@@ -32906,14 +32912,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/window_layout.rs"
+              "classification": "shim",
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/window_layout.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/WindowLayout.cpp",
@@ -32971,7 +32978,7 @@
             {
               "cargo_reachable": true,
               "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameClient/gui/src/gui/window_video_manager.rs"
+              "path": "GeneralsRust/Code/GameEngine/GameClient/src/gui/window_video_manager.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameClient/GUI/WindowVideoManager.cpp",
@@ -183376,7 +183383,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "78848ffe58ddcf8857bc826e06776a5c32ec9387a73bee0646ecf1ecd57100bb",
+  "provenance_input_digest": "458f3065b6d26c576f2f70d0c0c1415d3477477cb8d67b27c3f8d57a830f07a3",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import unittest
+from collections import defaultdict
 from pathlib import Path
 
 
@@ -120,6 +121,54 @@ class GeneratePortProvenanceTests(unittest.TestCase):
         self.assertEqual("no_reachable_implementation", bar["mapping"]["candidate_status"])
         self.assertEqual("test", baz["mapping"]["destinations"][0]["classification"])
         self.assertEqual("no_reachable_implementation", baz["mapping"]["candidate_status"])
+
+    def test_gpui_catalogue_cannot_shadow_a_reachable_production_split(self) -> None:
+        temporary, fixture = self.build_fixture()
+        self.addCleanup(temporary.cleanup)
+        fixture.write(
+            "GeneralsRust/Code/GameEngine/GameClient/gui/Cargo.toml",
+            '[package]\nname = "gpui-gui"\nversion = "0.1.0"\n',
+        )
+        fixture.write(
+            "GeneralsRust/Code/GameEngine/GameClient/gui/src/lib.rs",
+            "pub mod foo;\n",
+        )
+        fixture.write(
+            "GeneralsRust/Code/GameEngine/GameClient/gui/src/foo/mod.rs",
+            "pub struct FooSample;\n",
+        )
+
+        rust_infos, _reachable = provenance.collect_rust_files(fixture.root)
+        by_relative = {info.relative: info for info in rust_infos}
+        by_absolute = {info.absolute: info for info in rust_infos}
+        by_stem: dict[str, list[provenance.RustFileInfo]] = defaultdict(list)
+        split_roots: dict[str, list[provenance.RustFileInfo]] = defaultdict(list)
+        for info in rust_infos:
+            by_stem[provenance.normalize_name(Path(info.relative).stem)].append(info)
+            split_roots[provenance.normalize_name(Path(info.relative).parent.name)].append(info)
+
+        source = fixture.root / "GeneralsMD/Code/GameEngine/Source/GameClient/Foo.cpp"
+        source_rel = provenance.relative_posix(source, fixture.root)
+        mode, review_state, destinations = provenance.discover_destinations(
+            source,
+            source_rel,
+            provenance.SCOPE_ROOTS[0],
+            rust_infos,
+            by_relative,
+            by_absolute,
+            by_stem,
+            split_roots,
+            {},
+        )
+
+        paths = {destination.relative for destination in destinations}
+        self.assertEqual("split_inferred", mode)
+        self.assertTrue(any(path.endswith("GameClient/src/foo/mod.rs") for path in paths))
+        self.assertFalse(any("GameClient/gui/" in path for path in paths))
+        self.assertEqual("unreviewed", review_state)
+        self.assertNotIn(
+            "GeneralsRust/Code/GameEngine/GameClient/gui/src/foo/mod.rs", by_relative
+        )
 
     def test_network_units_are_explicitly_deferred_not_silently_omitted(self) -> None:
         temporary, fixture = self.build_fixture()
