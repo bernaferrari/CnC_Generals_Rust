@@ -202,3 +202,30 @@ fn projectile_detonation_selects_detonate_fx_not_fire_fx() {
         .expect("capture");
     assert!(capture.is_projectile_detonation);
 }
+
+#[test]
+fn admitted_visual_generation_survives_first_accepted_weapon_discharge() {
+    let mut logic = GameLogic::new();
+    let source = ObjectId(80);
+    logic.add_object(test_object(80));
+    let admitted_generation = logic.host_object(source).unwrap().visual_object_generation;
+    assert_ne!(admitted_generation, 0);
+    logic
+        .record_accepted_weapon_discharge(source, 0)
+        .expect("accepted weapon");
+    assert_eq!(
+        logic.host_object(source).unwrap().visual_object_generation,
+        admitted_generation
+    );
+    let cloned = logic.host_object(source).unwrap().clone();
+    logic.add_object(cloned);
+    let replacement_generation = logic.host_object(source).unwrap().visual_object_generation;
+    assert_ne!(replacement_generation, admitted_generation);
+    logic
+        .record_accepted_weapon_discharge(source, 0)
+        .expect("replacement accepted weapon");
+    assert_eq!(
+        logic.host_object(source).unwrap().visual_object_generation,
+        replacement_generation
+    );
+}

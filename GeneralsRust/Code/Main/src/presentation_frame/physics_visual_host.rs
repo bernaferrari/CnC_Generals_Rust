@@ -11,26 +11,19 @@ use crate::game_logic::{
     GameLogic, KindOf, LocomotorAppearance, Object, ObjectId, PhysicsTurningType,
 };
 use game_client::physics_visual::{
-    LiveClientRng, LocomotorVisualParams, OverlapVisualTarget, PhysicsVisualAppearance,
-    PhysicsVisualBody, PhysicsVisualInput, PhysicsVisualLocoState, calc_physics_visual_xform,
-    glam_yup_physics_visual_local,
+    ClientVisualRng, LiveClientRng, LocomotorVisualParams, OverlapVisualTarget,
+    PhysicsVisualAppearance, PhysicsVisualBody, PhysicsVisualInput, PhysicsVisualLocoState,
+    calc_physics_visual_xform, glam_yup_physics_visual_local,
 };
 use game_engine::common::ini::get_global_data;
 use glam::Mat4;
-use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use std::collections::HashMap;
 
 /// C++ `isSignificantlyAboveTerrain` with default gravity -1 → threshold 9.
 const SIGNIFICANTLY_ABOVE: f32 = 9.0;
 
-static FACTS: Lazy<Mutex<HashMap<u32, HostPhysicsVisualFacts>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-static LOCO: Lazy<Mutex<HashMap<u32, PhysicsVisualLocoState>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
-
 /// Frozen per-object facts for one presentation frame (C++ Z-up inside calc).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HostPhysicsVisualFacts {
     pub appearance: PhysicsVisualAppearance,
     pub params: LocomotorVisualParams,
@@ -43,88 +36,182 @@ pub struct HostPhysicsVisualFacts {
     pub script_time_frozen_script: bool,
 }
 
-pub fn freeze_for_object(
-    obj: &Object,
-    objects: &std::collections::HashMap<ObjectId, Object>,
-    script_time_frozen: bool,
-    script_camera_time_frozen: bool,
-    logic: &GameLogic,
-) {
-    let Some(facts) = collect_facts(
-        obj,
-        objects,
-        script_time_frozen,
-        script_camera_time_frozen,
-        |pos| logic.terrain_height_at(pos),
-    ) else {
-        FACTS.lock().remove(&obj.id.0);
-        return;
-    };
-    FACTS.lock().insert(obj.id.0, facts);
+/// Immutable facts captured at a host presentation boundary. The ordinal is
+/// allocated by its game owner; constructing another game cannot publish it.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct FrozenHostPhysicsVisuals {
+    pub(super) origin: std::sync::Arc<()>,
+    pub ordinal: u64,
+    pub world_epoch: u64,
+    pub frozen: bool,
+    pub objects: HashMap<ObjectId, FrozenHostPhysicsObject>,
 }
 
-/// Run gates + calc + Y-up post-multiply on a host world matrix.
-#[must_use]
-pub fn apply_to_world_matrix(id: ObjectId, base: Mat4) -> Mat4 {
-    let Some(facts) = FACTS.lock().get(&id.0).copied() else {
-        return base;
-    };
-    let input_gates = PhysicsVisualInput {
-        has_object: facts.body.has_object,
-        object_disabled_held: facts.object_disabled_held,
-        show_client_physics: facts.show_client_physics,
-        tactical_view_time_frozen: facts.tactical_view_time_frozen,
-        camera_movement_finished: facts.camera_movement_finished,
-        script_time_frozen_debug: facts.script_time_frozen_debug,
-        script_time_frozen_script: facts.script_time_frozen_script,
-        calculated_xform: None,
-    };
-    if !input_gates.permits_application() {
-        return base;
+impl PartialEq for FrozenHostPhysicsVisuals {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.origin, &other.origin)
+            && self.ordinal == other.ordinal
+            && self.world_epoch == other.world_epoch
+            && self.frozen == other.frozen
+            && self.objects == other.objects
     }
-    if let Some(cached) = super::host_draw_schedule::cached_applied_matrix(id) {
-        return cached;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct FrozenHostPhysicsObject {
+    pub generation: u64,
+    pub facts: HostPhysicsVisualFacts,
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct HostPhysicsVisualState {
+    pub(super) origin: std::sync::Arc<()>,
+    next_ordinal: u64,
+    active_ordinal: u64,
+    world_epoch: u64,
+    loco: HashMap<ObjectId, (u64, PhysicsVisualLocoState)>,
+    pub(super) schedule: super::host_draw_schedule::HostDrawSchedule,
+}
+
+impl HostPhysicsVisualState {
+    pub(crate) fn freeze(&mut self, logic: &GameLogic) -> FrozenHostPhysicsVisuals {
+        self.next_ordinal = self
+            .next_ordinal
+            .checked_add(1)
+            .expect("host physics frame ordinal exhausted");
+        self.loco.retain(|id, (generation, _)| {
+            logic
+                .host_objects()
+                .get(id)
+                .is_some_and(|object| object.visual_object_generation == *generation)
+        });
+        let script_frozen = logic.is_script_time_frozen();
+        let camera_frozen = logic.is_script_camera_time_frozen();
+        FrozenHostPhysicsVisuals {
+            origin: std::sync::Arc::clone(&self.origin),
+            ordinal: self.next_ordinal,
+            world_epoch: logic.host_visual_world_epoch(),
+            frozen: script_frozen || camera_frozen,
+            objects: logic
+                .host_objects()
+                .iter()
+                .filter_map(|(id, object)| {
+                    if object.drawable_hidden {
+                        return None;
+                    }
+                    let facts = collect_facts(
+                        object,
+                        logic.host_objects(),
+                        script_frozen,
+                        camera_frozen,
+                        |pos| logic.terrain_height_at(pos),
+                    )?;
+                    Some((
+                        *id,
+                        FrozenHostPhysicsObject {
+                            generation: object.visual_object_generation,
+                            facts,
+                        },
+                    ))
+                })
+                .collect(),
+        }
     }
-    if !super::host_draw_schedule::should_calc_loco(id) {
-        return base;
+
+    fn begin(&mut self, frame: &FrozenHostPhysicsVisuals) -> bool {
+        // The live renderer only installs its latest completed frame. An expired
+        // snapshot cannot rewind retained visual state or consume client RNG.
+        if !std::sync::Arc::ptr_eq(&self.origin, &frame.origin) {
+            return false;
+        }
+        if frame.ordinal < self.next_ordinal || frame.ordinal < self.active_ordinal {
+            return false;
+        }
+        if frame.ordinal == self.active_ordinal {
+            return true;
+        }
+        self.active_ordinal = frame.ordinal;
+        if self.world_epoch != frame.world_epoch {
+            self.loco.clear();
+        }
+        self.world_epoch = frame.world_epoch;
+        self.schedule
+            .begin_presented_frame(super::host_draw_schedule::HostPresentVisualInput {
+                visual_dt_ms: if frame.frozen {
+                    0
+                } else {
+                    super::host_draw_schedule::HOST_VISUAL_FRAME_MS
+                },
+                frozen: frame.frozen,
+            });
+        true
     }
 
-    let mut loco = LOCO
-        .lock()
-        .entry(id.0)
-        .or_insert_with(PhysicsVisualLocoState::default)
-        .clone();
-    let mut rng = LiveClientRng;
-    let Some(xform) = calc_physics_visual_xform(
-        facts.appearance,
-        &mut loco,
-        &facts.params,
-        &facts.body,
-        &mut rng,
-    ) else {
-        return base;
-    };
-    LOCO.lock().insert(id.0, loco);
-    let applied = base * glam_yup_physics_visual_local(xform);
-    super::host_draw_schedule::note_loco_applied(id, applied);
-    applied
-}
+    pub(crate) fn complete_input(
+        &mut self,
+        input: &mut super::UnitRenderInput,
+        frame: &super::PresentationFrame,
+    ) {
+        input.physics_visual_local =
+            self.local_matrix(&frame.host_physics_visuals, input.id, &mut LiveClientRng);
+    }
 
-#[cfg(test)]
-pub fn reset_host_physics_visual_state() {
-    FACTS.lock().clear();
-    LOCO.lock().clear();
-    super::host_draw_schedule::reset_host_present_schedule();
-}
+    pub(super) fn local_matrix(
+        &mut self,
+        frame: &FrozenHostPhysicsVisuals,
+        id: ObjectId,
+        rng: &mut impl ClientVisualRng,
+    ) -> Option<Mat4> {
+        if !self.begin(frame) {
+            return None;
+        }
+        let object = frame.objects.get(&id)?;
+        let facts = object.facts;
+        let gates = PhysicsVisualInput {
+            has_object: facts.body.has_object,
+            object_disabled_held: facts.object_disabled_held,
+            show_client_physics: facts.show_client_physics,
+            tactical_view_time_frozen: facts.tactical_view_time_frozen,
+            camera_movement_finished: facts.camera_movement_finished,
+            script_time_frozen_debug: facts.script_time_frozen_debug,
+            script_time_frozen_script: facts.script_time_frozen_script,
+            calculated_xform: None,
+        };
+        if !gates.permits_application() {
+            return None;
+        }
+        if let Some(matrix) = self.schedule.cached_applied_matrix(id) {
+            return Some(matrix);
+        }
+        if !self.schedule.should_calc_loco(id) {
+            return None;
+        }
+        let mut loco = self
+            .loco
+            .get(&id)
+            .filter(|(generation, _)| *generation == object.generation)
+            .map(|(_, loco)| *loco)
+            .unwrap_or_default();
+        let xform = calc_physics_visual_xform(
+            facts.appearance,
+            &mut loco,
+            &facts.params,
+            &facts.body,
+            rng,
+        )?;
+        self.loco.insert(id, (object.generation, loco));
+        let local = glam_yup_physics_visual_local(xform);
+        self.schedule.note_loco_applied(id, local);
+        Some(local)
+    }
 
-#[cfg(test)]
-pub fn loco_state(id: ObjectId) -> PhysicsVisualLocoState {
-    LOCO.lock().get(&id.0).copied().unwrap_or_default()
-}
-
-#[cfg(test)]
-pub fn insert_facts_for_test(id: ObjectId, facts: HostPhysicsVisualFacts) {
-    FACTS.lock().insert(id.0, facts);
+    #[cfg(test)]
+    pub(super) fn loco_state(&self, id: ObjectId) -> PhysicsVisualLocoState {
+        self.loco
+            .get(&id)
+            .map(|(_, loco)| *loco)
+            .unwrap_or_default()
+    }
 }
 
 fn collect_facts(

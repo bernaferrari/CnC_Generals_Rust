@@ -40,6 +40,12 @@ impl RenderPipeline {
                 &[FrozenDirectDrawableSceneCandidate],
             ) -> Vec<FrozenDirectDrawableSceneDecision>,
         >,
+        complete_physics_visual: Option<
+            &mut dyn FnMut(
+                &mut crate::presentation_frame::UnitRenderInput,
+                &crate::presentation_frame::PresentationFrame,
+            ),
+        >,
     ) -> Result<()> {
         let execute_started = std::time::Instant::now();
         trace!("RenderPipeline::execute frame {}", self.frame_number + 1);
@@ -184,6 +190,7 @@ impl RenderPipeline {
                 &mut deferred_model_load_budget,
                 delta_time,
                 &mut direct_scene_candidates,
+                complete_physics_visual,
             )?;
             collect_elapsed = collect_started.elapsed();
             let direct_scene_decisions = direct_scene_decision_resolver

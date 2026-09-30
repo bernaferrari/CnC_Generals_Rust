@@ -114,6 +114,11 @@ pub struct UnitRenderInput {
     /// Exact selected models for all source-authored W3D Draw modules. Source
     /// order and module identity are preserved; equal basenames are not merged.
     pub draw_models: Vec<crate::assets::AuthoredDrawModel>,
+    /// Local transform completed once by the driving visual owner. Matrix
+    /// reads never advance locomotor state or consume client randomness.
+    pub physics_visual_local: Option<glam::Mat4>,
+    #[cfg(feature = "game_client")]
+    pub specialized_draw: Option<std::rc::Rc<game_client::core::PresentationSpecializedDrawSnapshot>>,
     /// Frozen C++ `Drawable::updateDrawableClipStatus` payloads.  They retain
     /// concrete WeaponSet slot identity rather than collapsing to the active
     /// weapon, because C++ broadcasts every slot to every Draw module.
@@ -343,6 +348,9 @@ impl UnitRenderInput {
             template_name: ro.template_name.clone(),
             model_key,
             draw_models,
+            physics_visual_local: None,
+            #[cfg(feature = "game_client")]
+            specialized_draw: None,
             projectile_clip_statuses: ro.projectile_clip_statuses,
             mesh_scale: if ro.mesh_scale > 0.0 {
                 ro.mesh_scale
@@ -617,14 +625,7 @@ impl UnitRenderInput {
                 base *= glam::Mat4::from_translation(glam::Vec3::new(0.0, dz, 0.0));
             }
         }
-        #[cfg(feature = "game_client")]
-        {
-            physics_visual_host::apply_to_world_matrix(self.id, base)
-        }
-        #[cfg(not(feature = "game_client"))]
-        {
-            base
-        }
+        self.physics_visual_local.map_or(base, |local| base * local)
     }
 
     /// Wave 495: ensure combat motion flags are present in model-condition bits.

@@ -1693,6 +1693,12 @@ impl CnCGameEngine {
         }
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
+        #[cfg(feature = "game_client")]
+        if let Some(frame) = self.last_presentation_frame.as_ref() {
+            self.render_pipeline.ensure_specialized_draw_inputs(
+                frame, &self.game_client, self.host_direct_visual_world_epoch,
+            );
+        }
         {
             let (w, h) = super::types::render_surface_extent(&self.window);
             self.render_pipeline.set_tactical_3d_viewport(
@@ -1783,6 +1789,8 @@ impl CnCGameEngine {
         let camera_position = self.camera_position;
         #[cfg(feature = "game_client")]
         {
+            let mut physics_visual_owner = self.game_logic.host_physics_visuals.borrow_mut();
+            let mut complete_physics_visual = |input: &mut crate::presentation_frame::UnitRenderInput, frame: &crate::presentation_frame::PresentationFrame| physics_visual_owner.complete_input(input, frame);
             let (render_pipeline, graphics_system, game_client) = (
                 &mut self.render_pipeline,
                 &mut self.graphics_system,
@@ -1853,6 +1861,7 @@ impl CnCGameEngine {
                 deferred_startup_model_load_budget,
                 skip_world_scene,
                 Some(&mut direct_scene_candidate_sink),
+                Some(&mut complete_physics_visual),
             )?;
         }
         #[cfg(not(feature = "game_client"))]
@@ -1865,6 +1874,7 @@ impl CnCGameEngine {
             allow_sync_model_loads,
             deferred_startup_model_load_budget,
             skip_world_scene,
+            None,
             None,
         )?;
         let render_pipeline_elapsed = render_pipeline_started.elapsed();

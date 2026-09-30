@@ -2178,7 +2178,7 @@ impl GameLogic {
                 // so detectors do not IR-ping / scan in lockstep on the spawn frame.
                 object.apply_stealth_detector_ctor_stagger(self.frame);
             }
-            self.objects.insert(id, object);
+            self.admit_host_object(object);
             if !starts_under_construction {
                 if let Some(obj) = self.objects.get_mut(&id) {
                     obj.stamp_partition_value_threat();
@@ -2563,7 +2563,7 @@ impl GameLogic {
                 object.record_host_movement();
             }
 
-            self.objects.insert(id, object);
+            self.admit_host_object(object);
             self.inherit_team_ai_defaults(id);
 
             let team_ord = match team {

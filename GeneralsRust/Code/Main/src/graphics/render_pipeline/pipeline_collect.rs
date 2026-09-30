@@ -160,6 +160,12 @@ impl RenderPipeline {
         deferred_model_load_budget: &mut usize,
         delta_time: f32,
         direct_scene_candidates: &mut Vec<FrozenDirectDrawableSceneCandidate>,
+        mut complete_physics_visual: Option<
+            &mut dyn FnMut(
+                &mut crate::presentation_frame::UnitRenderInput,
+                &crate::presentation_frame::PresentationFrame,
+            ),
+        >,
     ) -> Result<()> {
         let collect_started = Instant::now();
         let object_ids_started = Instant::now();
@@ -203,6 +209,13 @@ impl RenderPipeline {
             } else {
                 Vec::new()
             };
+
+        #[cfg(feature = "game_client")]
+        if let (Some(bundle), Some(frame)) =
+            (self.frozen_specialized_draw.as_ref(), presentation.as_ref())
+        {
+            bundle.apply_to_inputs(frame, &mut unit_inputs);
+        }
 
         trace!(
             "collect_render_items processing {} units (presentation_unit_pass={})",
@@ -253,7 +266,15 @@ impl RenderPipeline {
             // `UnitRenderInput::world_matrix` already applies the frozen
             // Object INI asset scale.  Applying it again here made every
             // non-1.0 object scale quadratically in the live WGPU pass.
+            if let (Some(complete), Some(frame)) = (
+                complete_physics_visual.as_deref_mut(),
+                presentation.as_deref(),
+            ) {
+                complete(&mut u, frame);
+            }
             let world_matrix = gameplay_to_render_transform(u.world_matrix());
+            #[cfg(feature = "game_client")]
+            let specialized_draw = u.specialized_draw.as_deref();
             // Presentation has already selected the exact source-authored
             // models *and animation state* from every ConditionState Draw
             // module. Never reconstruct either from combat bits or mesh-name
@@ -286,11 +307,7 @@ impl RenderPipeline {
                 selected_draw_models_for_collection(&mut u.draw_models, &u.model_key);
             #[cfg(feature = "game_client")]
             if draw_models.is_empty() {
-                if let Some(spec) =
-                    game_client::core::game_client::presentation_specialized_draw_snapshot(
-                        object_id.0,
-                    )
-                {
+                if let Some(spec) = specialized_draw {
                     if spec.is_debris() && !spec.model_name.trim().is_empty() {
                         draw_models.push(crate::assets::AuthoredDrawModel {
                             module_index: 0,
@@ -301,9 +318,7 @@ impl RenderPipeline {
                 }
             }
             #[cfg(feature = "game_client")]
-            if game_client::core::game_client::presentation_specialized_draw_snapshot(object_id.0)
-                .is_some_and(|spec| spec.is_science_hidden())
-            {
+            if specialized_draw.is_some_and(|spec| spec.is_science_hidden()) {
                 continue;
             }
 
@@ -591,11 +606,7 @@ impl RenderPipeline {
                                 render_item.animation_frame = anim_frame;
                                 render_item.animation_binding = animation_binding.clone();
                                 #[cfg(feature = "game_client")]
-                                if let Some(spec) =
-                                    game_client::core::game_client::presentation_specialized_draw_snapshot(
-                                        object_id.0,
-                                    )
-                                {
+                                if let Some(spec) = specialized_draw {
                                     if let Some(uv) = spec.tread_uv_for_mesh(&mesh.name) {
                                         render_item.uv_offset_override =
                                             Some(glam::Vec2::new(uv[0], uv[1]));

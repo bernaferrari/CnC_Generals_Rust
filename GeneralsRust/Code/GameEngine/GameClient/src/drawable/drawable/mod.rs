@@ -71,6 +71,9 @@ pub(crate) fn dual_world_registry_unavailable() -> bool {
 pub struct BasicDrawable {
     id: DrawableId,
     object_id: Option<u32>,
+    /// Runtime-only specialized visuals, owned by this Drawable lifetime.
+    pub(crate) presentation_specialized_draw:
+        Option<crate::core::game_client::PresentationSpecializedDrawState>,
     /// C++ `m_drawableInfo` — W3D user-data binding (IDs, not raw Drawable*).
     drawable_info: DrawableInfo,
     template_name: Option<String>,
@@ -217,6 +220,7 @@ impl BasicDrawable {
         Self {
             id,
             object_id: None,
+            presentation_specialized_draw: None,
             // C++ Drawable.cpp: m_drawableInfo.m_drawable = this; m_ghostObject = NULL;
             drawable_info: DrawableInfo::for_drawable(id.0),
             template_name: None,

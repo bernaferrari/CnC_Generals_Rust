@@ -1260,34 +1260,7 @@ impl PresentationFrame {
         }
         sync_live_terrain_decals(&objects, local_team);
         #[cfg(feature = "game_client")]
-        {
-            let script_frozen = logic.is_script_time_frozen();
-            let camera_frozen = logic.is_script_camera_time_frozen();
-            let frozen = script_frozen || camera_frozen;
-            super::unit_render::host_draw_schedule::begin_presented_frame(
-                super::unit_render::host_draw_schedule::HostPresentVisualInput {
-                    visual_dt_ms: if frozen {
-                        0
-                    } else {
-                        super::unit_render::host_draw_schedule::HOST_VISUAL_FRAME_MS
-                    },
-                    frozen,
-                },
-            );
-            let host_objects = logic.host_objects();
-            for obj in host_objects.values() {
-                if obj.drawable_hidden {
-                    continue;
-                }
-                super::unit_render::physics_visual_host::freeze_for_object(
-                    obj,
-                    host_objects,
-                    script_frozen,
-                    camera_frozen,
-                    logic,
-                );
-            }
-        }
+        let host_physics_visuals = logic.host_physics_visuals.borrow_mut().freeze(logic);
         // Stable presentation order for determinism (by ObjectId).
         objects.sort_by_key(|o| o.id.0);
         direct_host_drawables.sort_by_key(|drawable| drawable.object.id.0);
@@ -2015,6 +1988,8 @@ impl PresentationFrame {
             game_mode: logic.game_mode(),
             objects,
             direct_host_drawables,
+            #[cfg(feature = "game_client")]
+            host_physics_visuals,
             local_player_id,
             local_team,
             local_team_base_position,

@@ -4,6 +4,7 @@
 
 #[cfg(test)]
 mod tests {
+    include!("specialized_draw_owner_tests.rs");
     use super::*;
     use crate::drawable::Drawable;
     use crate::message_stream::game_message::GameMessageType;
@@ -321,7 +322,7 @@ mod tests {
 
         first.position = [10.0, 0.0, 0.0];
         assert_eq!(client.sync_presentation_drawables([first]), (0, 1, 0));
-        let snap = presentation_specialized_draw_snapshot(501).expect("tank residual");
+        let snap = client.presentation_specialized_draw_snapshot(501).expect("tank residual");
         assert_eq!(snap.kind, PresentationSpecializedDrawKind::Tank);
         assert!(
             snap.tread_uv > 0.0 || snap.tread_uv_for_mesh("HLOD.TREADSL").is_some(),
@@ -349,7 +350,7 @@ mod tests {
         );
         entry.draw_module_names = std::sync::Arc::new(vec!["W3DLaserDraw".to_string()]);
         assert_eq!(client.sync_presentation_drawables([entry]), (1, 0, 0));
-        let snap = presentation_specialized_draw_snapshot(777).expect("laser residual");
+        let snap = client.presentation_specialized_draw_snapshot(777).expect("laser residual");
         assert!(snap.is_laser());
         assert!(
             snap.laser_width >= 0.5,
@@ -376,7 +377,7 @@ mod tests {
             entry.position = [frame as f32 * 0.1, 0.0, 8.0];
             let _ = client.sync_presentation_drawables([entry.clone()]);
         }
-        let snap = presentation_specialized_draw_snapshot(808).expect("debris residual");
+        let snap = client.presentation_specialized_draw_snapshot(808).expect("debris residual");
         assert!(snap.is_debris());
         assert!(
             snap.debris_state >= 1,

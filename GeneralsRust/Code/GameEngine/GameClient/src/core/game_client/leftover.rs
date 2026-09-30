@@ -494,7 +494,7 @@ impl GameClient {
                 if self.drawable_object_map.get(&object_id).copied() == Some(id) {
                     self.drawable_object_map.remove(&object_id);
                 }
-                prune_presentation_specialized_draw(object_id);
+                prune_live_host_animated_particle_sys_bones(object_id);
             }
         }
         // Direct visual identity is runtime-only and dies with the Drawable.

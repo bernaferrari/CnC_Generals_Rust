@@ -69,6 +69,9 @@ pub struct PresentationFrame {
     /// of serialized presentation/save state; GameClient owns binding state.
     #[serde(skip)]
     pub direct_host_drawables: Vec<PresentationDirectHostDrawable>,
+    #[cfg(feature = "game_client")]
+    #[serde(skip)]
+    pub(crate) host_physics_visuals: physics_visual_host::FrozenHostPhysicsVisuals,
     pub local_player_id: u32,
     /// Local player team frozen at snapshot time (selection/hotkey residual).
     /// Prefer this over live `GameLogic::get_player` dual-reads when a frame is installed.
