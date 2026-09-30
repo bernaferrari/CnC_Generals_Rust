@@ -1129,7 +1129,7 @@ impl CnCGameEngine {
                 info!("Menu transition: calling hide_gameplay_layouts");
                 self.hide_gameplay_layouts();
                 self.ui_manager.suspend_for_shell_overlay();
-                self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+                self.set_runtime_ui_state_projection(Screen::MainMenu);
                 info!("Menu transition: calling prime_subsystems_before_menu_transition");
                 self.prime_subsystems_before_menu_transition();
                 self.show_shell_menu();
@@ -1141,7 +1141,7 @@ impl CnCGameEngine {
                 self.ensure_shell_loading_overlay();
                 self.update_shell_loading_progress(0.0, Some("Loading assets..."));
                 self.ui_manager.suspend_for_shell_overlay();
-                self.set_runtime_ui_state_projection(UISystemState::Loading);
+                self.set_runtime_ui_state_projection(Screen::Loading);
                 self.last_slow_menu_tick_log = None;
             }
             GameState::InGame => {
@@ -1169,7 +1169,7 @@ impl CnCGameEngine {
                 self.ensure_gameplay_layouts();
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::GameHUD);
-                self.set_runtime_ui_state_projection(UISystemState::InGame);
+                self.set_runtime_ui_state_projection(Screen::GameHUD);
                 self.runtime_host_ui_screen_override = None;
             }
             GameState::Paused => {
@@ -1178,7 +1178,7 @@ impl CnCGameEngine {
                 self.host_set_paused(true);
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::PauseMenu);
-                self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
+                self.set_runtime_ui_state_projection(Screen::PauseMenu);
             }
             GameState::Exiting => {
                 info!("Entering Exiting state - beginning shutdown");
@@ -1190,7 +1190,7 @@ impl CnCGameEngine {
                     self.ui_manager
                         .show_match_result(true, self.current_player_id);
                 }
-                self.set_runtime_ui_state_projection(UISystemState::Victory);
+                self.set_runtime_ui_state_projection(Screen::Victory);
             }
             GameState::Defeat => {
                 info!("Entering Defeat state - match lost");
@@ -1199,7 +1199,7 @@ impl CnCGameEngine {
                     self.ui_manager
                         .show_match_result(false, self.current_player_id);
                 }
-                self.set_runtime_ui_state_projection(UISystemState::Victory);
+                self.set_runtime_ui_state_projection(Screen::Victory);
             }
             GameState::Initializing => {
                 info!("Entering Initializing state");
@@ -1696,7 +1696,9 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         if let Some(frame) = self.last_presentation_frame.as_ref() {
             self.render_pipeline.ensure_specialized_draw_inputs(
-                frame, &self.game_client, self.host_direct_visual_world_epoch,
+                frame,
+                &self.game_client,
+                self.host_direct_visual_world_epoch,
             );
         }
         {
@@ -1790,7 +1792,11 @@ impl CnCGameEngine {
         #[cfg(feature = "game_client")]
         {
             let mut physics_visual_owner = self.game_logic.host_physics_visuals.borrow_mut();
-            let mut complete_physics_visual = |input: &mut crate::presentation_frame::UnitRenderInput, frame: &crate::presentation_frame::PresentationFrame| physics_visual_owner.complete_input(input, frame);
+            let mut complete_physics_visual =
+                |input: &mut crate::presentation_frame::UnitRenderInput,
+                 frame: &crate::presentation_frame::PresentationFrame| {
+                    physics_visual_owner.complete_input(input, frame)
+                };
             let (render_pipeline, graphics_system, game_client) = (
                 &mut self.render_pipeline,
                 &mut self.graphics_system,
@@ -2212,7 +2218,7 @@ impl CnCGameEngine {
                         self.ensure_shell_loading_overlay();
                         self.update_shell_loading_progress(0.0, Some("Loading assets..."));
                         self.ui_manager.suspend_for_shell_overlay();
-                        self.set_runtime_ui_state_projection(UISystemState::Loading);
+                        self.set_runtime_ui_state_projection(Screen::Loading);
                         continue;
                     }
 
@@ -2223,21 +2229,13 @@ impl CnCGameEngine {
 
                     self.ui_manager.transition_to_screen(screen);
                     match screen {
-                        Screen::MainMenu => {
-                            self.set_runtime_ui_state_projection(UISystemState::MainMenu)
-                        }
-                        Screen::Loading => {
-                            self.set_runtime_ui_state_projection(UISystemState::Loading)
-                        }
-                        Screen::GameHUD => {
-                            self.set_runtime_ui_state_projection(UISystemState::InGame)
-                        }
+                        Screen::MainMenu => self.set_runtime_ui_state_projection(Screen::MainMenu),
+                        Screen::Loading => self.set_runtime_ui_state_projection(Screen::Loading),
+                        Screen::GameHUD => self.set_runtime_ui_state_projection(Screen::GameHUD),
                         Screen::PauseMenu => {
-                            self.set_runtime_ui_state_projection(UISystemState::PauseMenu)
+                            self.set_runtime_ui_state_projection(Screen::PauseMenu)
                         }
-                        Screen::Victory => {
-                            self.set_runtime_ui_state_projection(UISystemState::Victory)
-                        }
+                        Screen::Victory => self.set_runtime_ui_state_projection(Screen::Victory),
                         _ => {}
                     }
                 }

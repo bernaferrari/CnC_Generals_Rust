@@ -271,7 +271,7 @@ impl CnCGameEngine {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
         }
-        self.set_runtime_ui_state_projection(UISystemState::Loading);
+        self.set_runtime_ui_state_projection(Screen::Loading);
 
         #[cfg(feature = "game_client")]
         {
@@ -2119,7 +2119,7 @@ impl CnCGameEngine {
             self.last_shell_prewarm_log = None;
             self.shell_prewarm_completion_logged = true;
             self.ui_manager.suspend_for_shell_overlay();
-            self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+            self.set_runtime_ui_state_projection(Screen::MainMenu);
             let _ = self.startup_target_state.take();
             self.transition_to_state(GameState::Menu);
             self.startup_load_state = StartupLoadState::Complete;

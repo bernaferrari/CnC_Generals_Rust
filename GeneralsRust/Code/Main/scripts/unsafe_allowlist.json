@@ -796,10 +796,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/Main/src/ui/wgpu_renderer.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/Main/src/win_main.rs": {
       "constructs": 18,
       "undocumented": 0

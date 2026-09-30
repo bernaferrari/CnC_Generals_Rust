@@ -150,7 +150,7 @@ pub fn honesty_host_loading_sfx_helper_source_markers_residual_wave604() -> bool
     };
     let loading_ok = loading.contains("Wave 604")
         && loading.contains("update_startup_loading")
-        && loading.contains("UISystemState::Loading")
+        && loading.contains("Screen::Loading")
         && loading.contains("GameState::Loading");
     let wrapper_ok = wrapper.contains("Wave 604")
         && wrapper.contains("host_play_sound_effect(sound_type)")

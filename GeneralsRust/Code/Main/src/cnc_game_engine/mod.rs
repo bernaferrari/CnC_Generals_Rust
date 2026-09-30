@@ -31,7 +31,7 @@ use crate::subsystem_manager::{
 };
 use crate::ui::{
     DiagnosticsOverlayStats, GameHUD, GameUIState, MinimapActionKind, MinimapInteraction, Screen,
-    UIEvent, UIManager, UISystemState,
+    UIEvent, UIManager,
 };
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};

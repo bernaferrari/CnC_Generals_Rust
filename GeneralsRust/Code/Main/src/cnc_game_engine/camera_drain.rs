@@ -518,7 +518,7 @@ impl CnCGameEngine {
             self.last_shell_prewarm_log = Some(Instant::now());
         }
 
-        self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+        self.set_runtime_ui_state_projection(Screen::MainMenu);
 
         #[cfg(feature = "game_client")]
         {
@@ -626,7 +626,7 @@ impl CnCGameEngine {
             self.transition_to_state(GameState::Menu);
             return Ok(());
         }
-        self.set_runtime_ui_state_projection(UISystemState::Loading);
+        self.set_runtime_ui_state_projection(Screen::Loading);
         // After loading completes, the state will transition to InGame
         // This is handled by the initialization code setting pending_state
         Ok(())
@@ -641,7 +641,7 @@ impl CnCGameEngine {
         self.host_update_cpp_snow_and_anim2d();
         self.update_camera(visual_dt);
         self.cleanup_sound_effects();
-        self.set_runtime_ui_state_projection(UISystemState::PauseMenu);
+        self.set_runtime_ui_state_projection(Screen::PauseMenu);
         if let Err(err) = self.ui_manager.update(dt) {
             warn!("UI manager update failed in paused state: {}", err);
         }
@@ -2151,7 +2151,7 @@ impl CnCGameEngine {
             self.cleanup_sound_effects();
         }
         if self.current_state == GameState::InGame {
-            self.set_runtime_ui_state_projection(UISystemState::InGame);
+            self.set_runtime_ui_state_projection(Screen::GameHUD);
             if let Err(err) = self.ui_manager.update(dt) {
                 warn!("UI manager update failed in playing state: {}", err);
             }
