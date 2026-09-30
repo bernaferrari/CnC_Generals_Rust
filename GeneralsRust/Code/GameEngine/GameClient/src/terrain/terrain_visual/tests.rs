@@ -4,6 +4,126 @@
 mod tests {
     use super::*;
 
+    fn texture_ranking_fixture(size: u32) -> TerrainVisualImpl {
+        let mut visual = TerrainVisualImpl::new();
+        let mut heightmap = HeightMap::new(size, size, 255.0, 10.0);
+        heightmap.tile_ndxes = (0..size * size).map(|i| ((i % 8) * 16) as i16).collect();
+        visual.height_map = Some(heightmap);
+        for i in 0..8 {
+            let name = format!("TerrainRankFixture{i}");
+            visual.source_tile_classes.push(TerrainSourceTileClass {
+                first_tile: i * 4,
+                num_tiles: 4,
+                width: 2,
+                name: name.clone(),
+            });
+            visual.texture_system.register_texture(TerrainTexture::new(
+                0,
+                name.clone(),
+                format!("Art/Terrain/{name}.tga"),
+            ));
+        }
+        visual
+    }
+
+    #[test]
+    fn chunk_texture_ranking_reuses_unchanged_map_work() {
+        let mut visual = texture_ranking_fixture(512);
+        let expected = visual.select_stable_chunk_texture_ids(&[]);
+        let started = std::time::Instant::now();
+        for _ in 0..60 {
+            assert_eq!(visual.select_stable_chunk_texture_ids(&[]), expected);
+        }
+        eprintln!(
+            "terrain ranking: 60 unchanged selections {:?}, map scans {}",
+            started.elapsed(),
+            visual.texture_class_rank_builds
+        );
+        assert_eq!(
+            visual.texture_class_rank_builds, 1,
+            "unchanged frames must not rescan all map tiles"
+        );
+    }
+
+    #[test]
+    fn chunk_texture_ranking_rebuilds_for_map_and_class_replacement() {
+        let mut visual = texture_ranking_fixture(8);
+        let first = visual.select_stable_chunk_texture_ids(&[]);
+        let mut classes = visual.source_tile_classes.clone();
+        classes.reverse();
+        visual
+            .load_source_tiles_from_texture_classes(&classes)
+            .unwrap();
+        assert_eq!(
+            visual.select_stable_chunk_texture_ids(&[]),
+            first,
+            "class-vector reordering must preserve authored class selection"
+        );
+        assert_eq!(visual.texture_class_rank_builds, 2);
+
+        let mut replacement = HeightMap::new(8, 8, 255.0, 10.0);
+        replacement.tile_ndxes = vec![16; 64];
+        visual
+            .load_heightmap_from_data(replacement, None, None)
+            .unwrap();
+        assert_eq!(
+            visual.select_stable_chunk_texture_ids(&[])[0],
+            first[1],
+            "the replacement map's most-used class must win"
+        );
+        assert_eq!(visual.texture_class_rank_builds, 3);
+    }
+
+    #[test]
+    fn chunk_texture_ranking_keeps_late_texture_lookup_live() {
+        let mut visual = texture_ranking_fixture(8);
+        visual.texture_system = TerrainTextures::new();
+        assert_eq!(
+            visual.select_stable_chunk_texture_ids(&[]),
+            [0; MAX_TEXTURES_PER_CHUNK]
+        );
+        let id = visual.texture_system.register_texture(TerrainTexture::new(
+            0,
+            "TerrainRankFixture0".into(),
+            "Art/Terrain/TerrainRankFixture0.tga".into(),
+        ));
+        assert_eq!(
+            visual.select_stable_chunk_texture_ids(&[]),
+            [id; MAX_TEXTURES_PER_CHUNK]
+        );
+        assert_eq!(
+            visual.texture_class_rank_builds, 1,
+            "late art changes lookup, not immutable map ranking"
+        );
+    }
+
+    #[test]
+    fn chunk_texture_ranking_is_instance_owned_and_reset_invalidates() {
+        let mut first = texture_ranking_fixture(8);
+        let mut second = texture_ranking_fixture(8);
+        first.select_stable_chunk_texture_ids(&[]);
+        second.select_stable_chunk_texture_ids(&[]);
+        first.reset().unwrap();
+        assert_eq!(
+            first.select_stable_chunk_texture_ids(&[]),
+            [0; MAX_TEXTURES_PER_CHUNK]
+        );
+        assert_eq!(first.texture_class_rank_builds, 2);
+        second.select_stable_chunk_texture_ids(&[]);
+        assert_eq!(second.texture_class_rank_builds, 1);
+    }
+
+    #[test]
+    fn chunk_texture_ranking_survives_height_only_changes() {
+        let mut visual = texture_ranking_fixture(8);
+        visual.height_map.as_mut().unwrap().heights[0] = 0.5;
+        let expected = visual.select_stable_chunk_texture_ids(&[]);
+        visual.set_raw_map_height(0, 0, 64);
+        visual.apply_logic_height_map_bytes(&[96; 64]);
+        assert_eq!(visual.select_stable_chunk_texture_ids(&[]), expected);
+        assert_eq!(visual.texture_class_rank_builds, 1);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn terrain_test_gpu_device_and_queue() -> (wgpu::Device, wgpu::Queue) {
         let instance = wgpu::Instance::default();
@@ -720,7 +840,7 @@ mod tests {
     #[test]
     fn water_grid_cell_is_wet_tracks_water_plane_vs_terrain() {
         let mut heightmap = HeightMap::new(8, 8, 255.0, 10.0);
-        // Left half flat at height 10 (wet under a plane at 5), right half
+        // Left half flat at height 10 (wet under a plane at 15), right half
         // at height 200 (dry).
         for y in 0..8 {
             for x in 0..8 {
@@ -734,8 +854,8 @@ mod tests {
 
         let wet_corners = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]];
         let dry_corners = [[50.0, 0.0], [60.0, 0.0], [60.0, 10.0], [50.0, 10.0]];
-        assert!(visual.water_grid_cell_is_wet(&wet_corners, 5.0));
-        assert!(!visual.water_grid_cell_is_wet(&dry_corners, 5.0));
+        assert!(visual.water_grid_cell_is_wet(&wet_corners, 15.0));
+        assert!(!visual.water_grid_cell_is_wet(&dry_corners, 15.0));
         // Rising the plane above the terrain floods the "dry" cell.
         assert!(visual.water_grid_cell_is_wet(&dry_corners, 500.0));
     }
@@ -750,7 +870,10 @@ mod tests {
         let mut heightmap = HeightMap::new(8, 8, 255.0, 1.0);
         // 62 samples of class "Common" (firstTile 4), 2 of "Rare"
         // (firstTile 0). Map order lists Rare first.
-        let mut tiles = vec![5_i16; 64];
+        // C++ WorldHeightMap.cpp:2312 strips the two quadrant bits before
+        // matching firstTile=4. Raw 17 encodes tile 4 / quadrant 1; raw 5
+        // would select tile 1 in Rare instead.
+        let mut tiles = vec![17_i16; 64];
         tiles[0] = 0;
         tiles[1] = 1;
         heightmap.tile_ndxes = tiles;

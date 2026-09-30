@@ -580,36 +580,28 @@ impl TerrainVisualImpl {
         &mut self,
         _visible_chunk_ids: &[ChunkId],
     ) -> [TextureId; MAX_TEXTURES_PER_CHUNK] {
-        let mut selected_textures: Vec<TextureId> = Vec::new();
-
         // C++ composes every texture class into one combiner atlas
         // (WorldHeightMap::getTerrainTexture), so all classes stay addressable.
         // The live path binds only MAX_TEXTURES_PER_CHUNK slots per chunk, so
         // rank the map's classes by actual tile usage instead of taking the
         // first four in map order — a >4-class map no longer collapses every
         // under-represented class onto the fallback slot.
-        let mut class_usage: HashMap<usize, u32> = HashMap::new();
-        if let Some(height_map) = self.height_map.as_ref() {
-            for &tile_ndx in &height_map.tile_ndxes {
-                let packed_tile = ((tile_ndx >> 2).max(0)) as u32;
-                if let Some(class_idx) =
-                    texture_class_index_from_ndx(packed_tile, &self.source_tile_classes)
-                {
-                    *class_usage.entry(class_idx).or_insert(0) += 1;
-                }
+        // WorldHeightMap.cpp:2142 builds resident texture data only when absent.
+        // Cache map-only ranking; texture lookup below must still see late assets.
+        if self.ranked_source_tile_classes.is_none() {
+            #[cfg(test)]
+            {
+                self.texture_class_rank_builds += 1;
             }
+            self.ranked_source_tile_classes = Some(self.rank_source_tile_classes());
         }
-        let mut ranked_classes: Vec<usize> = class_usage.keys().copied().collect();
-        ranked_classes.sort_by(|a, b| {
-            class_usage[b].cmp(&class_usage[a]).then_with(|| {
-                self.source_tile_classes[*a]
-                    .first_tile
-                    .cmp(&self.source_tile_classes[*b].first_tile)
-            })
-        });
 
         let mut selected_textures: Vec<TextureId> = Vec::new();
-        for class_idx in &ranked_classes {
+        for class_idx in self
+            .ranked_source_tile_classes
+            .as_deref()
+            .unwrap_or_default()
+        {
             if selected_textures.len() == MAX_TEXTURES_PER_CHUNK {
                 break;
             }
@@ -671,6 +663,29 @@ impl TerrainVisualImpl {
             stable_texture_ids[idx] = *texture_id;
         }
         stable_texture_ids
+    }
+
+    fn rank_source_tile_classes(&self) -> Vec<usize> {
+        let mut class_usage: HashMap<usize, u32> = HashMap::new();
+        if let Some(height_map) = self.height_map.as_ref() {
+            for &tile_ndx in &height_map.tile_ndxes {
+                let packed_tile = ((tile_ndx >> 2).max(0)) as u32;
+                if let Some(class_idx) =
+                    texture_class_index_from_ndx(packed_tile, &self.source_tile_classes)
+                {
+                    *class_usage.entry(class_idx).or_insert(0) += 1;
+                }
+            }
+        }
+        let mut ranked_classes: Vec<usize> = class_usage.keys().copied().collect();
+        ranked_classes.sort_by(|a, b| {
+            class_usage[b].cmp(&class_usage[a]).then_with(|| {
+                self.source_tile_classes[*a]
+                    .first_tile
+                    .cmp(&self.source_tile_classes[*b].first_tile)
+            })
+        });
+        ranked_classes
     }
 
     fn texture_id_for_class_name(&self, class_name: &str) -> Option<TextureId> {

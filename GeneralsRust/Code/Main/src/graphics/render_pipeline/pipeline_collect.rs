@@ -44,6 +44,26 @@ impl FailedModelResolutions {
     }
 }
 
+/// Normalize an already-selected owned input for collection. This boundary
+/// preserves every selected source module and the legacy model-key fallback.
+fn selected_draw_models_for_collection(
+    draw_models: &mut Vec<crate::assets::AuthoredDrawModel>,
+    model_key: &str,
+) -> Vec<crate::assets::AuthoredDrawModel> {
+    if draw_models.is_empty() {
+        (!model_key.trim().is_empty())
+            .then(|| crate::assets::AuthoredDrawModel {
+                module_index: 0,
+                model_key: model_key.to_owned(),
+                ..Default::default()
+            })
+            .into_iter()
+            .collect()
+    } else {
+        std::mem::take(draw_models)
+    }
+}
+
 impl RenderPipeline {
     /// Late-provider recovery invalidates only this pipeline's retry history.
     pub(super) fn clear_failed_model_resolutions(&mut self) {
@@ -224,7 +244,7 @@ impl RenderPipeline {
         let mut direct_scene_candidate_bindings = HashSet::new();
 
         // --- Main unit mesh pass: presentation-owned inputs only ---
-        for u in unit_inputs {
+        for mut u in unit_inputs {
             // engine_bridged already filtered in unit_render_inputs; keep guard.
             if u.engine_bridged {
                 continue;
@@ -262,18 +282,8 @@ impl RenderPipeline {
             // `UnitRenderInput::from_renderable` normalizes old snapshots to
             // one module. Keep the same compatibility at this boundary for
             // direct test/boot inputs which still provide only `model_key`.
-            let mut draw_models = if u.draw_models.is_empty() {
-                (!u.model_key.trim().is_empty())
-                    .then(|| crate::assets::AuthoredDrawModel {
-                        module_index: 0,
-                        model_key: u.model_key.clone(),
-                        ..Default::default()
-                    })
-                    .into_iter()
-                    .collect::<Vec<_>>()
-            } else {
-                u.draw_models.clone()
-            };
+            let mut draw_models =
+                selected_draw_models_for_collection(&mut u.draw_models, &u.model_key);
             #[cfg(feature = "game_client")]
             if draw_models.is_empty() {
                 if let Some(spec) =
@@ -2357,3 +2367,7 @@ mod failed_model_resolution_cache_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "draw_model_collection_tests.rs"]
+mod owned_draw_model_collection_tests;

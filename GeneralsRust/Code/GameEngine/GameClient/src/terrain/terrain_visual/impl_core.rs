@@ -47,6 +47,9 @@ impl TerrainVisualImpl {
             source_tiles: vec![None; NUM_SOURCE_TILES],
             stand_in_source_tiles: vec![false; NUM_SOURCE_TILES],
             source_tile_classes: Vec::new(),
+            ranked_source_tile_classes: None,
+            #[cfg(test)]
+            texture_class_rank_builds: 0,
 
             water_system: WaterSystem::new(),
             road_system: RoadSystem::new(),
@@ -664,6 +667,7 @@ impl TerrainVisualImpl {
         classes: &[TerrainSourceTileClass],
     ) -> TerrainResult<usize> {
         self.source_tile_classes = classes.to_vec();
+        self.ranked_source_tile_classes = None;
 
         let mut loaded = 0usize;
         for class in classes {
