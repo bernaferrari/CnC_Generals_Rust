@@ -1118,7 +1118,7 @@ impl CnCGameEngine {
         // `host_ui_selected_ids_from_residuals` (presentation-first) returns empty
         // until the next dual-tick rebuild, so host select → RMB order fails closed
         // with selected_count>0 but ui_selected_ids empty.
-        if let Some(pres) = self.last_presentation_frame.as_mut() {
+        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
             let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
             for o in &mut pres.objects {
                 o.selected = selected_set.contains(&o.id);
@@ -1146,7 +1146,7 @@ impl CnCGameEngine {
         }
         self.selected_objects = ids.clone();
         self.host_match_selected_ids = Some(ids.clone());
-        if let Some(pres) = self.last_presentation_frame.as_mut() {
+        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
             let selected_set: std::collections::HashSet<_> = ids.iter().copied().collect();
             for o in &mut pres.objects {
                 o.selected = selected_set.contains(&o.id);
@@ -1780,7 +1780,7 @@ impl CnCGameEngine {
         // even if empty). No GameLogic get_player / player_selected_objects dual-read.
         let _ = player_id;
         crate::game_logic::host_ui_selected_ids_from_residuals(
-            self.last_presentation_frame.as_ref(),
+            self.last_presentation_frame.as_deref(),
             &self.selected_objects,
             self.host_match_selected_ids.as_deref(),
         )
@@ -1807,8 +1807,7 @@ impl CnCGameEngine {
         // armed pending place source; it never re-picks a different builder.
         // Wave 924: structure place builder threads the armed source.
         let armed_source = if self.pending_structure_placement.is_some() {
-            let existing =
-                game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
+            let existing = game_client::helpers::TheInGameUI::get_pending_place_source_object_id();
             (existing != 0).then_some(crate::game_logic::ObjectId(existing))
         } else {
             None
@@ -1842,9 +1841,7 @@ impl CnCGameEngine {
             log::info!("PlaceStructureAt {template_name} canceled — no construct builder");
             self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
             self.pending_structure_placement = None;
-            self.game_hud
-                .construction_panel
-                .clear_structure_placement();
+            self.game_hud.construction_panel.clear_structure_placement();
             self.ui_manager
                 .game_hud_mut()
                 .construction_panel

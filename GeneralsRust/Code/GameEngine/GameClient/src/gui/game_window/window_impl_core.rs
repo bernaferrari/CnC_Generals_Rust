@@ -1329,7 +1329,17 @@ impl GameWindow {
                 let average_width = ((font.size as f32 * 0.6).round() as i32).max(1) as u32;
                 (height, average_width)
             })
-            .unwrap_or((18, 8));
+            .unwrap_or_else(|| {
+                // A standalone ListBox has no WND GameFont to resolve. Keep
+                // its explicitly configured row height until one is assigned;
+                // otherwise attaching it to a window silently replaces the
+                // caller's row geometry with the generic 18 px fallback.
+                let height = match self.widget.as_ref() {
+                    Some(WindowWidget::ListBox(listbox)) => listbox.item_height(),
+                    _ => 18,
+                };
+                (height, 8)
+            });
         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
             listbox.set_content_top_inset(inset);
             listbox.set_wrap_metrics(one_line, font_height, average_width);

@@ -708,20 +708,10 @@ impl CnCGameEngine {
                 .as_mut()
                 .expect("couple_shadow implies a live GameWorldShadow");
             crate::gameworld_shadow::with_coupled_shadow(shadow, || {
-                self.host_run_coupled_fast_forward_loop(
-                    dt,
-                    ff_steps,
-                    step_budget,
-                    couple_shadow,
-                );
+                self.host_run_coupled_fast_forward_loop(dt, ff_steps, step_budget, couple_shadow);
             });
         } else {
-            self.host_run_coupled_fast_forward_loop(
-                dt,
-                ff_steps,
-                step_budget,
-                couple_shadow,
-            );
+            self.host_run_coupled_fast_forward_loop(dt, ff_steps, step_budget, couple_shadow);
         }
         self.gameworld_shadow = coupled_shadow_slot.take();
         // Script FPS applied from presentation residual after snapshot build (below).
@@ -1110,7 +1100,7 @@ impl CnCGameEngine {
         if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref())
+            .or(self.last_presentation_frame.as_deref())
         {
             return pres.total_play_time_seconds;
         }
@@ -1144,7 +1134,7 @@ impl CnCGameEngine {
         if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref())
+            .or(self.last_presentation_frame.as_deref())
         {
             return pres.new_script_messages.clone();
         }
@@ -1716,8 +1706,7 @@ impl CnCGameEngine {
         // GameUIState is built from PresentationFrame only (no live object walks).
         if let Some(pres) = self
             .render_pipeline
-            .presentation_frame()
-            .cloned()
+            .presentation_frame_handle()
             .or_else(|| self.last_presentation_frame.clone())
         {
             let mut ui = crate::ui::GameUIState::default();
@@ -1733,7 +1722,7 @@ impl CnCGameEngine {
                     .update(std::time::Duration::from_millis(33));
             }
             // Keep last_presentation aligned with pipeline freeze when it was the source.
-            self.last_presentation_frame = Some(pres);
+            self.last_presentation_frame = Some(pres.into());
             ui
         } else {
             // Boot/loading residual only.
@@ -1800,10 +1789,10 @@ impl CnCGameEngine {
         let mut ui = GameUIState::default();
         pres.apply_to_ui_state(&mut ui);
         self.last_ui_state = Some(ui);
-        self.last_presentation_frame = Some(pres);
+        self.last_presentation_frame = Some(pres.into());
         // C++ does not evaluate victory on the load frame. A just-seeded
         // alpine/empty world would otherwise stamp match_over and jump to Defeat.
-        if let Some(pres) = self.last_presentation_frame.as_mut() {
+        if let Some(pres) = self.last_presentation_frame.as_mut().map(Arc::make_mut) {
             pres.match_over = false;
         }
         self.host_match_over = Some(false);
@@ -1929,10 +1918,7 @@ impl CnCGameEngine {
                     model_condition_bits: o.model_condition_bits,
                     body_damage_state: o.body_damage_state,
                     // Wave 970: overlay residual (vet/construct) on Wave 965 kind/stealth/color/health.
-                    kind_names: Self::presentation_kind_names(
-                        &self.kind_name_cache,
-                        &o.kind_of,
-                    ),
+                    kind_names: Self::presentation_kind_names(&self.kind_name_cache, &o.kind_of),
                     team_color: o.team_color,
                     effectively_stealthed: o.effectively_stealthed,
                     // C++ StealthUpdate resolves the look for this viewer:
@@ -2106,7 +2092,7 @@ impl CnCGameEngine {
         }
         // Wave 195/590/926: shadow sync + presentation build via single host boundary.
         let frame = self.host_sync_shadow_and_build_presentation(false);
-        self.last_presentation_frame = Some(frame);
+        self.last_presentation_frame = Some(frame.into());
     }
 
     /// Wave 590: pipeline env seed residual (host+GW) when pipeline has no frame.
@@ -2130,7 +2116,8 @@ impl CnCGameEngine {
             self.gameworld_shadow.as_ref(),
             runtime_heightmap,
         );
-        self.render_pipeline.set_presentation_frame(Some(env_frame));
+        self.render_pipeline
+            .set_presentation_frame(Some(env_frame.into()));
     }
 
     /// Wave 600: post-presentation client residual (camera/audio/UI/popup/music).
@@ -2418,14 +2405,13 @@ impl CnCGameEngine {
         });
         // Wave 186: stamp observe-path entity count from presentation_view_from_shadow
         // after the coupled shadow session (status gameworld_presentation_entities).
-        self.last_gameworld_presentation_entity_count = crate::gameworld_shadow::with_active_shadow(
-            |shadow| {
+        self.last_gameworld_presentation_entity_count =
+            crate::gameworld_shadow::with_active_shadow(|shadow| {
                 crate::gameworld_shadow::presentation_view_from_shadow(shadow, 0)
                     .entities
                     .len()
-            },
-        )
-        .unwrap_or(from_boundary);
+            })
+            .unwrap_or(from_boundary);
         // Wave 621/912: after health writeback, drain destroy-ready log and process
         // die side effects same couple-frame (host still owns ObjectId remove).
         let _ = self
@@ -2467,7 +2453,7 @@ impl CnCGameEngine {
         if fx_n > 0 {
             log::trace!("presentation particle client mirrors: {fx_n}");
         }
-        self.last_presentation_frame = Some(pres);
+        self.last_presentation_frame = Some(pres.into());
         self.render_pipeline
             .set_presentation_frame(self.last_presentation_frame.clone());
         // Wave 844: keep host sim residuals current for freeze-miss peels.

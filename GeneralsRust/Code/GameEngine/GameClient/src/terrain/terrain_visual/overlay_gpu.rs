@@ -1,13 +1,13 @@
 // Live GPU overlays: shoreline, water grid, rivers, bibs, tank tracks,
 // custom edging, snow flakes, heat-haze smudge, FOW shroud, flat LOD.
 
+use super::IRegion2D as BgRegion;
+use super::water_tracks::{decode_wak_records, water_track_wak_path};
 use super::*;
 use crate::snow::{
-    camera_facing_quad_corners, get_snow_manager, get_weather_setting, SnowVisibleBoxXy,
+    SnowVisibleBoxXy, camera_facing_quad_corners, get_snow_manager, get_weather_setting,
 };
 use crate::system::smudge::get_smudge_manager;
-use super::water_tracks::{decode_wak_records, water_track_wak_path};
-use super::IRegion2D as BgRegion;
 use game_engine::common::ini::ini_water::get_water_transparency;
 use game_engine::map_object::MAP_XY_FACTOR as MAP_XY;
 
@@ -18,8 +18,10 @@ const FEATHER_THICKNESS: f32 = 4.0;
 impl TerrainVisualImpl {
     fn apply_tree_world_bounds(&mut self) {
         let (w, h) = self.config.world_size;
-        self.tree_buffer
-            .set_bounds(TreeRegion2D::new(Vec2::ZERO, Vec2::new(w.max(1.0), h.max(1.0))));
+        self.tree_buffer.set_bounds(TreeRegion2D::new(
+            Vec2::ZERO,
+            Vec2::new(w.max(1.0), h.max(1.0)),
+        ));
     }
 
     /// C++ `W3DTerrainVisual::setShoreLineDetail` / `updateShorelineTiles`.
@@ -34,10 +36,12 @@ impl TerrainVisualImpl {
                 .map(|g| g.read().show_soft_water_edge)
                 .unwrap_or(true);
             let (depth, opacity) = get_water_transparency()
-                .and_then(|t| t.read().ok().map(|s| {
-                    let s = s.get_final_override();
-                    (s.transparent_water_depth, s.min_water_opacity)
-                }))
+                .and_then(|t| {
+                    t.read().ok().map(|s| {
+                        let s = s.get_final_override();
+                        (s.transparent_water_depth, s.min_water_opacity)
+                    })
+                })
                 .unwrap_or((3.0, 1.0));
             (show, depth.max(0.0) * opacity.max(0.01))
         };
@@ -87,7 +91,7 @@ impl TerrainVisualImpl {
         );
     }
 
-    /// C++ `W3DShroud::setShroudLevel` projected onto terrain vertices.
+    /// C++ `W3DShroud::setShroudLevel` updates the projected texture.
     pub fn set_shroud_level(&mut self, cell_x: i32, cell_y: i32, alpha: u8) {
         if self.overlay.shroud_width <= 0 || self.overlay.shroud_height <= 0 {
             return;
@@ -106,7 +110,13 @@ impl TerrainVisualImpl {
         }
     }
 
-    pub fn init_shroud_overlay(&mut self, width: i32, height: i32, cell_size: f32, origin: [f32; 2]) {
+    pub fn init_shroud_overlay(
+        &mut self,
+        width: i32,
+        height: i32,
+        cell_size: f32,
+        origin: [f32; 2],
+    ) {
         let width = width.max(0);
         let height = height.max(0);
         self.overlay.shroud_width = width;
@@ -114,7 +124,6 @@ impl TerrainVisualImpl {
         self.overlay.shroud_cell_size = cell_size.max(1.0);
         self.overlay.shroud_origin = origin;
         self.overlay.shroud_cells = vec![255u8; (width as usize).saturating_mul(height as usize)];
-        self.chunk_meshes.clear();
     }
 
     /// Bulk-replace the shroud overlay from a presentation R8 payload.
@@ -123,11 +132,9 @@ impl TerrainVisualImpl {
     /// update_minimap_fow_texture`): an identical payload is a no-op, and a
     /// same-size update reuses the existing cell buffer — only the shroud
     /// state changes, which `sync_shroud_dest_texture` re-uploads to the GPU
-    /// each terrain update. A real cell change also invalidates the terrain
-    /// chunk meshes, because terrain FOW darkening is baked into chunk vertex
-    /// diffuse (`shroud_alpha_at_world`) at bake time, mirroring how the
-    /// C++ `W3DShroud` destination texture feeds the per-object material
-    /// passes. Oversized payloads are truncated; undersized payloads are
+    /// each terrain update. C++ `W3DShroud` replays terrain geometry with its
+    /// destination texture; a fog update must preserve static chunk meshes.
+    /// Oversized payloads are truncated; undersized payloads are
     /// rejected (fail-open: previous overlay state retained).
     pub fn set_shroud_overlay_r8(
         &mut self,
@@ -157,9 +164,6 @@ impl TerrainVisualImpl {
             self.overlay.shroud_origin = origin;
         }
         self.overlay.shroud_cells[..expected].copy_from_slice(&data[..expected]);
-        // Terrain FOW darkening is baked into chunk vertex diffuse, so a
-        // real cell change must remesh the terrain chunks (see doc above).
-        self.chunk_meshes.clear();
     }
 
     pub fn shroud_alpha_at_world(&self, world_x: f32, world_z: f32) -> f32 {
@@ -176,12 +180,7 @@ impl TerrainVisualImpl {
         let x = x.clamp(0, self.overlay.shroud_width - 1);
         let y = y.clamp(0, self.overlay.shroud_height - 1);
         let idx = (y * self.overlay.shroud_width + x) as usize;
-        self.overlay
-            .shroud_cells
-            .get(idx)
-            .copied()
-            .unwrap_or(255) as f32
-            / 255.0
+        self.overlay.shroud_cells.get(idx).copied().unwrap_or(255) as f32 / 255.0
     }
 
     pub fn set_map_water_areas(&mut self, areas: Vec<TerrainWaterArea>) {
@@ -252,9 +251,7 @@ impl TerrainVisualImpl {
         }
         const PREFERRED_HEIGHT_FUDGE: f32 = 1.0;
         const AT_REST_VELOCITY_FUDGE: f32 = 1.0;
-        let gravity = get_global_data()
-            .map(|g| g.read().gravity)
-            .unwrap_or(-1.0);
+        let gravity = get_global_data().map(|g| g.read().gravity).unwrap_or(-1.0);
         let max_x = cells_x as i32;
         let max_y = cells_y as i32;
         let keys: Vec<(i32, i32)> = self.water_grid.point_motions.keys().copied().collect();
@@ -327,7 +324,10 @@ impl TerrainVisualImpl {
                 vertices.push(WaterGpuVertex {
                     position: *corner,
                     color: [1.0, 1.0, 1.0],
-                    tex_coords: [if i == 1 || i == 2 { 1.0 } else { 0.0 }, if i >= 2 { 1.0 } else { 0.0 }],
+                    tex_coords: [
+                        if i == 1 || i == 2 { 1.0 } else { 0.0 },
+                        if i >= 2 { 1.0 } else { 0.0 },
+                    ],
                     alpha: a,
                     packed_c: ((a * 255.0) as u32) << 24 | 0x00ff_ffff,
                 });
@@ -356,7 +356,6 @@ impl TerrainVisualImpl {
         }];
     }
 
-
     /// C++ `WaterRenderObjClass` creates its wave grid only for actual water
     /// tables (W3DWater.cpp:2242-2343): a grid cell is wet when the water
     /// plane stands above the terrain at any corner (shoreline cells keep
@@ -374,11 +373,13 @@ impl TerrainVisualImpl {
     fn upload_water_grid_mesh(&mut self, device: &wgpu::Device) {
         if !self.water_grid_enabled {
             self.water_grid_mesh = None;
+            self.overlay.water_grid_dirty = false;
             return;
         }
         let (cells_x, cells_y, cell_size) = self.water_grid.resolution;
         if cells_x < 1.0 || cells_y < 1.0 || cell_size <= 0.0 {
             self.water_grid_mesh = None;
+            self.overlay.water_grid_dirty = false;
             return;
         }
         let nx = cells_x as usize + 1;
@@ -418,8 +419,8 @@ impl TerrainVisualImpl {
         let mut patch = Vec::with_capacity(nx * ny);
         for j in 0..ny {
             let y = j as f32 * cell_size;
-            let v1_offset = rv + j as f32 * v_scale
-                + uv_cos_scale * (sin_offset + y * map_coeff).sin();
+            let v1_offset =
+                rv + j as f32 * v_scale + uv_cos_scale * (sin_offset + y * map_coeff).sin();
             for i in 0..nx {
                 let h = self
                     .water_grid
@@ -446,7 +447,10 @@ impl TerrainVisualImpl {
                 // actual water tables — a dry cell gets no geometry instead
                 // of drawing a water sheet over land.
                 let corners = [
-                    [origin.x + i as f32 * cell_size, origin.z + j as f32 * cell_size],
+                    [
+                        origin.x + i as f32 * cell_size,
+                        origin.z + j as f32 * cell_size,
+                    ],
                     [
                         origin.x + (i + 1) as f32 * cell_size,
                         origin.z + j as f32 * cell_size,
@@ -472,6 +476,7 @@ impl TerrainVisualImpl {
         }
         if patch.is_empty() || indices.is_empty() {
             self.water_grid_mesh = None;
+            self.overlay.water_grid_dirty = false;
             return;
         }
         let vertices = fill_water_gpu_upload_vertices(&patch);
@@ -737,11 +742,7 @@ impl TerrainVisualImpl {
                 hash = hash.wrapping_mul(0x0100_0193).wrapping_add(byte as u32);
             }
             let t = (hash & 0xff) as f32 / 255.0;
-            let tint = [
-                0.30 + 0.20 * t,
-                0.34 + 0.16 * t,
-                0.22 + 0.10 * (1.0 - t),
-            ];
+            let tint = [0.30 + 0.20 * t, 0.34 + 0.16 * t, 0.22 + 0.10 * (1.0 - t)];
             for axis in 0..2 {
                 let (dx, dz) = if axis == 0 {
                     (cos * half, sin * half)
@@ -937,9 +938,23 @@ impl TerrainVisualImpl {
                     });
                 }
                 if uv.flip {
-                    indices.extend_from_slice(&[base + 1, base + 3, base, base + 1, base + 2, base + 3]);
+                    indices.extend_from_slice(&[
+                        base + 1,
+                        base + 3,
+                        base,
+                        base + 1,
+                        base + 2,
+                        base + 3,
+                    ]);
                 } else {
-                    indices.extend_from_slice(&[base, base + 2, base + 3, base, base + 1, base + 2]);
+                    indices.extend_from_slice(&[
+                        base,
+                        base + 2,
+                        base + 3,
+                        base,
+                        base + 1,
+                        base + 2,
+                    ]);
                 }
             }
         }
@@ -1054,7 +1069,6 @@ impl TerrainVisualImpl {
             })
         })
     }
-
 
     fn upload_smudge_mesh(&mut self) {
         let Some(device) = self.device.as_ref() else {
@@ -1184,10 +1198,9 @@ impl TerrainVisualImpl {
             .map(|v| OverlayGpuVertex::from_cpp_xyzduv(v.x, v.y, v.z, v.diffuse, v.u1, v.v1))
             .collect();
         let indices: Vec<u32> = buffers.indices.iter().map(|i| *i as u32).collect();
-        self.flat_lod_meshes =
-            Self::upload_overlay_mesh(device, "Flat LOD Tiles", &gpu, &indices)
-                .into_iter()
-                .collect();
+        self.flat_lod_meshes = Self::upload_overlay_mesh(device, "Flat LOD Tiles", &gpu, &indices)
+            .into_iter()
+            .collect();
     }
 
     fn record_overlay_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
@@ -1318,10 +1331,9 @@ impl TerrainVisualImpl {
         } else {
             self.river_gpu.trapezoid_pipeline.as_ref()
         };
-        if let (Some(river_pipeline), Some(river_bg)) = (
-            river_pipeline,
-            self.river_gpu.bind_group.as_ref(),
-        ) {
+        if let (Some(river_pipeline), Some(river_bg)) =
+            (river_pipeline, self.river_gpu.bind_group.as_ref())
+        {
             let mut started = false;
             for mesh in self.polygon_water_meshes.iter().filter(|m| m.river) {
                 if !started {
@@ -1338,7 +1350,6 @@ impl TerrainVisualImpl {
         if let (Some(trapezoid_pipeline), Some(trapezoid_bg)) = (
             trapezoid_pipeline,
             self.river_gpu.trapezoid_bind_group.as_ref(),
-
         ) {
             // C++ renderWaterMesh draws with setupFlatWaterShader (trapezoid
             // shader); the trapezoid bind group carries `is_trapezoid = 1`
@@ -1587,10 +1598,7 @@ fn bake_river_strip(
 
 #[cfg(test)]
 mod overlay_gpu_tests {
-    use super::{
-        bake_river_strip, bake_trapezoid_water, TerrainVisualImpl, WATER_UV_FACTOR,
-    };
-
+    use super::{TerrainVisualImpl, WATER_UV_FACTOR, bake_river_strip, bake_trapezoid_water};
 
     #[test]
     fn trapezoid_bake_uses_authored_z_and_world_uvs() {
@@ -1638,7 +1646,9 @@ mod overlay_gpu_tests {
         assert_eq!(verts.len(), 4);
         assert_eq!(indices.len(), 6);
         assert!(
-            verts.iter().all(|v| v.x.abs() < 1.0 || (v.x - 40.0).abs() < 1.0),
+            verts
+                .iter()
+                .all(|v| v.x.abs() < 1.0 || (v.x - 40.0).abs() < 1.0),
             "bank pairs use authored XY, not ±12 centerline zigzag: {:?}",
             verts.iter().map(|v| v.x).collect::<Vec<_>>()
         );

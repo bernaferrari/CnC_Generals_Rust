@@ -1132,7 +1132,7 @@ impl CnCGameEngine {
             // Wave 217: presentation required for sell identity (no live get_object).
             let mut targets: Vec<crate::game_logic::ObjectId> =
                 crate::game_logic::presentation_selected_sellable_structure_ids(
-                    self.last_presentation_frame.as_ref(),
+                    self.last_presentation_frame.as_deref(),
                     &self.selected_objects,
                     team,
                 );

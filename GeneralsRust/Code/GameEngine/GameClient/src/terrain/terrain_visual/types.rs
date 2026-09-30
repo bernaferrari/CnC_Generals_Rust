@@ -309,6 +309,7 @@ struct ShroudGpuState {
     params: Option<Buffer>,
     bind_layout: Option<Arc<BindGroupLayout>>,
     bind_group: Option<BindGroup>,
+    terrain_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
     road_pipeline: Option<wgpu::RenderPipeline>,
     tree_pipeline: Option<wgpu::RenderPipeline>,

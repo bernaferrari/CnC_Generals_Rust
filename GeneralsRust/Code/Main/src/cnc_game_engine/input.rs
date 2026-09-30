@@ -1485,7 +1485,7 @@ impl CnCGameEngine {
 
     /// Last immutable presentation snapshot after the most recent logic step.
     pub fn last_presentation_frame(&self) -> Option<&crate::presentation_frame::PresentationFrame> {
-        self.last_presentation_frame.as_ref()
+        self.last_presentation_frame.as_deref()
     }
 
     /// Last presentation-overlaid UI state (selection health / minimap identity).
@@ -1748,7 +1748,7 @@ impl CnCGameEngine {
                 &self.projection_matrix,
                 drag_rect.filter(|r| r.is_valid()),
                 rmb_scroll_anchor,
-                self.last_presentation_frame.as_ref(),
+                self.last_presentation_frame.as_deref(),
                 ground_markers,
                 self.show_move_lines,
                 self.show_attack_lines,
@@ -1766,7 +1766,7 @@ impl CnCGameEngine {
                 &self.view_matrix,
                 &self.projection_matrix,
                 self.camera_position,
-                self.last_presentation_frame.as_ref(),
+                self.last_presentation_frame.as_deref(),
             );
         }
         // C++ only refreshes Drawable::m_shroudClearFrame after the current

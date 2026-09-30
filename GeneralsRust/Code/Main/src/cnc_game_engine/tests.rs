@@ -69,7 +69,7 @@ fn match_seed_primes_direct_bindings_before_first_ingame_render() {
         .expect("direct hydration helper follows seed");
     let seed = &camera[seed_start..seed_end];
     let frame = seed
-        .find("self.last_presentation_frame = Some(pres);")
+        .find("self.last_presentation_frame = Some(pres.into());")
         .expect("seed installs immutable frame first");
     let direct_sync = seed
         .find("self.host_sync_presentation_direct_drawables(presentation_time_frozen);")
@@ -629,8 +629,7 @@ fn startup_deferred_budget_is_disabled() {
     // (even with no startup frame yet) always budgets >= 4.
     let budget = CnCGameEngine::startup_deferred_model_load_budget(GameState::InGame, None, 0);
     assert_eq!(budget, 0);
-    let menu_no_frame =
-        CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
+    let menu_no_frame = CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, None, 0);
     assert_eq!(menu_no_frame, 4);
 }
 

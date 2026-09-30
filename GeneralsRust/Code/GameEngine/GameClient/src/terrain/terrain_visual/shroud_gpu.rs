@@ -1,8 +1,6 @@
 // C++ ST_SHROUD_TEXTURE / setShroudTex projected dest texture.
 // Extra multiplicative pass after water / wakes / trees / bridges.
 
-
-
 impl TerrainVisualImpl {
     fn create_shroud_overlay_pipelines(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
         let Some(camera_layout) = self.terrain_camera_bind_group_layout.as_ref() else {
@@ -109,6 +107,13 @@ impl TerrainVisualImpl {
                 cache: None,
             })
         };
+        // C++ HeightMap.cpp:2138 replays the same terrain VB under the
+        // W3DShroud material pass after roads and terrain tracks.
+        self.shroud_gpu.terrain_pipeline = Some(make(
+            "ST_SHROUD terrain",
+            std::mem::size_of::<TerrainVertex>() as u64,
+            wgpu::CompareFunction::LessEqual,
+        ));
         // Water does not write Z — C++ forces LESSEQUAL on the extra shroud pass.
         self.shroud_gpu.water_pipeline = Some(make(
             "ST_SHROUD water/wakes",
@@ -244,24 +249,25 @@ impl TerrainVisualImpl {
             ) else {
                 return;
             };
-            self.shroud_gpu.bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ST_SHROUD dest bind"),
-                layout: layout.as_ref(),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buf.as_entire_binding(),
-                    },
-                ],
-            }));
+            self.shroud_gpu.bind_group =
+                Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("ST_SHROUD dest bind"),
+                    layout: layout.as_ref(),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buf.as_entire_binding(),
+                        },
+                    ],
+                }));
         }
         self.shroud_gpu.uploaded_len = cells.len();
     }
@@ -320,21 +326,48 @@ impl TerrainVisualImpl {
         }
     }
 
-    fn record_shroud_bridge_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
-        let (Some(pipeline), Some(camera), Some(shroud)) = (
+    fn record_shroud_ground_pass<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        if self.overlay.shroud_cells.is_empty() {
+            return;
+        }
+        let (Some(terrain_pipeline), Some(road_pipeline), Some(camera), Some(shroud)) = (
+            self.shroud_gpu.terrain_pipeline.as_ref(),
             self.shroud_gpu.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
             self.shroud_gpu.bind_group.as_ref(),
         ) else {
             return;
         };
-        if self.bridge_meshes.is_empty() {
-            return;
-        }
-        pass.set_pipeline(pipeline);
+
+        pass.set_pipeline(terrain_pipeline);
         pass.set_bind_group(0, camera, &[]);
         pass.set_bind_group(1, shroud, &[]);
-        for mesh in &self.bridge_meshes {
+        for chunk_id in self.chunk_ids_for_gpu_draw() {
+            let Some(mesh) = self.chunk_meshes.get(&chunk_id) else {
+                continue;
+            };
+            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
+
+        // Rust road/track geometry writes depth, unlike the C++ shared
+        // terrain shroud replay. Replaying those exact buffers at equal depth
+        // applies fog to their visible pixels without darkening them twice.
+        pass.set_pipeline(road_pipeline);
+        pass.set_bind_group(0, camera, &[]);
+        pass.set_bind_group(1, shroud, &[]);
+        let ground_overlays = self
+            .road_meshes
+            .iter()
+            .chain(self.bridge_meshes.iter())
+            .chain(self.scorch_meshes.iter())
+            .chain(self.tank_track_meshes.iter())
+            .chain(self.custom_edge_meshes.iter())
+            .chain(self.prop_meshes.iter())
+            .chain(self.flat_lod_meshes.iter())
+            .chain(self.smudge_mesh.iter());
+        for mesh in ground_overlays {
             pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..mesh.index_count, 0, 0..1);

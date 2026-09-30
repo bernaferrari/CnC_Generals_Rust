@@ -26,6 +26,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 use thiserror::Error;
 
+/// C++ Create_GDI_Font resolves the authored Generals alias before choosing
+/// the regular or bold Arial face. Keep FontDesc itself authored for identity.
+pub(super) fn resolved_font_family(name: &str) -> &str {
+    if name.eq_ignore_ascii_case("Generals") {
+        "Arial"
+    } else {
+        name
+    }
+}
+
 fn load_fontdue_font(desc: &FontDesc) -> Option<fontdue::Font> {
     for path in candidate_font_paths(&desc.name, desc.bold) {
         if let Ok(bytes) = std::fs::read(&path) {
@@ -55,6 +65,7 @@ pub fn font_atlas_files() -> Vec<std::path::PathBuf> {
         "Arial.ttf",
         "Arial Bold.ttf",
         "arial.ttf",
+        "arialbd.ttf",
         "LiberationSans-Regular.ttf",
         "LiberationSans-Bold.ttf",
         "DejaVuSans.ttf",
@@ -121,6 +132,7 @@ fn candidate_font_dirs() -> Vec<std::path::PathBuf> {
 }
 
 fn candidate_font_paths(name: &str, bold: bool) -> Vec<std::path::PathBuf> {
+    let name = resolved_font_family(name);
     let mut paths = Vec::new();
     let file_stem = name.replace(' ', "");
     let mut names = vec![
@@ -139,6 +151,13 @@ fn candidate_font_paths(name: &str, bold: bool) -> Vec<std::path::PathBuf> {
         names.insert(2, format!("{} Bold.ttf", name));
     } else {
         names.push(format!("{} Bold.ttf", name));
+    }
+    // Windows installs Arial Bold as arialbd.ttf, rather than ArialBold.ttf.
+    if name.eq_ignore_ascii_case("Arial") {
+        names.insert(
+            0,
+            if bold { "arialbd.ttf" } else { "arial.ttf" }.to_string(),
+        );
     }
     let dirs = candidate_font_dirs();
     for dir in dirs {
@@ -333,8 +352,7 @@ impl FontData for DefaultFontData {
     fn supports_char(&self, ch: char) -> bool {
         if let Some(font) = self.font.as_ref() {
             return font.lookup_glyph_index(ch) != 0
-                || alternate_unicode_font()
-                    .is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
+                || alternate_unicode_font().is_some_and(|alt| alt.lookup_glyph_index(ch) != 0);
         }
         ch.is_ascii() || ch.is_ascii_graphic() || ch.is_whitespace()
     }
@@ -681,6 +699,59 @@ pub fn get_font_library() -> std::sync::MutexGuard<'static, FontLibrary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generals_bold_measurement_uses_the_same_real_face_as_arial_bold() {
+        // C++ resolves Generals -> Arial before selecting FW_BOLD.
+        let generals = DefaultFontData::new(FontDesc::new("Generals", 20, true));
+        let arial = DefaultFontData::new(FontDesc::new("Arial", 20, true));
+        let regular = DefaultFontData::new(FontDesc::new("Arial", 20, false));
+        assert!(
+            generals.font.is_some() && arial.font.is_some() && regular.font.is_some(),
+            "real regular/bold fonts are required for this weight parity regression"
+        );
+        let label = "fiftill";
+        let bold_width = arial.measure_text(label);
+        assert_ne!(
+            bold_width,
+            regular.measure_text(label),
+            "fixture must distinguish real font weights"
+        );
+        assert_eq!(
+            generals.measure_text(label),
+            bold_width,
+            "Generals bold must measure through the same face the renderer uses"
+        );
+        assert_eq!(
+            generals.desc.name, "Generals",
+            "authored identity is retained"
+        );
+    }
+
+    #[test]
+    fn generals_family_resolution_keeps_authored_identity_and_windows_bold_path() {
+        assert_eq!(resolved_font_family("Generals"), "Arial");
+        assert_eq!(resolved_font_family("generals"), "Arial");
+        assert_eq!(resolved_font_family("Courier New"), "Courier New");
+        let bold = candidate_font_paths("Generals", true);
+        let regular = candidate_font_paths("Generals", false);
+        assert!(
+            bold.iter()
+                .any(|path| path == std::path::Path::new("C:/Windows/Fonts/arialbd.ttf"))
+        );
+        assert!(
+            regular
+                .iter()
+                .any(|path| path == std::path::Path::new("C:/Windows/Fonts/arial.ttf"))
+        );
+        let generals = GameFont::new(FontDesc::new("Generals", 15, false)).unwrap();
+        let arial = GameFont::new(FontDesc::new("Arial", 15, false)).unwrap();
+        assert_eq!(
+            generals.measure_text("PLAY GAME"),
+            arial.measure_text("PLAY GAME")
+        );
+        assert_eq!(generals.desc.name, "Generals");
+    }
 
     #[test]
     fn test_font_desc_creation() {

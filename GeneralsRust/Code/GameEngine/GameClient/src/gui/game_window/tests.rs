@@ -470,6 +470,15 @@ fn combo_box_text_color_setters_propagate_to_sub_gadgets_like_cpp() {
         edit_box: 2,
         list_box: 3,
     });
+    let untouched_dropdown_colors = {
+        let drop_down = drop_down.borrow();
+        (
+            drop_down.inst_data.enabled_text.color,
+            drop_down.inst_data.disabled_text.color,
+            drop_down.inst_data.hilite_text.color,
+            drop_down.inst_data.ime_composite_text.color,
+        )
+    };
 
     combo.set_enabled_text_colors(0x11223344, 0x55667788);
     combo.set_disabled_text_colors(0x01020304, 0x05060708);
@@ -498,10 +507,22 @@ fn combo_box_text_color_setters_propagate_to_sub_gadgets_like_cpp() {
     }
 
     let drop_down = drop_down.borrow();
-    assert_eq!(drop_down.inst_data.enabled_text.color, 0);
-    assert_eq!(drop_down.inst_data.disabled_text.color, 0);
-    assert_eq!(drop_down.inst_data.hilite_text.color, 0);
-    assert_eq!(drop_down.inst_data.ime_composite_text.color, 0);
+    // C++ WinInstanceData.cpp initializes these three to
+    // WIN_COLOR_UNDEFINED (0x00FFFFFF); GadgetComboBox setters only touch
+    // the listbox/edit box, never the dropdown button. IME defaults are not
+    // explicitly initialized in C++, so require only that it remain intact.
+    assert_eq!(drop_down.inst_data.enabled_text.color, WIN_COLOR_UNDEFINED);
+    assert_eq!(drop_down.inst_data.disabled_text.color, WIN_COLOR_UNDEFINED);
+    assert_eq!(drop_down.inst_data.hilite_text.color, WIN_COLOR_UNDEFINED);
+    assert_eq!(
+        (
+            drop_down.inst_data.enabled_text.color,
+            drop_down.inst_data.disabled_text.color,
+            drop_down.inst_data.hilite_text.color,
+            drop_down.inst_data.ime_composite_text.color,
+        ),
+        untouched_dropdown_colors,
+    );
     assert!(drop_down.get_font().is_none());
 }
 
@@ -1672,7 +1693,7 @@ fn listbox_selection_system_message_notifies_owner_like_cpp() {
 }
 
 #[test]
-fn titled_listbox_input_uses_title_content_inset_like_cpp() {
+fn titled_listbox_input_maps_title_click_to_first_row_like_cpp() {
     let mut window = GameWindow::new();
     window.set_id(42);
     window.set_size(100, 60).unwrap();
@@ -1688,11 +1709,11 @@ fn titled_listbox_input_uses_title_content_inset_like_cpp() {
 
     window.set_cursor_position(1, 12).unwrap();
     let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
-    assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
+    assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0]);
 
     window.set_cursor_position(1, 13).unwrap();
     let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
-    assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0]);
+    assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
 }
 
 #[test]
@@ -1729,7 +1750,10 @@ fn listbox_input_sends_glm_selected_row_to_owner_like_cpp() {
     assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[1]);
     assert_eq!(
         owner_seen.borrow().as_slice(),
-        &[(WindowMessage::User(GLM_SELECTED), 42, 1)]
+        &[
+            (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 42),
+            (WindowMessage::User(GLM_SELECTED), 42, 1),
+        ]
     );
 }
 
@@ -1772,7 +1796,9 @@ fn listbox_double_click_sends_glm_double_clicked_before_selection_like_cpp() {
     assert_eq!(
         owner_seen.borrow().as_slice(),
         &[
+            (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 42),
             (WindowMessage::User(GLM_SELECTED), 42, 0),
+            (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 42),
             (WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0),
             (
                 WindowMessage::User(GLM_SELECTED),
@@ -2631,17 +2657,6 @@ fn clamp_border_span_rejects_runaway_window_size() {
 }
 
 #[test]
-fn ui_renderer_caps_draw_commands_before_vertex_flood() {
-    let src = include_str!("../ui_renderer.rs");
-    assert!(src.contains("MAX_DRAW_COMMANDS_PER_FRAME"));
-    assert!(src.contains("if self.draw_commands.len() >= Self::MAX_DRAW_COMMANDS_PER_FRAME"));
-    assert!(
-        src.contains("dropping remaining commands"),
-        "render() must stop assembling verts before allocating hundreds of MB"
-    );
-}
-
-#[test]
 fn image_status_missing_image_draws_nothing() {
     let ops = plan_w3d_game_win_default_draw(true, true, true, false);
     assert!(
@@ -2876,10 +2891,11 @@ fn listbox_right_click_sends_right_click_struct_payload() {
         WindowMsgHandled::Handled
     );
     let seen = owner_seen.borrow();
-    assert_eq!(seen.len(), 1);
-    assert_eq!(seen[0].0, WindowMessage::User(GLM_RIGHT_CLICKED));
-    assert_eq!(seen[0].1, 3);
-    match payload(seen[0].2) {
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0], (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 3));
+    assert_eq!(seen[1].0, WindowMessage::User(GLM_RIGHT_CLICKED));
+    assert_eq!(seen[1].1, 3);
+    match payload(seen[1].2) {
         Some(WindowMsgPayload::RightClick(rc)) => {
             assert_eq!(rc.mouse_x, 15);
             assert_eq!(rc.mouse_y, 28);

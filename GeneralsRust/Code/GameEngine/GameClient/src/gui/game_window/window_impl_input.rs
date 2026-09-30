@@ -194,9 +194,9 @@ impl GameWindow {
         let gadget_consumed_input = !messages.is_empty();
         let is_checkbox_message = matches!(self.widget, Some(WindowWidget::CheckBox(_)));
         let is_radio_message = matches!(self.widget, Some(WindowWidget::RadioButton(_)));
-        let target_owner = if !self.owner_is_self
-            && (self.get_parent().is_some() || is_checkbox_message || is_radio_message)
-        {
+        // C++ gadget callbacks address winGetOwner() directly. An explicit
+        // owner still receives notifications when this window has no parent.
+        let target_owner = if !self.owner_is_self {
             self.get_owner()
         } else {
             None
@@ -209,6 +209,18 @@ impl GameWindow {
 
         let original_data1 = data1;
         for message in messages {
+            if let GadgetMessage::FocusChanged { has_focus, .. } = message {
+                // winSetFocus delivers GWM_INPUT_FOCUS to the gadget itself;
+                // its system callback then sends GGM_FOCUS_CHANGE to the owner.
+                // Sending raw InputFocus to the owner skips that C++ sequence.
+                let result = self.send_system_message(
+                    WindowMessage::InputFocus,
+                    if has_focus { 1 } else { 0 },
+                    0,
+                );
+                handled |= result.is_handled();
+                continue;
+            }
             let (msg, data1, data2) = match message {
                 GadgetMessage::Clicked { .. } if is_listbox_message => {
                     continue;
@@ -335,9 +347,7 @@ impl GameWindow {
                     self.id as WindowMsgData,
                     0,
                 ),
-                GadgetMessage::FocusChanged { has_focus, .. } => {
-                    (WindowMessage::InputFocus, if has_focus { 1 } else { 0 }, 0)
-                }
+                GadgetMessage::FocusChanged { .. } => unreachable!(),
                 GadgetMessage::Custom { data, .. } => {
                     if data == "tab_next" {
                         with_window_manager(|manager| manager.navigate_tab(TabDirection::Next));

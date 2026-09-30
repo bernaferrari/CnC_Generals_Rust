@@ -12,6 +12,158 @@ use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
     DdsCompression, decode_dxt1, decode_dxt3, decode_dxt5,
 };
 
+/// A W3D material pass may carry one texture/shader ID for the whole mesh or
+/// one ID for each polygon. C++ `MeshModelClass::read_texture_ids` installs
+/// the latter on individual polygons (meshmdlio.cpp); the renderer must draw
+/// each polygon once with its own material state.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+struct FaceMaterialKey {
+    shader_id: Option<u32>,
+    stage_texture_ids: Vec<Option<u32>>,
+}
+
+#[derive(Debug)]
+struct FaceMaterialBatch {
+    shader_id: Option<u32>,
+    stage_texture_ids: Vec<Option<u32>>,
+    /// Indices into the converted `MeshModelClass::triangles` array.
+    faces: Vec<u32>,
+}
+
+fn face_material_id(ids: &[u32], source_face: usize, source_face_count: usize) -> Option<u32> {
+    let id = if ids.len() == source_face_count {
+        ids.get(source_face)
+    } else {
+        ids.first()
+    }?;
+    (*id != u32::MAX).then_some(*id)
+}
+
+fn plan_face_material_batches(
+    mesh: &crate::assets::models::W3DMesh,
+    pass_index: usize,
+    source_face_indices: &[usize],
+) -> Vec<FaceMaterialBatch> {
+    let mut batches = Vec::<FaceMaterialBatch>::new();
+    let mut by_key = HashMap::<FaceMaterialKey, usize>::new();
+    let source_face_count = mesh.indices.len() / 3;
+    let shader_ids = mesh
+        .per_pass_shader_ids
+        .get(pass_index)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let stages = mesh
+        .per_pass_stage_texture_ids
+        .get(pass_index)
+        .filter(|stages| stages.iter().any(|ids| !ids.is_empty()));
+
+    for (converted_face, &source_face) in source_face_indices.iter().enumerate() {
+        let key = FaceMaterialKey {
+            shader_id: face_material_id(shader_ids, source_face, source_face_count),
+            stage_texture_ids: stages
+                .into_iter()
+                .flatten()
+                .map(|ids| face_material_id(ids, source_face, source_face_count))
+                .collect(),
+        };
+        let batch_index = *by_key.entry(key.clone()).or_insert_with(|| {
+            let index = batches.len();
+            batches.push(FaceMaterialBatch {
+                shader_id: key.shader_id,
+                stage_texture_ids: key.stage_texture_ids,
+                faces: Vec::new(),
+            });
+            index
+        });
+        batches[batch_index].faces.push(converted_face as u32);
+    }
+    batches
+}
+
+#[cfg(test)]
+mod face_material_tests {
+    use super::*;
+
+    #[test]
+    fn per_face_texture_ids_partition_faces_without_duplication() {
+        let mut mesh = crate::assets::models::W3DMesh::new("three_faces".to_string());
+        mesh.indices = vec![0, 1, 2, 0, 2, 3, 1, 2, 3];
+        mesh.per_pass_stage_texture_ids = vec![vec![vec![2, 7, 2]]];
+        mesh.per_pass_shader_ids = vec![vec![0, 1, 0]];
+
+        let batches = plan_face_material_batches(&mesh, 0, &[0, 1, 2]);
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].stage_texture_ids, vec![Some(2)]);
+        assert_eq!(batches[0].shader_id, Some(0));
+        assert_eq!(batches[0].faces, vec![0, 2]);
+        assert_eq!(batches[1].stage_texture_ids, vec![Some(7)]);
+        assert_eq!(batches[1].shader_id, Some(1));
+        assert_eq!(batches[1].faces, vec![1]);
+    }
+
+    #[test]
+    fn scalar_stage_ids_apply_to_every_retained_source_face() {
+        let mut mesh = crate::assets::models::W3DMesh::new("three_faces".to_string());
+        mesh.indices = vec![0, 1, 2, 0, 2, 3, 1, 2, 3];
+        mesh.per_pass_stage_texture_ids = vec![vec![vec![2, 7, 2], vec![9]]];
+        mesh.per_pass_shader_ids = vec![vec![4]];
+
+        let batches = plan_face_material_batches(&mesh, 0, &[0, 2]);
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].shader_id, Some(4));
+        assert_eq!(batches[0].stage_texture_ids, vec![Some(2), Some(9)]);
+        assert_eq!(batches[0].faces, vec![0, 1]);
+    }
+
+    #[test]
+    fn retail_command_center_preserves_its_polygon_texture_ids_when_available() {
+        let Some(path) = crate::assets::mesh_asset_resolve::find_filesystem_w3d("ABBtCmdHQ") else {
+            eprintln!("skip: retail ABBtCmdHQ.W3D is not available on disk");
+            return;
+        };
+        let model = crate::assets::models::W3DLoader::new()
+            .load_model_from_path(&path)
+            .expect("retail Command Center W3D should parse");
+        let mesh = model
+            .meshes
+            .iter()
+            .find(|mesh| {
+                mesh.per_pass_stage_texture_ids
+                    .iter()
+                    .flatten()
+                    .any(|ids| ids.len() == 474)
+            })
+            .expect("retail Command Center has a 474-polygon texture stage");
+        let ids = mesh
+            .per_pass_stage_texture_ids
+            .iter()
+            .flatten()
+            .find(|ids| ids.len() == 474)
+            .unwrap();
+        assert!(
+            !mesh.passes.is_empty(),
+            "retail mesh must take the authored pass path"
+        );
+        assert_eq!(mesh.indices.len() / 3, 474);
+        let source_faces: Vec<usize> = (0..mesh.indices.len() / 3).collect();
+        let batches = plan_face_material_batches(mesh, 0, &source_faces);
+        assert_eq!(batches.len(), 23);
+        assert!(batches.iter().all(|batch| {
+            batch.stage_texture_ids[0]
+                .and_then(|id| mesh.texture_name_from_library(id))
+                .is_some_and(ForwardPass::is_valid_texture_name)
+        }));
+        let mut seen = vec![false; source_faces.len()];
+        for batch in &batches {
+            for &face in &batch.faces {
+                assert!(!std::mem::replace(&mut seen[face as usize], true));
+                assert_eq!(batch.stage_texture_ids[0], Some(ids[face as usize]));
+            }
+        }
+        assert!(seen.into_iter().all(|drawn| drawn));
+    }
+}
+
 impl ForwardPass {
     pub(super) fn build_mesh_model(
         &mut self,
@@ -115,10 +267,11 @@ impl ForwardPass {
                 .stage_texture_coords
                 .push(model.texture_coords.clone());
         }
-        model.triangles = mesh
+        let (source_face_indices, triangles): (Vec<usize>, Vec<W3dTriangleStruct>) = mesh
             .indices
             .chunks(3)
-            .filter_map(|chunk| {
+            .enumerate()
+            .filter_map(|(source_face, chunk)| {
                 if chunk.len() != 3 {
                     return None;
                 }
@@ -144,18 +297,22 @@ impl ForwardPass {
                     (Vec3::Y, 0.0)
                 };
 
-                Some(W3dTriangleStruct {
-                    vindex: [chunk[0], chunk[1], chunk[2]],
-                    attributes: 0,
-                    normal: W3dVectorStruct {
-                        x: normal_vec.x,
-                        y: normal_vec.y,
-                        z: normal_vec.z,
+                Some((
+                    source_face,
+                    W3dTriangleStruct {
+                        vindex: [chunk[0], chunk[1], chunk[2]],
+                        attributes: 0,
+                        normal: W3dVectorStruct {
+                            x: normal_vec.x,
+                            y: normal_vec.y,
+                            z: normal_vec.z,
+                        },
+                        distance,
                     },
-                    distance,
-                })
+                ))
             })
-            .collect();
+            .unzip();
+        model.triangles = triangles;
 
         model.vertex_count = model.vertices.len() as u32;
         model.index_count = (model.triangles.len() * 3) as u32;
@@ -212,10 +369,24 @@ impl ForwardPass {
             let vertex_material_cache = self.build_vertex_material_cache(mesh, material);
             let mut passes = Vec::with_capacity(mesh.passes.len());
             for pass_index in 0..mesh.passes.len() {
-                if let Some(pass) =
-                    self.build_material_pass_from_mesh(mesh, pass_index, &vertex_material_cache)?
-                {
-                    passes.push(pass);
+                for batch in plan_face_material_batches(mesh, pass_index, &source_face_indices) {
+                    if let Some(mut pass) = self.build_material_pass_from_mesh(
+                        mesh,
+                        pass_index,
+                        &vertex_material_cache,
+                        &batch,
+                    )? {
+                        if passes.len() == pass_index {
+                            passes.push(pass.clone());
+                        }
+                        pass.set_pass_index(model.material_batches.len());
+                        model.material_batches.push(
+                            ww3d_renderer_3d::rendering::mesh_system::MeshMaterialBatch {
+                                material_pass: pass,
+                                face_indices: batch.faces,
+                            },
+                        );
+                    }
                 }
             }
             if passes.is_empty() {
@@ -282,6 +453,7 @@ impl ForwardPass {
         mesh: &crate::assets::models::W3DMesh,
         pass_index: usize,
         vertex_materials: &[Arc<VertexMaterialClass>],
+        face_batch: &FaceMaterialBatch,
     ) -> Result<Option<MaterialPassClass>> {
         if pass_index >= mesh.passes.len() {
             return Ok(None);
@@ -290,7 +462,10 @@ impl ForwardPass {
         let mut pass = MaterialPassClass::new();
         Self::assign_vertex_material_for_pass(&mut pass, mesh, pass_index, vertex_materials);
         if let Some(shader_id_list) = mesh.per_pass_shader_ids.get(pass_index) {
-            if let Some(&shader_id) = shader_id_list.first() {
+            if let Some(shader_id) = face_batch
+                .shader_id
+                .or_else(|| shader_id_list.first().copied())
+            {
                 if let Some(shader_struct) = mesh.shaders.get(shader_id as usize) {
                     pass.shader = ShaderClass::from_w3d_shader(shader_struct);
                 }
@@ -316,7 +491,16 @@ impl ForwardPass {
             }
         }
 
-        let has_bound_texture = self.assign_stage_textures_for_pass(&mut pass, mesh, pass_index)?;
+        let has_bound_texture = if face_batch.stage_texture_ids.is_empty() {
+            self.assign_stage_textures_for_pass(&mut pass, mesh, pass_index)?
+        } else {
+            self.assign_stage_textures_for_face_batch(
+                &mut pass,
+                mesh,
+                pass_index,
+                &face_batch.stage_texture_ids,
+            )?
+        };
         if !has_bound_texture {
             // C++ Get_Texture miss binds MissingTexture (magenta), never disables
             // texturing and never falls back to unmodulated white output.
@@ -394,6 +578,30 @@ impl ForwardPass {
             pass.set_stage_uv_channel(0, channel);
             self.apply_base_texture(pass, &mesh.material)?;
             assigned = pass.get_texture(0).is_some();
+        }
+        Ok(assigned)
+    }
+
+    fn assign_stage_textures_for_face_batch(
+        &mut self,
+        pass: &mut MaterialPassClass,
+        mesh: &crate::assets::models::W3DMesh,
+        pass_index: usize,
+        stage_texture_ids: &[Option<u32>],
+    ) -> Result<bool> {
+        let mut assigned = false;
+        for (stage, texture_id) in stage_texture_ids.iter().enumerate() {
+            pass.set_stage_uv_channel(stage, Self::stage_uv_channel_for(mesh, pass_index, stage));
+            let Some(name) = texture_id.and_then(|id| mesh.texture_name_from_library(id)) else {
+                continue;
+            };
+            if !Self::is_valid_texture_name(name) {
+                continue;
+            }
+            if let Some(texture) = self.ensure_texture(name)? {
+                pass.set_texture(stage, texture);
+                assigned = true;
+            }
         }
         Ok(assigned)
     }
@@ -504,14 +712,9 @@ impl ForwardPass {
             return;
         };
         let mut configured = (*material).clone();
-        let header_prelit = mesh
-            .header
-            .as_ref()
-            .map(|header| {
-                (header.attrs
-                    & ww3d_renderer_3d::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX)
-                    != 0
-            });
+        let header_prelit = mesh.header.as_ref().map(|header| {
+            (header.attrs & ww3d_renderer_3d::w3d_format::W3D_MESH_FLAG_PRELIT_VERTEX) != 0
+        });
         let pass_has_dcg = pass
             .diffuse_vertex_colors
             .as_ref()
@@ -893,8 +1096,7 @@ mod build_texture_tests {
 
     fn raw_with(compression: Option<DdsCompression>, width: u32, height: u32) -> RawTexture {
         let data = match compression {
-            Some(c) => solid_red_block(c)
-                .repeat((width.div_ceil(4) * height.div_ceil(4)) as usize),
+            Some(c) => solid_red_block(c).repeat((width.div_ceil(4) * height.div_ceil(4)) as usize),
             None => vec![128, 128, 128, 255].repeat((width * height) as usize),
         };
         RawTexture {
@@ -913,8 +1115,8 @@ mod build_texture_tests {
         // Uncompressed payload: the format choice itself is the contract. The
         // scene target is Bgra8UnormSrgb; uploading color bytes as Rgba8Unorm
         // double-applied gamma and washed textures white.
-        let texture = ForwardPass::build_texture("plain", &raw_with(None, 4, 4))
-            .expect("uncompressed build");
+        let texture =
+            ForwardPass::build_texture("plain", &raw_with(None, 4, 4)).expect("uncompressed build");
         assert_eq!(
             texture.format,
             TextureFormat::Rgba8UnormSrgb,
@@ -928,8 +1130,9 @@ mod build_texture_tests {
         // exactly width*height*4 bytes — an undecoded DXT payload fails that
         // guard and the unit would bind the missing texture. DXT1 is the most
         // common unit-skin variant in the shipped archives (1975 files).
-        let texture = ForwardPass::build_texture("skin", &raw_with(Some(DdsCompression::Dxt1), 8, 4))
-            .expect("DXT1 build");
+        let texture =
+            ForwardPass::build_texture("skin", &raw_with(Some(DdsCompression::Dxt1), 8, 4))
+                .expect("DXT1 build");
         assert_eq!(texture.format, TextureFormat::Rgba8UnormSrgb);
         assert_eq!(texture.raw_pixels().len(), 8 * 4 * 4);
         // color0 = 0xF800 decodes to opaque red in the first pixel.
@@ -942,11 +1145,9 @@ mod build_texture_tests {
         // files) are the remaining shipped variants; both must decode to the
         // 32-bit layout the mesh bind path accepts.
         for compression in [DdsCompression::Dxt3, DdsCompression::Dxt5] {
-            let texture = ForwardPass::build_texture(
-                "skin_alpha",
-                &raw_with(Some(compression), 8, 8),
-            )
-            .unwrap_or_else(|e| panic!("{compression:?} build failed: {e}"));
+            let texture =
+                ForwardPass::build_texture("skin_alpha", &raw_with(Some(compression), 8, 8))
+                    .unwrap_or_else(|e| panic!("{compression:?} build failed: {e}"));
             assert_eq!(texture.format, TextureFormat::Rgba8UnormSrgb);
             assert_eq!(texture.raw_pixels().len(), 8 * 8 * 4);
             // First pixel keeps full alpha from its block encoding.

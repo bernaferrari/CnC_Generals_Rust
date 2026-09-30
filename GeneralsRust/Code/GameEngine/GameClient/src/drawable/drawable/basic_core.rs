@@ -457,8 +457,7 @@ impl BasicDrawable {
 
     /// C++ Object::getHealthBoxDimensions / getHealthBoxPosition residual.
     pub fn set_presentation_health_box(&mut self, width: f32, z_offset: f32) {
-        self.presentation_health_box_width = width;
-        self.presentation_health_box_z = z_offset;
+        self.presentation_health_box = Some((width, z_offset));
     }
 
     /// C++ parity: `Drawable::reactToBodyDamageStateChange` (Drawable.cpp:1077-1101).
@@ -793,7 +792,6 @@ impl BasicDrawable {
             dm.set_terrain_decal(decal_type);
         }
     }
-
 
     pub fn set_terrain_decal_fade_target(&mut self, target: f32, rate: f32) {
         if (self.decal_opacity_fade_target - target).abs() > f32::EPSILON {

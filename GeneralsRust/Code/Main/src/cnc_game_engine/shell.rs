@@ -328,10 +328,13 @@ impl CnCGameEngine {
     /// OS events between decoder steps; re-entering winit from a blocking
     /// callback cannot preserve that lifecycle on macOS.
     #[cfg(feature = "game_client")]
-    pub(super) fn advance_cpp_load_screen_prelude(&mut self, pending: &mut PendingMatchStart) -> bool {
+    pub(super) fn advance_cpp_load_screen_prelude(
+        &mut self,
+        pending: &mut PendingMatchStart,
+    ) -> bool {
         use game_client::gui::load_screen::{
-            advance_load_screen_prelude, pump_load_screen_prelude_presentation,
-            LoadScreenPreludeStepResult,
+            LoadScreenPreludeStepResult, advance_load_screen_prelude,
+            pump_load_screen_prelude_presentation,
         };
         if !self.loading_overlay_active {
             return true;
@@ -345,13 +348,17 @@ impl CnCGameEngine {
         }
         let step = advance_load_screen_prelude(kind, self.message_processor.is_active());
         let (finished, presentation_needed) = match step {
-            LoadScreenPreludeStepResult::Pending { retry_after, presentation_needed } => {
+            LoadScreenPreludeStepResult::Pending {
+                retry_after,
+                presentation_needed,
+            } => {
                 pending.prelude_retry_at = now + retry_after;
                 (false, presentation_needed)
             }
-            LoadScreenPreludeStepResult::Finished { presentation_needed, .. } => {
-                (true, presentation_needed)
-            }
+            LoadScreenPreludeStepResult::Finished {
+                presentation_needed,
+                ..
+            } => (true, presentation_needed),
         };
         if presentation_needed {
             pump_load_screen_prelude_presentation(kind);
@@ -952,8 +959,8 @@ impl CnCGameEngine {
         // Script camera requests are already in the Rust X/Z-ground basis.
         // C++ GameLogic::startNewGame sends the waypoint to W3DView::lookAt,
         // which queries terrain at (pos.x, pos.y).
-        let metadata_initial_camera = presentation
-            .and_then(|pres| pres.world_env.initial_camera_position);
+        let metadata_initial_camera =
+            presentation.and_then(|pres| pres.world_env.initial_camera_position);
         let metadata_target = metadata_initial_camera
             .map(Self::cpp_initial_camera_ground_focus)
             .or_else(|| {
@@ -1132,7 +1139,7 @@ impl CnCGameEngine {
         let (ground_height, terrain_height_max) = Self::sample_startup_camera_heights(
             target,
             target.y,
-            self.last_presentation_frame.as_ref(),
+            self.last_presentation_frame.as_deref(),
         );
         Self::compute_default_camera_zoom_from_heights(
             ground_height,
@@ -2070,7 +2077,7 @@ impl CnCGameEngine {
             let startup_camera_presentation = self
                 .render_pipeline
                 .presentation_frame()
-                .or(self.last_presentation_frame.as_ref());
+                .or(self.last_presentation_frame.as_deref());
             // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
             let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
             (self.camera_target, self.camera_position, self.camera_zoom) =
@@ -2081,11 +2088,8 @@ impl CnCGameEngine {
                     startup_camera_presentation,
                 );
             self.sync_orbit_from_camera_transform();
-            self.view_matrix = glam::Mat4::look_at_rh(
-                self.camera_position,
-                self.camera_target,
-                glam::Vec3::Y,
-            );
+            self.view_matrix =
+                glam::Mat4::look_at_rh(self.camera_position, self.camera_target, glam::Vec3::Y);
             let terrain_warm_started = Instant::now();
             if let Err(err) = self
                 .render_pipeline
@@ -2191,7 +2195,9 @@ impl CnCGameEngine {
         // configured_startup_shell_map disables shell_map_on if the asset is
         // genuinely missing, so that case can still take the timeout below.
         if self.startup_start_in_menu
-            && game_engine::common::global_data::read().writable.shell_map_on
+            && game_engine::common::global_data::read()
+                .writable
+                .shell_map_on
         {
             return false;
         }

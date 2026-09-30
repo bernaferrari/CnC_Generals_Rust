@@ -119,6 +119,8 @@ impl RenderPipeline {
         // Snapshot ownership: when presentation is present, drive the main unit
         // mesh pass from unit_render_inputs (no live object identity / FOW re-read).
         // Keep frame installed for post-collect execute residual (minimap/shell/heightmap).
+        // Share the immutable frame: copying its object roster and shroud bytes
+        // here adds allocations on every draw without changing any render input.
         let presentation = self.presentation_frame.clone();
         let visual_plans: Vec<crate::presentation_frame::FrozenWeaponVisualDispatchPlan> =
             presentation
@@ -1087,9 +1089,7 @@ impl RenderPipeline {
             Err(_) => 0,
         };
         if cleared > 0 {
-            info!(
-                "Cleared {cleared} failed model resolutions for late archive provider recovery"
-            );
+            info!("Cleared {cleared} failed model resolutions for late archive provider recovery");
         }
     }
 
@@ -1101,8 +1101,7 @@ impl RenderPipeline {
         asset_manager: &crate::assets::AssetManager,
         template_name: &str,
     ) -> bool {
-        let Some(definition) = asset_manager.resolve_object_definition(template_name, None)
-        else {
+        let Some(definition) = asset_manager.resolve_object_definition(template_name, None) else {
             return false;
         };
         object_definition_is_audio_only(definition)
@@ -1499,7 +1498,7 @@ impl RenderPipeline {
             // this frozen presentation frame and retained on each resulting
             // render item. Never derive this branch from FOW alpha.
             let objectless_shroud = Self::frozen_objectless_drawable_shroud_for_submission(
-                self.presentation_frame.as_ref(),
+                self.presentation_frame.as_deref(),
                 &submission,
             );
 
@@ -1954,7 +1953,7 @@ impl RenderPipeline {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                     multiview_mask: None,
-});
+                });
                 render_pass.set_viewport(0.0, 0.0, vp_w, vp_h, 0.0, 1.0);
                 render_pass.set_scissor_rect(0, 0, vp_w as u32, vp_h as u32);
                 terrain_visual.record_water_scene_draws(&mut render_pass);

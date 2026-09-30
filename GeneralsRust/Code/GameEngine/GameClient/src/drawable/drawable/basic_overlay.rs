@@ -48,6 +48,11 @@ impl BasicDrawable {
     /// falls back to a previously cached region only when projection is unavailable
     /// but a region was seeded (test / offline icon UI path).
     pub fn compute_health_region(&self) -> Option<IRegion2D> {
+        // A live presentation region is output from this draw, never a seeded
+        // fallback. C++ recomputes it for the current camera on every draw.
+        if dual_world_registry_unavailable() && self.presentation_health_box.is_some() {
+            return self.compute_health_region_from_presentation_pose();
+        }
         if let Some(region) = self.compute_health_region_from_object() {
             return Some(region);
         }
@@ -89,16 +94,10 @@ impl BasicDrawable {
             return None;
         }
         let pos = self.position;
-        let z_off = if self.presentation_health_box_z > 0.0 {
-            self.presentation_health_box_z
-        } else {
-            10.0
-        };
-        let width = if self.presentation_health_box_width > 0.0 {
-            self.presentation_health_box_width
-        } else {
-            20.0
-        };
+        let (width, z_off) = self.presentation_health_box?;
+        if width <= 0.0 {
+            return None;
+        }
         let world_pt = Point3::new(pos.x, pos.y, pos.z + z_off);
         Self::health_region_from_world_point(world_pt, width)
     }
@@ -887,6 +886,11 @@ impl BasicDrawable {
         }
 
         let region = self.compute_health_region();
+        if region.is_none() && self.presentation_health_box.is_some() {
+            self.overlay_data.health_region = None;
+            self.clear_icon_ui_overlay();
+            return;
+        }
 
         if dual_world_registry_unavailable()
             && self.presentation_effectively_stealthed

@@ -10,6 +10,7 @@
 use glam::{Mat4, Vec2, Vec3};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::time::{Duration, Instant};
 use wgpu::util::DeviceExt;
 
 // ---------------------------------------------------------------------------
@@ -333,11 +334,54 @@ pub struct SelectionRenderer {
     uniform_bind_group: wgpu::BindGroup,
 }
 
-impl SelectionRenderer {
-    pub fn new() -> Option<Self> {
-        let device = ww3d_engine::device().ok()?;
-        let queue = ww3d_engine::queue().ok()?;
+/// One GPU resource set per active render-pipeline device. The callbacks keep
+/// their own Arc alive until submission even if a later device replaces it.
+#[derive(Default)]
+pub(crate) struct SelectionRendererCache {
+    renderer: Option<Arc<SelectionRenderer>>,
+    creations: u64,
+    build_time: Duration,
+}
 
+impl SelectionRendererCache {
+    pub(crate) fn get_or_create(
+        &mut self,
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+    ) -> Arc<SelectionRenderer> {
+        if let Some(renderer) = self.renderer.as_ref()
+            && Arc::ptr_eq(&renderer.device, &device)
+            && Arc::ptr_eq(&renderer.queue, &queue)
+        {
+            return Arc::clone(renderer);
+        }
+
+        let started = Instant::now();
+        let renderer = Arc::new(SelectionRenderer::new(device, queue));
+        let elapsed = started.elapsed();
+        self.creations += 1;
+        self.build_time += elapsed;
+        log::info!(
+            "Selection renderer GPU resources: creations={} latest_build={:?} total_build={:?}",
+            self.creations,
+            elapsed,
+            self.build_time,
+        );
+        self.renderer = Some(Arc::clone(&renderer));
+        renderer
+    }
+
+    pub(crate) fn creation_count(&self) -> u64 {
+        self.creations
+    }
+
+    pub(crate) fn build_time(&self) -> Duration {
+        self.build_time
+    }
+}
+
+impl SelectionRenderer {
+    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("selection_overlay_shader"),
             source: wgpu::ShaderSource::Wgsl(SELECTION_SHADER.into()),
@@ -494,14 +538,14 @@ impl SelectionRenderer {
             cache: None,
         });
 
-        Some(Self {
+        Self {
             device,
             queue,
             pipeline,
             drag_rect_pipeline,
             uniform_buffer,
             uniform_bind_group,
-        })
+        }
     }
 
     pub fn draw(
@@ -1149,11 +1193,6 @@ pub fn enqueue_selection_render(
     display_size: (f32, f32),
     camera_zoom: f32,
 ) {
-    let renderer = match SelectionRenderer::new() {
-        Some(r) => Arc::new(r),
-        None => return,
-    };
-
     let view_proj = *projection_matrix * *view_matrix;
 
     let mut selected_units = collect_selected_units(presentation);
@@ -1214,6 +1253,8 @@ pub fn enqueue_selection_render(
     {
         return;
     }
+
+    let renderer = pipeline.selection_renderer();
 
     if !selected_units.is_empty() || !order_line_vertices.is_empty() {
         let world_renderer = Arc::clone(&renderer);
@@ -1313,6 +1354,48 @@ pub fn enqueue_selection_render(
             drop(render_pass);
             Ok(())
         });
+    }
+}
+
+#[cfg(test)]
+mod selection_renderer_cache_tests {
+    use super::*;
+
+    #[test]
+    fn gpu_resources_reuse_one_device_and_rebuild_for_another() {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .expect("headless GPU adapter");
+        let make_device = || {
+            let (device, queue) =
+                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+                    .expect("headless GPU device");
+            (Arc::new(device), Arc::new(queue))
+        };
+
+        let (device_a, queue_a) = make_device();
+        let mut cache = SelectionRendererCache::default();
+        assert_eq!(cache.creation_count(), 0);
+        let first = cache.get_or_create(Arc::clone(&device_a), Arc::clone(&queue_a));
+        for _ in 0..100 {
+            let reused = cache.get_or_create(Arc::clone(&device_a), Arc::clone(&queue_a));
+            assert!(Arc::ptr_eq(&first, &reused));
+        }
+        assert_eq!(cache.creation_count(), 1);
+        assert!(cache.build_time() > Duration::ZERO);
+
+        let (device_b, queue_b) = make_device();
+        let second = cache.get_or_create(Arc::clone(&device_b), Arc::clone(&queue_b));
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(Arc::ptr_eq(&second.device, &device_b));
+        assert_eq!(cache.creation_count(), 2);
+        // The queued callback's old Arc still retains its original resources.
+        assert!(Arc::ptr_eq(&first.device, &device_a));
+        eprintln!(
+            "selection renderer: 2 GPU resource builds in {:?}",
+            cache.build_time()
+        );
     }
 }
 

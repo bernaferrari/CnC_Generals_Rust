@@ -119,6 +119,64 @@ pub(super) enum LeftoverSaTick {
 }
 
 impl GameLogic {
+    /// Cancel active ability channels when the current order replaces their AI state.
+    pub(super) fn cancel_replaced_ability_channels(
+        &mut self,
+        object_id: ObjectId,
+        ai_state: &AIState,
+    ) {
+        if ai_state != &AIState::SpecialAbility {
+            let leftover_channel = self.hero_abilities.leftover_channel(object_id).copied();
+            let leftover_laser_persist = leftover_channel.is_some_and(|ch| {
+                ch.kind == crate::game_logic::host_hero_abilities::LeftoverSaKind::LaserGuided
+                    && ai_state == &AIState::Attacking
+                    && self
+                        .objects
+                        .get(&object_id)
+                        .is_some_and(|o| o.target == Some(ch.target_id))
+            });
+            if leftover_laser_persist {
+                // C++ triggerAbilityEffect aiAttackObject(..., CMD_FROM_AI)
+                // must not onExit the PersistentPrepTime channel.
+            } else if leftover_channel.is_some()
+                || self.pending_special_abilities.contains_key(&object_id)
+                || self
+                    .objects
+                    .get(&object_id)
+                    .is_some_and(|object| object.hacker_disable_channel.is_some())
+            {
+                // C++ SpecialAbilityUpdate::update returns immediately
+                // when m_active is false. Aborting every ordinary object
+                // cleared PACKING owned by other modules and scanned the
+                // full world for special objects on every logic tick.
+                self.pending_special_abilities.remove(&object_id);
+                // An explicit replacement order must cancel an in-flight HDB
+                // channel without overwriting that new order's target/state.
+                // The normal packed completion path below remains responsible
+                // for putting a completed channel back to Idle.
+                if let Some(object) = self.objects.get_mut(&object_id) {
+                    if object.hacker_disable_channel.is_some() {
+                        object.hacker_disable_channel = None;
+                        object.set_status_using_ability(false);
+                    }
+                }
+                self.abort_leftover_sa_channel_on_new_order(object_id);
+            }
+        }
+        // C++ SpecialAbilityUpdate::update: any non-AI command source
+        // immediately onExit. Leftover capture must not keep
+        // IS_USING_ABILITY / capture_channel after a player move.
+        if ai_state != &AIState::Capturing {
+            let has_capture = self
+                .objects
+                .get(&object_id)
+                .is_some_and(|o| o.capture_channel.is_some());
+            if has_capture {
+                self.abort_capture_channel_on_new_order(object_id);
+            }
+        }
+    }
+
     pub(super) fn abort_capture_channel(&mut self, object_id: ObjectId) {
         if let Some(object) = self.objects.get_mut(&object_id) {
             object.stop_moving();

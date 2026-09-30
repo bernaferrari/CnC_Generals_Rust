@@ -134,15 +134,15 @@ pub(crate) fn install_drawable_pipeline_texture_provider() {
     let provider: game_client::drawable::drawable_draw_pipeline::DrawableTextureProvider =
         Arc::new(|name| {
             let (rgba, width, height) = archive_texture_rgba8(name)?;
-            Some(game_client::drawable::drawable_draw_pipeline::DecodedTexturePixels {
-                rgba,
-                width,
-                height,
-            })
+            Some(
+                game_client::drawable::drawable_draw_pipeline::DecodedTexturePixels {
+                    rgba,
+                    width,
+                    height,
+                },
+            )
         });
-    game_client::drawable::drawable_draw_pipeline::set_drawable_texture_provider(Some(
-        provider,
-    ));
+    game_client::drawable::drawable_draw_pipeline::set_drawable_texture_provider(Some(provider));
 }
 
 /// Install the archive-backed pass-texture resolver on the ww3d scene
@@ -653,6 +653,9 @@ pub(super) fn apply_frozen_direct_scene_decisions_to_render_items(
 pub struct RenderPipeline {
     // WW3D renderer bridge
     forward_pass: ForwardPass,
+    /// GPU selection shaders/pipelines live with this render pipeline's device.
+    /// Frame callbacks clone the Arc so in-flight draws retain their resources.
+    selection_renderer_cache: crate::graphics::selection_renderer::SelectionRendererCache,
 
     // Minimap FOW renderer
     minimap_renderer: Option<MinimapTextureRenderer>,
@@ -721,7 +724,7 @@ pub struct RenderPipeline {
     frozen_ghost_scene: Option<game_client::render_bridge::FrozenGhostSceneFrame>,
     last_frame_time: f32,
     /// When set, collect_render_items prefers presentation-owned transforms/model keys.
-    presentation_frame: Option<crate::presentation_frame::PresentationFrame>,
+    presentation_frame: Option<Arc<crate::presentation_frame::PresentationFrame>>,
     /// Immutable direct-host shroud visibility captured from GameClient for
     /// this presentation frame. It is replaced, never merged, at every Main
     /// render boundary so object IDs cannot carry across frame/world changes.

@@ -4,6 +4,175 @@
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn terrain_test_gpu_device_and_queue() -> (wgpu::Device, wgpu::Queue) {
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        }))
+        .expect("terrain shroud GPU regression requires an adapter");
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("terrain shroud test"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        }))
+        .expect("terrain shroud GPU regression requires a device")
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn terrain_test_gpu_device() -> wgpu::Device {
+        terrain_test_gpu_device_and_queue().0
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn shroud_delta_preserves_static_chunk_gpu_mesh() {
+        // C++ W3DShroud changes its destination texture and replays a material
+        // pass; it does not rebuild HeightMapRenderObjClass vertex buffers.
+        let device = terrain_test_gpu_device();
+        let buffer = || {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("static chunk marker"),
+                size: 16,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX,
+                mapped_at_creation: false,
+            })
+        };
+        let mut visual = TerrainVisualImpl::new();
+        visual.chunk_meshes.insert(
+            42,
+            GpuChunkMesh {
+                vertex_buffer: buffer(),
+                index_buffer: buffer(),
+                index_count: 6,
+                revision: 7,
+                uploaded_with_dynamic_lights: false,
+            },
+        );
+
+        visual.set_shroud_overlay_r8(2, 2, 40.0, [0.0, 0.0], &[255, 0, 255, 0]);
+        assert_eq!(
+            visual.chunk_meshes.get(&42).map(|mesh| mesh.revision),
+            Some(7)
+        );
+        visual.set_shroud_overlay_r8(2, 2, 40.0, [0.0, 0.0], &[0, 0, 255, 0]);
+        assert_eq!(
+            visual.chunk_meshes.get(&42).map(|mesh| mesh.revision),
+            Some(7)
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn expired_pulse_restores_cached_gpu_mesh_after_chunk_returns_to_draw_window() {
+        use crate::fx_list::{
+            DisplayLightPulse, clear_scene_dynamic_lights, create_display_light_pulse,
+            drain_display_light_pulses,
+        };
+
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+        let (device, queue) = terrain_test_gpu_device_and_queue();
+        let mut visual = TerrainVisualImpl::new();
+        visual.device = Some(Arc::new(device));
+        visual.queue = Some(Arc::new(queue));
+        visual.config.world_size = (11_000.0, 11_000.0);
+        visual
+            .chunk_manager
+            .create_chunks_for_region(
+                Vec3::new(10_000.0, 0.0, 10_000.0),
+                Vec3::new(10_064.0, 0.0, 10_064.0),
+                64.0,
+            )
+            .unwrap();
+        let center = Vec3::new(10_032.0, 0.0, 10_032.0);
+        let chunk = visual
+            .chunk_manager
+            .get_chunk_at_position_mut(&center)
+            .unwrap();
+        chunk.heights = vec![vec![0.0; 2]; 2];
+        chunk.generate_geometry(3).unwrap();
+        chunk.visible = true;
+        let chunk_id = chunk.id;
+
+        assert!(create_display_light_pulse(DisplayLightPulse {
+            pos: [10_032.0, 10_032.0, 0.0],
+            color: [1.0, 0.0, 0.0],
+            inner_radius: 10.0,
+            outer_radius: 80.0,
+            increase_frames: 0,
+            decay_frames: 0,
+        }));
+        visual.update_chunk_meshes().unwrap();
+        let lit_buffer = visual
+            .chunk_meshes
+            .get(&chunk_id)
+            .unwrap()
+            .vertex_buffer
+            .clone();
+        assert!(visual.had_dynamic_lights);
+
+        visual
+            .chunk_manager
+            .get_chunk_at_position_mut(&center)
+            .unwrap()
+            .visible = false;
+        visual.config.world_size = (1.0, 1.0);
+        assert!(visual.chunk_ids_for_gpu_draw().is_empty());
+        clear_scene_dynamic_lights();
+        visual.update_chunk_meshes().unwrap();
+        assert!(!visual.had_dynamic_lights);
+        assert_eq!(
+            visual.chunk_meshes.get(&chunk_id).unwrap().vertex_buffer,
+            lit_buffer
+        );
+
+        visual
+            .chunk_manager
+            .get_chunk_at_position_mut(&center)
+            .unwrap()
+            .visible = true;
+        visual.config.world_size = (11_000.0, 11_000.0);
+        visual.update_chunk_meshes().unwrap();
+        let restored_buffer = visual
+            .chunk_meshes
+            .get(&chunk_id)
+            .unwrap()
+            .vertex_buffer
+            .clone();
+        assert_ne!(
+            restored_buffer, lit_buffer,
+            "returned lit mesh needs one static upload"
+        );
+
+        visual.update_chunk_meshes().unwrap();
+        assert_eq!(
+            visual.chunk_meshes.get(&chunk_id).unwrap().vertex_buffer,
+            restored_buffer
+        );
+        let _ = drain_display_light_pulses();
+        clear_scene_dynamic_lights();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn disabled_water_grid_consumes_dirty_flag_without_rebuilding_all_overlays() {
+        // No W3DWater grid is allocated when the map has no active water
+        // table. An empty result is still a completed bake, not a request to
+        // rebuild every overlay on every presentation frame.
+        let device = terrain_test_gpu_device();
+        let mut visual = TerrainVisualImpl::new();
+        visual.water_grid_enabled = false;
+        visual.overlay.water_grid_dirty = true;
+        visual.upload_water_grid_mesh(&device);
+        assert!(visual.water_grid_mesh.is_none());
+        assert!(!visual.overlay.water_grid_dirty);
+    }
+
     #[test]
     fn terrain_draw_window_tracks_visible_ground_instead_of_camera_eye() {
         // At C++'s default pitch, the view eye sits hundreds of world units

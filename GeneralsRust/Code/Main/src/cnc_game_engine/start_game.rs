@@ -812,7 +812,7 @@ impl CnCGameEngine {
         let startup_camera_presentation = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref());
+            .or(self.last_presentation_frame.as_deref());
         // Wave 540/552: prefer presentation fow_shell_bypass when freeze present.
         let in_shell_camera = self.shell_bypass_from_presentation(startup_camera_presentation);
         (self.camera_target, self.camera_position, self.camera_zoom) =
@@ -1023,7 +1023,7 @@ impl CnCGameEngine {
         // Wave 467/474: seed pipeline presentation (host+GW) and mirror into last_presentation_frame
         self.ensure_presentation_env_for_hints();
         if self.last_presentation_frame.is_none() {
-            self.last_presentation_frame = self.render_pipeline.presentation_frame().cloned();
+            self.last_presentation_frame = self.render_pipeline.presentation_frame_handle();
         }
     }
 
@@ -1115,8 +1115,7 @@ impl CnCGameEngine {
         // C++ WaterRenderObjClass::renderWater traverses the map's authored
         // PolygonTrigger water areas. This runs after both hint and frozen
         // runtime-heightmap hydration, including rematch and save restore.
-        if let Some((areas, gpu_meshes)) =
-            render_pipeline.sync_map_water_areas_from_presentation()
+        if let Some((areas, gpu_meshes)) = render_pipeline.sync_map_water_areas_from_presentation()
         {
             info!(
                 "Installed authored map water: areas={} gpu_meshes={}",
@@ -1214,7 +1213,8 @@ impl CnCGameEngine {
                         .map(|p| p.frame.0)
                         .unwrap_or(0);
                     if self.last_presentation_frame.is_none() || pipeline_frame >= last_frame {
-                        self.last_presentation_frame = Some(pres.clone());
+                        self.last_presentation_frame =
+                            self.render_pipeline.presentation_frame_handle();
                     }
                 }
             }
@@ -1824,7 +1824,7 @@ impl CnCGameEngine {
         if let Some(pres) = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref())
+            .or(self.last_presentation_frame.as_deref())
         {
             pres.world_env
                 .sample_height(clamped.x, clamped.z)
@@ -1848,7 +1848,7 @@ impl CnCGameEngine {
             let env = self
                 .render_pipeline
                 .presentation_frame()
-                .or(self.last_presentation_frame.as_ref())
+                .or(self.last_presentation_frame.as_deref())
                 .map(|f| &f.world_env);
             if let Some(hit) = airborne_look_at_ground(
                 self.camera_position,
@@ -2122,7 +2122,7 @@ impl CnCGameEngine {
         if let Some(frame) = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref())
+            .or(self.last_presentation_frame.as_deref())
         {
             frame.world_env.world_bounds_vec3()
         } else {
@@ -2572,8 +2572,7 @@ End
         let world_min = Vec3::new(0.0, 0.0, 0.0);
         let world_max = Vec3::new(3_500.0, 0.0, 3_500.0);
         let target = Vec3::new(50.0, 12.5, 3_450.0);
-        let constrained =
-            constrain_camera_target_to_map(target, world_min, world_max, 200.0, None);
+        let constrained = constrain_camera_target_to_map(target, world_min, world_max, 200.0, None);
         assert_eq!(constrained, Vec3::new(200.0, 12.5, 3_300.0));
         assert_eq!(
             constrain_camera_target_to_map(
@@ -2857,7 +2856,8 @@ End
         // One slot per authored player start: slot 0 is the human on the
         // requested faction, the rest are Medium AIs on the map sides with
         // one free-for-all alliance team and one map start each.
-        let slots = host_synthesize_skirmish_slots(&[0, 1, 2, 3], &["USA", "GLA", "China"], "China");
+        let slots =
+            host_synthesize_skirmish_slots(&[0, 1, 2, 3], &["USA", "GLA", "China"], "China");
         assert_eq!(slots.len(), 4);
         assert_eq!(slots.iter().filter(|s| s.is_active).count(), 4);
         let (human, ais) = slots.split_first().expect("slots");
@@ -2880,9 +2880,15 @@ End
 
         // Map side faction names accept both SidesList spellings and skip
         // civilians/observers entirely.
-        assert_eq!(host_base_faction_from_map_side("FactionAmerica"), Some("USA"));
+        assert_eq!(
+            host_base_faction_from_map_side("FactionAmerica"),
+            Some("USA")
+        );
         assert_eq!(host_base_faction_from_map_side("PlyrGLA"), Some("GLA"));
-        assert_eq!(host_base_faction_from_map_side("FactionChina"), Some("China"));
+        assert_eq!(
+            host_base_faction_from_map_side("FactionChina"),
+            Some("China")
+        );
         assert_eq!(host_base_faction_from_map_side("FactionCivilian"), None);
         assert_eq!(host_base_faction_from_map_side("FactionObserver"), None);
         assert_eq!(host_base_faction_from_map_side(""), None);
@@ -2915,7 +2921,9 @@ End
         // A 10-start map is capped at the C++ MAX_SLOTS slot set.
         let wide = host_synthesize_skirmish_slots(
             &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-            &["USA", "GLA", "China", "USA", "GLA", "China", "USA", "GLA", "China"],
+            &[
+                "USA", "GLA", "China", "USA", "GLA", "China", "USA", "GLA", "China",
+            ],
             "USA",
         );
         assert_eq!(wide.len(), crate::ui::skirmish_menu::MAX_SLOTS);

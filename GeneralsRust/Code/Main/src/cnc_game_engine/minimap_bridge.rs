@@ -84,7 +84,7 @@ impl CnCGameEngine {
         let radar_enabled = self
             .render_pipeline
             .presentation_frame()
-            .or(self.last_presentation_frame.as_ref())
+            .or(self.last_presentation_frame.as_deref())
             .is_some_and(|frame| frame.radar_ui_enabled);
         if !radar_enabled {
             debug!(

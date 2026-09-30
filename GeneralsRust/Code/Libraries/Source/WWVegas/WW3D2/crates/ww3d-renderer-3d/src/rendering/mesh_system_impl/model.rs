@@ -29,6 +29,7 @@ impl MeshModelClass {
             flags: 0,
             polygon_renderer_list: Vec::new(),
             material_passes: Vec::new(),
+            material_batches: Vec::new(),
             vertex_buffer: None,
             index_buffer: None,
             vertex_count: 0,
@@ -65,9 +66,10 @@ impl MeshModelClass {
             super::mesh_camera_align::apply_camera_align_flags_from_header(&mut model, header);
         }
         if model.sort_level == SORT_LEVEL_NONE
-            && model.shaders.iter().any(|shader| {
-                shader.dest_blend != 0 && shader.alpha_test == 0
-            })
+            && model
+                .shaders
+                .iter()
+                .any(|shader| shader.dest_blend != 0 && shader.alpha_test == 0)
         {
             model.set_flag(MeshGeometryClass::SORT, true);
         }
@@ -573,6 +575,7 @@ impl Clone for MeshModelClass {
             flags: self.flags,
             polygon_renderer_list: self.polygon_renderer_list.clone(),
             material_passes: self.material_passes.clone(),
+            material_batches: self.material_batches.clone(),
             vertex_buffer: None, // Cannot clone wgpu::Buffer
             index_buffer: None,  // Cannot clone wgpu::Buffer
             vertex_count: self.vertex_count,

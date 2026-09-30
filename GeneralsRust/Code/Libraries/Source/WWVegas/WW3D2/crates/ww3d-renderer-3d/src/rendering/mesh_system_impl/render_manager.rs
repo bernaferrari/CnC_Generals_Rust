@@ -16,9 +16,7 @@ use super::*;
 /// uploads the returned pixels through the same first-bind path as CPU-only
 /// pass textures.
 
-pub type MeshPassTextureProvider =
-    Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
-
+pub type MeshPassTextureProvider = Arc<dyn Fn(&str) -> Option<TextureClass> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct PreparedMeshModel {
@@ -32,6 +30,34 @@ pub struct PreparedMeshModel {
     /// Index ranges for each material pass (start_index, count)
     /// Maps pass index to (start_index, index_count) for filtering draw calls
     pass_index_ranges: Vec<(u32, u32)>,
+}
+
+/// Flatten only the triangles owned by each material batch. The source face
+/// IDs remain in `MeshModelClass`; sorting the GPU index stream by material
+/// gives WGPU a contiguous draw range without changing source geometry or
+/// vertex identities (important for animation and collision).
+pub(super) fn material_batch_index_data(
+    model: &MeshModelClass,
+) -> Option<(Vec<u32>, Vec<(u32, u32)>, Vec<MaterialPassClass>)> {
+    if model.material_batches.is_empty() {
+        return None;
+    }
+    let mut indices = Vec::new();
+    let mut ranges = Vec::with_capacity(model.material_batches.len());
+    let mut passes = Vec::with_capacity(model.material_batches.len());
+    for (batch_index, batch) in model.material_batches.iter().enumerate() {
+        let start = indices.len() as u32;
+        for &face_index in &batch.face_indices {
+            if let Some(triangle) = model.triangles.get(face_index as usize) {
+                indices.extend_from_slice(&triangle.vindex);
+            }
+        }
+        ranges.push((start, indices.len() as u32 - start));
+        let mut pass = batch.material_pass.clone();
+        pass.set_pass_index(batch_index);
+        passes.push(pass);
+    }
+    Some((indices, ranges, passes))
 }
 
 impl PreparedMeshModel {
@@ -85,7 +111,6 @@ impl PreparedMeshModel {
             }
         }
 
-
         let vertex_buffer = if vertex_data.is_empty() {
             Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Empty Mesh Vertex Buffer"),
@@ -103,12 +128,23 @@ impl PreparedMeshModel {
             )
         };
 
-        let mut index_data: Vec<u32> = Vec::with_capacity(model.triangles.len() * 3);
-        for triangle in &model.triangles {
-            index_data.push(triangle.vindex[0]);
-            index_data.push(triangle.vindex[1]);
-            index_data.push(triangle.vindex[2]);
-        }
+        let (index_data, pass_index_ranges, material_passes) =
+            if let Some(batch_data) = material_batch_index_data(model) {
+                batch_data
+            } else {
+                let indices: Vec<u32> = model
+                    .triangles
+                    .iter()
+                    .flat_map(|triangle| triangle.vindex)
+                    .collect();
+                let ranges = compute_pass_index_ranges(model, &indices);
+                let passes = if model.material_passes.is_empty() {
+                    vec![MaterialPassClass::new()]
+                } else {
+                    model.material_passes.clone()
+                };
+                (indices, ranges, passes)
+            };
 
         let (index_buffer, index_count) = if index_data.is_empty() {
             (None, 0)
@@ -120,16 +156,6 @@ impl PreparedMeshModel {
             });
             (Some(Arc::new(buffer)), index_data.len() as u32)
         };
-        let material_passes = if model.material_passes.is_empty() {
-            vec![MaterialPassClass::new()]
-        } else {
-            model.material_passes.clone()
-        };
-
-        // Compute per-pass index ranges from polygon renderer list
-        // This ensures we only draw geometry belonging to each pass
-        let pass_index_ranges = compute_pass_index_ranges(model, &index_data);
-
 
         Ok(Self {
             vertex_buffer,
@@ -248,7 +274,6 @@ impl RenderPassResources {
     }
 }
 
-
 pub struct MeshRenderManager {
     gpu_device: Arc<GpuDevice>,
     preparedmodels: HashMap<usize, Arc<PreparedMeshModel>>,
@@ -287,8 +312,7 @@ pub struct MeshRenderManager {
     /// Warn-once dedup for missing-texture binds, keyed by
     /// (lowercased texture name, reason). Mirrors C++ WW3D's single
     /// "texture not found" debug spam guard; prevents per-frame log floods.
-    fallback_bind_warnings:
-        Mutex<HashMap<(String, &'static str), ()>>,
+    fallback_bind_warnings: Mutex<HashMap<(String, &'static str), ()>>,
 }
 
 impl MeshRenderManager {
@@ -404,7 +428,6 @@ impl MeshRenderManager {
     pub fn set_pass_texture_provider(&mut self, provider: MeshPassTextureProvider) {
         self.pass_texture_provider = Some(provider);
     }
-
 
     fn create_fallback_textures(
         device: &wgpu::Device,
@@ -661,7 +684,7 @@ impl MeshRenderManager {
                 timestamp_writes: None,
                 occlusion_query_set: None,
                 multiview_mask: None,
-});
+            });
             if let Some((_, light_bg)) = light_groups.get(layer) {
                 pass.set_bind_group(0, light_bg, &[]);
             }
@@ -1293,13 +1316,7 @@ impl MeshRenderManager {
             let origin = mesh.transform.w_axis.truncate();
             let camera = render_info.camera.get_position();
             let distance = (origin - camera).length();
-            self.enqueue_sorted_material_pass(
-                prepared,
-                pass,
-                &pipeline,
-                sorted_groups,
-                distance,
-            );
+            self.enqueue_sorted_material_pass(prepared, pass, &pipeline, sorted_groups, distance);
         } else {
             self.issue_draw_call(prepared, pass, render_pass, &mesh.name);
         }
@@ -1355,8 +1372,6 @@ impl MeshRenderManager {
             wgpu::IndexFormat::Uint32,
         );
     }
-
-
 
     // helper slots intentionally minimal; temporary bindings are stored in local vectors to ensure
     // they outlive the render pass borrow.
@@ -1978,13 +1993,16 @@ mod per_mesh_lighting_tests {
     fn live_cascade_fill_draws_opaque_casters() {
         // C++ W3DDisplay.cpp:1840 updateRenderTargetTextures writes occluder
         // depth before the scene. An empty clear+enable is not a fill.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
-            apply_limit_buckets: false,
+                apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -2062,13 +2080,16 @@ mod per_mesh_lighting_tests {
 
     #[test]
     fn live_cascade_fill_skips_hidden_and_decal_meshes() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
-            apply_limit_buckets: false,
+                apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -2114,13 +2135,16 @@ mod per_mesh_lighting_tests {
         // 64x64 offscreen target. Painting here while the live game hides
         // bodies isolates the defect to Main's frame assembly; failing here
         // bisects inside the lane itself.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
         let Some(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: None,
                 force_fallback_adapter: true,
-            apply_limit_buckets: false,
+                apply_limit_buckets: false,
             }))
             .ok()
         else {
@@ -2198,10 +2222,8 @@ mod per_mesh_lighting_tests {
         camera.set_projection_matrix(Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0));
         let info = RenderInfoClass::new(Arc::new(camera));
 
-        let mut arena = crate::rendering::frame_uniform_arena::FrameUniformArena::new(
-            &gpu,
-            1 << 20,
-        );
+        let mut arena =
+            crate::rendering::frame_uniform_arena::FrameUniformArena::new(&gpu, 1 << 20);
 
         let color = gpu.wgpu_device().create_texture(&wgpu::TextureDescriptor {
             label: Some("utb-body-color"),
@@ -2234,11 +2256,11 @@ mod per_mesh_lighting_tests {
         });
         let depth_view = depth.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = gpu
-            .wgpu_device()
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("utb-body-encoder"),
-            });
+        let mut encoder =
+            gpu.wgpu_device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("utb-body-encoder"),
+                });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("utb-body-pass"),
@@ -2262,7 +2284,7 @@ mod per_mesh_lighting_tests {
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
-});
+            });
             pass.set_viewport(0.0, 0.0, 64.0, 64.0, 0.0, 1.0);
             pass.set_scissor_rect(0, 0, 64, 64);
             manager
@@ -2307,7 +2329,9 @@ mod per_mesh_lighting_tests {
             let _ = tx.send(result);
         });
         let _ = gpu.wgpu_device().poll(wgpu::PollType::wait_indefinitely());
-        rx.recv().expect("utb readback map").expect("utb readback map ok");
+        rx.recv()
+            .expect("utb readback map")
+            .expect("utb readback map ok");
         let data = slice.get_mapped_range().expect("buffer map");
         let mut painted = 0usize;
         for y in 0..64usize {

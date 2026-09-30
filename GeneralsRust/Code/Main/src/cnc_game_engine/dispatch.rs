@@ -1034,6 +1034,10 @@ impl CnCGameEngine {
             match_over,
             victory_label,
             presentation_frame_ok: self.last_presentation_frame.is_some(),
+            presentation_frame_shared: self
+                .last_presentation_frame
+                .as_ref()
+                .is_some_and(|frame| self.render_pipeline.shares_presentation_frame(frame)),
             gameworld_presentation_entities: self.last_gameworld_presentation_entity_count as u32,
             gameworld_overlay_stamped: self
                 .last_presentation_frame
