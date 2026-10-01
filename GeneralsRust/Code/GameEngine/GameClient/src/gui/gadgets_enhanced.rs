@@ -27,6 +27,12 @@ pub enum GadgetError {
 
 type Result<T> = std::result::Result<T, GadgetError>;
 
+impl From<crate::gui::UIRendererError> for GadgetError {
+    fn from(err: crate::gui::UIRendererError) -> Self {
+        GadgetError::RenderError(err.to_string())
+    }
+}
+
 /// Gadget state enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GadgetState {
@@ -433,6 +439,7 @@ impl Gadget for EnhancedPushButton {
                 color: self.text_color,
                 bounds: scaled_bounds,
                 alignment: TextAlignment::Center,
+                vertical_alignment: VerticalAlignment::Middle,
                 word_wrap: false,
                 single_line: true,
             };
@@ -805,6 +812,7 @@ impl Gadget for EnhancedTextEntry {
             color: text_color,
             bounds: text_bounds,
             alignment: TextAlignment::Left,
+            vertical_alignment: VerticalAlignment::Middle,
             word_wrap: false,
             single_line: true,
         };
@@ -963,8 +971,8 @@ impl GadgetManager {
             None => 0,
         };
         
-        if let Some(next_name) = self.tab_order.get(next_index) {
-            self.set_focus(Some(next_name))?;
+        if let Some(next_name) = self.tab_order.get(next_index).cloned() {
+            self.set_focus(Some(&next_name))?;
         }
         
         Ok(())

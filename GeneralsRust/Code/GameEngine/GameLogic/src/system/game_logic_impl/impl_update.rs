@@ -1462,9 +1462,7 @@ impl GameLogic {
             }
             let mut ai_marker = "MARKER:TAiData".to_string();
             let _ = Xfer::xfer_ascii_string(&mut xfer, &mut ai_marker);
-            if let Ok(ai_data) = ai.get_ai_data().read() {
-                crate::common::Snapshot::crc(&*ai_data, &mut xfer);
-            }
+            crate::common::Snapshot::crc(ai.get_ai_data(), &mut xfer);
         }
 
         let _ = Xfer::close(&mut xfer);

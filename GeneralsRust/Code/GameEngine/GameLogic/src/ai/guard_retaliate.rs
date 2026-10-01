@@ -47,10 +47,7 @@ fn get_guard_enemy_scan_rate() -> u32 {
         return 30;
     };
     let data = ai_guard.get_ai_data();
-    let Ok(data_guard) = data.read() else {
-        return 30;
-    };
-    data_guard.guard_enemy_scan_rate
+    data.guard_enemy_scan_rate
 }
 
 fn get_guard_chase_unit_frames() -> u32 {
@@ -59,10 +56,7 @@ fn get_guard_chase_unit_frames() -> u32 {
         return 0;
     };
     let data = ai_guard.get_ai_data();
-    let Ok(data_guard) = data.read() else {
-        return 0;
-    };
-    data_guard.guard_chase_unit_frames
+    data.guard_chase_unit_frames
 }
 
 fn get_guard_enemy_return_scan_rate() -> u32 {
@@ -71,10 +65,7 @@ fn get_guard_enemy_return_scan_rate() -> u32 {
         return 60;
     };
     let data = ai_guard.get_ai_data();
-    let Ok(data_guard) = data.read() else {
-        return 60;
-    };
-    data_guard.guard_enemy_return_scan_rate
+    data.guard_enemy_return_scan_rate
 }
 
 fn scan_guard_retaliate_inner_target(

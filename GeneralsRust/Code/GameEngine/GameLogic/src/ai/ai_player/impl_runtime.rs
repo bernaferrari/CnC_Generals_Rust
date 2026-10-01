@@ -477,8 +477,7 @@ impl AIPlayer {
 
         // Get side info from AI data
         let ai_store = the_ai();let side_info = ai_store.read().ok().and_then(|ai_guard| {
-            let ai_data = ai_guard.get_ai_data();
-            let data = ai_data.read().ok()?;
+            let data = ai_guard.get_ai_data();
             data.side_info
                 .iter()
                 .find(|info| info.side == player_side)

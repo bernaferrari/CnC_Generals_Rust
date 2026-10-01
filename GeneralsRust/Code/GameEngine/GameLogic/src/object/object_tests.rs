@@ -1501,7 +1501,7 @@ mod tests {
         }
         let mut victim = Object::new_test_from_template(id, 100.0, Arc::new(template));
         victim.set_team(Some(team.clone())).unwrap();
-        victim.set_radar_data_for_test(Some(Arc::new(Mutex::new(RadarObject::new(id)))));
+        victim.set_radar_data_for_test(Some(Box::new(RadarObject::new(id))));
         (team, victim)
     }
 

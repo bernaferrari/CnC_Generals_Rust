@@ -468,15 +468,10 @@ impl CommandButtonHuntUpdate {
         let mut best_target = None;
         let mut best_priority: i32 = 0;
         let mut best_raw_priority: i32 = 0;
-        let ai_store = the_ai();let attack_priority_distance_modifier = ai_store
+        let attack_priority_distance_modifier = the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.attack_priority_distance_modifier)
-            })
+            .map(|ai| ai.get_ai_data().attack_priority_distance_modifier)
             .unwrap_or(0.0);
 
         let Some(partition) = ThePartitionManager::get() else {

@@ -112,10 +112,8 @@ impl Object {
         if self.get_container_id().is_some() {
             return ObjectShroudStatus::Clear;
         }
-        if let Some(partition_data) = &self.partition_data {
-            if let Ok(mut data) = partition_data.lock() {
-                return data.get_shrouded_status(player_index, self);
-            }
+        if let Some(data) = &self.partition_data {
+            return data.get_shrouded_status(player_index, self);
         }
         ObjectShroudStatus::Clear
     }

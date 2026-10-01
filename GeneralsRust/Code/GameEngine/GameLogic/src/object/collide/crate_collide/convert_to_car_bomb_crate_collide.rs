@@ -421,7 +421,7 @@ impl ConvertToCarBombCrateCollide {
             }
         }
 
-        if let Ok(other_guard) = other.read() {
+        if let Ok(mut other_guard) = other.write() {
             other_guard.refresh_radar_object_from_state();
         }
 

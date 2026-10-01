@@ -2922,8 +2922,8 @@ pub struct Object {
     held_helper: Option<Box<ObjectHeldHelper>>,
 
     // Spatial and partition data
-    partition_data: Option<Arc<Mutex<PartitionData>>>,
-    radar_data: Option<Arc<Mutex<RadarObject>>>,
+    partition_data: Option<Box<PartitionData>>,
+    radar_data: Option<Box<RadarObject>>,
 
     // Vision and detection
     partition_last_look: SightingInfo,

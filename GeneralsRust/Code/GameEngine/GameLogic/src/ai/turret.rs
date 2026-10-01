@@ -5,7 +5,6 @@ use crate::common::coord::*;
 use crate::common::types::ModelConditionFlags;
 use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::game_logic::game_logic::TheGameLogic;
 use crate::helpers::{TheAudio, ThePartitionManager};
 use crate::object::registry::OBJECT_REGISTRY;
@@ -15,9 +14,9 @@ use crate::team::TeamID;
 use crate::terrain::{BridgeAttackInfo, get_terrain_logic};
 use crate::weapon::{Weapon, WeaponChoiceCriteria, WeaponSlotType};
 use game_engine::common::system::Snapshotable;
-use log::warn;
+use std::any::Any;
 
-use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// C++ TurretAI.cpp ENABLE_SWEEP_FRAME_COUNT after notifyFired.
 const ENABLE_SWEEP_FRAME_COUNT: u32 = 3;
@@ -55,61 +54,14 @@ impl From<TurretStateType> for u32 {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct TurretSharedState {
-    machine: Weak<Mutex<StateMachine>>,
-    turret_ai: Option<Weak<Mutex<TurretAI>>>,
-}
-
-impl TurretSharedState {
-    fn new(machine: &Arc<Mutex<StateMachine>>, turret_ai: Option<Arc<Mutex<TurretAI>>>) -> Self {
-        Self {
-            machine: Arc::downgrade(machine),
-            turret_ai: turret_ai.map(|ai| Arc::downgrade(&ai)),
-        }
-    }
-
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        let machine = self
-            .machine
-            .upgrade()
-            .ok_or_else(|| "turret state machine context lost".to_string())?;
-        let mut guard = machine
-            .lock()
-            .map_err(|_| "turret state machine lock poisoned".to_string())?;
-        Ok(f(&mut guard))
-    }
-
-    fn turret_ai(&self) -> Option<Arc<Mutex<TurretAI>>> {
-        self.turret_ai.as_ref().and_then(|weak| weak.upgrade())
-    }
-
-    fn notify_state_change(&self) -> Result<(), String> {
-        if let Some(ai) = self.turret_ai() {
-            let mut guard = ai
-                .lock()
-                .map_err(|_| "turret AI lock poisoned".to_string())?;
-            guard.friend_notify_state_machine_changed();
-        }
-        Ok(())
-    }
-
-    fn change_state(&self, state: TurretStateType) -> Result<(), String> {
-        let old_state = self.with_machine(|machine| machine.get_current_state_id())?;
-        self.with_machine(|machine| {
-            let _ = machine.set_current_state(state.into());
-        })?;
-        if old_state != Some(state.into()) {
-            self.notify_state_change()?;
-        }
-        Ok(())
-    }
-}
-
 /// Turret AI behavior controller
+///
+/// C++ `TurretAI` owns `TurretStateMachine* m_turretStateMachine`
+/// (TurretAI.h:332; allocated in the `TurretAI` ctor, TurretAI.cpp:~107) and the
+/// machine's states reach it back through `TurretStateMachine::getTurretAI()`
+/// (TurretAI.h:75). Ownership here inverts that arrow: the machine is a plain
+/// field, states carry no handles, and the owner is loaned to each machine step
+/// via `StateImplementation::update_with_owner` / `on_enter_with_owner`.
 pub struct TurretAI {
     /// Owner object
     owner_id: ObjectID,
@@ -125,8 +77,13 @@ pub struct TurretAI {
     victim_initial_team: Option<TeamID>,
     /// Target position (if aiming at position)
     target_position: Option<Coord3D>,
-    /// State machine back-reference
-    state_machine: Option<Weak<Mutex<StateMachine>>>,
+    /// The turret's own state machine (C++ `m_turretStateMachine`). Owned, not
+    /// shared: no Arc, no Mutex, no Weak.
+    state_machine: StateMachine,
+    /// This turret's own shared handle, stamped by `TurretStateMachine::new`.
+    /// UnitAIUpdate's idle-mood path (`export_idle_goal` → `sync_machine_goal`)
+    /// names the turret through it instead of holding a machine handle.
+    self_handle: Option<Weak<Mutex<TurretAI>>>,
     /// Turret's natural/default angle
     natural_angle: f32,
     /// Turret's natural/default pitch
@@ -230,7 +187,8 @@ impl TurretAI {
             is_force_attacking: false,
             victim_initial_team: None,
             target_position: None,
-            state_machine: None,
+            state_machine: StateMachine::empty(),
+            self_handle: None,
             natural_angle: 0.0,
             natural_pitch: 0.0,
             current_angle: 0.0,
@@ -325,60 +283,114 @@ impl TurretAI {
         self.sync_state_for_target();
     }
 
-    pub fn finish_idle_mood_target_sync(&self) {
+    pub fn finish_idle_mood_target_sync(&mut self) {
         self.sync_goal_object();
         self.sync_state_for_target();
     }
 
+    /// Goal snapshot for UnitAIUpdate's idle-mood path. The first element is
+    /// this turret's own shared handle (not a machine handle): the caller feeds
+    /// it back into [`Self::sync_machine_goal`], which drives the owned machine
+    /// under the turret lock.
     pub fn export_idle_goal(
         &self,
     ) -> (
-        Option<Weak<Mutex<StateMachine>>>,
+        Option<Weak<Mutex<TurretAI>>>,
         TurretTargetKind,
         Option<ObjectID>,
         Option<Coord3D>,
     ) {
         (
-            self.state_machine.clone(),
+            self.self_handle.clone(),
             self.target_kind,
             self.current_target,
             self.target_position,
         )
     }
 
+    /// Apply an idle-mood goal to the machine and force AIM/HOLD exactly as the
+    /// old machine-handle version did. `machine` is the turret handle produced
+    /// by [`Self::export_idle_goal`].
     pub fn sync_machine_goal(
-        machine: Option<Weak<Mutex<StateMachine>>>,
+        machine: Option<Weak<Mutex<TurretAI>>>,
         kind: TurretTargetKind,
         target: Option<ObjectID>,
         pos: Option<Coord3D>,
     ) {
-        let Some(machine) = machine.and_then(|weak| weak.upgrade()) else {
+        let Some(machine_arc) = machine.and_then(|weak| weak.upgrade()) else {
             return;
         };
-        let Ok(mut guard) = machine.lock() else {
+        let Ok(mut turret) = machine_arc.lock() else {
             return;
         };
         match kind {
-            TurretTargetKind::Object => guard.set_goal_object_by_id(target),
+            TurretTargetKind::Object => turret.state_machine.set_goal_object_by_id(target),
             TurretTargetKind::Position => {
-                guard.set_goal_object_by_id(None);
+                turret.state_machine.set_goal_object_by_id(None);
                 if let Some(pos) = pos {
-                    guard.set_goal_position(pos);
+                    turret.state_machine.set_goal_position(pos);
                 }
             }
-            TurretTargetKind::None => guard.set_goal_object_by_id(None),
+            TurretTargetKind::None => turret.state_machine.set_goal_object_by_id(None),
         }
-        let current = guard.get_current_state_id();
+        let current = turret.state_machine.get_current_state_id();
         let aim_id = TurretStateType::Aim.into();
         let fire_id = TurretStateType::Fire.into();
         let hold_id = TurretStateType::Hold.into();
-        if kind != TurretTargetKind::None {
-            if current != Some(aim_id) && current != Some(fire_id) {
-                let _ = guard.set_current_state(aim_id);
-            }
+        let forced = if kind != TurretTargetKind::None {
+            (current != Some(aim_id) && current != Some(fire_id)).then_some(aim_id)
         } else if current == Some(aim_id) || current == Some(fire_id) {
-            let _ = guard.set_current_state(hold_id);
+            Some(hold_id)
+        } else {
+            None
+        };
+        if let Some(state_id) = forced {
+            // The machine is owned by the turret, so it is taken out for the
+            // enter (which loans the owner back to the state) and returned.
+            let mut owned = std::mem::replace(&mut turret.state_machine, StateMachine::empty());
+            let _ = owned.set_current_state_with_owner(state_id, &mut *turret);
+            turret.state_machine = owned;
         }
+    }
+
+    /// Current machine state id. UnitAIUpdate reads this through the shared
+    /// handle (`export_idle_goal().0.upgrade().lock().get_current_state_id()`).
+    pub fn get_current_state_id(&self) -> Option<u32> {
+        self.state_machine.get_current_state_id()
+    }
+
+    /// Stamp the shared handle back-reference. Called from
+    /// [`TurretStateMachine::new`], which is the one place that holds both the
+    /// turret and its `Arc` (C++ keeps a raw `TurretAI*` on the machine
+    /// instead; the reference here is weak, so no cycle keeps anything alive).
+    fn attach_self_handle(&mut self, handle: Weak<Mutex<TurretAI>>) {
+        self.self_handle = Some(handle);
+    }
+
+    /// Define the machine's states and enter the default one. Runs from
+    /// [`TurretStateMachine::new`] after `TurretAIData::apply_to`, matching the
+    /// C++ order (UnitAI builds the turret, applies data, then constructs
+    /// `TurretStateMachine`, TurretAI.cpp:40-71).
+    fn build_state_machine(&mut self, owner: Weak<RwLock<Object>>, name: &str) {
+        if !self.state_machine.is_empty() {
+            return;
+        }
+        let mut machine = StateMachine::new(Some(owner), name);
+        self.define_turret_states(&mut machine);
+        // C++ TurretStateMachine ctor ends with the default state entered; the
+        // IDLE onEnter reads the just-applied turret data.
+        let idle_id = TurretStateType::Idle.into();
+        let _ = machine.set_current_state_with_owner(idle_id, self);
+        self.state_machine = machine;
+    }
+
+    /// Resolve the owner object handle. C++ `TurretAI::getOwnerObject()`.
+    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
+        if self.owner_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(self.owner_id))
     }
 
     pub fn assign_idle_mood_target(&mut self, target: Option<ObjectID>) {
@@ -500,28 +512,23 @@ impl TurretAI {
         self.target_position
     }
 
-    pub fn set_state_machine(&mut self, machine: Weak<Mutex<StateMachine>>) {
-        self.state_machine = Some(machine);
-    }
-
-    fn sync_goal_object(&self) {
-        let Some(machine) = self.state_machine.as_ref().and_then(|weak| weak.upgrade()) else {
-            return;
-        };
-        if let Ok(mut guard) = machine.lock() {
-            match self.target_kind {
-                TurretTargetKind::Object => {
-                    guard.set_goal_object_by_id(self.current_target);
-                }
-                TurretTargetKind::Position => {
-                    guard.set_goal_object_by_id(None);
-                    if let Some(pos) = &self.target_position {
-                        guard.set_goal_position(*pos);
-                    }
-                }
-                TurretTargetKind::None => guard.set_goal_object_by_id(None),
+    fn sync_goal_object(&mut self) {
+        // The machine is owned, so the goal is written directly (C++ writes
+        // m_turretStateMachine->getGoalObject() through the machine pointer).
+        match self.target_kind {
+            TurretTargetKind::Object => {
+                self.state_machine.set_goal_object_by_id(self.current_target);
             }
-        };
+            TurretTargetKind::Position => {
+                self.state_machine.set_goal_object_by_id(None);
+                if let Some(pos) = &self.target_position {
+                    self.state_machine.set_goal_position(*pos);
+                }
+            }
+            TurretTargetKind::None => {
+                self.state_machine.set_goal_object_by_id(None);
+            }
+        }
     }
 
     /// C++ `setGoalObject(getCurrentVictim())` after a shot transfers the attack.
@@ -535,26 +542,27 @@ impl TurretAI {
         self.goal_sync_pending = true;
     }
 
-    fn sync_state_for_target(&self) {
-        let Some(machine) = self.state_machine.as_ref().and_then(|weak| weak.upgrade()) else {
-            return;
-        };
-        let Ok(mut guard) = machine.lock() else {
-            return;
-        };
-        let current = guard.get_current_state_id();
+    fn sync_state_for_target(&mut self) {
+        let current = self.state_machine.get_current_state_id();
         let aim_id = TurretStateType::Aim.into();
         let fire_id = TurretStateType::Fire.into();
         let hold_id = TurretStateType::Hold.into();
 
         // C++ setTurretTargetObject/Position: any live target (object or Coord3D) enters AIM.
-        if self.target_kind != TurretTargetKind::None {
-            if current != Some(aim_id) && current != Some(fire_id) {
-                let _ = guard.set_current_state(aim_id);
-            }
+        let forced = if self.target_kind != TurretTargetKind::None {
+            (current != Some(aim_id) && current != Some(fire_id)).then_some(aim_id)
         } else if current == Some(aim_id) || current == Some(fire_id) {
-            let _ = guard.set_current_state(hold_id);
-        }
+            Some(hold_id)
+        } else {
+            None
+        };
+        let Some(state_id) = forced else {
+            return;
+        };
+        // Owned machine: take it out so the enter can loan `self` to the state.
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let _ = machine.set_current_state_with_owner(state_id, self);
+        self.state_machine = machine;
     }
 
     fn owner_turrets_linked(&self) -> bool {
@@ -1154,101 +1162,77 @@ impl TurretAI {
         self.sleep_until = TheGameLogic::get_frame();
     }
 
-    /// Update turret AI and maintain the C++ sleep/sweep/sound bookkeeping.
+    /// C++ `TurretAI::updateTurretAI` (TurretAI.cpp:664-736): sleep gate, sound
+    /// flag reset, run the owned behavior machine, then the fire/sweep/sound
+    /// bookkeeping. States receive `self` via `update_with_owner`, so the whole
+    /// step runs under one `&mut self` — the old drop-lock-then-relock dance is
+    /// gone because nothing locks the turret from inside the step anymore.
     pub fn update_turret_ai(&mut self) -> StateReturnType {
         let now = TheGameLogic::get_frame();
         if self.sleep_until != 0 && now < self.sleep_until {
             return StateReturnType::Sleep(self.sleep_until - now);
         }
 
+        // either we don't care about continuous fire stuff, or we care, but time has elapsed
         if !self.fires_while_turning || self.continuous_fire_expiration_frame <= now {
             self.play_rot_sound = false;
             self.play_pitch_sound = false;
         }
 
-        let recentering = self
-            .state_machine
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|machine| machine.lock().ok()?.get_current_state_id())
+        let recentering = self.state_machine.get_current_state_id()
             == Some(TurretStateType::Recenter.into());
-        if self.enabled || recentering {
-            self.did_fire = false;
-        } else {
+        if !self.enabled && !recentering {
             self.sleep_until = now.saturating_add(WAIT_INDEFINITELY);
             return StateReturnType::Sleep(WAIT_INDEFINITELY);
         }
 
-        self.sleep_until = now;
-        StateReturnType::Continue
-    }
+        self.did_fire = false;
 
-    /// Safe updater for shared turret handles. This drops the turret lock before
-    /// running the state machine because states may need to lock the turret.
-    pub fn update_turret_ai_handle(turret: &Arc<Mutex<TurretAI>>) -> StateReturnType {
-        let machine_arc = {
-            let Ok(guard) = turret.lock() else {
-                return StateReturnType::Failure;
-            };
-            guard.state_machine.as_ref().and_then(|weak| weak.upgrade())
-        };
-        let recentering = machine_arc
-            .as_ref()
-            .and_then(|machine| machine.lock().ok())
-            .and_then(|guard| guard.get_current_state_id())
-            == Some(TurretStateType::Recenter.into());
-        let machine = {
-            let Ok(mut guard) = turret.lock() else {
-                return StateReturnType::Failure;
-            };
-            let now = TheGameLogic::get_frame();
-            if guard.sleep_until != 0 && now < guard.sleep_until {
-                return StateReturnType::Sleep(guard.sleep_until - now);
-            }
-            if !guard.fires_while_turning || guard.continuous_fire_expiration_frame <= now {
-                guard.play_rot_sound = false;
-                guard.play_pitch_sound = false;
-            }
-            if !guard.enabled && !recentering {
-                guard.sleep_until = now.saturating_add(WAIT_INDEFINITELY);
-                return StateReturnType::Sleep(WAIT_INDEFINITELY);
-            }
-            guard.did_fire = false;
-            machine_arc
-        };
-
-        let state_return = machine
-            .map(|machine| {
-                machine
-                    .lock()
-                    .map(|mut guard| guard.update())
-                    .unwrap_or(StateReturnType::Failure)
-            })
-            .unwrap_or(StateReturnType::Continue);
-
-        let Ok(mut guard) = turret.lock() else {
-            return StateReturnType::Failure;
-        };
-        if guard.goal_sync_pending {
-            guard.goal_sync_pending = false;
-            guard.sync_goal_object();
-        }
-        let now = TheGameLogic::get_frame();
-        if guard.did_fire {
-            guard.enable_sweep_until = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
-            guard.continuous_fire_expiration_frame = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
-        }
-        if guard.play_rot_sound || guard.play_pitch_sound {
-            guard.start_rot_or_pitch_sound();
+        // Run the behavior state machine BEFORE doing sound check. The machine
+        // is owned, so it is taken out for the step and returned afterwards.
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let state_return = if machine.is_empty() {
+            StateReturnType::Continue
         } else {
-            guard.stop_rot_or_pitch_sound();
+            machine.update_with_owner(self)
+        };
+        self.state_machine = machine;
+
+        if self.goal_sync_pending {
+            self.goal_sync_pending = false;
+            self.sync_goal_object();
         }
+        if self.did_fire {
+            // C++ ENABLE_SWEEP_FRAME_COUNT: enable sweeping for a few frames.
+            let now = TheGameLogic::get_frame();
+            self.enable_sweep_until = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
+            self.continuous_fire_expiration_frame = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
+        }
+        if self.play_rot_sound || self.play_pitch_sound {
+            self.start_rot_or_pitch_sound();
+        } else {
+            self.stop_rot_or_pitch_sound();
+        }
+
+        // C++: STATE_CONTINUE/SUCCESS/FAILURE all require next frame (sleep 0);
+        // a Sleep keeps its frame count. Disabled-and-not-recentering sleeps
+        // forever, which the early return above already recorded.
+        let now = TheGameLogic::get_frame();
         let sleep_frames = match state_return {
             StateReturnType::Sleep(frames) => frames,
             _ => 0,
         };
-        guard.sleep_until = now.saturating_add(sleep_frames);
+        self.sleep_until = now.saturating_add(sleep_frames);
         state_return
+    }
+
+    /// Step a turret through its shared handle. States run on the loaned
+    /// `&mut TurretAI`, so the lock is held for the whole step.
+    pub fn update_turret_ai_handle(turret: &Arc<Mutex<TurretAI>>) -> StateReturnType {
+        let Ok(mut guard) = turret.lock() else {
+            return StateReturnType::Failure;
+        };
+        guard.update_turret_ai()
     }
 
     /// Get hold time
@@ -1429,14 +1413,8 @@ impl TurretAI {
             return false;
         }
 
-        let Some(machine) = self.state_machine.as_ref().and_then(|weak| weak.upgrade()) else {
-            return false;
-        };
-        let Ok(machine_guard) = machine.lock() else {
-            return false;
-        };
         matches!(
-            machine_guard.get_current_state_id(),
+            self.state_machine.get_current_state_id(),
             Some(state) if state == TurretStateType::Aim as u32
         )
     }
@@ -1505,11 +1483,12 @@ impl TurretAI {
     }
 
     pub fn recenter_turret(&mut self) {
-        if let Some(machine) = self.state_machine.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(mut guard) = machine.lock() {
-                let _ = guard.set_current_state(TurretStateType::Recenter.into());
-            }
-        }
+        // C++ `TurretAI::recenterTurret` → `setState(TURRETAI_RECENTER)`. The
+        // machine is owned, so it is taken out for the enter (which loans the
+        // owner to the state) and returned.
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let _ = machine.set_current_state_with_owner(TurretStateType::Recenter.into(), self);
+        self.state_machine = machine;
     }
 
     pub fn is_turret_in_natural_position(&self) -> bool {
@@ -1777,65 +1756,34 @@ impl TurretAI {
     }
 }
 
-fn turret_out_of_weapon_range_object(
-    state: &TurretAIFireWeaponState,
-    _user_data: &StateTransitionUserData,
-) -> Result<bool, String> {
-    let turret = state
-        .base
-        .turret_ai_lock()?
-        .ok_or_else(|| "turret fire missing turret".to_string())?;
-    let (owner_id, target_id) = {
-        let turret = turret
-            .lock()
-            .map_err(|_| "turret fire turret lock poisoned".to_string())?;
-        (
-            turret.owner_id,
-            turret.get_current_target_id(),
-        )
+/// Marker payload for the FIRE → AIM out-of-range transition. C++
+/// `outOfWeaponRangeObject` (AIStates.cpp) reads only the machine owner and the
+/// machine goal object — both are mirrored onto the state (`State::owner_id`
+/// copied at build, goal id bound per step), so the check needs no turret or
+/// machine handle and runs while the turret is already `&mut`-borrowed.
+struct TurretFireRangeCheck;
+
+/// Dispatch a transition payload to the concrete state. Same shape as the
+/// legacy adapter's thunk, kept local because turret states register directly.
+fn turret_condition_invoke(
+    state: &dyn StateImplementation,
+    user_data: &StateTransitionUserData,
+) -> bool {
+    let Some(payload) = user_data.data.as_ref() else {
+        return false;
     };
-    let Some(target_id) = target_id else {
-        return Ok(false);
-    };
-    let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| OBJECT_REGISTRY.get_object(owner_id))
-        .ok_or_else(|| "turret fire missing owner".to_string())?;
-    let owner_guard = owner
-        .read()
-        .map_err(|_| "turret fire owner lock poisoned".to_string())?;
-    let source_pos = *owner_guard.get_position();
-    let source_radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
-    let source_geom = *owner_guard.get_geometry_info();
-    let mut flags =
-        crate::weapon::helpers::map_common_bonus_flags(owner_guard.get_weapon_bonus_condition());
-    let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
-        owner_guard.get_contained_by(),
-    );
-    flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
-    let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-        return Ok(false);
-    };
-    if weapon.has_leech_range() {
-        return Ok(false);
-    }
-    let bonus = weapon.bonus_from_flags(flags);
-    Ok(!weapon.is_within_attack_range_from_source(
-        &source_pos,
-        source_radius,
-        &source_geom,
-        &bonus,
-        Some(target_id),
-        None,
-    ))
+    state
+        .evaluate_transition_payload(payload.as_ref())
+        .unwrap_or(false)
 }
 
+/// External handle UnitAIUpdate keeps per turret (`turret_primary_machine` /
+/// `turret_secondary_machine`). C++ `TurretAI` owns the machine itself
+/// (TurretAI.h:332 `m_turretStateMachine`), so the machine lives inside
+/// `TurretAI` here and this wrapper only carries the shared turret handle,
+/// stamping it and building the machine on construction.
 pub struct TurretStateMachine {
-    /// Base state machine
-    base: Arc<Mutex<StateMachine>>,
-    /// Reference to turret AI
     turret_ai: Option<Arc<Mutex<TurretAI>>>,
-    /// Shared state accessible by individual turret states
-    shared: Arc<TurretSharedState>,
 }
 
 impl TurretStateMachine {
@@ -1844,212 +1792,158 @@ impl TurretStateMachine {
         owner: Weak<RwLock<Object>>,
         name: &str,
     ) -> Self {
-        let base = Arc::new(Mutex::new(StateMachine::new(Some(owner), name)));
-        let shared = Arc::new(TurretSharedState::new(&base, turret_ai.clone()));
-
         if let Some(ai) = turret_ai.as_ref() {
             if let Ok(mut guard) = ai.lock() {
-                guard.set_state_machine(Arc::downgrade(&base));
+                guard.attach_self_handle(Arc::downgrade(ai));
+                guard.build_state_machine(owner, name);
             }
         }
-
-        let mut machine = Self {
-            base,
-            turret_ai,
-            shared,
-        };
-
-        machine.define_turret_states();
-        machine
+        Self { turret_ai }
     }
 
-    fn define_turret_states(&mut self) {
-        let shared = self.shared.clone();
-        let base_arc = self.base.clone();
+    /// Shared turret handle (C++ `TurretStateMachine::getTurretAI`, TurretAI.h:53).
+    pub fn get_turret_ai(&self) -> Option<Arc<Mutex<TurretAI>>> {
+        self.turret_ai.clone()
+    }
+}
 
-        let mut base = self
-            .base
-            .lock()
-            .expect("turret state machine lock poisoned");
+impl TurretAI {
+    /// C++ `TurretStateMachine` ctor (TurretAI.cpp:41-71): define the six
+    /// states, their success/failure links, and the FIRE out-of-range
+    /// condition. Order matters — the first state defined is the default.
+    /// States register directly (no legacy adapter) so their hooks can receive
+    /// the loaned owner via `update_with_owner` / `on_enter_with_owner`.
+    fn define_turret_states(&self, machine: &mut StateMachine) {
+        let idle_id = TurretStateType::Idle.into();
+        let idle_scan_id = TurretStateType::IdleScan.into();
+        let aim_id = TurretStateType::Aim.into();
+        let fire_id = TurretStateType::Fire.into();
+        let recenter_id = TurretStateType::Recenter.into();
+        let hold_id = TurretStateType::Hold.into();
 
-        register_classic_state(
-            &mut *base,
-            TurretStateType::Idle.into(),
-            TurretAIIdleState::new(&base_arc, shared.clone()),
-            Some(TurretStateType::Idle.into()),
-            Some(TurretStateType::IdleScan.into()),
-            &[],
+        machine.define_state(
+            idle_id,
+            Box::new(TurretAIIdleState::new(machine, "TurretAIIdleState")),
+            Some(idle_id),
+            Some(idle_scan_id),
+            None,
         );
 
-        register_classic_state(
-            &mut *base,
-            TurretStateType::IdleScan.into(),
-            TurretAIIdleScanState::new(&base_arc, shared.clone()),
-            Some(TurretStateType::Hold.into()),
-            Some(TurretStateType::Hold.into()),
-            &[],
+        machine.define_state(
+            idle_scan_id,
+            Box::new(TurretAIIdleScanState::new(
+                machine,
+                "TurretAIIdleScanState",
+            )),
+            Some(hold_id),
+            Some(hold_id),
+            None,
         );
 
-        register_classic_state(
-            &mut *base,
-            TurretStateType::Aim.into(),
-            TurretAIAimTurretState::new(&base_arc, shared.clone()),
-            Some(TurretStateType::Fire.into()),
-            Some(TurretStateType::Hold.into()),
-            &[],
+        machine.define_state(
+            aim_id,
+            Box::new(TurretAIAimTurretState::new(
+                machine,
+                "TurretAIAimTurretState",
+            )),
+            Some(fire_id),
+            Some(hold_id),
+            None,
         );
 
-        let fire_conditions = vec![legacy_transition::<TurretAIFireWeaponState>(
-            turret_out_of_weapon_range_object,
-            TurretStateType::Aim.into(),
-            StateTransitionUserData::new(),
+        let fire_conditions = vec![StateConditionInfo::new(
+            turret_condition_invoke,
+            aim_id,
+            StateTransitionUserData {
+                data: Some(Arc::new(TurretFireRangeCheck)),
+            },
             "out_of_weapon_range_object",
         )];
 
-        register_classic_state(
-            &mut *base,
-            TurretStateType::Fire.into(),
-            TurretAIFireWeaponState::new(&base_arc, shared.clone()),
-            Some(TurretStateType::Aim.into()),
-            Some(TurretStateType::Aim.into()),
-            &fire_conditions,
+        machine.define_state(
+            fire_id,
+            Box::new(TurretAIFireWeaponState::new(
+                machine,
+                "TurretAIFireWeaponState",
+            )),
+            Some(aim_id),
+            Some(aim_id),
+            Some(&fire_conditions),
         );
 
-        register_classic_state(
-            &mut *base,
-            TurretStateType::Recenter.into(),
-            TurretAIRecenterTurretState::new(&base_arc, shared.clone()),
-            Some(TurretStateType::Idle.into()),
-            Some(TurretStateType::Idle.into()),
-            &[],
+        machine.define_state(
+            recenter_id,
+            Box::new(TurretAIRecenterTurretState::new(
+                machine,
+                "TurretAIRecenterTurretState",
+            )),
+            Some(idle_id),
+            Some(idle_id),
+            None,
         );
 
-        register_classic_state(
-            &mut *base,
-            TurretStateType::Hold.into(),
-            TurretAIHoldTurretState::new(&base_arc, shared.clone()),
-            Some(TurretStateType::Recenter.into()),
-            Some(TurretStateType::Recenter.into()),
-            &[],
+        machine.define_state(
+            hold_id,
+            Box::new(TurretAIHoldTurretState::new(
+                machine,
+                "TurretAIHoldTurretState",
+            )),
+            Some(recenter_id),
+            Some(recenter_id),
+            None,
         );
-
-        let _ = base.set_current_state(TurretStateType::Idle.into());
-    }
-
-    /// Get turret AI reference
-    pub fn get_turret_ai(&self) -> Option<Arc<Mutex<TurretAI>>> {
-        self.turret_ai.as_ref().cloned()
-    }
-
-    /// Clear state machine
-    pub fn clear(&self) {
-        if let Ok(mut base) = self.base.lock() {
-            base.clear();
-        }
-
-        if let Err(err) = self.shared.notify_state_change() {
-            warn!("turret state machine clear notify failed: {}", err);
-        }
-    }
-
-    /// Reset to default state
-    pub fn reset_to_default_state(&self) -> StateReturnType {
-        let mut result = StateReturnType::Continue;
-        if let Ok(mut base) = self.base.lock() {
-            result = base.reset_to_default_state();
-        }
-
-        if let Err(err) = self.shared.notify_state_change() {
-            warn!("turret state machine reset notify failed: {}", err);
-        }
-
-        result
-    }
-
-    /// Set state
-    pub fn set_state(&self, new_state_id: u32) -> StateReturnType {
-        let mut notify = false;
-        let mut result = StateReturnType::Continue;
-
-        if let Ok(mut base) = self.base.lock() {
-            let old_id = base.get_current_state_id();
-            result = base.set_current_state(new_state_id);
-            if old_id != Some(new_state_id) {
-                notify = true;
-            }
-        }
-
-        if notify {
-            if let Err(err) = self.shared.notify_state_change() {
-                warn!("turret state machine change notify failed: {}", err);
-            }
-        }
-
-        result
-    }
-
-    /// Update state machine
-    pub fn update(&self) -> StateReturnType {
-        if let Some(ai) = self.turret_ai.as_ref() {
-            if let Ok(guard) = ai.lock() {
-                if !guard.is_turret_enabled() {
-                    if let Ok(base) = self.base.lock() {
-                        if base.get_current_state_id() != Some(TurretStateType::Recenter.into()) {
-                            return StateReturnType::Continue;
-                        }
-                    }
-                }
-            }
-        }
-        if let Ok(mut base) = self.base.lock() {
-            return base.update();
-        }
-        StateReturnType::Failure
     }
 }
 
 // Turret state implementations
+//
+// C++ `TurretState` reached the turret through the machine pointer
+// (TurretAI.h:70-76 `getTurretAI()`). The machine is owned by `TurretAI` here,
+// so states embed only the legacy `State` bookkeeping (id/name plus the goal
+// mirrors the machine binds each step) and receive `&mut TurretAI` through
+// `update_with_owner` / `on_enter_with_owner`.
 
-/// Base class for turret states
+/// Base data for turret states.
 #[derive(Debug)]
 pub struct TurretState {
     base: State,
-    shared: Arc<TurretSharedState>,
 }
 
 impl TurretState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<TurretSharedState>,
-        name: &str,
-    ) -> Self {
+    fn new(machine: &StateMachine, name: &str) -> Self {
+        // `State::new` copies the machine's owner id and attaches NO machine
+        // handle: the machine owns its states, never the other way round.
         Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), name),
-            shared,
+            base: State::new(machine, name),
         }
     }
 
-    fn change_state(&self, state: TurretStateType) -> Result<(), String> {
-        self.shared.change_state(state)
+    fn downcast_owner(owner: &mut dyn Any) -> Option<&mut TurretAI> {
+        owner.downcast_mut::<TurretAI>()
     }
 
-    fn turret_ai_lock(&self) -> Result<Option<Arc<Mutex<TurretAI>>>, String> {
-        Ok(self.shared.turret_ai())
+    fn get_name(&self) -> &str {
+        self.base.get_name()
     }
 
-    fn owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
-        let turret = self.turret_ai_lock().ok().flatten()?;
-        let owner_id = turret.lock().ok()?.owner_id;
-        crate::helpers::TheGameLogic::find_object_by_id(owner_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(owner_id))
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
     }
 
-    fn state(&self) -> &State {
-        &self.base
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
     }
 
-    fn state_mut(&mut self) -> &mut State {
-        &mut self.base
+    /// Goal the machine bound for this step (C++ `getMachineGoalObject` id).
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.goal_object_id = id;
+    }
+
+    /// Owner the machine bound for this step (C++ `getMachineOwner`).
+    fn note_step_owner(&mut self, owner: &Arc<RwLock<Object>>) {
+        if let Ok(guard) = owner.read() {
+            self.base.owner_id = guard.get_id();
+        }
     }
 }
 
@@ -2061,50 +1955,83 @@ pub struct TurretAIIdleState {
 }
 
 impl TurretAIIdleState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TurretSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
         Self {
-            base: TurretState::new(machine, shared, "TurretAIIdleState"),
+            base: TurretState::new(machine, name),
             next_idle_scan: 0,
         }
     }
 
-    fn reset_idle_scan(&mut self) -> Result<(), String> {
+    /// C++ `TurretAIIdleState::onEnter` (TurretAI.cpp): reset the mood check,
+    /// publish the turret slot on the sync flag, arm the idle scan timer.
+    fn classic_on_enter(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        let which = turret.friend_get_which_turret();
+        turret.reset_mood_check_pending = true;
+        turret.clear_turret_sync = Some(which);
+        self.reset_idle_scan(turret)?;
+        let mood_frame = turret.friend_get_next_idle_mood_target_frame();
+        Ok(frame_to_sleep_time(
+            mood_frame,
+            Some(self.next_idle_scan),
+            None,
+            None,
+        ))
+    }
+
+    fn reset_idle_scan(&mut self, turret: &TurretAI) -> Result<(), String> {
         let current_frame = TheGameLogic::try_get_frame()?;
-        let (min_interval, max_interval) = match self.base.turret_ai_lock()? {
-            Some(turret_ai) => turret_ai
-                .lock()
-                .map(|t| {
-                    (
-                        t.get_min_idle_scan_interval(),
-                        t.get_max_idle_scan_interval(),
-                    )
-                })
-                .unwrap_or((30, 30)),
-            None => (30, 30),
-        };
-        let max_interval = if max_interval < min_interval {
-            min_interval
-        } else {
-            max_interval
-        };
+        let min_interval = turret.get_min_idle_scan_interval();
+        let mut max_interval = turret.get_max_idle_scan_interval();
+        if max_interval < min_interval {
+            max_interval = min_interval;
+        }
         let interval = GameLogicRandomValue(min_interval as i32, max_interval as i32) as u32;
         self.next_idle_scan = current_frame + interval;
         Ok(())
     }
+
+    fn classic_on_update(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        let current_frame = TheGameLogic::try_get_frame()?;
+
+        if current_frame >= self.next_idle_scan {
+            return Ok(StateReturnType::Failure);
+        }
+
+        turret.idle_mood_check_pending = true;
+        let mood_frame = turret.friend_get_next_idle_mood_target_frame();
+        Ok(frame_to_sleep_time(
+            mood_frame,
+            Some(self.next_idle_scan),
+            None,
+            None,
+        ))
+    }
 }
 
 impl StateImplementation for TurretAIIdleState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
+    /// Turret states are only stepped through their owner's machine, which
+    /// always loans the turret via `update_with_owner`; there is no owner-free
+    /// step to run here.
     fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
+        StateReturnType::Failure
     }
 
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_enter(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
     }
+
+    fn update_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_update(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {}
 
     fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: XferVersion = 1;
@@ -2114,80 +2041,28 @@ impl StateImplementation for TurretAIIdleState {
             .map_err(|e| format!("TurretAIIdleState xfer next_idle_scan failed: {:?}", e))?;
         Ok(())
     }
-}
 
-impl ClassicState for TurretAIIdleState {
-    fn base_state(&self) -> &State {
-        self.base.state()
+    fn get_name(&self) -> &str {
+        self.base.get_name()
     }
 
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
     }
 
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("TurretAIIdleState xfer version failed: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.next_idle_scan)
-            .map_err(|e| format!("TurretAIIdleState xfer next_idle_scan failed: {:?}", e))?;
-        Ok(())
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
     }
 
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let which = self
-            .base
-            .turret_ai_lock()?
-            .and_then(|turret_ai| turret_ai.lock().ok().map(|t| t.friend_get_which_turret()));
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(mut turret) = turret_ai.lock() {
-                turret.reset_mood_check_pending = true;
-                turret.clear_turret_sync = which;
-            }
-        }
-        self.reset_idle_scan()?;
-        let mut mood_frame = None;
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(turret) = turret_ai.lock() {
-                mood_frame = Some(turret.friend_get_next_idle_mood_target_frame());
-            }
-        }
-        Ok(frame_to_sleep_time(
-            mood_frame.unwrap_or(self.next_idle_scan),
-            Some(self.next_idle_scan),
-            None,
-            None,
-        ))
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.bind_goal_object_id(id);
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let current_frame = TheGameLogic::try_get_frame()?;
-
-        if current_frame >= self.next_idle_scan {
-            return Ok(StateReturnType::Failure);
-        }
-
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(mut turret) = turret_ai.lock() {
-                turret.idle_mood_check_pending = true;
-                let mood_frame = turret.friend_get_next_idle_mood_target_frame();
-                return Ok(frame_to_sleep_time(
-                    mood_frame,
-                    Some(self.next_idle_scan),
-                    None,
-                    None,
-                ));
-            }
-        }
-
-        Ok(frame_to_sleep_time(self.next_idle_scan, None, None, None))
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.base.note_step_owner(&owner);
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
-    }
-
-    fn classic_is_idle(&self) -> bool {
+    fn is_idle(&self) -> bool {
         true
     }
 }
@@ -2200,77 +2075,31 @@ pub struct TurretAIIdleScanState {
 }
 
 impl TurretAIIdleScanState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TurretSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
         Self {
-            base: TurretState::new(machine, shared, "TurretAIIdleScanState"),
+            base: TurretState::new(machine, name),
             desired_angle: 0.0,
         }
     }
-}
 
-impl StateImplementation for TurretAIIdleScanState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-
-    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("TurretAIIdleScanState xfer version failed: {:?}", e))?;
-        xfer.xfer_real(&mut self.desired_angle)
-            .map_err(|e| format!("TurretAIIdleScanState xfer desired_angle failed: {:?}", e))?;
-        Ok(())
-    }
-}
-
-impl ClassicState for TurretAIIdleScanState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("TurretAIIdleScanState xfer version failed: {:?}", e))?;
-        xfer.xfer_real(&mut self.desired_angle)
-            .map_err(|e| format!("TurretAIIdleScanState xfer desired_angle failed: {:?}", e))?;
-        Ok(())
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(turret) = turret_ai.lock() {
-                let min_angle = turret.get_min_idle_scan_angle();
-                let max_angle = turret.get_max_idle_scan_angle();
-                if min_angle == 0.0 && max_angle == 0.0 {
-                    return Ok(StateReturnType::Success);
-                }
-                let mut offset =
-                    min_angle + GameLogicRandomValueReal(0.0, (max_angle - min_angle).max(0.0));
-                if GameLogicRandomValue(0, 1) == 0 {
-                    offset = -offset;
-                }
-                // C++ stores the offset. Update adds the current natural angle.
-                self.desired_angle = offset;
-            }
+    fn classic_on_enter(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        let min_angle = turret.get_min_idle_scan_angle();
+        let max_angle = turret.get_max_idle_scan_angle();
+        if min_angle == 0.0 && max_angle == 0.0 {
+            return Ok(StateReturnType::Success);
         }
+        let mut offset =
+            min_angle + GameLogicRandomValueReal(0.0, (max_angle - min_angle).max(0.0));
+        if GameLogicRandomValue(0, 1) == 0 {
+            offset = -offset;
+        }
+        // C++ stores the offset. Update adds the current natural angle.
+        self.desired_angle = offset;
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if let Some(owner) = self.base.owner_arc() {
+    fn classic_on_update(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        if let Some(owner) = turret.owner_object() {
             if let Ok(owner) = owner.read() {
                 if owner
                     .get_status_bits()
@@ -2280,25 +2109,72 @@ impl ClassicState for TurretAIIdleScanState {
                 }
             }
         }
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(mut turret) = turret_ai.lock() {
-                let goal_angle = turret.get_natural_angle() + self.desired_angle;
-                let natural_pitch = turret.get_natural_pitch();
-                let angle_aligned = turret.friend_turn_towards_angle(goal_angle, 0.5, 0.0);
-                let pitch_aligned = turret.friend_turn_towards_pitch(natural_pitch, 0.5);
-                if angle_aligned && pitch_aligned {
-                    return Ok(StateReturnType::Success);
-                }
-            }
+        let goal_angle = turret.get_natural_angle() + self.desired_angle;
+        let natural_pitch = turret.get_natural_pitch();
+        let angle_aligned = turret.friend_turn_towards_angle(goal_angle, 0.5, 0.0);
+        let pitch_aligned = turret.friend_turn_towards_pitch(natural_pitch, 0.5);
+        if angle_aligned && pitch_aligned {
+            return Ok(StateReturnType::Success);
         }
         Ok(StateReturnType::Continue)
     }
+}
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+impl StateImplementation for TurretAIIdleScanState {
+    /// Turret states are only stepped through their owner's machine, which
+    /// always loans the turret via `update_with_owner`; there is no owner-free
+    /// step to run here.
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_enter(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_update(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {}
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("TurretAIIdleScanState xfer version failed: {:?}", e))?;
+        xfer.xfer_real(&mut self.desired_angle)
+            .map_err(|e| format!("TurretAIIdleScanState xfer desired_angle failed: {:?}", e))?;
         Ok(())
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn get_name(&self) -> &str {
+        self.base.get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
+    }
+
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.base.note_step_owner(&owner);
+    }
+
+    fn is_busy(&self) -> bool {
         true
     }
 }
@@ -2311,51 +2187,23 @@ pub struct TurretAIAimTurretState {
 }
 
 impl TurretAIAimTurretState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TurretSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
         Self {
-            base: TurretState::new(machine, shared, "TurretAIAimTurretState"),
+            base: TurretState::new(machine, name),
             delay_until: 0,
         }
     }
-}
 
-impl StateImplementation for TurretAIAimTurretState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for TurretAIAimTurretState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_enter(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
         self.delay_until = 0;
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(turret) = turret_ai.lock() {
-                let delay = turret.get_inter_turret_delay();
-                if delay > 0 {
-                    self.delay_until = TheGameLogic::get_frame().saturating_add(delay);
-                }
-            }
+        let delay = turret.get_inter_turret_delay();
+        if delay > 0 {
+            self.delay_until = TheGameLogic::get_frame().saturating_add(delay);
         }
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
         if self.delay_until > 0 {
             let now = TheGameLogic::get_frame();
             if now < self.delay_until {
@@ -2363,20 +2211,58 @@ impl ClassicState for TurretAIAimTurretState {
             }
             self.delay_until = 0;
         }
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(mut turret) = turret_ai.lock() {
-                return Ok(turret.update_aim_state());
-            }
+        Ok(turret.update_aim_state())
+    }
+}
+
+impl StateImplementation for TurretAIAimTurretState {
+    /// Turret states are only stepped through their owner's machine, which
+    /// always loans the turret via `update_with_owner`; there is no owner-free
+    /// step to run here.
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_enter(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
         }
-        Ok(StateReturnType::Failure)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+    fn update_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_update(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {
         self.delay_until = 0;
-        Ok(())
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn get_name(&self) -> &str {
+        self.base.get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
+    }
+
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.base.note_step_owner(&owner);
+    }
+
+    fn is_busy(&self) -> bool {
         true
     }
 }
@@ -2388,50 +2274,63 @@ pub struct TurretAIFireWeaponState {
 }
 
 impl TurretAIFireWeaponState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TurretSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
         Self {
-            base: TurretState::new(machine, shared, "TurretAIFireWeaponState"),
+            base: TurretState::new(machine, name),
         }
     }
-}
 
-impl StateImplementation for TurretAIFireWeaponState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
+    /// C++ `outOfWeaponRangeObject` (AIStates.cpp): reads only the machine
+    /// owner and the machine goal object. The owner id is mirrored at build
+    /// (`State::owner_id`) and the goal id is bound every step
+    /// (`bind_goal_object_id`), so this runs without any turret handle while
+    /// the step already holds the turret.
+    fn out_of_weapon_range_object(&self) -> bool {
+        let owner_id = self.base.base.owner_id;
+        let target_id = self.base.base.goal_object_id;
+        if owner_id == crate::common::INVALID_ID || target_id == crate::common::INVALID_ID {
+            return false;
+        }
+        let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
+            .or_else(|| OBJECT_REGISTRY.get_object(owner_id))
+        else {
+            return false;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return false;
+        };
+        let source_pos = *owner_guard.get_position();
+        let source_radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
+        let source_geom = *owner_guard.get_geometry_info();
+        let mut flags =
+            crate::weapon::helpers::map_common_bonus_flags(owner_guard.get_weapon_bonus_condition());
+        let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+            owner_guard.get_contained_by(),
+        );
+        flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
+        let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+            return false;
+        };
+        if weapon.has_leech_range() {
+            return false;
+        }
+        let bonus = weapon.bonus_from_flags(flags);
+        !weapon.is_within_attack_range_from_source(
+            &source_pos,
+            source_radius,
+            &source_geom,
+            &bonus,
+            Some(target_id),
+            None,
+        )
     }
 
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for TurretAIFireWeaponState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let (victim, attack_ok) = self
-            .base
-            .turret_ai_lock()?
-            .and_then(|turret| {
-                turret.lock().ok().map(|turret| {
-                    (turret.get_current_target_id(), turret.attack_ok_cached())
-                })
-            })
-            .unwrap_or((None, true));
-        if !attack_ok {
+    fn classic_on_enter(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        let victim = turret.get_current_target_id();
+        if !turret.attack_ok_cached() {
             return Ok(StateReturnType::Failure);
         }
-        if let Some(owner) = self.base.owner_arc() {
+        if let Some(owner) = turret.owner_object() {
             if let Ok(mut owner_guard) = owner.try_write() {
                 if let Some(victim_id) = victim {
                     if let Some(team_arc) = owner_guard.get_team() {
@@ -2450,252 +2349,280 @@ impl ClassicState for TurretAIFireWeaponState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        let pos_only = self
-            .base
-            .turret_ai_lock()?
-            .and_then(|t| {
-                t.lock()
-                    .ok()
-                    .map(|g| g.target_kind == TurretTargetKind::Position)
-            })
-            .unwrap_or(false);
+    fn classic_on_update(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        let pos_only = turret.target_kind == TurretTargetKind::Position;
         if !pos_only && dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
 
+        // Get current target
+        let target_opt = turret.get_current_target();
 
-        // Get turret AI and current target
-        if let Some(turret_ai_arc) = self.base.turret_ai_lock()? {
-            let turret_guard = turret_ai_arc
-                .lock()
-                .map_err(|_| "turret AI lock poisoned")?;
-            let target_opt = turret_guard.get_current_target();
-            drop(turret_guard);
+        if let Some(target) = target_opt {
+            // Check if target is still valid
+            let target_dead = target
+                .try_read()
+                .map(|guard| guard.is_effectively_dead())
+                .unwrap_or(false);
 
-            if let Some(target) = target_opt {
-                // Check if target is still valid
-                let target_dead = target
-                    .try_read()
-                    .map(|guard| guard.is_effectively_dead())
-                    .unwrap_or(false);
+            if target_dead {
+                // AIAttackFireWeaponState returns FAILURE. The fire link goes back to Aim.
+                return Ok(StateReturnType::Failure);
+            }
 
-                if target_dead {
-                    // AIAttackFireWeaponState returns FAILURE. The fire link goes back to Aim.
+            // Target is alive, try to fire.
+            let Some(owner_arc) = turret.owner_object() else {
+                // No owner object, transition to Hold
+                return Ok(StateReturnType::Failure);
+            };
+            // Check if we can fire at target
+            let can_fire =
+                turret.can_fire_at_target(target.read().ok().map(|g| g.get_id()).unwrap_or(0));
+            if !can_fire {
+                // Can't fire (out of range, not aimed, etc.), transition to Aim
+                return Ok(StateReturnType::Failure);
+            }
+
+            // Fire weapon - matches C++ AIAttackFireWeaponState::update() from AIStates.cpp:5169
+            if let Ok(mut owner_guard) = owner_arc.try_write() {
+                // Temporarily take weapon_set to avoid aliasing issues
+                let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
+
+                let Some(current_slot) = weapon_set.get_current_weapon().map(|(_, slot)| slot)
+                else {
+                    weapon_set.apply_pending_shared_fire();
+                    owner_guard.weapon_set = weapon_set;
                     return Ok(StateReturnType::Failure);
-                } else {
-                    // Target is alive, try to fire
-                    // Get owner object from state machine
-                    if let Some(owner_arc) = self.base.owner_arc() {
-                        // Check if we can fire at target
-                        let can_fire = turret_ai_arc
-                            .lock()
-                            .map(|t| {
-                                t.can_fire_at_target(
-                                    target.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                )
-                            })
-                            .unwrap_or(false);
+                };
+                let slot_blocked = !turret.turrets_linked_cached()
+                    && !turret.is_weapon_slot_on_turret(current_slot);
+                if slot_blocked {
+                    weapon_set.apply_pending_shared_fire();
+                    owner_guard.weapon_set = weapon_set;
+                    return Ok(StateReturnType::Failure);
+                }
+                if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(current_slot) {
+                    // Check weapon status - matches C++ line 5189-5197
+                    let weapon_status = weapon.get_status();
 
-                        if can_fire {
-                            // Fire weapon - matches C++ AIAttackFireWeaponState::update() from AIStates.cpp:5169
-                            if let Ok(mut owner_guard) = owner_arc.try_write() {
-                                // Temporarily take weapon_set to avoid aliasing issues
-                                let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
-
-                                let Some(current_slot) =
-                                    weapon_set.get_current_weapon().map(|(_, slot)| slot)
-                                else {
-                                    weapon_set.apply_pending_shared_fire();
-                                    owner_guard.weapon_set = weapon_set;
-                                    return Ok(StateReturnType::Failure);
-                                };
-                                let slot_blocked = turret_ai_arc.lock().ok().is_some_and(|turret| {
-                                    !turret.turrets_linked_cached()
-                                        && !turret.is_weapon_slot_on_turret(current_slot)
-                                });
-                                if slot_blocked {
-                                    weapon_set.apply_pending_shared_fire();
-                                    owner_guard.weapon_set = weapon_set;
-                                    return Ok(StateReturnType::Failure);
-                                }
-                                if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(current_slot)
-                                {
-                                    // Check weapon status - matches C++ line 5189-5197
-                                    let weapon_status = weapon.get_status();
-
-                                    if weapon_status == crate::weapon::WeaponStatus::PreAttack {
-                                        // Still in pre-attack delay, continue waiting
-                                        // Restore weapon_set before returning
-                                        weapon_set.apply_pending_shared_fire();
-                                        owner_guard.weapon_set = weapon_set;
-                                        return Ok(StateReturnType::Continue);
-                                    } else if weapon_status
-                                        == crate::weapon::WeaponStatus::ReadyToFire
-                                    {
-                                        owner_guard.set_firing_condition_for_current_weapon();
-                                        weapon_set.apply_pending_shared_fire();
-                                        owner_guard.weapon_set = weapon_set;
-                                        let target_id = target.try_read().ok().map(|guard| guard.get_id());
-                                        let owner_id = owner_guard.get_id();
-                                        if let Some(target_id) = target_id {
-                                            let _ = owner_guard.fire_current_weapon_at_target_id(target_id);
-                                        }
-                                        owner_guard.clear_status(
-                                            crate::common::ObjectStatusMaskType::from_status(
-                                                crate::object::ObjectStatusTypes::IgnoringStealth,
-                                            ),
-                                        );
-                                        if let Ok(mut turret_guard) = turret_ai_arc.lock() {
-                                            turret_guard.set_did_fire(true);
-                                        }
-                                        drop(owner_guard);
-                                        if let Some(target_id) = target_id {
-                                            if let Some(current) =
-                                                crate::object::unit::unit_attack_target(owner_id)
-                                            {
-                                                if current != target_id {
-                                                    if let Ok(mut turret_guard) = turret_ai_arc.lock() {
-                                                        turret_guard.note_transferred_victim(current);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        return Ok(StateReturnType::Success);
-                                    } else {
-                                        // Weapon not ready (reloading, out of ammo, etc.)
-                                        // Restore weapon_set and transition to Aim
-                                        weapon_set.apply_pending_shared_fire();
-                                        owner_guard.weapon_set = weapon_set;
-                                        return Ok(StateReturnType::Failure);
-                                    }
-                                } else {
-                                    // No weapon in slot, restore weapon_set and transition to Hold
-                                    weapon_set.apply_pending_shared_fire();
-                                    owner_guard.weapon_set = weapon_set;
-                                    return Ok(StateReturnType::Failure);
-                                }
-                            } else {
-                                return Ok(StateReturnType::Continue);
-                            }
-                        } else {
-                            // Can't fire (out of range, not aimed, etc.), transition to Aim
-                            return Ok(StateReturnType::Failure);
+                    if weapon_status == crate::weapon::WeaponStatus::PreAttack {
+                        // Still in pre-attack delay, continue waiting
+                        // Restore weapon_set before returning
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
+                        return Ok(StateReturnType::Continue);
+                    } else if weapon_status == crate::weapon::WeaponStatus::ReadyToFire {
+                        owner_guard.set_firing_condition_for_current_weapon();
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
+                        let target_id = target.try_read().ok().map(|guard| guard.get_id());
+                        let owner_id = owner_guard.get_id();
+                        if let Some(target_id) = target_id {
+                            let _ = owner_guard.fire_current_weapon_at_target_id(target_id);
                         }
+                        owner_guard.clear_status(
+                            crate::common::ObjectStatusMaskType::from_status(
+                                crate::object::ObjectStatusTypes::IgnoringStealth,
+                            ),
+                        );
+                        turret.set_did_fire(true);
+                        drop(owner_guard);
+                        if let Some(target_id) = target_id {
+                            if let Some(current) = crate::object::unit::unit_attack_target(owner_id)
+                            {
+                                if current != target_id {
+                                    turret.note_transferred_victim(current);
+                                }
+                            }
+                        }
+                        return Ok(StateReturnType::Success);
                     } else {
-                        // No owner object, transition to Hold
+                        // Weapon not ready (reloading, out of ammo, etc.)
+                        // Restore weapon_set and transition to Aim
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
                         return Ok(StateReturnType::Failure);
                     }
+                } else {
+                    // No weapon in slot, restore weapon_set and transition to Hold
+                    weapon_set.apply_pending_shared_fire();
+                    owner_guard.weapon_set = weapon_set;
+                    return Ok(StateReturnType::Failure);
                 }
-            } else if let Some(pos) = turret_ai_arc.lock().ok().and_then(|t| {
-                t.target_position
-                    .filter(|_| t.target_kind == TurretTargetKind::Position)
-            }) {
-                if let Some(owner_arc) = self.base.owner_arc() {
-                    if let Ok(mut owner_guard) = owner_arc.try_write() {
-                        let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
-                        let Some(current_slot) =
-                            weapon_set.get_current_weapon().map(|(_, slot)| slot)
-                        else {
-                            weapon_set.apply_pending_shared_fire();
-                            owner_guard.weapon_set = weapon_set;
-                            return Ok(StateReturnType::Failure);
-                        };
-                        let slot_blocked = turret_ai_arc.lock().ok().is_some_and(|turret| {
-                            !turret.turrets_linked_cached() && !turret.is_weapon_slot_on_turret(current_slot)
-                        });
-                        if slot_blocked {
-                            weapon_set.apply_pending_shared_fire();
-                            owner_guard.weapon_set = weapon_set;
-                            return Ok(StateReturnType::Failure);
-                        }
-                        if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(current_slot) {
-                            let status = weapon.get_status();
-                            if status == crate::weapon::WeaponStatus::PreAttack {
-                                weapon_set.apply_pending_shared_fire();
-                                owner_guard.weapon_set = weapon_set;
-                                return Ok(StateReturnType::Continue);
-                            }
-                            if status != crate::weapon::WeaponStatus::ReadyToFire {
-                                weapon_set.apply_pending_shared_fire();
-                                owner_guard.weapon_set = weapon_set;
-                                return Ok(StateReturnType::Failure);
-                            }
-                            owner_guard.set_firing_condition_for_current_weapon();
-                            let linked = turret_ai_arc
-                                .lock()
-                                .ok()
-                                .is_some_and(|turret| turret.turrets_linked_cached());
-                            if linked {
-                                weapon_set.apply_pending_shared_fire();
-                                owner_guard.weapon_set = weapon_set;
-                                owner_guard.fire_linked_turrets_at_position(&pos);
-                            } else {
-                                weapon_set.apply_pending_shared_fire();
-                                owner_guard.weapon_set = weapon_set;
-                                let _ = owner_guard.fire_current_weapon_at_position(&pos);
-                            }
-                            owner_guard.clear_status(
-                                crate::common::ObjectStatusMaskType::from_status(
-                                    crate::object::ObjectStatusTypes::IgnoringStealth,
-                                ),
-                            );
-                            if let Ok(mut turret_guard) = turret_ai_arc.lock() {
-                                turret_guard.set_did_fire(true);
-                            }
-                            return Ok(StateReturnType::Success);
-                        } else {
-                            weapon_set.apply_pending_shared_fire();
-                            owner_guard.weapon_set = weapon_set;
-                            return Ok(StateReturnType::Failure);
-                        }
-                    } else {
+            }
+            return Ok(StateReturnType::Continue);
+        } else if let Some(pos) = turret
+            .target_position
+            .filter(|_| turret.target_kind == TurretTargetKind::Position)
+        {
+            let Some(owner_arc) = turret.owner_object() else {
+                return Ok(StateReturnType::Failure);
+            };
+            if let Ok(mut owner_guard) = owner_arc.try_write() {
+                let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
+                let Some(current_slot) = weapon_set.get_current_weapon().map(|(_, slot)| slot)
+                else {
+                    weapon_set.apply_pending_shared_fire();
+                    owner_guard.weapon_set = weapon_set;
+                    return Ok(StateReturnType::Failure);
+                };
+                let slot_blocked = !turret.turrets_linked_cached()
+                    && !turret.is_weapon_slot_on_turret(current_slot);
+                if slot_blocked {
+                    weapon_set.apply_pending_shared_fire();
+                    owner_guard.weapon_set = weapon_set;
+                    return Ok(StateReturnType::Failure);
+                }
+                if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(current_slot) {
+                    let status = weapon.get_status();
+                    if status == crate::weapon::WeaponStatus::PreAttack {
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
                         return Ok(StateReturnType::Continue);
                     }
+                    if status != crate::weapon::WeaponStatus::ReadyToFire {
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
+                        return Ok(StateReturnType::Failure);
+                    }
+                    owner_guard.set_firing_condition_for_current_weapon();
+                    let linked = turret.turrets_linked_cached();
+                    if linked {
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
+                        owner_guard.fire_linked_turrets_at_position(&pos);
+                    } else {
+                        weapon_set.apply_pending_shared_fire();
+                        owner_guard.weapon_set = weapon_set;
+                        let _ = owner_guard.fire_current_weapon_at_position(&pos);
+                    }
+                    owner_guard.clear_status(
+                        crate::common::ObjectStatusMaskType::from_status(
+                            crate::object::ObjectStatusTypes::IgnoringStealth,
+                        ),
+                    );
+                    turret.set_did_fire(true);
+                    return Ok(StateReturnType::Success);
+                } else {
+                    weapon_set.apply_pending_shared_fire();
+                    owner_guard.weapon_set = weapon_set;
+                    return Ok(StateReturnType::Failure);
                 }
-                return Ok(StateReturnType::Failure);
-            } else {
-                // No target, transition to Hold
-                return Ok(StateReturnType::Failure);
             }
+            return Ok(StateReturnType::Continue);
         }
 
-
-
-        Ok(StateReturnType::Continue)
+        // No target, transition to Hold
+        Ok(StateReturnType::Failure)
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        if let Some(owner) = self.base.owner_arc() {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.clear_status(
-                    crate::common::ObjectStatusMaskType::from_status(
-                        crate::object::ObjectStatusTypes::IsFiringWeapon,
-                    ),
-                );
-                owner_guard.clear_status(
-                    crate::common::ObjectStatusMaskType::from_status(
-                        crate::object::ObjectStatusTypes::IgnoringStealth,
-                    ),
-                );
-                if owner_guard
-                    .get_current_weapon()
-                    .is_some_and(|(weapon, _)| {
-                        weapon.get_status() == crate::weapon::WeaponStatus::PreAttack
-                    })
-                {
-                    owner_guard.cancel_pre_attack_for_current_weapon();
-                }
-            }
-        }
+    fn classic_on_exit(&mut self, _turret: &mut TurretAI) -> Result<(), String> {
+        // Owner status cleanup lives in `on_exit`, which has no owner loan
+        // (exits only need the machine's owner id, mirrored on the state).
         Ok(())
     }
+}
 
-    fn classic_is_attack(&self) -> bool {
+impl StateImplementation for TurretAIFireWeaponState {
+    /// Turret states are only stepped through their owner's machine, which
+    /// always loans the turret via `update_with_owner`; there is no owner-free
+    /// step to run here.
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_enter(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_update(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, status: StateExitType) {
+        // on_exit has no owner loan available; the exit only touches the owner
+        // object, resolved through the machine's owner id.
+        let owner_id = self.base.base.owner_id;
+        if owner_id != crate::common::INVALID_ID {
+            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
+                .or_else(|| OBJECT_REGISTRY.get_object(owner_id))
+            {
+                if let Ok(mut owner_guard) = owner.write() {
+                    owner_guard.clear_status(
+                        crate::common::ObjectStatusMaskType::from_status(
+                            crate::object::ObjectStatusTypes::IsFiringWeapon,
+                        ),
+                    );
+                    owner_guard.clear_status(
+                        crate::common::ObjectStatusMaskType::from_status(
+                            crate::object::ObjectStatusTypes::IgnoringStealth,
+                        ),
+                    );
+                    if owner_guard
+                        .get_current_weapon()
+                        .is_some_and(|(weapon, _)| {
+                            weapon.get_status() == crate::weapon::WeaponStatus::PreAttack
+                        })
+                    {
+                        owner_guard.cancel_pre_attack_for_current_weapon();
+                    }
+                }
+            }
+        }
+        let _ = status;
+    }
+
+    /// Transition predicates run while the step already holds `&mut TurretAI`,
+    /// so they resolve purely from the state's mirrored owner/goal ids.
+    fn evaluate_transition_payload(&self, payload: &(dyn Any + Send + Sync)) -> Option<bool> {
+        payload
+            .downcast_ref::<TurretFireRangeCheck>()
+            .map(|_| self.out_of_weapon_range_object())
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
+    }
+
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.base.note_step_owner(&owner);
+    }
+
+    fn get_machine_goal_object(
+        &self,
+    ) -> Result<Option<Arc<RwLock<crate::object::Object>>>, String> {
+        let id = self.base.base.goal_object_id;
+        if id == crate::common::INVALID_ID {
+            return Ok(None);
+        }
+        Ok(crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| OBJECT_REGISTRY.get_object(id)))
+    }
+
+    fn is_attack(&self) -> bool {
         true
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         true
     }
 }
@@ -2707,42 +2634,14 @@ pub struct TurretAIRecenterTurretState {
 }
 
 impl TurretAIRecenterTurretState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TurretSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
         Self {
-            base: TurretState::new(machine, shared, "TurretAIRecenterTurretState"),
+            base: TurretState::new(machine, name),
         }
     }
-}
 
-impl StateImplementation for TurretAIRecenterTurretState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for TurretAIRecenterTurretState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Continue)
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if let Some(owner) = self.base.owner_arc() {
+    fn classic_on_update(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
+        if let Some(owner) = turret.owner_object() {
             if let Ok(owner) = owner.read() {
                 if owner
                     .get_status_bits()
@@ -2752,25 +2651,54 @@ impl ClassicState for TurretAIRecenterTurretState {
                 }
             }
         }
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(mut turret) = turret_ai.lock() {
-                let natural_angle = turret.get_natural_angle();
-                let angle_aligned = turret.friend_turn_towards_angle(natural_angle, 0.5, 0.0);
-                let natural_pitch = turret.get_natural_pitch();
-                let pitch_aligned = turret.friend_turn_towards_pitch(natural_pitch, 0.5);
-                if angle_aligned && pitch_aligned {
-                    return Ok(StateReturnType::Success);
-                }
-            }
+        let natural_angle = turret.get_natural_angle();
+        let angle_aligned = turret.friend_turn_towards_angle(natural_angle, 0.5, 0.0);
+        let natural_pitch = turret.get_natural_pitch();
+        let pitch_aligned = turret.friend_turn_towards_pitch(natural_pitch, 0.5);
+        if angle_aligned && pitch_aligned {
+            return Ok(StateReturnType::Success);
         }
         Ok(StateReturnType::Continue)
     }
+}
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
+impl StateImplementation for TurretAIRecenterTurretState {
+    /// Turret states are only stepped through their owner's machine, which
+    /// always loans the turret via `update_with_owner`; there is no owner-free
+    /// step to run here.
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
     }
 
-    fn classic_is_busy(&self) -> bool {
+
+    fn update_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_update(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
+    }
+
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.base.note_step_owner(&owner);
+    }
+
+    fn is_busy(&self) -> bool {
         true
     }
 }
@@ -2783,73 +2711,25 @@ pub struct TurretAIHoldTurretState {
 }
 
 impl TurretAIHoldTurretState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TurretSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, name: &str) -> Self {
         Self {
-            base: TurretState::new(machine, shared, "TurretAIHoldTurretState"),
+            base: TurretState::new(machine, name),
             timestamp: 0,
         }
     }
-}
 
-impl StateImplementation for TurretAIHoldTurretState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-
-    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("TurretAIHoldTurretState xfer version failed: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.timestamp)
-            .map_err(|e| format!("TurretAIHoldTurretState xfer timestamp failed: {:?}", e))?;
-        Ok(())
-    }
-}
-
-impl ClassicState for TurretAIHoldTurretState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("TurretAIHoldTurretState xfer version failed: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.timestamp)
-            .map_err(|e| format!("TurretAIHoldTurretState xfer timestamp failed: {:?}", e))?;
-        Ok(())
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_enter(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
         let current_frame = TheGameLogic::try_get_frame()?;
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(turret) = turret_ai.lock() {
-                self.timestamp = current_frame.saturating_add(turret.get_recenter_time());
-                return Ok(frame_to_sleep_time(
-                    turret.friend_get_next_idle_mood_target_frame(),
-                    Some(self.timestamp),
-                    None,
-                    None,
-                ));
-            }
-        }
-        self.timestamp = current_frame;
-        Ok(StateReturnType::Continue)
+        self.timestamp = current_frame.saturating_add(turret.get_recenter_time());
+        Ok(frame_to_sleep_time(
+            turret.friend_get_next_idle_mood_target_frame(),
+            Some(self.timestamp),
+            None,
+            None,
+        ))
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(&mut self, turret: &mut TurretAI) -> Result<StateReturnType, String> {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
@@ -2860,26 +2740,69 @@ impl ClassicState for TurretAIHoldTurretState {
             return Ok(StateReturnType::Success);
         }
 
-        if let Some(turret_ai) = self.base.turret_ai_lock()? {
-            if let Ok(mut turret) = turret_ai.lock() {
-                turret.idle_mood_check_pending = true;
-                return Ok(frame_to_sleep_time(
-                    turret.friend_get_next_idle_mood_target_frame(),
-                    Some(self.timestamp),
-                    None,
-                    None,
-                ));
-            }
-        }
+        turret.idle_mood_check_pending = true;
+        Ok(frame_to_sleep_time(
+            turret.friend_get_next_idle_mood_target_frame(),
+            Some(self.timestamp),
+            None,
+            None,
+        ))
+    }
+}
 
-        Ok(StateReturnType::Continue)
+impl StateImplementation for TurretAIHoldTurretState {
+    /// Turret states are only stepped through their owner's machine, which
+    /// always loans the turret via `update_with_owner`; there is no owner-free
+    /// step to run here.
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
     }
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_enter(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn Any) -> StateReturnType {
+        match TurretState::downcast_owner(owner) {
+            Some(turret) => self.classic_on_update(turret).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("TurretAIHoldTurretState xfer version failed: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.timestamp)
+            .map_err(|e| format!("TurretAIHoldTurretState xfer timestamp failed: {:?}", e))?;
         Ok(())
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn get_name(&self) -> &str {
+        self.base.get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.set_id(id);
+    }
+
+    fn bind_goal_object_id(&mut self, id: ObjectID) {
+        self.base.bind_goal_object_id(id);
+    }
+
+    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+        self.base.note_step_owner(&owner);
+    }
+
+    fn is_busy(&self) -> bool {
         true
     }
 }
@@ -2890,13 +2813,8 @@ impl Snapshotable for TurretAI {
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("TurretAI version crc failed: {:?}", e))?;
-        if let Some(machine_weak) = &self.state_machine {
-            if let Some(machine) = machine_weak.upgrade() {
-                let mut guard = machine
-                    .lock()
-                    .map_err(|_| "TurretAI state machine lock poisoned".to_string())?;
-                guard.crc(xfer).map_err(|e| e.to_string())?;
-            }
+        if !self.state_machine.is_empty() {
+            self.state_machine.crc(xfer).map_err(|e| e.to_string())?;
         }
         let mut current_angle = self.current_angle;
         xfer.xfer_real(&mut current_angle)
@@ -2941,13 +2859,10 @@ impl Snapshotable for TurretAI {
             .map_err(|e| format!("TurretAI version xfer failed: {:?}", e))?;
 
         // C++ line 332: xferSnapshot(m_turretStateMachine)
-        if let Some(machine_weak) = &self.state_machine {
-            if let Some(machine) = machine_weak.upgrade() {
-                let mut guard = machine
-                    .lock()
-                    .map_err(|_| "TurretAI state machine lock poisoned".to_string())?;
-                guard.xfer(xfer).map_err(|e| e.to_string())?;
-            }
+        if !self.state_machine.is_empty() {
+            self.state_machine
+                .xfer(xfer)
+                .map_err(|e| e.to_string())?;
         }
 
         // C++ line 334: xferReal(&m_angle)

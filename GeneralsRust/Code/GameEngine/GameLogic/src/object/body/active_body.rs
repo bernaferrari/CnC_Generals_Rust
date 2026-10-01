@@ -102,16 +102,10 @@ fn should_retaliate_against_aggressor(obj: &Object, damager: &Object) -> bool {
     if damager.relationship_to(obj) != Relationship::Enemies {
         return false;
     }
-    let ai_store = the_ai();
-    let max_dist = ai_store
+    let max_dist = the_ai()
         .read()
         .ok()
-        .and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
-                .map(|d| d.max_retaliate_distance)
-        })
+        .map(|ai| ai.get_ai_data().max_retaliate_distance)
         .unwrap_or(210.0);
     let dist_sqr = ThePartitionManager::get_distance_squared(obj, damager, FROM_BOUNDING_SPHERE_2D);
     if dist_sqr > max_dist * max_dist {
@@ -170,16 +164,10 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
     if !should_retaliate_against_aggressor(victim, damager) {
         return;
     }
-    let ai_store = the_ai();
-    let friends_radius = ai_store
+    let friends_radius = the_ai()
         .read()
         .ok()
-        .and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
-                .map(|d| d.retaliate_friends_radius)
-        })
+        .map(|ai| ai.get_ai_data().retaliate_friends_radius)
         .unwrap_or(120.0)
         + victim.get_geometry_info().get_bounding_circle_radius();
     let Some(partition) = ThePartitionManager::get() else {

@@ -4,6 +4,8 @@
 //! SHROUDED / FOGGED / CLEAR into object shroud, including fogged-enemy,
 //! mine, neutral-mobile, and PARTIAL_CLEAR rules.
 
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
 use crate::common::{Coord3D, KindOf, MAX_PLAYER_COUNT, ObjectShroudStatus, Relationship};
 use crate::object::Object;
 use crate::object::collide::partition_coi::{do_circle_fill, do_rect_fill, do_small_fill};
@@ -12,10 +14,17 @@ use crate::player::player_list;
 use game_engine::common::system::radar::CellShroudStatus;
 
 /// C++ `PartitionData` per-object shroud cache + COI mix.
-#[derive(Debug, Clone)]
+///
+/// The caches are atomics so `getShroudedStatus` can refresh them through a
+/// shared Object borrow — the original wrapped this struct in a mutex purely
+/// to mutate two cache arrays from `&self` call sites. `Object` must stay
+/// `Sync` (it lives in `Arc<RwLock<…>>` everywhere), so these are atomics
+/// rather than `Cell`s. Ordering is relaxed: the simulation is single-threaded
+/// and the caches are best-effort views recomputed on demand.
+#[derive(Debug)]
 pub struct PartitionData {
-    shroudedness: [ObjectShroudStatus; MAX_PLAYER_COUNT],
-    ever_seen_by_player: [bool; MAX_PLAYER_COUNT],
+    shroudedness: [AtomicU8; MAX_PLAYER_COUNT],
+    ever_seen_by_player: [AtomicBool; MAX_PLAYER_COUNT],
 }
 
 impl Default for PartitionData {
@@ -27,21 +36,23 @@ impl Default for PartitionData {
 impl PartitionData {
     pub fn new() -> Self {
         Self {
-            shroudedness: [ObjectShroudStatus::Invalid; MAX_PLAYER_COUNT],
-            ever_seen_by_player: [false; MAX_PLAYER_COUNT],
+            shroudedness: std::array::from_fn(|_| {
+                AtomicU8::new(ObjectShroudStatus::Invalid as u8)
+            }),
+            ever_seen_by_player: std::array::from_fn(|_| AtomicBool::new(false)),
         }
     }
 
     /// C++ `PartitionData::invalidateShroudedStatusForPlayer`.
-    pub fn invalidate_shrouded_status_for_player(&mut self, player_index: i32) {
-        if let Some(slot) = self.shroudedness.get_mut(player_index as usize) {
-            *slot = ObjectShroudStatus::Invalid;
+    pub fn invalidate_shrouded_status_for_player(&self, player_index: i32) {
+        if let Some(slot) = self.shroudedness.get(player_index as usize) {
+            slot.store(ObjectShroudStatus::Invalid as u8, Ordering::Relaxed);
         }
     }
 
     /// C++ `PartitionData::getShroudedStatus`.
     pub fn get_shrouded_status(
-        &mut self,
+        &self,
         player_index: i32,
         object: &Object,
     ) -> ObjectShroudStatus {
@@ -69,10 +80,10 @@ impl PartitionData {
 
         let coi_count = cells.len();
         let status = if coi_count == 0 {
-            self.ever_seen_by_player[idx] = false;
+            self.ever_seen_by_player[idx].store(false, Ordering::Relaxed);
             ObjectShroudStatus::Shrouded
         } else if shrouded_cells == coi_count {
-            self.ever_seen_by_player[idx] = false;
+            self.ever_seen_by_player[idx].store(false, Ordering::Relaxed);
             ObjectShroudStatus::Shrouded
         } else if shrouded_cells + fogged_cells == coi_count {
             let mut fogged = ObjectShroudStatus::Fogged;
@@ -86,21 +97,21 @@ impl PartitionData {
                     }
                 }
                 _ => {
-                    if !(immobile && self.ever_seen_by_player[idx]) || mine {
+                    if !(immobile && self.ever_seen_by_player[idx].load(Ordering::Relaxed)) || mine {
                         fogged = ObjectShroudStatus::Shrouded;
                     }
                 }
             }
             fogged
         } else if shrouded_cells == 0 && fogged_cells == 0 {
-            self.ever_seen_by_player[idx] = true;
+            self.ever_seen_by_player[idx].store(true, Ordering::Relaxed);
             ObjectShroudStatus::Clear
         } else {
-            self.ever_seen_by_player[idx] = true;
+            self.ever_seen_by_player[idx].store(true, Ordering::Relaxed);
             ObjectShroudStatus::PartialClear
         };
 
-        self.shroudedness[idx] = status;
+        self.shroudedness[idx].store(status as u8, Ordering::Relaxed);
         status
     }
 }

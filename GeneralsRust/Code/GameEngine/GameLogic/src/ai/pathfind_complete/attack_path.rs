@@ -425,12 +425,7 @@ impl PathfindingSystem {
         let ai_store = crate::ai::the_ai();let los_enabled = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|d| d.attack_uses_line_of_sight)
-            })
+            .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
             .unwrap_or(true);
         if !los_enabled {
             return false;

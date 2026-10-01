@@ -2230,7 +2230,7 @@ impl AIGroup {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|d| {
+                Some(&*ai.get_ai_data()).map(|d| {
                     (
                         d.min_distance_for_group,
                         d.distance_requires_group,
@@ -2399,7 +2399,7 @@ impl AIGroup {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|d| {
+                Some(&*ai.get_ai_data()).map(|d| {
                     if infantry {
                         d.min_infantry_for_group
                     } else {

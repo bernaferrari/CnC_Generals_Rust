@@ -1169,3 +1169,309 @@ fn missing_elevated_cell_falls_back_to_ground_like_cpp_get_cell() {
         "Impassable Top cell → getCell NULL → fall back to ground Impassable"
     );
 }
+
+// ============================================================================
+// PERMANENT DIFFERENTIAL FIXTURE — C++ sorted-open-list semantics
+// ============================================================================
+//
+// Reference (original Zero Hour source, in this repo):
+//   GeneralsMD/Code/GameEngine/Source/GameLogic/AI/AIPathfind.cpp
+//
+// * AIPathfind.cpp:1487  PathfindCell::putOnSortedOpenList() — the open list is
+//   a singly-linked list kept sorted by insertion. The walk at 1499-1506 breaks
+//   at the FIRST cell whose m_totalCost is STRICTLY greater (1503:
+//   `if (c->m_info->m_totalCost > m_info->m_totalCost) break;`) and inserts
+//   just before it (1511) or appends at the end (1525). Consequence: a new
+//   entry lands AFTER every existing entry of equal total cost — pure FIFO
+//   among equal f. m_totalCost is the ONLY key: no g_score, no coordinates.
+// * AIPathfind.cpp:6589-6593 — the search pops the list HEAD (min total cost).
+// * AIPathfind.cpp:6063-6088 (examineCellsCallback, the Bresenham line seed) —
+//   the ONLY place a cell can be re-costed: 6067 skips unless the new
+//   costSoFar is strictly cheaper, then 6081/6085 remove the cell from the
+//   closed/open lists and 6088 re-inserts it with putOnSortedOpenList — so a
+//   cheaper re-discovery is placed at the BACK of its new equal-cost band
+//   (it loses FIFO seniority), and the OLD list entry is gone (no double
+//   expansion).
+// * AIPathfind.cpp:6167-6181 (examineNeighboringCells, the 8-neighbour pass) —
+//   `if (onList) continue;`: an open/closed cell is never re-costed there.
+//   The 6319-6354 "cheaper re-discovery" block behind it is unreachable dead
+//   code in this path.
+//
+// Rust under test (this crate, src/lib.rs):
+// * AStarNode::cmp (lib.rs:210-219): min f_score, then min enqueue_order —
+//   the OpenSet monotone enqueue counter reproduces insert-after-equal FIFO.
+// * examine_cells_toward_goal (lib.rs:1636-1661): strictly-cheaper check,
+//   closed-set reopen, fresh generation push (old generation filtered by
+//   OpenSet::pop_live's is_live g-check).
+// * Main loop (lib.rs:1330-1336): onList neighbours skipped, matching 6167-6181.
+//
+// The tests below pin both policies. Each failing assertion names the C++ line
+// it defends; none of them may be relaxed to make a change pass.
+// ============================================================================
+
+#[test]
+fn cpp_equal_cost_tie_break_fifo_selects_right_corridor_end_to_end() {
+    // END-TO-END pin of AIPathfind.cpp:1503 (insert-after-equal) through the
+    // public search, with the line seed disabled so only the 8-neighbour pass
+    // (delta order: right, down, left, up, dr, dl, ul, ur — AIPathfind.cpp
+    // 6131-6139, mirrored by GridCoord::neighbors) enqueues cells.
+    //
+    // Map (5x3, # = Impassable, S = start (2,0), G = goal (2,2)):
+    //   y=0:  .  .  S  .  .
+    //   y=1:  .  #  #  #  .
+    //   y=2:  .  .  G  .  .
+    // Two mirror-image routes around the wall — over the left (x=0) or the
+    // right (x=4) column — cost exactly the same (g=64 to the goal once the
+    // C++ turn penalties of AIPathfind.cpp:1691-1736 are counted: 45°=+4,
+    // 90°=+8, 135°=+16). Which route wins is decided SOLELY by the open list
+    // tie-break.
+    //
+    // HAND SIMULATION (C++ policy; g = parent g + 10|14 + turn; f = g + h,
+    // h = costToGoal AIPathfind.cpp:1654-1679 = 10*max(dx,dy)+5*min(dx,dy);
+    // list shown head→tail as [cell:f]):
+    //  seed  S(2,0) g=0 f=20.                       list=[S:20]
+    //  pop S  → (3,0):35, (1,0):35 (i=0 before i=2).
+    //                list=[3,0:35, 1,0:35]                      <- tie #1 (35)
+    //  pop (3,0) g=10 → (4,0):50 (straight), (4,1):53 (diag +45° turn).
+    //  pop (1,0) g=10 → (0,0):50, (0,1):53.
+    //                list=[4,0:50, 0,0:50, 4,1:53, 0,1:53]      <- tie #2 (50/53)
+    //  pop (4,0), pop (0,0) — nothing new (FIFO put right column first).
+    //  pop (4,1) g=28 → (4,2):62 (45°), (3,2):60 (90°).
+    //  pop (0,1) g=28 → (0,2):62 (45°), (1,2):60 (90°).
+    //                list=[3,2:60, 1,2:60, 4,2:62, 0,2:62]      <- tie #3 (60/62)
+    //  pop (3,2) g=50 → inserts GOAL (2,2) at g=50+10+4(45°)=64, parent (3,2).
+    //  pop (1,2) g=50 → goal already open → skipped (6167-6181): the goal KEEPS
+    //        parent (3,2). A coordinate-sorted tie-break would have popped
+    //        (1,2) (x=1) before (3,2) (x=3) and returned the MIRROR path
+    //        [(2,0),(1,0),(0,1),(1,2),(2,2)] with 11 expansions instead of 12.
+    //  pop (4,2), pop (0,2), pop GOAL → done, 12 expansions total.
+    let mut pf = AStarPathfinder::new(5, 3);
+    for x in 0..5 {
+        for y in 0..3 {
+            pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
+        }
+    }
+    for x in 1..=3 {
+        pf.set_cell_type(GridCoord::new(x, 1), PathfindCellType::Impassable);
+    }
+    let start = GridCoord::new(2, 0);
+    let goal = GridCoord::new(2, 2);
+
+    let (path, iterations) = pf
+        .find_path_ex6(
+            start,
+            goal,
+            SURFACE_GROUND,
+            false,
+            500,
+            false,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            false, // seed_line_to_goal = false: isolate the 8-neighbour pass
+            false,
+            None,
+            None,
+        )
+        .expect("symmetric corridors must path");
+
+    // Pins AIPathfind.cpp:1503: the right corridor is expanded first because
+    // (3,0) was enqueued before (1,0) (delta i=0 before i=2) and FIFO keeps
+    // that order through every subsequent equal-cost band.
+    assert_eq!(
+        path,
+        vec![
+            GridCoord::new(2, 0),
+            GridCoord::new(3, 0),
+            GridCoord::new(4, 1),
+            GridCoord::new(3, 2),
+            GridCoord::new(2, 2),
+        ],
+        "C++ insert-after-equal must route through the FIRST-enqueued (right) corridor"
+    );
+    // Expansion-count pin of the same policy: 12 pops including the goal
+    // (see hand simulation). A g/coordinate-sorted tie-break finishes in 11.
+    assert_eq!(
+        iterations, 12,
+        "expansion count is part of the pinned C++ pop order"
+    );
+}
+
+#[test]
+fn cpp_open_list_compares_total_cost_only_not_g_or_coords() {
+    // Comparator purity pin of AIPathfind.cpp:1503. Equal f, DIFFERENT g and
+    // coordinates, enqueued in this order:
+    //   A: coord (9,9) g=50 f=10   (first)
+    //   B: coord (0,0) g=1  f=10   (second)
+    //   C: coord (5,5) g=3  f=9    (third)
+    // C++ sorts by m_totalCost alone, so C (strictly cheapest) pops first and
+    // the f=10 band pops in INSERTION order A then B. The historical divergence
+    // suspicion — "breaks equal costs using g_score and coordinates" — would
+    // pop B (g=1, x=0) before A. It must not.
+    let mut open = OpenSet::new();
+    open.push(AStarNode {
+        coord: GridCoord::new(9, 9),
+        layer: PathfindLayerEnum::Ground,
+        g_score: 50,
+        f_score: 10,
+        parent: None,
+        enqueue_order: 0,
+    });
+    open.push(AStarNode {
+        coord: GridCoord::new(0, 0),
+        layer: PathfindLayerEnum::Ground,
+        g_score: 1,
+        f_score: 10,
+        parent: None,
+        enqueue_order: 0,
+    });
+    open.push(AStarNode {
+        coord: GridCoord::new(5, 5),
+        layer: PathfindLayerEnum::Ground,
+        g_score: 3,
+        f_score: 9,
+        parent: None,
+        enqueue_order: 0,
+    });
+
+    assert_eq!(
+        open.pop_live(|_| true).map(|n| n.coord),
+        Some(GridCoord::new(5, 5)),
+        "total cost dominates everything (C++ 1499-1506)"
+    );
+    assert_eq!(
+        open.pop_live(|_| true).map(|n| n.coord),
+        Some(GridCoord::new(9, 9)),
+        "equal f pops in insertion order — g_score is NOT a tie-break (C++ 1503)"
+    );
+    assert_eq!(
+        open.pop_live(|_| true).map(|n| n.coord),
+        Some(GridCoord::new(0, 0)),
+        "equal f pops in insertion order — coordinates are NOT a tie-break (C++ 1503)"
+    );
+    assert!(open.pop_live(|_| true).is_none());
+}
+
+#[test]
+fn cpp_cheaper_rediscovery_reinserts_after_older_peer_and_before_later_peer() {
+    // Pin of the REPOSITION policy — AIPathfind.cpp:6063-6088: a strictly
+    // cheaper line-seed re-discovery of an already-open cell REMOVES the old
+    // entry (6085-6086) and re-inserts it (6088), which places it AFTER peers
+    // already waiting at the new total cost and BEFORE peers enqueued later.
+    // The old entry must never expand (it no longer exists in C++; in Rust it
+    // survives in the heap as a stale generation filtered by pop_live).
+    //
+    // Setup: line from parent (1,1) toward goal (3,1) charges 5/cell
+    // (0.5*COST_ORTHOGONAL, AIPathfind.cpp:6044). Off-line peers sit at
+    // (2,2) and (2,0), all ending at f=15.
+    //   t=0: target (2,1) open at g=20 f=30            (stale generation)
+    //   t=1: peer_before (2,2) open at g=15 f=15
+    //   t=2: line decreases target → g=5, f=15, parent (1,1)  [reinsertion]
+    //   t=3: peer_after (2,0) enqueued at g=15 f=15
+    // C++ pop order: peer_before, target, peer_after — then the stale target
+    // entry would not exist at all; Rust must filter it (single expansion).
+    let mut pf = AStarPathfinder::new(5, 3);
+    let parent = GridCoord::new(1, 1);
+    let goal = GridCoord::new(3, 1);
+    let target = GridCoord::new(2, 1);
+    let peer_before = GridCoord::new(2, 2);
+    let peer_after = GridCoord::new(2, 0);
+    let layer = PathfindLayerEnum::Ground;
+    let target_key = (target, layer);
+    let peer_before_key = (peer_before, layer);
+    let peer_after_key = (peer_after, layer);
+
+    let mut open = OpenSet::new();
+    let mut open_members = HashSet::from([target_key, peer_before_key]);
+    let mut closed = HashSet::new();
+    let mut came_from = HashMap::new();
+    let mut g_scores = HashMap::from([(target_key, 20u32), (peer_before_key, 15u32)]);
+
+    open.push(AStarNode {
+        coord: target,
+        layer,
+        g_score: 20,
+        f_score: 30,
+        parent: None,
+        enqueue_order: 0,
+    });
+    open.push(AStarNode {
+        coord: peer_before,
+        layer,
+        g_score: 15,
+        f_score: 15,
+        parent: None,
+        enqueue_order: 0,
+    });
+
+    // Line walk stops before the goal so it only re-costs the target.
+    let stop_before_goal = |cell: GridCoord| cell != goal;
+    pf.examine_cells_toward_goal(
+        parent,
+        layer,
+        0,
+        goal,
+        SURFACE_GROUND,
+        false,
+        None,
+        None,
+        Some(&stop_before_goal),
+        None,
+        &mut open,
+        &mut open_members,
+        &mut closed,
+        &mut came_from,
+        &mut g_scores,
+    );
+
+    // Decrease took effect (C++ 6071-6075 setCostSoFar/setParentCell/setTotalCost).
+    assert_eq!(g_scores.get(&target_key), Some(&5), "g must drop to 0+5");
+    assert_eq!(
+        came_from.get(&target_key),
+        Some(&(parent, layer)),
+        "re-discovery must re-parent the cell (C++ 6073 setParentCell)"
+    );
+    // 3 heap generations coexist: stale target (t=0), peer_before (t=1),
+    // re-inserted target (t=2) — the C++ list would hold only the latter two.
+    assert_eq!(open.len(), 3, "old generation stays in the heap until filtered");
+
+    // peer_after is enqueued only AFTER the reinsertion — exactly the C++ order.
+    // (The search always pairs a push with open-membership bookkeeping; mirror
+    // that here so pop_live's is_live filter accepts the node.)
+    open_members.insert(peer_after_key);
+    open.push(AStarNode {
+        coord: peer_after,
+        layer,
+        g_score: 15,
+        f_score: 15,
+        parent: None,
+        enqueue_order: 0,
+    });
+
+    let mut expanded = Vec::new();
+    while let Some(node) = open.pop_live(|node| {
+        let key = (node.coord, node.layer);
+        open_members.contains(&key)
+            && g_scores
+                .get(&key)
+                .map(|&best_g| node.g_score <= best_g)
+                .unwrap_or(true)
+    }) {
+        let key = (node.coord, node.layer);
+        open_members.remove(&key);
+        expanded.push(node.coord);
+    }
+
+    // Pins C++ 6085-6088: remove-then-reinsert demotes the cell behind
+    // older equal-cost peers but ahead of later ones; 6081 + 6085 mean the
+    // stale generation expands nothing.
+    assert_eq!(
+        expanded,
+        vec![peer_before, target, peer_after],
+        "reinsertion must lose FIFO seniority (after older peer, before later peer), \
+         and the stale generation must not double-expand"
+    );
+}

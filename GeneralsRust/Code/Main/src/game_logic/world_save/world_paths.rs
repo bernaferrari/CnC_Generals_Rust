@@ -1434,9 +1434,7 @@ impl GameLogic {
                         .read()
                         .ok()
                         .and_then(|ai| {
-                            ai.get_ai_data()
-                                .read()
-                                .ok()
+                            Some(ai.get_ai_data())
                                 .map(|data| data.repulsed_distance)
                         })
                         .unwrap_or(0.0);

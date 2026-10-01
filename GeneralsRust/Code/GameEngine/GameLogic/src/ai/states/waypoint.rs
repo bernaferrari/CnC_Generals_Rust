@@ -601,9 +601,7 @@ impl AIFollowWaypointPathAsTeamState {
                                             let num = group_guard.get_count() as f32;
                                             let fudge = ai_lock
                                                 .get_ai_data()
-                                                .read()
-                                                .map(|d| d.skirmish_group_fudge_value)
-                                                .unwrap_or(0.0);
+                                                .skirmish_group_fudge_value;
                                             if dist <= num * fudge {
                                                 status = StateReturnType::Success;
                                             }

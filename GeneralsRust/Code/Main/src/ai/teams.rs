@@ -172,9 +172,7 @@ impl AIPlayer {
         };
         let ai_store = gamelogic::ai::the_ai();
         let leftover = ai_store.read().ok().and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
+            Some(ai.get_ai_data())
                 .map(|d| d.team_resources_to_build)
         });
         from_store
@@ -1509,7 +1507,7 @@ impl AIPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(ai.get_ai_data()).map(|data| {
                     (
                         if data.resources_poor > 0 {
                             data.resources_poor

@@ -569,15 +569,10 @@ impl UnitAIUpdate {
                     .map(|repulsor_guard| *repulsor_guard.get_position())
             })
             .unwrap_or(repulsor_pos1);
-        let ai_store = the_ai();let repulsed_distance = ai_store
+        let repulsed_distance = the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.repulsed_distance)
-            })
+            .map(|ai| ai.get_ai_data().repulsed_distance)
             .unwrap_or(0.0);
         let safe_radius = owner_vision_range + repulsed_distance;
         let request = self.build_classic_path_request(owner_pos, false)?;

@@ -80,12 +80,7 @@ impl Object {
         let enable_repulsors = crate::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.enable_repulsors)
-            })
+            .map(|ai| ai.get_ai_data().enable_repulsors)
             .unwrap_or(false);
         if enable_repulsors && self.is_kind_of(KindOf::CanBeRepulsed) {
             self.set_status(ObjectStatusTypes::Repulsor.into(), true);

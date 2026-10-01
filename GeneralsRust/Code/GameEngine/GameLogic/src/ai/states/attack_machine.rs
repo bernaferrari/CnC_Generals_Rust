@@ -1283,12 +1283,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
     let ai_crushes_infantry = ai_store
         .read()
         .ok()
-        .and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
-                .map(|data| data.ai_crushes_infantry)
-        })
+        .map(|ai| ai.get_ai_data().ai_crushes_infantry)
         .unwrap_or(true);
     if ai_crushes_infantry {
         let is_computer = source

@@ -1360,12 +1360,7 @@ impl Pathfinder {
         let ai_store = the_ai();let attack_uses_los = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.attack_uses_line_of_sight)
-            })
+            .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
             .unwrap_or(false);
         if !attack_uses_los {
             return false;

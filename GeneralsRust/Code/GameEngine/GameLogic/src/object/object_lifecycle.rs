@@ -216,7 +216,7 @@ impl Object {
             firing_tracker: None,
             held_helper: None,
 
-            partition_data: Some(Arc::new(Mutex::new(PartitionData::new()))),
+            partition_data: Some(Box::new(PartitionData::new())),
             radar_data: None,
 
             partition_last_look: SightingInfo::new(),
@@ -1252,7 +1252,7 @@ impl Object {
     /// Attach radar-object data so Object::attemptDamage can fire
     /// TheRadar->tryUnderAttackEvent (C++ Object.cpp:1852 m_radarData != NULL).
     #[cfg(any(test, feature = "internal"))]
-    pub fn set_radar_data_for_test(&mut self, data: Option<Arc<Mutex<RadarObject>>>) {
+    pub fn set_radar_data_for_test(&mut self, data: Option<Box<RadarObject>>) {
         self.radar_data = data;
     }
 
