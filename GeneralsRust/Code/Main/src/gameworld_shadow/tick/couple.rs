@@ -96,10 +96,18 @@ thread_local! {
     };
 }
 
-/// Clear the generation-checked couple slot (end of couple only).
+/// Clear the couple slot only when no `with_coupled_shadow` scope is live.
+///
+/// A callback must not null the TLS pointer: the next `with_active_shadow`
+/// would miss the shadow, and `CoupledShadowScopeGuard` is what restores the
+/// previous slot on return or unwind.
 #[inline]
 pub fn clear_active_shadow_for_coupled_tick() {
     COUPLED_SHADOW.with(|c| {
+        let slot = c.get();
+        if slot.borrowed || slot.generation != 0 || !slot.ptr.is_null() {
+            return;
+        }
         c.set(CoupledShadowSlot {
             generation: 0,
             ptr: std::ptr::null_mut(),

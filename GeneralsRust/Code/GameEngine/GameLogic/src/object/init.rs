@@ -32,11 +32,15 @@ impl Object {
             self.set_receiving_difficulty_bonus(true);
         }
 
-        if let Some(controller) = self.get_controlling_player() {
-            if let Ok(player_guard) = controller.read() {
-                if player_guard.get_num_battle_plans_active() > 0 {
-                    player_guard.apply_battle_plan_bonuses_for_object(self);
-                }
+        if let Some(player_index) = self.get_controlling_player() {
+            let plans = crate::player::with_player(player_index, |player| {
+                player.get_num_battle_plans_active()
+            })
+            .unwrap_or(0);
+            if plans > 0 {
+                crate::player::with_player(player_index, |player| {
+                    player.apply_battle_plan_bonuses_for_object(self);
+                });
             }
         }
 
@@ -55,12 +59,13 @@ impl Object {
             || self.is_kind_of(KindOf::BoobyTrap)
             || self.is_kind_of(KindOf::Demotrap)
         {
-            if let Ok(list) = player_list().read() {
-                if let Some(neutral) = list.get_neutral_player() {
-                    if let Ok(mut player_guard) = neutral.write() {
-                        player_guard.get_academy_stats_mut().record_mine();
-                    }
-                }
+            let neutral_index = player_list().read().ok().and_then(|list| {
+                list.get_neutral_player().map(|player| player.get_player_index())
+            });
+            if let Some(neutral_index) = neutral_index {
+                crate::player::with_player_mut(neutral_index, |player| {
+                    player.get_academy_stats_mut().record_mine();
+                });
             }
         }
     }
@@ -69,9 +74,6 @@ impl Object {
         let mut bits = SpecialPowerMask::default();
         for behavior in self.behaviors.iter_mut() {
             let Some(sp) = behavior.get_special_power() else {
-                continue;
-            };
-            let Some(sp) = guard.get_special_power() else {
                 continue;
             };
             if let Some(template) = sp.get_special_power_template_full() {
@@ -100,15 +102,14 @@ impl Object {
             return;
         }
 
-        let Some(player) = self.get_controlling_player() else {
+        let Some(player_index) = self.get_controlling_player() else {
             return;
         };
-        let Ok(player_guard) = player.read() else {
+        let Some((player_type, difficulty)) = crate::player::with_player(player_index, |player| {
+            (player.get_player_type(), player.get_player_difficulty())
+        }) else {
             return;
         };
-        let player_type = player_guard.get_player_type();
-        let difficulty = player_guard.get_player_difficulty();
-        drop(player_guard);
 
         let type_idx = match player_type {
             PlayerType::Human => 0,

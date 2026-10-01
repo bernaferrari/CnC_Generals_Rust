@@ -316,13 +316,12 @@ impl Player {
         let kind_mask = if object_to_validate_id == obj.get_object_id() {
             obj.get_kind_of()
         } else {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_to_validate_id) else {
+            let Some(kind) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_to_validate_id, |guard| guard.get_kind_of())
+            else {
                 return;
             };
-            let Ok(guard) = obj_arc.read() else {
-                return;
-            };
-            guard.get_kind_of()
+            kind
         };
         if (kind_mask & bonus.valid_kind_of) == 0 {
             return;
@@ -333,10 +332,8 @@ impl Player {
 
         if !is_projectile {
             if (bonus.armor_scalar - 1.0).abs() > f32::EPSILON {
-                if let Some(body) = obj.get_body_module() {
-                    if let Ok(mut body_guard) = body.lock() {
-                        let _ = body_guard.apply_damage_scalar(bonus.armor_scalar);
-                    }
+                if let Some(body) = obj.get_body_module_mut() {
+                    let _ = body.apply_damage_scalar(bonus.armor_scalar);
                 }
             }
             if (bonus.sight_range_scalar - 1.0).abs() > f32::EPSILON {
