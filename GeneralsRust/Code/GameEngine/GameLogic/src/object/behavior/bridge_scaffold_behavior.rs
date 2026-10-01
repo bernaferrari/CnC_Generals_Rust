@@ -238,7 +238,7 @@ impl BridgeScaffoldBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 335: empty dual-world → fail closed.
         if dual_world_registry_unavailable() {
             return Err("dual-world object registry unavailable".into());

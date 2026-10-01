@@ -766,7 +766,9 @@ mod tests {
             Some(97009)
         );
         assert!(
-            !OBJECT_REGISTRY.with_object(owner, |g| g.test_status(ObjectStatusTypes::Unselectable),
+            !OBJECT_REGISTRY
+                .with_object(owner, |g| g.test_status(ObjectStatusTypes::Unselectable))
+                .unwrap_or(false),
             "replacement should not scuttle the bike"
         );
 

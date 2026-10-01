@@ -922,7 +922,7 @@ impl ClassicState for AIAttackAimAtTargetState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Some(guard) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |guard| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |guard| {
                 guard.set_status(ObjectStatusMaskType::IS_AIMING_WEAPON, false);
                 if self.can_turn_in_place && self.set_locomotor {
                     guard.ai_pending_goal_none = true;
@@ -1864,8 +1864,11 @@ impl AIAttackApproachTargetState {
             owner_guard.ai_pending_attack_path = Some((victim_guard.get_id(), victim_center));
             self.stop_if_in_range = false;
             return Ok(true);
-            });
-            if let Some(step) = __victim_step { return step; }
+            }) {
+                if let Some(step) = __victim_step {
+                    return step;
+                }
+            }
         }
 
         self.base.set_adjusts_destination(true);
@@ -1974,8 +1977,11 @@ impl AIAttackApproachTargetState {
                 if let Some(Some(code)) = early {
                     return Ok(code);
                 }
-            });
-            if let Some(step) = __victim_step { return step; }
+            }) {
+                if let Some(step) = __victim_step {
+                    return step;
+                }
+            }
             if !self.compute_path()? {
                 return Ok(StateReturnType::Success);
             }
@@ -2197,8 +2203,11 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
                 return Ok(Some(StateReturnType::Success));
             }
             Ok(None)
-            });
-            if let Some(step) = __victim_step { return step; }
+            }) {
+                if let Some(step) = __victim_step {
+                    return step;
+                }
+            }
         } else {
             owner_guard.ai_pending_destroy_path = true;
         }

@@ -1413,6 +1413,7 @@ impl DeliverPayloadAIUpdate {
                 }
             }
             None
+            }
         });
         let Some(strafe) = strafe else {
             return;

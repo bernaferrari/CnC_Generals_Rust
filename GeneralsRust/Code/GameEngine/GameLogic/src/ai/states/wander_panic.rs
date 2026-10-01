@@ -217,7 +217,6 @@ impl StateImplementation for AIWanderState {
             return StateReturnType::Failure;
         };
         result
-        StateReturnType::Continue
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -524,7 +523,6 @@ impl StateImplementation for AIPanicState {
             return StateReturnType::Failure;
         };
         result
-        StateReturnType::Continue
     }
 
     fn on_exit(&mut self, _status: StateExitType) {

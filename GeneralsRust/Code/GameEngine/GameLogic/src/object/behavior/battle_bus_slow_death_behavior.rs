@@ -581,7 +581,7 @@ impl BattleBusSlowDeathBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 414: empty dual-world → Err.
         if dual_world_registry_unavailable() {
             return Err("BattleBusSlowDeathBehavior missing owning object id".into());

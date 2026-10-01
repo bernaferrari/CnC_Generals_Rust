@@ -216,6 +216,10 @@ impl DebugSystem {
         self.min_level = level;
     }
 
+    pub fn get_min_level(&self) -> DebugLevel {
+        self.min_level
+    }
+
     pub fn log(&self, level: DebugLevel, message: String, file: String, line: u32) {
         if !self.enabled || level < self.min_level {
             return;

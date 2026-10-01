@@ -630,7 +630,7 @@ impl SpawnBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_object(&self) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 346: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
             return Err("dual-world object registry unavailable".into());
@@ -933,7 +933,7 @@ impl SpawnBehavior {
 
     fn reclaim_orphan_spawn(
         &self,
-    ) -> Result<Option<ObjectID>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 346: empty dual-world → Ok(None).
         if dual_world_registry_unavailable() {
             return Ok(None);

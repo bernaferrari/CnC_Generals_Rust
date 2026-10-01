@@ -178,7 +178,7 @@ impl TechBuildingBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_object(&self) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());

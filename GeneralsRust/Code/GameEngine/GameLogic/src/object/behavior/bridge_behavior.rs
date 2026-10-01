@@ -1471,7 +1471,7 @@ impl BridgeBehavior {
     fn find_object_by_id(
         &self,
         id: ObjectID,
-    ) -> Result<Option<ObjectID>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         if id == OBJECT_INVALID_ID {
             return Ok(None);
         }
@@ -1515,7 +1515,7 @@ impl BridgeBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 301: empty dual-world → missing object.
         if dual_world_registry_unavailable() {
             return Err("BridgeBehavior missing dual-world object".into());

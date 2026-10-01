@@ -705,7 +705,7 @@ impl SlowDeathBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_object(&self) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 413: empty dual-world → Err.
         if dual_world_registry_unavailable() {
             return Err("Object not found".into());

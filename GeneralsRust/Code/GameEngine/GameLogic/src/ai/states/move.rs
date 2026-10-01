@@ -252,7 +252,6 @@ impl StateImplementation for AIWanderInPlaceState {
                 .unwrap_or(StateReturnType::Failure);
         }
         StateReturnType::Continue
-        StateReturnType::Continue
     }
 
     fn on_exit(&mut self, _status: StateExitType) {

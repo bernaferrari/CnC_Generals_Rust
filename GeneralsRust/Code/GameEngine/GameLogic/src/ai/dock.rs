@@ -390,7 +390,7 @@ impl ClassicState for AIDockApproachState {
         let _ = resolve_dock_object(owner_id, "dock")?;
         let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let _docked = crate::object::registry::OBJECT_REGISTRY
+        crate::object::registry::OBJECT_REGISTRY
             .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
@@ -576,7 +576,7 @@ impl ClassicState for AIDockWaitForClearanceState {
         let _ = resolve_dock_object(owner_id, "dock")?;
         let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let _docked = crate::object::registry::OBJECT_REGISTRY
+        crate::object::registry::OBJECT_REGISTRY
             .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
@@ -676,7 +676,7 @@ impl ClassicState for AIDockAdvancePositionState {
         let _ = resolve_dock_object(owner_id, "dock")?;
         let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let _docked = crate::object::registry::OBJECT_REGISTRY
+        crate::object::registry::OBJECT_REGISTRY
             .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
@@ -804,39 +804,38 @@ impl ClassicState for AIDockMoveToEntryState {
         let _ = resolve_dock_object(owner_id, "dock")?;
         let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let _docked = crate::object::registry::OBJECT_REGISTRY
-            .with_object(goal_id, |goal_guard| {
-        goal_guard
-            .with_dock_update_interface(|dock| {
+        let docked = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+            goal_guard.with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner_id)
-                        .into_string_err()?;
+                    dock.cancel_dock(owner_id).into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
 
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
-                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
-                        if dock.is_allow_passthrough_type().into_string_err()? {
-                            ai_guard
-                                .ignore_obstacle(Some(goal_id))
-                                .map_err(|err| err.to_string())?;
-                    }
-                });
+                if dock.is_allow_passthrough_type().into_string_err()? {
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(owner_id, |owner_guard| {
+                            if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                                ai_guard
+                                    .ignore_obstacle(Some(goal_id))
+                                    .map_err(|err| err.to_string())
+                            } else {
+                                Ok(())
+                            }
+                        })
+                        .unwrap_or(Ok(()))?;
                 }
 
                 let mut goal_position = Vec3D::default();
-                dock.get_enter_position(
-                    owner_id,
-                    &mut goal_position,
-                )
-                .into_string_err()?;
+                dock.get_enter_position(owner_id, &mut goal_position)
+                    .into_string_err()?;
                 self.move_helper.set_goal_position(goal_position);
-
                 self.shared.clear_approach_position();
-
                 self.move_helper.on_enter()
             })
-            }).flatten()
+        });
+
+        docked
+            .flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
@@ -929,7 +928,7 @@ impl ClassicState for AIDockMoveToDockState {
         let _ = resolve_dock_object(owner_id, "dock")?;
         let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let _docked = crate::object::registry::OBJECT_REGISTRY
+        crate::object::registry::OBJECT_REGISTRY
             .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
@@ -1262,7 +1261,7 @@ impl ClassicState for AIDockMoveToExitState {
         let _ = resolve_dock_object(owner_id, "dock")?;
         let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let _docked = crate::object::registry::OBJECT_REGISTRY
+        crate::object::registry::OBJECT_REGISTRY
             .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {

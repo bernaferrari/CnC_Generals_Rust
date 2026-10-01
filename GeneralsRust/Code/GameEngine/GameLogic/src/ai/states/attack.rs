@@ -1294,7 +1294,7 @@ impl AIAttackObjectState {
 
             let target_team = target_guard.get_team_id();
             if self.victim_team != target_team {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                let stop = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                     let relationship = owner_guard.relationship_to(target_guard);
                     let empty_garrison = !target_guard.test_status(ObjectStatusTypes::CanAttack)
                         && target_guard.get_contain().is_some_and(|contain| {
@@ -1309,9 +1309,8 @@ impl AIAttackObjectState {
                         clear_team_target_if_victim(&*owner_guard, victim_id);
                     }
                     stop
-                } else {
-                    false
-                });
+                })
+                .unwrap_or(false);
                 if stop {
                     should_stop = true;
                 } else {
