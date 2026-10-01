@@ -7,35 +7,38 @@ use crate::gui::{
     WindowMsgHandled, WindowState, WindowStatus, get_display_string_manager, get_font_library,
     with_window_manager,
 };
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 const IME_CANDIDATE_LINE_SPACING: i32 = 2;
 
 thread_local! {
-    static DISPLAY_STRING: Arc<Mutex<Option<DisplayStringHandle>>> = Arc::new(Mutex::new(None));
+    static DISPLAY_STRING: RefCell<Option<DisplayStringHandle>> = const { RefCell::new(None) };
 }
 
-fn display_string_slot() -> Arc<Mutex<Option<DisplayStringHandle>>> {
-    DISPLAY_STRING.with(|slot| slot.clone())
+/// Access the IME candidate display-string slot with closure - panic on
+/// borrow conflict (indicates bug)
+fn with_display_string<R>(f: impl FnOnce(&mut Option<DisplayStringHandle>) -> R) -> R {
+    DISPLAY_STRING.with(|slot| f(&mut slot.borrow_mut()))
 }
 
 fn ensure_display_string() -> Option<DisplayStringHandle> {
-    let slot_handle = display_string_slot();
-    let mut slot = slot_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if slot.is_none() {
-        let mut manager = get_display_string_manager();
-        *slot = Some(manager.new_display_string());
-    }
-    slot.clone()
+    with_display_string(|slot| {
+        if slot.is_none() {
+            let mut manager = get_display_string_manager();
+            *slot = Some(manager.new_display_string());
+        }
+        slot.clone()
+    })
 }
 
 fn free_display_string() {
-    let slot_handle = display_string_slot();
-    let mut slot = slot_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(handle) = slot.take() {
-        let mut manager = get_display_string_manager();
-        manager.free_display_string(handle);
-    }
+    with_display_string(|slot| {
+        if let Some(handle) = slot.take() {
+            let mut manager = get_display_string_manager();
+            manager.free_display_string(handle);
+        }
+    });
 }
 
 pub fn ime_candidate_window_input(

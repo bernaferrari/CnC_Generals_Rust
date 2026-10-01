@@ -69,27 +69,48 @@ impl Default for GammaState {
     }
 }
 
-static GAMMA_STATE: Mutex<GammaState> = Mutex::new(GammaState {
-    gamma: 1.0,
-    bright: 0.0,
-    contrast: 1.0,
+/// `W3DDisplay` member state that C++ keeps on the display singleton
+/// (gamma LUT, FPS bookkeeping, capture queues, clip rect). One lock
+/// guards the whole block.
+struct DisplayFxState {
+    gamma: GammaState,
+    last_fps: f32,
+    last_fps_instant: Option<Instant>,
+    last_movie_frame: Option<(u32, u32, Vec<u8>)>,
+    pending_screenshot: Option<PathBuf>,
+    pending_device_mode: Option<PendingDeviceMode>,
+    copyright_overlay: Option<CopyrightOverlay>,
+    clip_region: Option<[f32; 4]>,
+    last_presented_frame: Option<(u32, u32, Vec<u8>)>,
+}
+
+static DISPLAY_FX_STATE: Mutex<DisplayFxState> = Mutex::new(DisplayFxState {
+    gamma: GammaState {
+        gamma: 1.0,
+        bright: 0.0,
+        contrast: 1.0,
+    },
+    last_fps: 0.0,
+    last_fps_instant: None,
+    last_movie_frame: None,
+    pending_screenshot: None,
+    pending_device_mode: None,
+    copyright_overlay: None,
+    clip_region: None,
+    last_presented_frame: None,
 });
+
+fn display_fx_state() -> std::sync::MutexGuard<'static, DisplayFxState> {
+    DISPLAY_FX_STATE.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 static SCREENSHOT_SERIAL: AtomicI32 = AtomicI32::new(1);
 static MOVIE_FRAME_SERIAL: AtomicI32 = AtomicI32::new(0);
 static DEBUG_FRAMES: AtomicU32 = AtomicU32::new(0);
-static LAST_FPS: Mutex<f32> = Mutex::new(0.0);
-static LAST_FPS_INSTANT: Mutex<Option<Instant>> = Mutex::new(None);
 
-static LAST_MOVIE_FRAME: Mutex<Option<(u32, u32, Vec<u8>)>> = Mutex::new(None);
-static PENDING_SCREENSHOT: Mutex<Option<PathBuf>> = Mutex::new(None);
-static PENDING_DEVICE_MODE: Mutex<Option<PendingDeviceMode>> = Mutex::new(None);
-static COPYRIGHT_OVERLAY: Mutex<Option<CopyrightOverlay>> = Mutex::new(None);
 static MOVIE_CAPTURE_ENABLED: AtomicBool = AtomicBool::new(false);
 static LETTERBOX_ENABLED: AtomicBool = AtomicBool::new(false);
 static CLIP_ENABLED: AtomicBool = AtomicBool::new(false);
-static CLIP_REGION: Mutex<Option<[f32; 4]>> = Mutex::new(None);
-static LAST_PRESENTED_FRAME: Mutex<Option<(u32, u32, Vec<u8>)>> = Mutex::new(None);
 
 /// Retail 4:3 modes (`W3DDisplay::getDisplayModeDescription`, ≥800×600, ≥24-bit).
 const STANDARD_4_3_MODES: &[(u32, u32)] = &[
@@ -103,11 +124,10 @@ const STANDARD_4_3_MODES: &[(u32, u32)] = &[
 ];
 
 pub fn set_gamma_state(gamma: f32, bright: f32, contrast: f32) {
-    if let Ok(mut state) = GAMMA_STATE.lock() {
-        state.gamma = gamma.clamp(0.6, 6.0);
-        state.bright = bright.clamp(-0.5, 0.5);
-        state.contrast = contrast.clamp(0.5, 2.0);
-    }
+    let mut state = display_fx_state();
+    state.gamma.gamma = gamma.clamp(0.6, 6.0);
+    state.gamma.bright = bright.clamp(-0.5, 0.5);
+    state.gamma.contrast = contrast.clamp(0.5, 2.0);
 }
 
 /// C++ `TheDisplay->setGamma(gamma, bright, contrast, calibrate)` hook body.
@@ -122,7 +142,7 @@ pub fn install_default_display_gamma_hook() {
 }
 
 pub fn gamma_state() -> GammaState {
-    GAMMA_STATE.lock().map(|g| g.clone()).unwrap_or_default()
+    display_fx_state().gamma.clone()
 }
 
 pub fn gamma_is_identity() -> bool {
@@ -131,13 +151,11 @@ pub fn gamma_is_identity() -> bool {
 }
 
 pub fn set_copyright_overlay(overlay: Option<CopyrightOverlay>) {
-    if let Ok(mut g) = COPYRIGHT_OVERLAY.lock() {
-        *g = overlay;
-    }
+    display_fx_state().copyright_overlay = overlay;
 }
 
 pub fn present_copyright_overlay(screen_w: u32, screen_h: u32) -> bool {
-    let Some(overlay) = COPYRIGHT_OVERLAY.lock().ok().and_then(|g| g.clone()) else {
+    let Some(overlay) = display_fx_state().copyright_overlay.clone() else {
         return false;
     };
     if overlay.text.is_empty() {
@@ -154,9 +172,7 @@ pub fn present_copyright_overlay(screen_w: u32, screen_h: u32) -> bool {
 }
 
 pub fn set_clip_region(lo_x: f32, lo_y: f32, hi_x: f32, hi_y: f32) {
-    if let Ok(mut g) = CLIP_REGION.lock() {
-        *g = Some([lo_x, lo_y, hi_x, hi_y]);
-    }
+    display_fx_state().clip_region = Some([lo_x, lo_y, hi_x, hi_y]);
 }
 
 pub fn enable_clipping(enabled: bool) {
@@ -167,7 +183,7 @@ pub fn clip_region() -> Option<[f32; 4]> {
     if !CLIP_ENABLED.load(Ordering::Relaxed) {
         return None;
     }
-    CLIP_REGION.lock().ok().and_then(|g| *g)
+    display_fx_state().clip_region
 }
 
 /// C++ `DX8Wrapper::Set_Gamma` ramp applied as a color-space transform.
@@ -432,11 +448,11 @@ pub fn copyright_text(handle: &Option<DisplayStringHandle>) -> String {
 
 pub fn note_frame_for_fps() -> f32 {
     let frames = DEBUG_FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
-    let mut last = LAST_FPS_INSTANT.lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = display_fx_state();
     let now = Instant::now();
-    match *last {
+    match state.last_fps_instant {
         None => {
-            *last = Some(now);
+            state.last_fps_instant = Some(now);
             0.0
         }
         Some(prev) => {
@@ -444,13 +460,11 @@ pub fn note_frame_for_fps() -> f32 {
             if elapsed >= 2.0 {
                 let fps = frames as f32 / elapsed.max(0.1);
                 DEBUG_FRAMES.store(0, Ordering::Relaxed);
-                *last = Some(now);
-                if let Ok(mut stored) = LAST_FPS.lock() {
-                    *stored = fps;
-                }
+                state.last_fps_instant = Some(now);
+                state.last_fps = fps;
                 fps
             } else {
-                LAST_FPS.lock().map(|g| *g).unwrap_or(0.0)
+                state.last_fps
             }
         }
     }
@@ -498,15 +512,12 @@ pub fn apply_gamma_pass(
     if gamma_is_identity() {
         return;
     }
-    if let Ok(mut frame) = LAST_MOVIE_FRAME.lock() {
-        if let Some((_, _, rgba)) = frame.as_mut() {
-            apply_gamma_to_rgba_in_place(rgba);
-        }
+    let mut state = display_fx_state();
+    if let Some((_, _, rgba)) = state.last_movie_frame.as_mut() {
+        apply_gamma_to_rgba_in_place(rgba);
     }
-    if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
-        if let Some((_, _, rgba)) = frame.as_mut() {
-            apply_gamma_to_rgba_in_place(rgba);
-        }
+    if let Some((_, _, rgba)) = state.last_presented_frame.as_mut() {
+        apply_gamma_to_rgba_in_place(rgba);
     }
 }
 
@@ -520,19 +531,15 @@ pub fn gamma_uniform() -> [f32; 4] {
 // ---------------------------------------------------------------------------
 
 pub fn store_movie_frame(width: u32, height: u32, rgba: Vec<u8>) {
-    if let Ok(mut frame) = LAST_MOVIE_FRAME.lock() {
-        *frame = Some((width, height, rgba));
-    }
+    display_fx_state().last_movie_frame = Some((width, height, rgba));
 }
 
 pub fn current_movie_frame() -> Option<(u32, u32, Vec<u8>)> {
-    LAST_MOVIE_FRAME.lock().ok().and_then(|g| g.clone())
+    display_fx_state().last_movie_frame.clone()
 }
 
 pub fn clear_movie_frame() {
-    if let Ok(mut frame) = LAST_MOVIE_FRAME.lock() {
-        *frame = None;
-    }
+    display_fx_state().last_movie_frame = None;
 }
 
 /// Host present: C++ `drawVideoBuffer(m_videoBuffer, 0, 0, getWidth(), getHeight())`.
@@ -577,23 +584,19 @@ pub fn flush_pending_captures() {
 }
 
 pub fn queue_screenshot(path: PathBuf) {
-    if let Ok(mut pending) = PENDING_SCREENSHOT.lock() {
-        *pending = Some(path);
-    }
+    display_fx_state().pending_screenshot = Some(path);
 }
 
 pub fn take_pending_screenshot() -> Option<PathBuf> {
-    PENDING_SCREENSHOT.lock().ok().and_then(|mut g| g.take())
+    display_fx_state().pending_screenshot.take()
 }
 
 pub fn note_presented_frame(width: u32, height: u32, rgba: Vec<u8>) {
-    if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
-        *frame = Some((width, height, rgba));
-    }
+    display_fx_state().last_presented_frame = Some((width, height, rgba));
 }
 
 pub fn current_presented_frame() -> Option<(u32, u32, Vec<u8>)> {
-    LAST_PRESENTED_FRAME.lock().ok().and_then(|g| g.clone())
+    display_fx_state().last_presented_frame.clone()
 }
 
 /// Write a screenshot from the presented backbuffer (never the stale movie buffer
@@ -624,17 +627,15 @@ pub fn is_movie_capture_enabled() -> bool {
 }
 
 pub fn queue_device_mode(mode: PendingDeviceMode) {
-    if let Ok(mut pending) = PENDING_DEVICE_MODE.lock() {
-        *pending = Some(mode);
-    }
+    display_fx_state().pending_device_mode = Some(mode);
 }
 
 pub fn take_pending_device_mode() -> Option<PendingDeviceMode> {
-    PENDING_DEVICE_MODE.lock().ok().and_then(|mut g| g.take())
+    display_fx_state().pending_device_mode.take()
 }
 
 pub fn peek_pending_device_mode() -> Option<PendingDeviceMode> {
-    PENDING_DEVICE_MODE.lock().ok().and_then(|g| *g)
+    display_fx_state().pending_device_mode
 }
 
 /// C++ `W3DDisplay::getDisplayModeCount` — 4:3, ≥800×600, ≥24-bit.
@@ -902,10 +903,8 @@ pub fn present_gamma_if_fullscreen(windowed: bool, screen_w: u32, screen_h: u32)
     let _ = (screen_w, screen_h);
     // blit_video_rgba already remaps a copy. Remap the presented backbuffer
     // sample used for screenshots / host consume of LAST_PRESENTED_FRAME.
-    if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
-        if let Some((_, _, rgba)) = frame.as_mut() {
-            apply_gamma_to_rgba_in_place(rgba);
-        }
+    if let Some((_, _, rgba)) = display_fx_state().last_presented_frame.as_mut() {
+        apply_gamma_to_rgba_in_place(rgba);
     }
 }
 
@@ -997,17 +996,13 @@ mod tests {
         assert_ne!(rgba[0], 64);
         present_gamma_if_fullscreen(true, 8, 8);
         set_gamma_state(1.0, 0.0, 1.0);
-        if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
-            *frame = None;
-        }
+        display_fx_state().last_presented_frame = None;
     }
 
     #[test]
     fn screenshot_does_not_use_stale_movie_without_backbuffer() {
         clear_movie_frame();
-        if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
-            *frame = None;
-        }
+        display_fx_state().last_presented_frame = None;
         let path = std::env::temp_dir().join("sshot_no_backbuffer.bmp");
         assert!(!write_backbuffer_screenshot(&path));
         note_presented_frame(1, 1, vec![10, 20, 30, 255]);
@@ -1018,9 +1013,7 @@ mod tests {
     #[test]
     fn present_movie_notes_backbuffer_for_screenshot() {
         clear_movie_frame();
-        if let Ok(mut frame) = LAST_PRESENTED_FRAME.lock() {
-            *frame = None;
-        }
+        display_fx_state().last_presented_frame = None;
         store_movie_frame(1, 1, vec![255, 0, 0, 255]);
         assert!(present_movie_overlay(8, 8));
         let path = std::env::temp_dir().join("sshot_movie_as_backbuffer.bmp");

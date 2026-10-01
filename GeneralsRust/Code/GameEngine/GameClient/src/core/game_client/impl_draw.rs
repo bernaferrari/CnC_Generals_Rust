@@ -762,7 +762,7 @@ fn draw_money_pickup_anim2d(
             .read()
             .find_template(&AsciiString::from(template))
         {
-            let num_frames = tmpl.read().get_num_frames().max(1);
+            let num_frames = tmpl.get_num_frames().max(1);
             let anim = Anim2D::new(tmpl, None);
             let mut guard = anim.lock();
             let frame = (age_frames % u32::from(num_frames)) as u16;

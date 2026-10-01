@@ -266,14 +266,30 @@ pub const FLIPPED_MASK: u8 = 0x2;
 
 type TextureCacheKey = (TextureId, TextureKind);
 
-type PathCache = Mutex<HashMap<String, Option<PathBuf>>>;
 type DecodedImage = Arc<image::DynamicImage>;
-type ImageCache = Mutex<HashMap<String, Option<DecodedImage>>>;
-type GameFsPathCache = Mutex<HashMap<String, Option<String>>>;
 
-static RESOLVED_PATH_CACHE: OnceLock<PathCache> = OnceLock::new();
-static GAME_FS_PATH_CACHE: OnceLock<GameFsPathCache> = OnceLock::new();
-static GAME_FS_IMAGE_CACHE: OnceLock<ImageCache> = OnceLock::new();
+/// Global terrain texture lookup caches (resolved paths, GameFS paths,
+/// decoded images); one lock guards all three maps.
+struct TerrainTextureCaches {
+    resolved_paths: HashMap<String, Option<PathBuf>>,
+    game_fs_paths: HashMap<String, Option<String>>,
+    game_fs_images: HashMap<String, Option<DecodedImage>>,
+}
+
+static TEXTURE_CACHES: OnceLock<Mutex<TerrainTextureCaches>> = OnceLock::new();
+
+fn texture_caches() -> std::sync::MutexGuard<'static, TerrainTextureCaches> {
+    TEXTURE_CACHES
+        .get_or_init(|| {
+            Mutex::new(TerrainTextureCaches {
+                resolved_paths: HashMap::new(),
+                game_fs_paths: HashMap::new(),
+                game_fs_images: HashMap::new(),
+            })
+        })
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
 
 fn normalized_texture_key(path: &str) -> String {
     normalize_texture_name(path).to_ascii_lowercase()
@@ -646,17 +662,12 @@ impl TextureManager {
 
     fn resolve_texture_path_cached(diffuse_path: &str) -> Option<PathBuf> {
         let key = normalized_texture_key(diffuse_path);
-        let cache = RESOLVED_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = texture_caches().resolved_paths.get(&key) {
+            return cached.clone();
         }
 
         let resolved = Self::resolve_texture_path(diffuse_path);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, resolved.clone());
-        }
+        texture_caches().resolved_paths.insert(key, resolved.clone());
         resolved
     }
 
@@ -789,17 +800,12 @@ impl TextureManager {
 
     fn resolve_game_fs_path_cached(path: &str) -> Option<String> {
         let key = normalized_texture_key(path);
-        let cache = GAME_FS_PATH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = texture_caches().game_fs_paths.get(&key) {
+            return cached.clone();
         }
 
         let resolved = Self::find_game_fs_path(path);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, resolved.clone());
-        }
+        texture_caches().game_fs_paths.insert(key, resolved.clone());
         resolved
     }
 
@@ -830,17 +836,12 @@ impl TextureManager {
             return None;
         };
         let key = normalized_texture_key(&candidate);
-        let cache = GAME_FS_IMAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-        if let Ok(cache) = cache.lock() {
-            if let Some(cached) = cache.get(&key) {
-                return cached.clone();
-            }
+        if let Some(cached) = texture_caches().game_fs_images.get(&key) {
+            return cached.clone();
         }
 
         let result = Self::load_image_from_game_fs_path(&candidate).map(Arc::new);
-        if let Ok(mut cache) = cache.lock() {
-            cache.insert(key, result.clone());
-        }
+        texture_caches().game_fs_images.insert(key, result.clone());
         result
     }
 

@@ -25,7 +25,7 @@ use gamelogic::player::Player;
 use gamelogic::player::player_list;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const TOOLTIP_LAYOUT_NAME: &str = "ControlBarPopupDescription.wnd";
@@ -44,13 +44,12 @@ struct TooltipState {
 }
 
 thread_local! {
-    static POPUP_STATE: Arc<Mutex<TooltipState>> = Arc::new(Mutex::new(TooltipState::default()));
+    static POPUP_STATE: RefCell<TooltipState> = RefCell::new(TooltipState::default());
 }
 
+/// Access state with closure - panic on borrow conflict (indicates bug)
 fn with_popup_state<R>(f: impl FnOnce(&mut TooltipState) -> R) -> R {
-    let state = POPUP_STATE.with(|state| state.clone());
-    let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-    f(&mut guard)
+    POPUP_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn format_template(template: &str, values: &[String]) -> String {

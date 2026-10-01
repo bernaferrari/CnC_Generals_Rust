@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::gui::callbacks::message_box::message_box_ok;
@@ -42,12 +41,13 @@ struct DownloadMenuState {
 }
 
 thread_local! {
-    static DOWNLOAD_MENU_STATE: Arc<Mutex<DownloadMenuState>> =
-        Arc::new(Mutex::new(DownloadMenuState::default()));
+    static DOWNLOAD_MENU_STATE: RefCell<DownloadMenuState> =
+        RefCell::new(DownloadMenuState::default());
 }
 
-fn download_menu_state() -> Arc<Mutex<DownloadMenuState>> {
-    DOWNLOAD_MENU_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_download_menu_state<R>(f: impl FnOnce(&mut DownloadMenuState) -> R) -> R {
+    DOWNLOAD_MENU_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -55,8 +55,7 @@ fn name_to_id(name: &str) -> i32 {
 }
 
 fn close_download_window() {
-    let state_handle = download_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_download_menu_state(|state| {
     let Some(parent) = state.parent.take() else {
         return;
     };
@@ -78,6 +77,7 @@ fn close_download_window() {
         if let Some(main_win) = main_win {
             let _ = manager.set_focus(Some(&main_win));
         }
+    });
     });
 }
 
@@ -246,8 +246,7 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
 }
 
 pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let state_handle = download_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_download_menu_state(|state| {
 
     state.button_cancel_id = name_to_id("DownloadMenu.wnd:ButtonCancel");
     state.static_text_size_id = name_to_id("DownloadMenu.wnd:StaticTextSize");
@@ -276,12 +275,12 @@ pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn st
     if guard.is_none() {
         *guard = Some(DownloadManager::new());
     }
+    });
 }
 
 pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     set_download_manager(None);
-    let state_handle = download_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_download_menu_state(|state| {
     state.parent = None;
     state.static_text_size = None;
     state.static_text_time = None;
@@ -290,11 +289,11 @@ pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dy
     state.progress_bar = None;
     state.last_update = None;
     state.time_left = 0;
+    });
 }
 
 pub fn download_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let state_handle = download_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_download_menu_state(|state| {
     let events = {
         let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
         guard
@@ -303,9 +302,10 @@ pub fn download_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn 
             .unwrap_or_default()
     };
     for event in events {
-        update_from_event(&mut state, event);
+        update_from_event(state, event);
     }
-    update_time_text(&mut state);
+    update_time_text(state);
+    });
 }
 
 pub fn download_menu_input(
@@ -340,13 +340,7 @@ pub fn download_menu_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            let state_handle = download_menu_state();
-            if control_id
-                == state_handle
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .button_cancel_id
-            {
+            if control_id == with_download_menu_state(|state| state.button_cancel_id) {
                 crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
                 close_download_window();
                 return WindowMsgHandled::Handled;

@@ -9,13 +9,13 @@ pub struct SubsystemManager {
     input_keyboard: Option<crate::input::Keyboard>,
     input_mouse: Option<MouseHandle>,
     terrain_visual: Option<Arc<Mutex<TerrainVisualStub>>>,
-    window_manager: Option<Arc<Mutex<WindowManagerSubsystem>>>,
-    font_library: Option<Arc<Mutex<FontLibrarySubsystem>>>,
-    header_templates: Option<Arc<Mutex<HeaderTemplateManagerSubsystem>>>,
-    display_strings: Option<Arc<Mutex<DisplayStringManagerSubsystem>>>,
-    hot_key_manager: Option<Arc<Mutex<HotKeyManagerSubsystem>>>,
+    window_manager: Option<WindowManagerSubsystem>,
+    font_library: Option<FontLibrarySubsystem>,
+    header_templates: Option<HeaderTemplateManagerSubsystem>,
+    display_strings: Option<DisplayStringManagerSubsystem>,
+    hot_key_manager: Option<HotKeyManagerSubsystem>,
     in_game_ui: Option<Arc<Mutex<InGameUISubsystem>>>,
-    video_player: Option<Arc<Mutex<VideoPlayerSubsystem>>>,
+    video_player: Option<VideoPlayerSubsystem>,
     decal_manager: Option<Arc<Mutex<DecalManager>>>,
     asset_manager: Option<Arc<AssetManager>>,
     platform_context: Option<PlatformContext>,
@@ -67,37 +67,28 @@ impl SubsystemManager {
         // C++ GameClient::reset does not reset TheWindowManager (GameClient.cpp:426-457).
         // Destroying root windows here wipes MainMenu.wnd on GAME_SHELL apply (hq-3vo4).
 
-        if let Some(ref font_library) = self.font_library {
-            font_library
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .reset()?;
+        if let Some(font_library) = &mut self.font_library {
+            font_library.reset()?;
         }
 
-        if let Some(ref header_templates) = self.header_templates {
-            header_templates
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .reset()?;
+        if let Some(header_templates) = &mut self.header_templates {
+            header_templates.reset()?;
         }
 
-        if let Some(ref display_strings) = self.display_strings {
-            display_strings
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .reset()?;
+        if let Some(display_strings) = &mut self.display_strings {
+            display_strings.reset()?;
         }
 
-        if let Some(ref hot_keys) = self.hot_key_manager {
-            hot_keys.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
+        if let Some(hot_keys) = &mut self.hot_key_manager {
+            hot_keys.reset()?;
         }
 
         if let Some(ref ui) = self.in_game_ui {
             ui.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
-        if let Some(ref video) = self.video_player {
-            video.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
+        if let Some(video) = &mut self.video_player {
+            video.reset()?;
         }
 
         if let Some(ref decals) = self.decal_manager {

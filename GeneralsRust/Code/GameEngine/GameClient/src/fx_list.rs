@@ -261,11 +261,30 @@ type AudioHook = Box<dyn FnMut(&str, Option<MessageCoord3D>) + Send + Sync>;
 
 static FX_AUDIO: OnceLock<RwLock<Option<AudioHook>>> = OnceLock::new();
 static FX_DECAL_MANAGER: OnceLock<RwLock<Option<Arc<Mutex<DecalManager>>>>> = OnceLock::new();
-static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<Arc<Mutex<CameraShakeSystem>>>>> = OnceLock::new();
-static DISPLAY_LIGHT_PULSES: OnceLock<Mutex<Vec<DisplayLightPulse>>> = OnceLock::new();
+static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<CameraShakeSystem>>> = OnceLock::new();
 type LightPulseHook = Box<dyn FnMut(&DisplayLightPulse) + Send + Sync>;
 static LIGHT_PULSE_HOOK: OnceLock<RwLock<Option<LightPulseHook>>> = OnceLock::new();
-static SCENE_DYNAMIC_LIGHTS: OnceLock<Mutex<Vec<DisplayDynamicLight>>> = OnceLock::new();
+
+/// Backing store for `TheDisplay->createLightPulse`: pending pulse
+/// requests drained by the display plus the live scene-light list.
+struct LightPulseRegistry {
+    pending_pulses: Vec<DisplayLightPulse>,
+    scene_lights: Vec<DisplayDynamicLight>,
+}
+
+static LIGHT_PULSE_REGISTRY: OnceLock<Mutex<LightPulseRegistry>> = OnceLock::new();
+
+fn light_pulse_registry() -> std::sync::MutexGuard<'static, LightPulseRegistry> {
+    LIGHT_PULSE_REGISTRY
+        .get_or_init(|| {
+            Mutex::new(LightPulseRegistry {
+                pending_pulses: Vec::new(),
+                scene_lights: Vec::new(),
+            })
+        })
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
 
 /// C++ `TheDisplay->createLightPulse` request (W3DDisplay.cpp).
 #[derive(Debug, Clone, PartialEq)]
@@ -312,18 +331,13 @@ pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
     if light_pulse_too_small(pulse.inner_radius, pulse.outer_radius) {
         return false;
     }
-    DISPLAY_LIGHT_PULSES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(pulse.clone());
+    let mut registry = light_pulse_registry();
+    registry.pending_pulses.push(pulse.clone());
     // C++ W3DDisplay::createLightPulse allocates a W3DDynamicLight:
     // Set_Far_Attenuation_Range(inner, inner+atten), setFrameFade, setDecayRange/Color,
     // FAR_ATTENUATION flag.
-    SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    registry
+        .scene_lights
         .push(DisplayDynamicLight {
             pos: pulse.pos,
             color: pulse.color,
@@ -340,6 +354,7 @@ pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
             far_attenuation: true,
             enabled: true,
         });
+    drop(registry);
     if let Some(hook_slot) = LIGHT_PULSE_HOOK.get() {
         if let Ok(mut guard) = hook_slot.write() {
             if let Some(hook) = guard.as_mut() {
@@ -351,11 +366,7 @@ pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
 }
 
 pub fn scene_dynamic_lights() -> Vec<DisplayDynamicLight> {
-    SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    light_pulse_registry().scene_lights.clone()
 }
 
 /// C++ `Get_Far_Attenuation_Range(midRange, range)` then
@@ -461,10 +472,8 @@ pub fn do_the_dynamic_light_from_scene(
 
 /// C++ `W3DDynamicLight::On_Frame_Update` fade (increase then decay range/color).
 pub fn tick_scene_dynamic_lights() {
-    let mut lights = SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut registry = light_pulse_registry();
+    let lights = &mut registry.scene_lights;
     for light in lights.iter_mut() {
         if !light.enabled {
             continue;
@@ -494,22 +503,16 @@ pub fn tick_scene_dynamic_lights() {
             ];
         }
     }
-    lights.retain(|light| light.enabled);
+    registry.scene_lights.retain(|light| light.enabled);
 }
 
 pub fn clear_scene_dynamic_lights() {
-    SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    light_pulse_registry().scene_lights.clear();
 }
 
 pub fn drain_display_light_pulses() -> Vec<DisplayLightPulse> {
-    DISPLAY_LIGHT_PULSES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
+    light_pulse_registry()
+        .pending_pulses
         .drain(..)
         .collect()
 }
@@ -543,7 +546,7 @@ pub fn get_decal_manager() -> Option<Arc<Mutex<DecalManager>>> {
     manager.read().ok().and_then(|guard| guard.clone())
 }
 
-pub fn register_camera_shake_system(system: Arc<Mutex<CameraShakeSystem>>) {
+pub fn register_camera_shake_system(system: CameraShakeSystem) {
     FX_SHAKE_SYSTEM
         .get_or_init(|| RwLock::new(None))
         .write()
@@ -570,9 +573,9 @@ fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
     let Some(system) = FX_SHAKE_SYSTEM.get() else {
         return;
     };
-    if let Some(system) = system.read().ok().and_then(|guard| guard.clone()) {
-        if let Ok(mut guard) = system.lock() {
-            f(&mut guard);
+    if let Ok(mut guard) = system.write() {
+        if let Some(system) = guard.as_mut() {
+            f(system);
         }
     }
 }

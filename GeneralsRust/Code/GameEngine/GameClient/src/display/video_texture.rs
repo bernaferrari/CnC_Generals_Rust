@@ -1124,7 +1124,7 @@ fn compute_letterbox_viewport(
 
 /// Manages multiple concurrent video textures.
 pub struct VideoTextureManager {
-    videos: Vec<Arc<std::sync::Mutex<VideoTexture>>>,
+    videos: Vec<VideoTexture>,
 }
 
 impl VideoTextureManager {
@@ -1133,26 +1133,22 @@ impl VideoTextureManager {
         Self { videos: Vec::new() }
     }
 
-    /// Load a video and return a shared handle.
+    /// Load a video and return the managed texture.
     pub fn load_video(
         &mut self,
         path: PathBuf,
         decoder: Box<dyn VideoDecoder>,
         config: VideoConfig,
-    ) -> Arc<std::sync::Mutex<VideoTexture>> {
-        let video = Arc::new(std::sync::Mutex::new(VideoTexture::new(
-            path, decoder, config,
-        )));
-        self.videos.push(video.clone());
-        video
+    ) -> &mut VideoTexture {
+        self.videos
+            .push(VideoTexture::new(path, decoder, config));
+        self.videos.last_mut().expect("just pushed a video")
     }
 
     /// Update all active videos
     pub fn update_all(&mut self, queue: &wgpu::Queue) {
-        for video in &self.videos {
-            if let Ok(mut video) = video.lock() {
-                let _ = video.update(queue);
-            }
+        for video in &mut self.videos {
+            let _ = video.update(queue);
         }
     }
 

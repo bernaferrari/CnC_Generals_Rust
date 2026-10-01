@@ -28,7 +28,6 @@ use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -77,12 +76,13 @@ struct ChallengeMenuState {
 }
 
 thread_local! {
-    static CHALLENGE_MENU_STATE: Arc<Mutex<ChallengeMenuState>> =
-        Arc::new(Mutex::new(ChallengeMenuState::default()));
+    static CHALLENGE_MENU_STATE: RefCell<ChallengeMenuState> =
+        RefCell::new(ChallengeMenuState::default());
 }
 
-fn challenge_menu_state() -> Arc<Mutex<ChallengeMenuState>> {
-    CHALLENGE_MENU_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_challenge_menu_state<R>(f: impl FnOnce(&mut ChallengeMenuState) -> R) -> R {
+    CHALLENGE_MENU_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -362,9 +362,7 @@ fn set_general_campaign(button_index: usize) -> Option<ChallengeSelection> {
 
 fn start_challenge_game() {
     let selected_index = {
-        let state_handle = challenge_menu_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        match state.last_button_index {
+        match with_challenge_menu_state(|state| state.last_button_index) {
             Some(index) => index,
             None => return,
         }
@@ -394,10 +392,7 @@ fn start_challenge_game() {
         data.write().pending_file = selection.map_name.clone();
     }
     TheScriptEngine::set_global_difficulty(challenge_to_logic_difficulty(difficulty));
-
-    {
-        let state_handle = challenge_menu_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_challenge_menu_state(|state| {
         if let Some(previous_index) = state.last_button_index {
             if let Some(button_id) = state.general_button_ids.get(previous_index) {
                 set_general_button_checked(*button_id, false);
@@ -407,7 +402,7 @@ fn start_challenge_game() {
         state.last_hilited_index = None;
         state.last_selection_sound = 0;
         state.last_preview_sound = 0;
-    }
+    });
 
     if TheGameLogic::is_in_game() {
         let _ = TheGameLogic::clear_game_data();
@@ -445,8 +440,7 @@ fn start_challenge_game() {
 pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     init_challenge_game_info();
 
-    let state_handle = challenge_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_challenge_menu_state(|state| {
 
     state.parent_id = name_to_id("ChallengeMenu.wnd:ParentChallengeMenu");
     state.button_play_id = name_to_id("ChallengeMenu.wnd:ButtonPlay");
@@ -517,11 +511,11 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     show_shell_map_if_available(true);
     layout.hide(false);
     with_window_video_manager(|manager| manager.init());
+    });
 }
 
 pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_handle = challenge_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_challenge_menu_state(|state| {
 
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
@@ -533,7 +527,7 @@ pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
         }
     }
 
-    update_bio(&mut state, 2);
+    update_bio(state, 2);
 
     if !state.has_played_intro_audio
         && with_window_manager(|manager| manager.transitions_finished())
@@ -558,6 +552,7 @@ pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std:
     }
 
     with_window_video_manager(|manager| manager.update());
+    });
 }
 
 pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
@@ -568,11 +563,7 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     with_window_video_manager(|manager| manager.reset());
 
-    let state_handle = challenge_menu_state();
-    {
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        state.last_button_index = None;
-    }
+    with_challenge_menu_state(|state| state.last_button_index = None);
 
     if pop_immediate {
         layout.hide(true);
@@ -581,18 +572,19 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     }
 
     with_window_manager(|manager| manager.transition_reverse("ChallengeMenuFade"));
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    state.is_shutting_down = true;
-    // C++ ChallengeMenuShutdown: delete TheChallengeGameInfo (fade path only).
-    clear_challenge_game_info();
-    if let Some(audio) = TheAudio::get() {
-        audio.remove_audio_event(state.last_selection_sound);
-        audio.remove_audio_event(state.last_preview_sound);
-    }
-    state.last_selection_sound = 0;
-    state.last_preview_sound = 0;
-    state.intro_audio_magic_number = 0;
-    state.has_played_intro_audio = false;
+    with_challenge_menu_state(|state| {
+        state.is_shutting_down = true;
+        // C++ ChallengeMenuShutdown: delete TheChallengeGameInfo (fade path only).
+        clear_challenge_game_info();
+        if let Some(audio) = TheAudio::get() {
+            audio.remove_audio_event(state.last_selection_sound);
+            audio.remove_audio_event(state.last_preview_sound);
+        }
+        state.last_selection_sound = 0;
+        state.last_preview_sound = 0;
+        state.intro_audio_magic_number = 0;
+        state.has_played_intro_audio = false;
+    });
 }
 
 pub fn challenge_menu_system(
@@ -601,33 +593,42 @@ pub fn challenge_menu_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let state_handle = challenge_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
     match msg {
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         msg if is_general_mouse_entering(msg) => {
             let control_id = data1 as i32;
-            if let Some(index) = find_general_button(&state, control_id) {
+            let handled = with_challenge_menu_state(|state| {
+                let Some(index) = find_general_button(state, control_id) else {
+                    return false;
+                };
                 if state.last_button_index != Some(index) {
-                    set_general_bio(&mut state, Some(index));
+                    set_general_bio(state, Some(index));
                     if let Some(audio) = TheAudio::get() {
                         let event = AudioEventRts::new("GUILogoMouseOver");
                         let _ = audio.add_audio_event(&event);
                     }
                     state.last_hilited_index = Some(index);
                 }
+                true
+            });
+            if handled {
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Ignored
         }
         msg if is_general_mouse_leaving(msg) => {
             let control_id = data1 as i32;
-            if let Some(index) = find_general_button(&state, control_id) {
+            let handled = with_challenge_menu_state(|state| {
+                let Some(index) = find_general_button(state, control_id) else {
+                    return false;
+                };
                 if state.last_button_index != Some(index) {
                     let selected_general = state.last_button_index;
-                    set_general_bio(&mut state, selected_general);
+                    set_general_bio(state, selected_general);
                 }
+                true
+            });
+            if handled {
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Ignored
@@ -635,53 +636,58 @@ pub fn challenge_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             // C++ ChallengeMenuSystem: if (isAutoSelecting) break;
-            if state.is_auto_selecting {
+            if with_challenge_menu_state(|state| state.is_auto_selecting) {
                 return WindowMsgHandled::Handled;
             }
-            if let Some(index) = find_general_button(&state, control_id) {
+            let selected = with_challenge_menu_state(|state| {
+                let Some(index) = find_general_button(state, control_id) else {
+                    return None;
+                };
                 let previous_id = state
                     .last_button_index
                     .filter(|prev| *prev != index)
                     .and_then(|prev| state.general_button_ids.get(prev).copied());
                 let current_id = state.general_button_ids.get(index).copied();
                 state.is_auto_selecting = true;
-                drop(state);
+                Some((index, previous_id, current_id))
+            });
+            if let Some((index, previous_id, current_id)) = selected {
                 if let Some(button_id) = previous_id {
                     set_general_button_checked(button_id, false);
                 }
                 if let Some(button_id) = current_id {
                     set_general_button_checked(button_id, true);
                 }
-                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-                state.is_auto_selecting = false;
-                if let Some(audio) = TheAudio::get() {
-                    audio.remove_audio_event(state.last_selection_sound);
-                    audio.remove_audio_event(state.last_preview_sound);
-                    let preview_sound = get_challenge_generals_mut().map(|generals| {
-                        generals.challenge_generals()[index]
-                            .preview_sound()
-                            .to_string()
-                    });
-                    if let Some(preview_sound) = preview_sound.filter(|sound| !sound.is_empty()) {
-                        let event = AudioEventRts::new(&preview_sound);
-                        state.last_preview_sound = audio.add_audio_event(&event);
+                with_challenge_menu_state(|state| {
+                    state.is_auto_selecting = false;
+                    if let Some(audio) = TheAudio::get() {
+                        audio.remove_audio_event(state.last_selection_sound);
+                        audio.remove_audio_event(state.last_preview_sound);
+                        let preview_sound = get_challenge_generals_mut().map(|generals| {
+                            generals.challenge_generals()[index]
+                                .preview_sound()
+                                .to_string()
+                        });
+                        if let Some(preview_sound) = preview_sound.filter(|sound| !sound.is_empty())
+                        {
+                            let event = AudioEventRts::new(&preview_sound);
+                            state.last_preview_sound = audio.add_audio_event(&event);
+                        }
                     }
-                }
-                state.last_button_index = Some(index);
-                set_general_bio(&mut state, Some(index));
-                set_window_hidden(&state.button_play, false);
+                    state.last_button_index = Some(index);
+                    set_general_bio(state, Some(index));
+                    set_window_hidden(&state.button_play, false);
+                });
                 return WindowMsgHandled::Handled;
             }
-            if control_id == state.button_play_id {
-                if state.is_shutting_down {
+            if with_challenge_menu_state(|state| control_id == state.button_play_id) {
+                if with_challenge_menu_state(|state| state.is_shutting_down) {
                     return WindowMsgHandled::Handled;
                 }
-                drop(state);
                 start_challenge_game();
                 return WindowMsgHandled::Handled;
             }
-            if control_id == state.button_back_id {
-                drop(state);
+            if with_challenge_menu_state(|state| control_id == state.button_back_id) {
                 queue_shell_pop();
                 return WindowMsgHandled::Handled;
             }
@@ -702,15 +708,15 @@ pub fn challenge_menu_input(
     }
 
     if (data2 & KEY_STATE_UP) != 0 {
-        let state_handle = challenge_menu_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(parent) = state.parent.as_ref() {
-            let _ = parent.borrow_mut().send_system_message(
-                WindowMessage::GadgetSelected,
-                state.button_back_id as WindowMsgData,
-                state.button_back_id as WindowMsgData,
-            );
-        }
+        with_challenge_menu_state(|state| {
+            if let Some(parent) = state.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    state.button_back_id as WindowMsgData,
+                    state.button_back_id as WindowMsgData,
+                );
+            }
+        });
     }
 
     WindowMsgHandled::Handled
@@ -750,14 +756,14 @@ pub fn simulate_challenge_menu_select_general(index: usize) -> bool {
     if index >= NUM_GENERALS {
         return false;
     }
-    let state_handle = challenge_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_challenge_control_ids(&mut state);
+    with_challenge_menu_state(|state| {
+    ensure_challenge_control_ids(state);
     state.last_button_index = Some(index);
     state.is_shutting_down = false;
     RESIDUAL_CHALLENGE_SELECTED_INDEX.store(index, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(false, std::sync::atomic::Ordering::Relaxed);
     state.last_button_index == Some(index)
+    })
 }
 
 /// Residual: currently selected challenge general index.
@@ -774,21 +780,24 @@ pub fn residual_challenge_play_requested() -> bool {
 /// Residual: fire retail `ChallengeMenu.wnd:ButtonPlay` via state latch.
 /// C++ path calls startChallengeGame (campaign map + difficulty + MSG_NEW_GAME).
 pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
-    let state_handle = challenge_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_challenge_control_ids(&mut state);
-    if state.is_shutting_down {
+    let requested = with_challenge_menu_state(|state| {
+        ensure_challenge_control_ids(state);
+        if state.is_shutting_down {
+            return false;
+        }
+        let Some(index) = state.last_button_index else {
+            return false;
+        };
+        if index >= NUM_GENERALS {
+            return false;
+        }
+        RESIDUAL_CHALLENGE_SELECTED_INDEX.store(index, std::sync::atomic::Ordering::Relaxed);
+        RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+        true
+    });
+    if !requested {
         return false;
     }
-    let Some(index) = state.last_button_index else {
-        return false;
-    };
-    if index >= NUM_GENERALS {
-        return false;
-    }
-    RESIDUAL_CHALLENGE_SELECTED_INDEX.store(index, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
-    drop(state);
     // C++ ChallengeMenu ButtonPlay → startChallengeGame (pendingFile + MSG_NEW_GAME).
     start_challenge_game();
     true
@@ -796,15 +805,15 @@ pub fn simulate_challenge_menu_play_button_gadget_selected() -> bool {
 
 /// Residual: fire retail `ChallengeMenu.wnd:ButtonBack` (shell pop residual latch).
 pub fn simulate_challenge_menu_back_button_gadget_selected() -> bool {
-    let state_handle = challenge_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_challenge_control_ids(&mut state);
+    with_challenge_menu_state(|state| {
+    ensure_challenge_control_ids(state);
     // C++ back pops shell; residual clears selection and marks shutdown-ish clean exit.
     state.last_button_index = None;
     state.is_shutting_down = false;
     RESIDUAL_CHALLENGE_PLAY_REQUESTED.store(false, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_CHALLENGE_SELECTED_INDEX.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
     state.button_back_id != 0 || state.button_play_id != 0
+    })
 }
 
 /// Residual: select general + ButtonPlay composite (pre-start honesty).
@@ -1082,13 +1091,11 @@ mod tests {
     #[test]
     fn selecting_current_general_keeps_checkbox_checked_like_cpp() {
         let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
-        {
-            let state_handle = challenge_menu_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        with_challenge_menu_state(|state| {
             state.general_button_ids = [0; NUM_GENERALS];
             state.general_button_ids[0] = selected_id;
             state.last_button_index = Some(0);
-        }
+        });
 
         with_window_manager(|manager| {
             let _ = manager.destroy_all_windows();
@@ -1133,18 +1140,16 @@ mod tests {
         let layout = WindowLayout::new("ChallengeMenu.wnd".to_string());
 
         for pop_immediate in [false, true] {
-            {
-                let state_handle = challenge_menu_state();
-                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            with_challenge_menu_state(|state| {
                 state.last_button_index = Some(3);
                 state.is_shutting_down = false;
-            }
+            });
 
             challenge_menu_shutdown(&layout, Some(&pop_immediate));
-
-            let state_handle = challenge_menu_state();
-            let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            assert_eq!(state.last_button_index, None);
+            assert_eq!(
+                with_challenge_menu_state(|state| state.last_button_index),
+                None
+            );
         }
     }
 }

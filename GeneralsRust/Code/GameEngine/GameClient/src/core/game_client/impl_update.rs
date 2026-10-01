@@ -1976,18 +1976,12 @@ impl GameClient {
     }
 
     pub fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
-        if let Some(ref window_manager) = self.subsystem_manager.window_manager {
-            window_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
+        if let Some(window_manager) = &mut self.subsystem_manager.window_manager {
+            window_manager.update()?;
         }
 
-        if let Some(ref video_player) = self.subsystem_manager.video_player {
-            video_player
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
+        if let Some(video_player) = &mut self.subsystem_manager.video_player {
+            video_player.update()?;
         }
 
         Ok(())
@@ -2059,18 +2053,12 @@ impl GameClient {
             ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
-        if let Some(ref window_manager) = self.subsystem_manager.window_manager {
-            window_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
+        if let Some(window_manager) = &mut self.subsystem_manager.window_manager {
+            window_manager.update()?;
         }
 
-        if let Some(ref video_player) = self.subsystem_manager.video_player {
-            video_player
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .update()?;
+        if let Some(video_player) = &mut self.subsystem_manager.video_player {
+            video_player.update()?;
         }
 
         crate::eva::update_eva_system();

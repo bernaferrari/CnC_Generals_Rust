@@ -446,21 +446,21 @@ impl GameClient {
             log::info!("init_display_subsystems: initializing FontLibrary");
             let mut font_library = FontLibrarySubsystem::new();
             font_library.init()?;
-            self.subsystem_manager.font_library = Some(Arc::new(Mutex::new(font_library)));
+            self.subsystem_manager.font_library = Some(font_library);
         }
 
         if self.subsystem_manager.header_templates.is_none() {
             log::info!("init_display_subsystems: initializing HeaderTemplates");
             let mut header_templates = HeaderTemplateManagerSubsystem::new();
             header_templates.init()?;
-            self.subsystem_manager.header_templates = Some(Arc::new(Mutex::new(header_templates)));
+            self.subsystem_manager.header_templates = Some(header_templates);
         }
 
         if self.subsystem_manager.window_manager.is_none() {
             log::info!("init_display_subsystems: initializing WindowManager");
             let mut window_manager = WindowManagerSubsystem::new();
             window_manager.init()?;
-            self.subsystem_manager.window_manager = Some(Arc::new(Mutex::new(window_manager)));
+            self.subsystem_manager.window_manager = Some(window_manager);
         }
 
         {
@@ -498,13 +498,13 @@ impl GameClient {
         if self.subsystem_manager.display_strings.is_none() {
             let mut display_strings = DisplayStringManagerSubsystem::new();
             display_strings.init()?;
-            self.subsystem_manager.display_strings = Some(Arc::new(Mutex::new(display_strings)));
+            self.subsystem_manager.display_strings = Some(display_strings);
         }
 
         if self.subsystem_manager.hot_key_manager.is_none() {
             let mut hot_keys = HotKeyManagerSubsystem::new();
             hot_keys.init()?;
-            self.subsystem_manager.hot_key_manager = Some(Arc::new(Mutex::new(hot_keys)));
+            self.subsystem_manager.hot_key_manager = Some(hot_keys);
         }
 
         crate::render_bridge::init_render_bridge();
@@ -672,22 +672,15 @@ impl GameClient {
         if self.subsystem_manager.video_player.is_none() {
             let mut video_player = VideoPlayerSubsystem;
             video_player.init()?;
-            self.subsystem_manager.video_player = Some(Arc::new(Mutex::new(video_player)));
+            self.subsystem_manager.video_player = Some(video_player);
         }
 
         Ok(())
     }
 
     pub fn post_process_display_strings(&mut self) -> GameClientResult<()> {
-        if let Some(display_strings) = self.subsystem_manager.display_strings.as_ref() {
-            display_strings
-                .lock()
-                .map_err(|_| {
-                    GameClientError::SubsystemError(
-                        "Display string manager lock poisoned during post-process load".to_string(),
-                    )
-                })?
-                .post_process_load()?;
+        if let Some(display_strings) = &mut self.subsystem_manager.display_strings {
+            display_strings.post_process_load()?;
         }
         Ok(())
     }

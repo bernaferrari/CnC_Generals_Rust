@@ -32,32 +32,41 @@ pub struct UnitShadowCaster {
     pub volume: bool,
 }
 
-static UNIT_CASTERS: Mutex<Vec<UnitShadowCaster>> = Mutex::new(Vec::new());
-static SHADOW_REBUILD_SERIAL: Mutex<u32> = Mutex::new(0);
+/// Unit shadow-caster cache plus its invalidation serial; one lock guards both.
+static SHADOW_CASTER_STATE: Mutex<ShadowCasterState> = Mutex::new(ShadowCasterState {
+    casters: Vec::new(),
+    rebuild_serial: 0,
+});
+
+struct ShadowCasterState {
+    casters: Vec<UnitShadowCaster>,
+    rebuild_serial: u32,
+}
 
 /// C++ `W3DShadowManager::invalidateCachedLightPositions` / GameLOD hook.
 pub fn rebuild_shadows() {
-    if let Ok(mut serial) = SHADOW_REBUILD_SERIAL.lock() {
-        *serial = serial.wrapping_add(1);
-    }
-    if let Ok(mut casters) = UNIT_CASTERS.lock() {
-        casters.clear();
+    if let Ok(mut state) = SHADOW_CASTER_STATE.lock() {
+        state.rebuild_serial = state.rebuild_serial.wrapping_add(1);
+        state.casters.clear();
     }
 }
 
 pub fn shadow_rebuild_serial() -> u32 {
-    SHADOW_REBUILD_SERIAL.lock().map(|g| *g).unwrap_or(0)
+    SHADOW_CASTER_STATE
+        .lock()
+        .map(|g| g.rebuild_serial)
+        .unwrap_or(0)
 }
 
 pub fn register_unit_shadow(caster: UnitShadowCaster) {
-    if let Ok(mut list) = UNIT_CASTERS.lock() {
-        list.push(caster);
+    if let Ok(mut state) = SHADOW_CASTER_STATE.lock() {
+        state.casters.push(caster);
     }
 }
 
 pub fn clear_unit_shadows() {
-    if let Ok(mut list) = UNIT_CASTERS.lock() {
-        list.clear();
+    if let Ok(mut state) = SHADOW_CASTER_STATE.lock() {
+        state.casters.clear();
     }
 }
 
@@ -107,9 +116,9 @@ pub enum VolumetricPresentStatus {
 
 /// SHADOW_VOLUME casters for this frame (`UnitShadowCaster.volume` plus live objects).
 pub fn collect_volume_casters() -> Vec<UnitShadowCaster> {
-    let mut out = UNIT_CASTERS
+    let mut out = SHADOW_CASTER_STATE
         .lock()
-        .map(|g| g.iter().filter(|c| c.volume).cloned().collect())
+        .map(|g| g.casters.iter().filter(|c| c.volume).cloned().collect())
         .unwrap_or_default();
     let volumes_on = get_global_data()
         .map(|g| g.read().use_shadow_volumes)
@@ -376,7 +385,10 @@ pub fn collect_occlusion_overlays() -> Vec<OcclusionOverlay> {
             }
         }
     }
-    let casters = UNIT_CASTERS.lock().map(|g| g.clone()).unwrap_or_default();
+    let casters = SHADOW_CASTER_STATE
+        .lock()
+        .map(|g| g.casters.clone())
+        .unwrap_or_default();
     for caster in casters {
         if caster.occluded {
             out.push(OcclusionOverlay {

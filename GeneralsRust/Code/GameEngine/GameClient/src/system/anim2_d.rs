@@ -28,7 +28,7 @@ bitflags::bitflags! {
 pub struct Anim2D {
     current_frame: u16,
     last_update_frame: u32,
-    template: Arc<RwLock<Anim2DTemplate>>,
+    template: Arc<Anim2DTemplate>,
     status: Anim2DStatus,
     min_frame: u16,
     max_frame: u16,
@@ -37,11 +37,10 @@ pub struct Anim2D {
     collection_system: Option<Weak<Mutex<Anim2DCollection>>>,
 }
 
-use parking_lot::RwLock;
 
 impl Anim2D {
     pub fn new(
-        template: Arc<RwLock<Anim2DTemplate>>,
+        template: Arc<Anim2DTemplate>,
         collection_system: Option<Arc<Mutex<Anim2DCollection>>>,
     ) -> Arc<Mutex<Self>> {
         let mut anim = Self {
@@ -50,13 +49,13 @@ impl Anim2D {
             template: template.clone(),
             status: Anim2DStatus::NONE,
             min_frame: 0,
-            max_frame: template.read().get_num_frames().saturating_sub(1),
-            frames_between_updates: template.read().get_num_frames_between_updates() as u32,
+            max_frame: template.get_num_frames().saturating_sub(1),
+            frames_between_updates: template.get_num_frames_between_updates() as u32,
             alpha: 1.0,
             collection_system: collection_system.as_ref().map(Arc::downgrade),
         };
 
-        if template.read().is_randomized_start_frame() {
+        if template.is_randomized_start_frame() {
             anim.randomize_current_frame();
         } else {
             anim.reset();
@@ -74,7 +73,7 @@ impl Anim2D {
     }
 
     pub fn set_current_frame(&mut self, frame: u16) {
-        let template = self.template.read();
+        let template = &self.template;
         if frame >= template.get_num_frames() {
             return;
         }
@@ -84,7 +83,7 @@ impl Anim2D {
     }
 
     pub fn randomize_current_frame(&mut self) {
-        let max = self.template.read().get_num_frames();
+        let max = self.template.get_num_frames();
         if max == 0 {
             return;
         }
@@ -93,7 +92,7 @@ impl Anim2D {
     }
 
     pub fn reset(&mut self) {
-        let anim_mode = self.template.read().get_anim_mode();
+        let anim_mode = self.template.get_anim_mode();
         match anim_mode {
             Anim2DMode::Once | Anim2DMode::Loop | Anim2DMode::PingPong => {
                 self.set_current_frame(self.min_frame);
@@ -238,7 +237,7 @@ impl Anim2D {
             return;
         }
 
-        let anim_mode = self.template.read().get_anim_mode();
+        let anim_mode = self.template.get_anim_mode();
         match anim_mode {
             Anim2DMode::Once => {
                 if self.current_frame < self.max_frame {
@@ -288,7 +287,7 @@ impl Anim2D {
     }
 
     fn resolve_frame_image_name(&self) -> Option<String> {
-        let template = self.template.read();
+        let template = &self.template;
         template
             .get_frame_name(self.current_frame)
             .map(|s| s.to_string())
@@ -349,7 +348,7 @@ impl Snapshotable for Anim2D {
 
         if xfer.get_xfer_mode() == XferMode::Load {
             // Ensure current frame is valid after load
-            let max = self.template.read().get_num_frames();
+            let max = self.template.get_num_frames();
             if max > 0 {
                 let clamped = self.current_frame.min(max.saturating_sub(1));
                 self.current_frame = clamped;
@@ -424,7 +423,7 @@ impl Anim2DCollection {
         });
     }
 
-    pub fn find_template(&self, name: &AsciiString) -> Option<Arc<RwLock<Anim2DTemplate>>> {
+    pub fn find_template(&self, name: &AsciiString) -> Option<Arc<Anim2DTemplate>> {
         get_anim2d_collection().and_then(|collection| collection.read().find_template(name))
     }
 
@@ -477,7 +476,7 @@ mod tests {
         template
             .store_image_name(Some(FRAME_NAME.to_string()))
             .expect("store frame image name");
-        let anim = Anim2D::new(Arc::new(RwLock::new(template)), None);
+        let anim = Anim2D::new(Arc::new(template), None);
         {
             let guard = anim.lock();
             assert_eq!(guard.get_current_frame_width(), 64);
@@ -489,7 +488,7 @@ mod tests {
         missing
             .store_image_name(Some(MISSING_NAME.to_string()))
             .expect("store missing frame name");
-        let missing_anim = Anim2D::new(Arc::new(RwLock::new(missing)), None);
+        let missing_anim = Anim2D::new(Arc::new(missing), None);
         {
             let guard = missing_anim.lock();
             assert_eq!(guard.get_current_frame_width(), 0);

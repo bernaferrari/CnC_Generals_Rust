@@ -14,7 +14,7 @@ use super::decals::DecalRenderItem;
 use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
-use crate::system::smudge::{SmudgeSetHandle, get_smudge_manager};
+use crate::system::smudge::{SmudgeManager, SmudgeSetHandle, get_smudge_manager};
 use glam::{Vec2, Vec3, Mat4};
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
@@ -424,10 +424,9 @@ pub fn begin_particle_heat_smudge_frame() {
     let _ = manager.add_smudge_set();
 }
 
-fn current_particle_heat_smudge_set() -> Option<SmudgeSetHandle> {
-    let Ok(mut manager) = get_smudge_manager().lock() else {
-        return None;
-    };
+fn current_particle_heat_smudge_set(
+    manager: &mut std::sync::MutexGuard<'static, SmudgeManager>,
+) -> Option<SmudgeSetHandle> {
     Some(
         manager
             .last_used_set()
@@ -444,43 +443,39 @@ pub fn feed_system_heat_smudges(system: &ParticleSystem) -> usize {
     let use_heat = game_engine::common::global_data::read_safe()
         .map(|data| data.use_heat_effects)
         .unwrap_or(true);
-    {
-        let Ok(manager) = get_smudge_manager().lock() else {
-            return 0;
-        };
-        if !manager.get_hardware_support() || !use_heat {
-            return 0;
-        }
+    let Ok(mut manager) = get_smudge_manager().lock() else {
+        return 0;
+    };
+    if !manager.get_hardware_support() || !use_heat {
+        return 0;
     }
-    let Some(set) = current_particle_heat_smudge_set() else {
+    let Some(set) = current_particle_heat_smudge_set(&mut manager) else {
         return 0;
     };
     let mut visible = 0usize;
-    if let Ok(mut set) = set.lock() {
-        for particle in system.particles() {
-            if !particle.is_draw_alive() {
-                continue;
-            }
-            let smudge = set.add_smudge_to_set();
-            smudge.pos = glam::Vec3::new(
-                particle.position.x,
-                particle.position.y,
-                particle.position.z,
-            );
-            smudge.offset = glam::Vec2::new(
-                crate::GameClientRandomValueReal!(-0.06, 0.06),
-                crate::GameClientRandomValueReal!(-0.03, 0.03),
-            );
-            smudge.size = particle.size;
-            smudge.opacity = particle.alpha;
-            visible += 1;
+    for particle in system.particles() {
+        if !particle.is_draw_alive() {
+            continue;
         }
+        let Some(smudge) = manager.add_smudge_to_set(&set) else {
+            continue;
+        };
+        smudge.pos = glam::Vec3::new(
+            particle.position.x,
+            particle.position.y,
+            particle.position.z,
+        );
+        smudge.offset = glam::Vec2::new(
+            crate::GameClientRandomValueReal!(-0.06, 0.06),
+            crate::GameClientRandomValueReal!(-0.03, 0.03),
+        );
+        smudge.size = particle.size;
+        smudge.opacity = particle.alpha;
+        visible += 1;
     }
-    if let Ok(mut manager) = get_smudge_manager().lock() {
-        let added = i32::try_from(visible).unwrap_or(i32::MAX);
-        let prev = manager.get_smudge_count_last_frame();
-        manager.set_smudge_count_last_frame(prev.saturating_add(added));
-    }
+    let added = i32::try_from(visible).unwrap_or(i32::MAX);
+    let prev = manager.get_smudge_count_last_frame();
+    manager.set_smudge_count_last_frame(prev.saturating_add(added));
     visible
 }
 

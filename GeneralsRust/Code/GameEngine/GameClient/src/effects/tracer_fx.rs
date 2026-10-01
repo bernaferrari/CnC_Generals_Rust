@@ -41,23 +41,25 @@ pub struct TracerGpuMesh {
     pub indices: Vec<u16>,
 }
 
-struct TracerStore {
-    next_id: u32,
+/// Process-wide tracer state: GPU Line3D stand-in instances plus the live
+/// drawable records spawned alongside them. One lock guards both lists.
+struct TracerState {
+    next_fx_id: u32,
     tracers: Vec<TracerFxInstance>,
+    next_drawable_id: u32,
+    drawables: Vec<LiveTracerDrawable>,
 }
 
-impl TracerStore {
-    fn new() -> Self {
-        Self {
-            next_id: 1,
+fn global_tracers() -> &'static Mutex<TracerState> {
+    static STORE: OnceLock<Mutex<TracerState>> = OnceLock::new();
+    STORE.get_or_init(|| {
+        Mutex::new(TracerState {
+            next_fx_id: 1,
             tracers: Vec::new(),
-        }
-    }
-}
-
-fn global_tracers() -> &'static Mutex<TracerStore> {
-    static STORE: OnceLock<Mutex<TracerStore>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(TracerStore::new()))
+            next_drawable_id: 1,
+            drawables: Vec::new(),
+        })
+    })
 }
 
 /// Serializes tests that touch the process-wide tracer store.
@@ -229,39 +231,14 @@ pub struct LiveTracerDrawable {
     pub expire_frame: u32,
 }
 
-struct TracerDrawableStore {
-    next_id: u32,
-    drawables: Vec<LiveTracerDrawable>,
-}
-
-impl TracerDrawableStore {
-    fn new() -> Self {
-        Self {
-            next_id: 1,
-            drawables: Vec::new(),
-        }
-    }
-}
-
-fn global_tracer_drawables() -> &'static Mutex<TracerDrawableStore> {
-    static STORE: OnceLock<Mutex<TracerDrawableStore>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(TracerDrawableStore::new()))
-}
-
 pub fn live_tracer_drawables() -> Vec<LiveTracerDrawable> {
-    global_tracer_drawables()
+    global_tracers()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .drawables
         .clone()
 }
 
-fn clear_tracer_drawables() {
-    let mut store = global_tracer_drawables()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    store.drawables.clear();
-}
 
 fn rgb_from_fx_color(color: [f32; 3]) -> gamelogic::object::draw::draw_module::RGBColor {
     gamelogic::object::draw::draw_module::RGBColor::new(
@@ -334,11 +311,11 @@ pub fn spawn_tracer_drawable_like_cpp(
         draw.set_expiration_date(expire);
         draw.do_draw_module(&xform);
         tracer_parms_applied = true;
-        let mut store = global_tracer_drawables()
+        let mut store = global_tracers()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let id = store.next_id;
-        store.next_id = store.next_id.wrapping_add(1).max(1);
+        let id = store.next_drawable_id;
+        store.next_drawable_id = store.next_drawable_id.wrapping_add(1).max(1);
         let start = draw.line_start();
         let end = draw.line_end();
         store.drawables.push(LiveTracerDrawable {
@@ -354,7 +331,7 @@ pub fn spawn_tracer_drawable_like_cpp(
         drawable_id = Some(id);
     } else if used_thing_factory {
         // Template path already owns the drawable; record spawn for tests (no second Line3D).
-        let mut store = global_tracer_drawables()
+        let mut store = global_tracers()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         store.drawables.push(LiveTracerDrawable {
@@ -408,8 +385,8 @@ pub fn create_tracer_fx(
     let frames = tracer_expiration_frames(dist - length, speed, decay_at);
     let instance = {
         let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
-        let id = store.next_id;
-        store.next_id = store.next_id.wrapping_add(1).max(1);
+        let id = store.next_fx_id;
+        store.next_fx_id = store.next_fx_id.wrapping_add(1).max(1);
         let inst = TracerFxInstance {
             id,
             tracer_name: tracer_name.to_string(),
@@ -440,7 +417,7 @@ pub fn live_tracer_fx() -> Vec<TracerFxInstance> {
 pub fn clear_tracer_fx() {
     let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
     store.tracers.clear();
-    clear_tracer_drawables();
+    store.drawables.clear();
 }
 
 /// C++ `W3DTracerDraw::doDrawModule` opacity decay + local-X translate, then

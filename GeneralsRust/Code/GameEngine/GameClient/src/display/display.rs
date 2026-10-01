@@ -176,7 +176,7 @@ pub struct Display {
     letterbox_enabled: bool,
     letterbox_fade_start_time: Option<Instant>,
     lighting_state: DisplayLightingState,
-    last_movie_frame: Mutex<Option<(u32, u32, Vec<u8>)>>,
+    last_movie_frame: Option<(u32, u32, Vec<u8>)>,
     pending_screenshot: Mutex<Option<std::path::PathBuf>>,
 }
 
@@ -213,7 +213,6 @@ impl Display {
                 surface_format,
             )
         {
-            let drawable_pipeline = Arc::new(Mutex::new(drawable_pipeline));
             crate::drawable::drawable_draw_pipeline::register_drawable_pipeline(drawable_pipeline);
         } else {
             error!("Failed to initialize drawable draw pipeline");
@@ -795,9 +794,7 @@ impl Display {
             stream.frame_render(buffer.as_mut());
             if let Some((w, h, rgba)) = display_fx::video_buffer_rgba_mut(buffer.as_mut()) {
                 display_fx::store_movie_frame(w, h, rgba.clone());
-                if let Ok(mut frame) = self.last_movie_frame.lock() {
-                    *frame = Some((w, h, rgba));
-                }
+                self.last_movie_frame = Some((w, h, rgba));
             }
 
             if stream.frame_index() != stream.frame_count() - 1 {

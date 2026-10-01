@@ -258,60 +258,59 @@ pub trait WindowCallbacks: Send + Sync {
 
 /// Enhanced GameWindow implementation
 pub struct EnhancedGameWindow {
-    // Core properties
+    // Core identity (immutable)
     id: WindowId,
     name: String,
-    status: RwLock<WindowStatus>,
-    window_type: RwLock<String>,
-    style: RwLock<u32>,
-    
-    // Position and size
-    position: RwLock<(i32, i32)>,
-    size: RwLock<(i32, i32)>,
-    
-    // Hierarchy
-    parent: RwLock<Option<Weak<EnhancedGameWindow>>>,
-    children: RwLock<Vec<Arc<EnhancedGameWindow>>>,
-    
-    // Visual properties
-    text: RwLock<String>,
-    text_colors: RwLock<WindowTextColors>,
-    draw_data: RwLock<WindowDrawData>,
-    font_name: RwLock<String>,
-    font_size: RwLock<i32>,
-    
-    // Event handling
-    callbacks: RwLock<Option<Box<dyn WindowCallbacks>>>,
-    
-    // State tracking
-    is_mouse_over: RwLock<bool>,
-    is_pressed: RwLock<bool>,
-    is_focused: RwLock<bool>,
-    is_toggled: RwLock<bool>,
-    tooltip_text: RwLock<String>,
-    tooltip_delay: RwLock<u32>,
 
-    // Optional gadget widget for script-created windows
+    // Mutable window properties (C++ GameWindow plain fields; one lock).
+    props: RwLock<WindowProps>,
+
+    // Hierarchy (parent/child links share one lock)
+    hierarchy: RwLock<WindowHierarchy>,
+
+    // Optional gadget widget for script-created windows. Kept as its own
+    // lock: guards are held across gadget event dispatch, which re-enters
+    // property accessors below.
     widget: Mutex<Option<WindowWidget>>,
-    combobox_links: RwLock<Option<ComboBoxLinks>>,
-    listbox_links: RwLock<Option<ListBoxLinks>>,
-    slider_thumb: RwLock<Option<WindowId>>,
 
-    // Press animation state for elastic button feel
-    press_scale: RwLock<f32>,
-    press_scale_target: RwLock<f32>,
-    press_scale_velocity: RwLock<f32>,
-    press_spring_strength: f32,
-    press_spring_damping: f32,
-    press_impulse: f32,
-    release_impulse: f32,
-    press_was_down: RwLock<bool>,
+    // Event callbacks. Kept as its own lock: read guards are held while
+    // user callbacks run and may re-enter this window.
+    callbacks: RwLock<Option<Box<dyn WindowCallbacks>>>,
+}
 
-    // Render-time bounds override (used to preserve press-scale for custom draws)
-    render_bounds_override: RwLock<Option<UIRect>>,
-    
-    // User data
-    user_data: RwLock<HashMap<String, Box<dyn std::any::Any + Send + Sync>>>,
+/// Mutable per-window properties (C++ GameWindow member fields).
+struct WindowProps {
+    status: WindowStatus,
+    window_type: String,
+    style: u32,
+    position: (i32, i32),
+    size: (i32, i32),
+    text: String,
+    text_colors: WindowTextColors,
+    draw_data: WindowDrawData,
+    font_name: String,
+    font_size: i32,
+    is_mouse_over: bool,
+    is_pressed: bool,
+    is_focused: bool,
+    is_toggled: bool,
+    tooltip_text: String,
+    tooltip_delay: u32,
+    combobox_links: Option<ComboBoxLinks>,
+    listbox_links: Option<ListBoxLinks>,
+    slider_thumb: Option<WindowId>,
+    press_scale: f32,
+    press_scale_target: f32,
+    press_scale_velocity: f32,
+    press_was_down: bool,
+    render_bounds_override: Option<UIRect>,
+    user_data: HashMap<String, Box<dyn std::any::Any + Send + Sync>>,
+}
+
+/// Parent/child links.
+struct WindowHierarchy {
+    parent: Option<Weak<EnhancedGameWindow>>,
+    children: Vec<Arc<EnhancedGameWindow>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -335,52 +334,56 @@ impl EnhancedGameWindow {
         Arc::new(Self {
             id,
             name: name.to_string(),
-            status: RwLock::new(WindowStatus::NONE),
-            window_type: RwLock::new(String::new()),
-            style: RwLock::new(0),
-            position: RwLock::new((0, 0)),
-            size: RwLock::new((100, 100)),
-            parent: RwLock::new(None),
-            children: RwLock::new(Vec::new()),
-            text: RwLock::new(String::new()),
-            text_colors: RwLock::new(WindowTextColors::default()),
-            draw_data: RwLock::new(WindowDrawData {
-                enabled: None,
-                disabled: None,
-                hilited: None,
-                pushed: None,
-                enabled_color: [0.0, 0.0, 0.0, 0.0],
-                enabled_border: [0.0, 0.0, 0.0, 0.0],
-                disabled_color: [0.0, 0.0, 0.0, 0.0],
-                disabled_border: [0.0, 0.0, 0.0, 0.0],
-                hilited_color: [0.0, 0.0, 0.0, 0.0],
-                hilited_border: [0.0, 0.0, 0.0, 0.0],
-                pushed_color: [0.0, 0.0, 0.0, 0.0],
-                pushed_border: [0.0, 0.0, 0.0, 0.0],
+            props: RwLock::new(WindowProps {
+                status: WindowStatus::NONE,
+                window_type: String::new(),
+                style: 0,
+                position: (0, 0),
+                size: (100, 100),
+                text: String::new(),
+                text_colors: WindowTextColors::default(),
+                draw_data: WindowDrawData {
+                    enabled: None,
+                    disabled: None,
+                    hilited: None,
+                    pushed: None,
+                    enabled_color: [0.0, 0.0, 0.0, 0.0],
+                    enabled_border: [0.0, 0.0, 0.0, 0.0],
+                    disabled_color: [0.0, 0.0, 0.0, 0.0],
+                    disabled_border: [0.0, 0.0, 0.0, 0.0],
+                    hilited_color: [0.0, 0.0, 0.0, 0.0],
+                    hilited_border: [0.0, 0.0, 0.0, 0.0],
+                    pushed_color: [0.0, 0.0, 0.0, 0.0],
+                    pushed_border: [0.0, 0.0, 0.0, 0.0],
+                },
+                font_name: "Arial".to_string(),
+                font_size: 12,
+                is_mouse_over: false,
+                is_pressed: false,
+                is_focused: false,
+                is_toggled: false,
+                tooltip_text: String::new(),
+                tooltip_delay: 1000,
+                combobox_links: None,
+                listbox_links: None,
+                slider_thumb: None,
+                press_scale: 1.0,
+                press_scale_target: 1.0,
+                press_scale_velocity: 0.0,
+                press_was_down: false,
+                render_bounds_override: None,
+                user_data: HashMap::new(),
             }),
-            font_name: RwLock::new("Arial".to_string()),
-            font_size: RwLock::new(12),
-            callbacks: RwLock::new(None),
-            is_mouse_over: RwLock::new(false),
-            is_pressed: RwLock::new(false),
-            is_focused: RwLock::new(false),
-            is_toggled: RwLock::new(false),
-            tooltip_text: RwLock::new(String::new()),
-            tooltip_delay: RwLock::new(1000),
+            hierarchy: RwLock::new(WindowHierarchy {
+                parent: None,
+                children: Vec::new(),
+            }),
             widget: Mutex::new(None),
-            combobox_links: RwLock::new(None),
-            listbox_links: RwLock::new(None),
-            slider_thumb: RwLock::new(None),
-            user_data: RwLock::new(HashMap::new()),
-            press_scale: RwLock::new(1.0),
-            press_scale_target: RwLock::new(1.0),
-            press_scale_velocity: RwLock::new(0.0),
+            callbacks: RwLock::new(None),
             press_spring_strength: 60.0,
             press_spring_damping: 10.0,
             press_impulse: -4.5,
             release_impulse: 5.5,
-            press_was_down: RwLock::new(false),
-            render_bounds_override: RwLock::new(None),
         })
     }
     
@@ -394,27 +397,27 @@ impl EnhancedGameWindow {
     }
     
     pub fn get_status(&self) -> WindowStatus {
-        *self.status.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).status
     }
 
     pub fn set_window_type(&self, window_type: &str) {
-        *self.window_type.write().unwrap_or_else(|e| e.into_inner()) = window_type.to_string();
+        self.props.write().unwrap_or_else(|e| e.into_inner()).window_type = window_type.to_string();
     }
 
     pub fn get_window_type(&self) -> String {
-        self.window_type.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.props.read().unwrap_or_else(|e| e.into_inner()).window_type.clone()
     }
 
     pub fn set_style(&self, style: u32) {
-        *self.style.write().unwrap_or_else(|e| e.into_inner()) = style;
+        self.props.write().unwrap_or_else(|e| e.into_inner()).style = style;
     }
 
     pub fn get_style(&self) -> u32 {
-        *self.style.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).style
     }
     
     pub fn get_position(&self) -> (i32, i32) {
-        *self.position.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).position
     }
 
     pub fn get_screen_position(&self) -> (i32, i32) {
@@ -431,38 +434,41 @@ impl EnhancedGameWindow {
     }
     
     pub fn get_size(&self) -> (i32, i32) {
-        *self.size.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).size
     }
     
     pub fn get_bounds(&self) -> UIRect {
-        if let Some(bounds) = self.render_bounds_override.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            return *bounds;
+        let props = self.props.read().unwrap_or_else(|e| e.into_inner());
+        if let Some(bounds) = props.render_bounds_override {
+            return bounds;
         }
-        let pos = self.get_position();
-        let size = self.get_size();
-        UIRect::new(pos.0 as f32, pos.1 as f32, size.0 as f32, size.1 as f32)
+        UIRect::new(
+            props.position.0 as f32,
+            props.position.1 as f32,
+            props.size.0 as f32,
+            props.size.1 as f32,
+        )
     }
 
     pub fn get_enabled_image_name(&self) -> Option<String> {
-        let draw_data = self.draw_data.read().unwrap_or_else(|e| e.into_inner());
-        draw_data.enabled.clone()
+        self.props.read().unwrap_or_else(|e| e.into_inner()).draw_data.enabled.clone()
     }
     
     pub fn get_text(&self) -> String {
-        self.text.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.props.read().unwrap_or_else(|e| e.into_inner()).text.clone()
     }
     
     pub fn get_font_name(&self) -> String {
-        self.font_name.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.props.read().unwrap_or_else(|e| e.into_inner()).font_name.clone()
     }
     
     pub fn get_font_size(&self) -> i32 {
-        *self.font_size.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).font_size
     }
     
     // Property setters
     pub fn set_status(&self, status: WindowStatus) {
-        *self.status.write().unwrap_or_else(|e| e.into_inner()) = status;
+        self.props.write().unwrap_or_else(|e| e.into_inner()).status = status;
     }
 
     pub fn set_widget(&self, widget: WindowWidget) {
@@ -480,36 +486,36 @@ impl EnhancedGameWindow {
     }
 
     pub fn set_combobox_links(&self, links: ComboBoxLinks) {
-        *self.combobox_links.write().unwrap_or_else(|e| e.into_inner()) = Some(links);
+        self.props.write().unwrap_or_else(|e| e.into_inner()).combobox_links = Some(links);
     }
 
     pub fn combobox_links(&self) -> Option<ComboBoxLinks> {
-        *self.combobox_links.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).combobox_links
     }
 
     pub fn set_listbox_links(&self, links: ListBoxLinks) {
-        *self.listbox_links.write().unwrap_or_else(|e| e.into_inner()) = Some(links);
+        self.props.write().unwrap_or_else(|e| e.into_inner()).listbox_links = Some(links);
     }
 
     pub fn listbox_links(&self) -> Option<ListBoxLinks> {
-        *self.listbox_links.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).listbox_links
     }
 
     pub fn set_slider_thumb(&self, thumb_id: WindowId) {
-        *self.slider_thumb.write().unwrap_or_else(|e| e.into_inner()) = Some(thumb_id);
+        self.props.write().unwrap_or_else(|e| e.into_inner()).slider_thumb = Some(thumb_id);
     }
 
     pub fn slider_thumb(&self) -> Option<WindowId> {
-        *self.slider_thumb.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).slider_thumb
     }
 
     pub fn set_position(&self, x: i32, y: i32) {
-        *self.position.write().unwrap_or_else(|e| e.into_inner()) = (x, y);
+        self.props.write().unwrap_or_else(|e| e.into_inner()).position = (x, y);
         self.sync_widget_bounds();
     }
     
     pub fn set_size(&self, width: i32, height: i32) {
-        *self.size.write().unwrap_or_else(|e| e.into_inner()) = (width, height);
+        self.props.write().unwrap_or_else(|e| e.into_inner()).size = (width, height);
         self.sync_widget_bounds();
     }
     
@@ -527,7 +533,7 @@ impl EnhancedGameWindow {
     }
     
     pub fn set_text(&self, text: &str) {
-        *self.text.write().unwrap_or_else(|e| e.into_inner()) = text.to_string();
+        self.props.write().unwrap_or_else(|e| e.into_inner()).text = text.to_string();
     }
 
     pub fn set_progress_value(&self, value: f32) {
@@ -547,8 +553,9 @@ impl EnhancedGameWindow {
     }
     
     pub fn set_font(&self, name: &str, size: i32) {
-        *self.font_name.write().unwrap_or_else(|e| e.into_inner()) = name.to_string();
-        *self.font_size.write().unwrap_or_else(|e| e.into_inner()) = size;
+        let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+        props.font_name = name.to_string();
+        props.font_size = size;
     }
 
     pub fn set_draw_images(
@@ -558,7 +565,7 @@ impl EnhancedGameWindow {
         hilited: Option<&str>,
         pushed: Option<&str>,
     ) {
-        let mut draw_data = self.draw_data.write().unwrap_or_else(|e| e.into_inner());
+        let mut draw_data = &mut self.props.write().unwrap_or_else(|e| e.into_inner()).draw_data;
         draw_data.enabled = enabled.map(|s| s.to_string());
         draw_data.disabled = disabled.map(|s| s.to_string());
         draw_data.hilited = hilited.map(|s| s.to_string());
@@ -580,7 +587,7 @@ impl EnhancedGameWindow {
         pushed_color: [f32; 4],
         pushed_border: [f32; 4],
     ) {
-        let mut draw_data = self.draw_data.write().unwrap_or_else(|e| e.into_inner());
+        let mut draw_data = &mut self.props.write().unwrap_or_else(|e| e.into_inner()).draw_data;
         draw_data.enabled = enabled;
         draw_data.disabled = disabled;
         draw_data.hilited = hilited;
@@ -606,7 +613,7 @@ impl EnhancedGameWindow {
         hilited_border: [f32; 4],
         pushed_border: [f32; 4],
     ) {
-        let mut colors = self.text_colors.write().unwrap_or_else(|e| e.into_inner());
+        let mut colors = &mut self.props.write().unwrap_or_else(|e| e.into_inner()).text_colors;
         colors.enabled = enabled;
         colors.disabled = disabled;
         colors.hilited = hilited;
@@ -622,16 +629,17 @@ impl EnhancedGameWindow {
     }
     
     pub fn set_tooltip(&self, text: &str, delay: u32) {
-        *self.tooltip_text.write().unwrap_or_else(|e| e.into_inner()) = text.to_string();
-        *self.tooltip_delay.write().unwrap_or_else(|e| e.into_inner()) = delay;
+        let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+        props.tooltip_text = text.to_string();
+        props.tooltip_delay = delay;
     }
 
     pub fn get_tooltip(&self) -> String {
-        self.tooltip_text.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.props.read().unwrap_or_else(|e| e.into_inner()).tooltip_text.clone()
     }
 
     pub fn get_tooltip_delay(&self) -> u32 {
-        *self.tooltip_delay.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).tooltip_delay
     }
     
     // Status checks
@@ -652,15 +660,15 @@ impl EnhancedGameWindow {
     }
     
     pub fn is_mouse_over(&self) -> bool {
-        *self.is_mouse_over.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).is_mouse_over
     }
     
     pub fn is_pressed(&self) -> bool {
-        *self.is_pressed.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).is_pressed
     }
 
     pub fn is_toggled(&self) -> bool {
-        *self.is_toggled.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).is_toggled
     }
 
     pub fn is_input_enabled(&self) -> bool {
@@ -681,41 +689,44 @@ impl EnhancedGameWindow {
 
     pub fn get_press_scale(&self) -> f32 {
         if self.is_press_anim_enabled() {
-            *self.press_scale.read().unwrap_or_else(|e| e.into_inner())
+            self.props.read().unwrap_or_else(|e| e.into_inner()).press_scale
         } else {
             1.0
         }
     }
 
     fn update_press_state(&self, pressed: bool) {
-        *self.is_pressed.write().unwrap_or_else(|e| e.into_inner()) = pressed;
+        let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+        props.is_pressed = pressed;
 
-        if !self.is_press_anim_enabled() {
-            *self.press_scale.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = 0.0;
-            *self.press_was_down.write().unwrap_or_else(|e| e.into_inner()) = pressed;
+        let anim_enabled =
+            props.status.contains(WindowStatus::ENABLED) && !props.status.contains(WindowStatus::NO_INPUT);
+        if !anim_enabled {
+            props.press_scale = 1.0;
+            props.press_scale_target = 1.0;
+            props.press_scale_velocity = 0.0;
+            props.press_was_down = pressed;
             return;
         }
 
-        let mut was_down = self.press_was_down.write().unwrap_or_else(|e| e.into_inner());
-        if pressed != *was_down {
-            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = if pressed { 0.94 } else { 1.0 };
-            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = if pressed {
+        if pressed != props.press_was_down {
+            props.press_scale_target = if pressed { 0.94 } else { 1.0 };
+            props.press_scale_velocity = if pressed {
                 self.press_impulse
             } else {
                 self.release_impulse
             };
-            *was_down = pressed;
+            props.press_was_down = pressed;
         }
     }
 
     pub fn update_press_animation(&self, delta_time: f32) {
         if !self.is_press_anim_enabled() {
-            *self.press_scale.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = 0.0;
-            *self.press_was_down.write().unwrap_or_else(|e| e.into_inner()) = false;
+            let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+            props.press_scale = 1.0;
+            props.press_scale_target = 1.0;
+            props.press_scale_velocity = 0.0;
+            props.press_was_down = false;
             return;
         }
 
@@ -728,9 +739,10 @@ impl EnhancedGameWindow {
             return;
         }
 
-        let target = *self.press_scale_target.read().unwrap_or_else(|e| e.into_inner());
-        let mut scale = self.press_scale.write().unwrap_or_else(|e| e.into_inner());
-        let mut velocity = self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner());
+        let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+        let target = props.press_scale_target;
+        let scale = &mut props.press_scale;
+        let velocity = &mut props.press_scale_velocity;
 
         let displacement = *scale - target;
         let accel = -self.press_spring_strength * displacement
@@ -745,16 +757,18 @@ impl EnhancedGameWindow {
     }
     
     pub fn is_focused(&self) -> bool {
-        *self.is_focused.read().unwrap_or_else(|e| e.into_inner())
+        self.props.read().unwrap_or_else(|e| e.into_inner()).is_focused
     }
     
     // Status modification
     pub fn enable(&self, enabled: bool) {
-        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
-        if enabled {
-            status.insert(WindowStatus::ENABLED);
-        } else {
-            status.remove(WindowStatus::ENABLED);
+        {
+            let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+            if enabled {
+                props.status.insert(WindowStatus::ENABLED);
+            } else {
+                props.status.remove(WindowStatus::ENABLED);
+            }
         }
         if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             set_widget_enabled(widget, enabled);
@@ -762,11 +776,13 @@ impl EnhancedGameWindow {
     }
     
     pub fn hide(&self, hidden: bool) {
-        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
-        if hidden {
-            status.insert(WindowStatus::HIDDEN);
-        } else {
-            status.remove(WindowStatus::HIDDEN);
+        {
+            let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+            if hidden {
+                props.status.insert(WindowStatus::HIDDEN);
+            } else {
+                props.status.remove(WindowStatus::HIDDEN);
+            }
         }
         if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             set_widget_visible(widget, !hidden);
@@ -774,56 +790,59 @@ impl EnhancedGameWindow {
     }
     
     pub fn activate(&self, active: bool) {
-        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
+        let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
         if active {
-            status.insert(WindowStatus::ACTIVE);
+            props.status.insert(WindowStatus::ACTIVE);
         } else {
-            status.remove(WindowStatus::ACTIVE);
+            props.status.remove(WindowStatus::ACTIVE);
         }
     }
     
     // Hierarchy management
     pub fn add_child(self: &Arc<Self>, child: Arc<EnhancedGameWindow>) -> Result<()> {
         // Set parent reference in child
-        {
-            let mut child_parent = child.parent.write().unwrap_or_else(|e| e.into_inner());
-            *child_parent = Some(Arc::downgrade(self));
-        }
-        
+        child.hierarchy.write().unwrap_or_else(|e| e.into_inner()).parent = Some(Arc::downgrade(self));
+
         // Add to children list
-        self.children.write().unwrap_or_else(|e| e.into_inner()).push(child);
-        
+        self.hierarchy
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .children
+            .push(child);
+
         Ok(())
     }
     
     pub fn remove_child(&self, child: &Arc<EnhancedGameWindow>) -> Result<()> {
         // Clear parent reference in child
-        {
-            let mut child_parent = child.parent.write().unwrap_or_else(|e| e.into_inner());
-            *child_parent = None;
-        }
-        
+        child.hierarchy.write().unwrap_or_else(|e| e.into_inner()).parent = None;
+
         // Remove from children list
-        let mut children = self.children.write().unwrap_or_else(|e| e.into_inner());
-        children.retain(|c| c.get_id() != child.get_id());
-        
+        let mut hierarchy = self.hierarchy.write().unwrap_or_else(|e| e.into_inner());
+        hierarchy.children.retain(|c| c.get_id() != child.get_id());
+
         Ok(())
     }
     
     pub fn get_parent(&self) -> Option<Arc<EnhancedGameWindow>> {
-        self.parent.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|weak| weak.upgrade())
+        self.hierarchy
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .parent
+            .as_ref()
+            .and_then(|weak| weak.upgrade())
     }
     
     pub fn get_children(&self) -> Vec<Arc<EnhancedGameWindow>> {
-        self.children.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.hierarchy.read().unwrap_or_else(|e| e.into_inner()).children.clone()
     }
     
     pub fn get_child_count(&self) -> usize {
-        self.children.read().unwrap_or_else(|e| e.into_inner()).len()
+        self.hierarchy.read().unwrap_or_else(|e| e.into_inner()).children.len()
     }
     
     pub fn find_child_by_name(&self, name: &str) -> Option<Arc<EnhancedGameWindow>> {
-        let children = self.children.read().unwrap_or_else(|e| e.into_inner());
+        let children = &self.hierarchy.read().unwrap_or_else(|e| e.into_inner()).children;
         for child in children.iter() {
             if child.get_name() == name {
                 return Some(child.clone());
@@ -837,7 +856,7 @@ impl EnhancedGameWindow {
     }
     
     pub fn find_child_by_id(&self, id: WindowId) -> Option<Arc<EnhancedGameWindow>> {
-        let children = self.children.read().unwrap_or_else(|e| e.into_inner());
+        let children = &self.hierarchy.read().unwrap_or_else(|e| e.into_inner()).children;
         for child in children.iter() {
             if child.get_id() == id {
                 return Some(child.clone());
@@ -920,7 +939,7 @@ impl EnhancedGameWindow {
         
         match message {
             WindowMessage::MouseEntering if is_in_bounds => {
-                *self.is_mouse_over.write().unwrap_or_else(|e| e.into_inner()) = true;
+                self.props.write().unwrap_or_else(|e| e.into_inner()).is_mouse_over = true;
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_gadget_style {
                     let _ = self.send_message(WindowMessage::GadgetMouseEntering, 0, 0);
@@ -928,7 +947,7 @@ impl EnhancedGameWindow {
                 handled
             }
             WindowMessage::MouseLeaving => {
-                *self.is_mouse_over.write().unwrap_or_else(|e| e.into_inner()) = false;
+                self.props.write().unwrap_or_else(|e| e.into_inner()).is_mouse_over = false;
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_gadget_style {
                     let _ = self.send_message(WindowMessage::GadgetMouseLeaving, 0, 0);
@@ -938,8 +957,8 @@ impl EnhancedGameWindow {
             WindowMessage::LeftDown if is_in_bounds => {
                 self.update_press_state(true);
                 if toggle_like && trigger_on_mouse_down {
-                    let mut toggled = self.is_toggled.write().unwrap_or_else(|e| e.into_inner());
-                    *toggled = !*toggled;
+                    let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+                    props.is_toggled = !props.is_toggled;
                 }
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_button_style && trigger_on_mouse_down {
@@ -952,8 +971,8 @@ impl EnhancedGameWindow {
                 self.update_press_state(false);
                 if was_pressed && is_in_bounds {
                     if toggle_like && !trigger_on_mouse_down {
-                        let mut toggled = self.is_toggled.write().unwrap_or_else(|e| e.into_inner());
-                        *toggled = !*toggled;
+                        let mut props = self.props.write().unwrap_or_else(|e| e.into_inner());
+                        props.is_toggled = !props.is_toggled;
                     }
                     let handled = self.send_message(message, 0, pack_coords(x, y));
                     if is_button_style && !trigger_on_mouse_down {
@@ -1090,7 +1109,7 @@ impl EnhancedGameWindow {
         let target_parent = self.get_parent();
         for message in messages {
             if let GadgetMessage::ValueChanged { value: GadgetValue::Boolean(state), .. } = message {
-                *self.is_toggled.write().unwrap_or_else(|e| e.into_inner()) = state;
+                self.props.write().unwrap_or_else(|e| e.into_inner()).is_toggled = state;
             }
 
             let (msg, data1) = match message {
@@ -1460,9 +1479,10 @@ impl EnhancedGameWindow {
 
     fn show_tab_pane(&self, index: usize) {
         let panes: Vec<Arc<EnhancedGameWindow>> = self
-            .children
+            .hierarchy
             .read()
             .unwrap_or_else(|e| e.into_inner())
+            .children
             .iter()
             .filter(|child| (child.get_style() & GWS_TAB_PANE) != 0)
             .cloned()
@@ -1511,18 +1531,18 @@ impl EnhancedGameWindow {
         let use_disabled_colors = !self.is_enabled() && !status.contains(WindowStatus::ALWAYS_COLOR);
         let toggled = self.is_toggled();
         let pressed_or_toggled = self.is_pressed() || toggled;
-        let (state_color, border_color, z_order) = if use_disabled_colors {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
-            (colors.disabled, colors.disabled_border, 0.1)
-        } else if pressed_or_toggled {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
-            (colors.pushed, colors.pushed_border, 0.3)
-        } else if self.is_mouse_over() {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
-            (colors.hilited, colors.hilited_border, 0.2)
-        } else {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
-            (colors.enabled, colors.enabled_border, 0.1)
+        let (state_color, border_color, z_order) = {
+            let props = self.props.read().unwrap_or_else(|e| e.into_inner());
+            let colors = &props.text_colors;
+            if use_disabled_colors {
+                (colors.disabled, colors.disabled_border, 0.1)
+            } else if pressed_or_toggled {
+                (colors.pushed, colors.pushed_border, 0.3)
+            } else if props.is_mouse_over {
+                (colors.hilited, colors.hilited_border, 0.2)
+            } else {
+                (colors.enabled, colors.enabled_border, 0.1)
+            }
         };
         
         let _override_guard = RenderBoundsOverride::new(self, bounds);
@@ -1534,11 +1554,11 @@ impl EnhancedGameWindow {
                     // Custom rendering handled by callback
                 } else {
                     // Default rendering
-                    self.render_default(renderer, bounds, state_color, border_color, z_order)?;
+                    self.render_default(renderer, bounds, state_color, border_color, z_order, status, pressed_or_toggled)?;
                 }
             } else {
                 // Default rendering
-                self.render_default(renderer, bounds, state_color, border_color, z_order)?;
+                self.render_default(renderer, bounds, state_color, border_color, z_order, status, pressed_or_toggled)?;
             }
         }
         
@@ -1557,9 +1577,11 @@ impl EnhancedGameWindow {
         color: [f32; 4],
         border_color: [f32; 4],
         z_order: f32,
+        status: WindowStatus,
+        pressed_or_toggled: bool,
     ) -> Result<()> {
         // Draw background if needed
-        let draw_data = self.draw_data.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let draw_data = self.props.read().unwrap_or_else(|e| e.into_inner()).draw_data.clone();
         let use_disabled_images = !self.is_enabled() && !status.contains(WindowStatus::ALWAYS_COLOR);
         let (image_name, fill_color, border_color) = if use_disabled_images {
             (
@@ -1689,7 +1711,7 @@ impl EnhancedGameWindow {
                     };
                     let base_y = bounds.y + (bounds.height - font_size * 1.2) * 0.5;
                     if let Some(ch) = text_layout.text.chars().nth(hotkey_idx) {
-                        let hotkey_color = self.text_colors.read().unwrap_or_else(|e| e.into_inner()).hilited;
+                        let hotkey_color = self.props.read().unwrap_or_else(|e| e.into_inner()).text_colors.hilited;
                         let pos = Vec2::new(base_x + (hotkey_idx as f32 * char_width), base_y);
                         renderer.draw_text_simple(&ch.to_string(), pos, point_size as f32, hotkey_color)?;
                     }
@@ -1724,11 +1746,15 @@ impl EnhancedGameWindow {
     
     // User data management
     pub fn set_user_data<T: std::any::Any + Send + Sync>(&self, key: &str, value: T) {
-        self.user_data.write().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), Box::new(value));
+        self.props
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .user_data
+            .insert(key.to_string(), Box::new(value));
     }
     
     pub fn get_user_data<T: std::any::Any + Send + Sync>(&self, key: &str) -> Option<&T> {
-        let store = self.user_data.read().unwrap_or_else(|e| e.into_inner());
+        let store = &self.props.read().unwrap_or_else(|e| e.into_inner()).user_data;
         store.get(key).and_then(|value| value.downcast_ref::<T>())
     }
 }
@@ -1739,14 +1765,14 @@ struct RenderBoundsOverride<'a> {
 
 impl<'a> RenderBoundsOverride<'a> {
     fn new(window: &'a EnhancedGameWindow, bounds: UIRect) -> Self {
-        *window.render_bounds_override.write().unwrap_or_else(|e| e.into_inner()) = Some(bounds);
+        *window.props.write().unwrap_or_else(|e| e.into_inner()).render_bounds_override = Some(bounds);
         Self { window }
     }
 }
 
 impl Drop for RenderBoundsOverride<'_> {
     fn drop(&mut self) {
-        *self.window.render_bounds_override.write().unwrap_or_else(|e| e.into_inner()) = None;
+        *self.window.props.write().unwrap_or_else(|e| e.into_inner()).render_bounds_override = None;
     }
 }
 

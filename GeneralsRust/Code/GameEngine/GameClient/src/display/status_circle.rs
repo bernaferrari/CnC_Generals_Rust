@@ -13,7 +13,17 @@ pub struct CameraFadeOverlay {
     pub diffuse: u32,
 }
 
-static LAST_OVERLAY: Mutex<Option<CameraFadeOverlay>> = Mutex::new(None);
+/// Camera-fade overlay state: last computed overlay plus the overlay queued
+/// by the live letterbox/cinematic pass. One lock guards both slots.
+static FADE_OVERLAYS: Mutex<FadeOverlayState> = Mutex::new(FadeOverlayState {
+    last: None,
+    queued_live: None,
+});
+
+struct FadeOverlayState {
+    last: Option<CameraFadeOverlay>,
+    queued_live: Option<CameraFadeOverlay>,
+}
 
 /// C++ `W3DStatusCircle::Render` fade branch.
 pub fn render_camera_fade() -> Option<CameraFadeOverlay> {
@@ -31,33 +41,32 @@ pub fn render_camera_fade() -> Option<CameraFadeOverlay> {
             diffuse: (0xff << 24) | (channel << 16) | (channel << 8) | channel,
         })
     });
-    if let Ok(mut slot) = LAST_OVERLAY.lock() {
-        *slot = overlay;
+    if let Ok(mut slot) = FADE_OVERLAYS.lock() {
+        slot.last = overlay;
     }
     overlay
 }
 
 /// Last fade overlay computed this frame.
 pub fn current_camera_fade() -> Option<CameraFadeOverlay> {
-    LAST_OVERLAY.lock().ok().and_then(|slot| *slot)
+    FADE_OVERLAYS.lock().ok().and_then(|slot| slot.last)
 }
 
-static QUEUED_LIVE_FADE: Mutex<Option<CameraFadeOverlay>> = Mutex::new(None);
 
 /// Stamp a frozen presentation fade for the live overlay / render_pipeline blit.
 pub fn queue_live_camera_fade(fade: u8, intensity: f32, diffuse: u32) {
     let overlay = overlay_from_packed(fade, intensity, diffuse);
-    if let Ok(mut slot) = QUEUED_LIVE_FADE.lock() {
-        *slot = overlay;
+    if let Ok(mut slot) = FADE_OVERLAYS.lock() {
+        slot.queued_live = overlay;
     }
 }
 
 /// Consume the overlay queued by the live letterbox/cinematic pass.
 pub fn take_queued_live_camera_fade() -> Option<CameraFadeOverlay> {
-    QUEUED_LIVE_FADE
+    FADE_OVERLAYS
         .lock()
         .ok()
-        .and_then(|mut slot| slot.take())
+        .and_then(|mut slot| slot.queued_live.take())
 }
 
 fn overlay_from_packed(fade: u8, intensity: f32, diffuse: u32) -> Option<CameraFadeOverlay> {

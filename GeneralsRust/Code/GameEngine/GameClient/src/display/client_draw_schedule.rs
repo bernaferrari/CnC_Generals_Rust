@@ -56,9 +56,7 @@ static SYNC_TIME_MS: AtomicU32 = AtomicU32::new(0);
 static LAST_DISPLAY_CLIENT_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
 static LAST_CPU_PHASE_FRAME: AtomicU32 = AtomicU32::new(u32::MAX);
 #[cfg(test)]
-static PHASE_LOG: Mutex<Vec<ClientDrawPhase>> = Mutex::new(Vec::new());
-#[cfg(test)]
-static DRAW_ID_LOG: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static DRAW_LOG: Mutex<(Vec<ClientDrawPhase>, Vec<u32>)> = Mutex::new((Vec::new(), Vec::new()));
 
 pub fn extra_freeze_from_engine() -> bool {
     let camera_frozen =
@@ -149,12 +147,9 @@ pub fn run_dual_world_cpu_phases() {
     phases.push(ClientDrawPhase::DrawViews);
 
     #[cfg(test)]
-    if let Ok(mut log) = PHASE_LOG.lock() {
-        *log = phases;
-    }
-    #[cfg(test)]
-    if let Ok(mut log) = DRAW_ID_LOG.lock() {
-        *log = drawn;
+    if let Ok(mut log) = DRAW_LOG.lock() {
+        log.0 = phases;
+        log.1 = drawn;
     }
 }
 
@@ -216,17 +211,17 @@ fn view_aabb_from_tactical(view: &crate::display::view::View) -> ViewAabb {
 
 #[cfg(test)]
 pub fn take_phase_log() -> Vec<ClientDrawPhase> {
-    PHASE_LOG
+    DRAW_LOG
         .lock()
-        .map(|mut log| std::mem::take(&mut *log))
+        .map(|mut log| std::mem::take(&mut log.0))
         .unwrap_or_default()
 }
 
 #[cfg(test)]
 pub fn take_draw_id_log() -> Vec<u32> {
-    DRAW_ID_LOG
+    DRAW_LOG
         .lock()
-        .map(|mut log| std::mem::take(&mut *log))
+        .map(|mut log| std::mem::take(&mut log.1))
         .unwrap_or_default()
 }
 

@@ -14,7 +14,7 @@ use log::warn;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 const KEY_ENTER: usize = 0x0D;
 const KEY_ESC: usize = 0x1B;
@@ -60,12 +60,12 @@ struct PopupUiState {
 }
 
 thread_local! {
-    static POPUP_UI_STATE: Arc<Mutex<PopupUiState>> =
-        Arc::new(Mutex::new(PopupUiState::default()));
+    static POPUP_UI_STATE: RefCell<PopupUiState> = RefCell::new(PopupUiState::default());
 }
 
-fn popup_ui_state() -> Arc<Mutex<PopupUiState>> {
-    POPUP_UI_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_popup_ui_state<R>(f: impl FnOnce(&mut PopupUiState) -> R) -> R {
+    POPUP_UI_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 pub fn in_game_popup_message_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -83,9 +83,7 @@ pub fn in_game_popup_message_init(_layout: &WindowLayout, _user_data: Option<&dy
         .and_then(|parent| parent.borrow().find_child_by_id(button_ok_id as i32));
 
     let popup_data = TheInGameUI::get_popup_message_data();
-    {
-        let state_handle = popup_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_popup_ui_state(|state| {
         state.parent_id = Some(parent_id);
         state.static_text_id = Some(static_text_id);
         state.button_ok_id = Some(button_ok_id);
@@ -99,8 +97,7 @@ pub fn in_game_popup_message_init(_layout: &WindowLayout, _user_data: Option<&dy
         state.popup_instance_generation = next_popup_ui_instance_generation();
         state.dismissal_queued = false;
         state.dismissal_published = false;
-    }
-
+    });
     let Some(popup_data) = popup_data else {
         warn!("InGamePopupMessageInit called without popup message data");
         return;
@@ -201,23 +198,19 @@ pub fn in_game_popup_message_input(
     // `process_key_event` already holds WindowManager while it invokes this
     // callback. Snapshot and release our own state lock, then queue the
     // synchronous GadgetSelected delivery for that outer borrow's drain. A
-    // nested `with_window_manager` would otherwise fail closed, while holding
-    // this mutex across direct delivery would re-enter the popup system lock.
-    let state_handle = popup_ui_state();
-    let (window_id, button_ok_id, popup_instance_generation) = {
-        let mut state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if state_guard.dismissal_queued || state_guard.dismissal_published {
-            return WindowMsgHandled::Handled;
-        }
-        let Some(button_ok_id) = state_guard.button_ok_id else {
-            return WindowMsgHandled::Handled;
-        };
-        state_guard.dismissal_queued = true;
-        (
-            window.get_id(),
-            button_ok_id,
-            state_guard.popup_instance_generation,
-        )
+    let Some((window_id, button_ok_id, popup_instance_generation)) =
+        with_popup_ui_state(|state| {
+            if state.dismissal_queued || state.dismissal_published {
+                return None;
+            }
+            let Some(button_ok_id) = state.button_ok_id else {
+                return None;
+            };
+            state.dismissal_queued = true;
+            Some((window.get_id(), button_ok_id, state.popup_instance_generation))
+        })
+    else {
+        return WindowMsgHandled::Handled;
     };
 
     queue_window_manager_op(move |manager| {
@@ -238,10 +231,11 @@ pub fn in_game_popup_message_input(
             // A layout can disappear between the keyboard callback and the
             // deferred delivery. Do not disturb a replacement popup's queued
             // acknowledgement when this one belongs to an older layout.
-            let mut state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            if state_guard.popup_instance_generation == popup_instance_generation {
-                state_guard.dismissal_queued = false;
-            }
+            with_popup_ui_state(|state| {
+                if state.popup_instance_generation == popup_instance_generation {
+                    state.dismissal_queued = false;
+                }
+            });
         }
         let _ = pop_payload(instance_payload);
     });
@@ -272,26 +266,27 @@ pub fn in_game_popup_message_system(
             // Snapshot state before publishing or taking the standalone
             // fallback: both paths can synchronously revisit popup/window
             // state. The first delivery wins until the active WND is removed.
-            let state_handle = popup_ui_state();
-            let (pause, host_popup_generation) = {
-                let mut state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-                if control_id != state_guard.button_ok_id.unwrap_or(0)
-                    || state_guard.dismissal_published
+            let Some((pause, host_popup_generation)) = with_popup_ui_state(|state| {
+                if control_id != state.button_ok_id.unwrap_or(0)
+                    || state.dismissal_published
                 {
-                    return WindowMsgHandled::Handled;
+                    return None;
                 }
                 if queued_popup_instance_generation.is_some()
                     && queued_popup_instance_generation
-                        != Some(state_guard.popup_instance_generation)
+                        != Some(state.popup_instance_generation)
                 {
                     // The deferred keyboard event belongs to a popup C++ has
                     // already replaced. Ignore it without consuming the new
                     // popup's future ButtonOk/Esc acknowledgement.
-                    return WindowMsgHandled::Handled;
+                    return None;
                 }
-                state_guard.dismissal_queued = false;
-                state_guard.dismissal_published = true;
-                (state_guard.pause, state_guard.host_popup_generation)
+                state.dismissal_queued = false;
+                state.dismissal_published = true;
+                Some((state.pause, state.host_popup_generation))
+            })
+            else {
+                return WindowMsgHandled::Handled;
             };
 
             if let Some(host_popup_generation) = host_popup_generation {
@@ -325,8 +320,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     fn reset_popup_test_state() {
-        let state_handle = popup_ui_state();
-        *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
+        with_popup_ui_state(|state| *state = PopupUiState::default());
         with_window_manager(|manager| manager.reset());
     }
 
@@ -348,14 +342,14 @@ mod tests {
         pause: bool,
         host_popup_generation: Option<usize>,
     ) {
-        let state_handle = popup_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_popup_ui_state(|state| {
         state.button_ok_id = Some(button_ok_id);
         state.pause = pause;
         state.host_popup_generation = host_popup_generation.filter(|generation| *generation != 0);
         state.popup_instance_generation = next_popup_ui_instance_generation();
         state.dismissal_queued = false;
         state.dismissal_published = false;
+    });
     }
 
     #[test]
@@ -398,7 +392,10 @@ mod tests {
                 .set_system_callback(move |_, msg, _, _| {
                     if msg == WindowMessage::GadgetSelected {
                         popup_mutex_was_available
-                            .store(popup_ui_state().try_lock().is_ok(), Ordering::SeqCst);
+                            .store(
+                                POPUP_UI_STATE.with(|state| state.try_borrow_mut().is_ok()),
+                                Ordering::SeqCst,
+                            );
                     }
                     WindowMsgHandled::Handled
                 });
@@ -422,8 +419,7 @@ mod tests {
                 popup_mutex_was_available.load(Ordering::SeqCst),
                 "{key:#x} delivery must not re-enter the popup mutex"
             );
-            let state_handle = popup_ui_state();
-            *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
+            with_popup_ui_state(|state| *state = PopupUiState::default());
         }
     }
 
@@ -475,8 +471,7 @@ mod tests {
                     popup_generation: HOST_POPUP_GENERATION
                 }]
             ));
-            let state_handle = popup_ui_state();
-            *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
+            with_popup_ui_state(|state| *state = PopupUiState::default());
         }
     }
 
@@ -512,8 +507,7 @@ mod tests {
                 "non-pausing popups retain C++ message-stream clear; pausing popups retain direct clear"
             );
             drop(stream_guard);
-            let state_handle = popup_ui_state();
-            *state_handle.lock().unwrap_or_else(|e| e.into_inner()) = PopupUiState::default();
+            with_popup_ui_state(|state| *state = PopupUiState::default());
         }
     }
 
@@ -530,11 +524,8 @@ mod tests {
         // per-layout identity is intentionally different from old popup A's
         // deferred keyboard delivery below.
         set_popup_button_ok_id(BUTTON_OK_ID, false, Some(ACTIVE_HOST_GENERATION));
-        let state_handle = popup_ui_state();
-        let active_instance_generation = state_handle
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .popup_instance_generation;
+        let active_instance_generation =
+            with_popup_ui_state(|state| state.popup_instance_generation);
         let stale_instance_generation = if active_instance_generation == 1 {
             2
         } else {
@@ -561,9 +552,10 @@ mod tests {
             take_host_control_bar_requests().is_empty(),
             "delayed A must not emit an ACK for active replacement B"
         );
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        assert_eq!(state.host_popup_generation, Some(ACTIVE_HOST_GENERATION));
-        assert!(!state.dismissal_published);
+        with_popup_ui_state(|state| {
+            assert_eq!(state.host_popup_generation, Some(ACTIVE_HOST_GENERATION));
+            assert!(!state.dismissal_published);
+        });
     }
 
     #[test]
@@ -580,10 +572,7 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            popup_ui_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .host_popup_generation,
+            with_popup_ui_state(|state| state.host_popup_generation),
             Some(HOST_POPUP_GENERATION),
             "Destroy has no safe per-layout identity and must not erase replacement B"
         );

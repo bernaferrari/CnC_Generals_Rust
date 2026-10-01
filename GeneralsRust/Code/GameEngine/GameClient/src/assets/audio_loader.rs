@@ -31,14 +31,14 @@ fn kira_amplitude(amp: f64) -> Decibels {
     }
 }
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-use super::{AssetError, AssetHandle, AssetPriority};
+use super::{AssetError, AssetHandle};
 
 /// Audio loading and processing errors
 #[derive(Error, Debug)]
@@ -261,32 +261,6 @@ pub enum AudioAssetPriority {
     Lowest = 4,   // Optional background audio
 }
 
-/// Audio loading request
-struct AudioLoadRequest {
-    handle: AssetHandle,
-    path: PathBuf,
-    data: Vec<u8>,
-    priority: AssetPriority,
-    settings: AudioLoadSettings,
-    callback: Option<Box<dyn FnOnce(Result<AssetHandle, AudioError>) + Send + Sync>>,
-}
-
-impl std::fmt::Debug for AudioLoadRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AudioLoadRequest")
-            .field("handle", &self.handle)
-            .field("path", &self.path)
-            .field("data_len", &self.data.len())
-            .field("priority", &self.priority)
-            .field("settings", &self.settings)
-            .field(
-                "has_callback",
-                &self.callback.as_ref().map(|_| true).unwrap_or(false),
-            )
-            .finish()
-    }
-}
-
 /// Audio loading settings
 #[derive(Debug, Clone)]
 pub struct AudioLoadSettings {
@@ -350,47 +324,49 @@ impl std::fmt::Debug for AudioInstance {
     }
 }
 
+/// Per-channel kira handles (mixing tracks plus the SFX effect chain)
+struct ChannelBus {
+    music_track: Option<TrackHandle>,
+    sfx_track: Option<TrackHandle>,
+    voice_track: Option<TrackHandle>,
+    ui_track: Option<TrackHandle>,
+    sfx_low_pass: Option<FilterHandle>,
+    sfx_high_pass: Option<FilterHandle>,
+    sfx_reverb: Option<ReverbHandle>,
+}
+
 /// Complete Audio System
 pub struct AudioLoader {
     // Core audio engine
-    audio_manager: Arc<Mutex<AudioManager>>,
+    audio_manager: Mutex<AudioManager>,
 
     // Asset storage
-    audio_assets: Arc<RwLock<HashMap<AssetHandle, Arc<AudioAsset>>>>,
-    asset_index: Arc<RwLock<HashMap<PathBuf, AssetHandle>>>,
+    audio_assets: RwLock<HashMap<AssetHandle, Arc<AudioAsset>>>,
+    asset_index: RwLock<HashMap<PathBuf, AssetHandle>>,
 
     // Sound data storage - holds actual decoded audio for playback
-    sound_data_cache: Arc<RwLock<HashMap<AssetHandle, StaticSoundData>>>,
+    sound_data_cache: RwLock<HashMap<AssetHandle, StaticSoundData>>,
 
     // Playback management
-    active_instances: Arc<RwLock<HashMap<u64, AudioInstance>>>,
-    instance_counter: Arc<Mutex<u64>>,
+    active_instances: RwLock<HashMap<u64, AudioInstance>>,
+    instance_counter: Mutex<u64>,
 
     // 3D audio system
-    listener: Arc<RwLock<AudioListener>>,
-    spatial_listener: Arc<Mutex<ListenerHandle>>,
+    listener: RwLock<AudioListener>,
+    spatial_listener: Mutex<ListenerHandle>,
 
     // Environmental effects
-    current_environment: Arc<RwLock<AudioEnvironment>>,
-    environments: Arc<RwLock<HashMap<String, AudioEnvironment>>>,
+    current_environment: RwLock<AudioEnvironment>,
+    environments: HashMap<String, AudioEnvironment>,
 
     // Audio tracks for mixing
-    music_track: Arc<Mutex<Option<TrackHandle>>>,
-    sfx_track: Arc<Mutex<Option<TrackHandle>>>,
-    voice_track: Arc<Mutex<Option<TrackHandle>>>,
-    ui_track: Arc<Mutex<Option<TrackHandle>>>,
-    sfx_low_pass: Arc<Mutex<Option<FilterHandle>>>,
-    sfx_high_pass: Arc<Mutex<Option<FilterHandle>>>,
-    sfx_reverb: Arc<Mutex<Option<ReverbHandle>>>,
-
-    // Loading system
-    load_queue: Arc<Mutex<VecDeque<AudioLoadRequest>>>,
+    channels: Mutex<ChannelBus>,
 
     // Configuration
     config: AudioConfig,
 
     // Statistics
-    stats: Arc<RwLock<AudioStats>>,
+    stats: RwLock<AudioStats>,
 }
 
 /// Audio system configuration
@@ -535,26 +511,27 @@ impl AudioLoader {
         );
 
         Ok(Self {
-            audio_manager: Arc::new(Mutex::new(audio_manager)),
-            audio_assets: Arc::new(RwLock::new(HashMap::new())),
-            asset_index: Arc::new(RwLock::new(HashMap::new())),
-            sound_data_cache: Arc::new(RwLock::new(HashMap::new())),
-            active_instances: Arc::new(RwLock::new(HashMap::new())),
-            instance_counter: Arc::new(Mutex::new(1)),
-            listener: Arc::new(RwLock::new(AudioListener::default())),
-            spatial_listener: Arc::new(Mutex::new(spatial_listener)),
-            current_environment: Arc::new(RwLock::new(AudioEnvironment::default())),
-            environments: Arc::new(RwLock::new(environments)),
-            music_track: Arc::new(Mutex::new(Some(music_track))),
-            sfx_track: Arc::new(Mutex::new(Some(sfx_track))),
-            voice_track: Arc::new(Mutex::new(Some(voice_track))),
-            ui_track: Arc::new(Mutex::new(Some(ui_track))),
-            sfx_low_pass: Arc::new(Mutex::new(Some(sfx_low_pass))),
-            sfx_high_pass: Arc::new(Mutex::new(Some(sfx_high_pass))),
-            sfx_reverb: Arc::new(Mutex::new(Some(sfx_reverb))),
-            load_queue: Arc::new(Mutex::new(VecDeque::new())),
+            audio_manager: Mutex::new(audio_manager),
+            audio_assets: RwLock::new(HashMap::new()),
+            asset_index: RwLock::new(HashMap::new()),
+            sound_data_cache: RwLock::new(HashMap::new()),
+            active_instances: RwLock::new(HashMap::new()),
+            instance_counter: Mutex::new(1),
+            listener: RwLock::new(AudioListener::default()),
+            spatial_listener: Mutex::new(spatial_listener),
+            current_environment: RwLock::new(AudioEnvironment::default()),
+            environments,
+            channels: Mutex::new(ChannelBus {
+                music_track: Some(music_track),
+                sfx_track: Some(sfx_track),
+                voice_track: Some(voice_track),
+                ui_track: Some(ui_track),
+                sfx_low_pass: Some(sfx_low_pass),
+                sfx_high_pass: Some(sfx_high_pass),
+                sfx_reverb: Some(sfx_reverb),
+            }),
             config,
-            stats: Arc::new(RwLock::new(AudioStats::default())),
+            stats: RwLock::new(AudioStats::default()),
         })
     }
 
@@ -832,19 +809,19 @@ impl AudioLoader {
             })?;
             (handle, Some(spatial))
         } else {
+            let mut bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
             let track_slot = match asset.asset_type {
-                AudioAssetType::Music => &self.music_track,
-                AudioAssetType::Voice => &self.voice_track,
-                AudioAssetType::UI => &self.ui_track,
-                _ => &self.sfx_track,
+                AudioAssetType::Music => bus.music_track.as_mut(),
+                AudioAssetType::Voice => bus.voice_track.as_mut(),
+                AudioAssetType::UI => bus.ui_track.as_mut(),
+                _ => bus.sfx_track.as_mut(),
             };
-            let mut track_guard = track_slot.lock().unwrap_or_else(|e| e.into_inner());
-            let handle = if let Some(track) = track_guard.as_mut() {
+            let handle = if let Some(track) = track_slot {
                 track.play(sound_data).map_err(|e| {
                     AudioError::EngineError(format!("Failed to play sound: {}", e))
                 })?
             } else {
-                drop(track_guard);
+                drop(bus);
                 self.audio_manager
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
@@ -1046,8 +1023,7 @@ impl AudioLoader {
 
     /// Set environmental audio effects
     pub fn set_environment(&self, environment_name: &str) -> Result<(), AudioError> {
-        let environments = self.environments.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(environment) = environments.get(environment_name) {
+        if let Some(environment) = self.environments.get(environment_name) {
             *self
                 .current_environment
                 .write()
@@ -1137,19 +1113,12 @@ impl AudioLoader {
         })
     }
 
-    fn apply_track_volume(
-        &self,
-        track: &Arc<Mutex<Option<TrackHandle>>>,
-        volume: f32,
-        master: f32,
-    ) {
-        if let Ok(mut guard) = track.lock() {
-            if let Some(track) = guard.as_mut() {
-                track.set_volume(
-                    kira_amplitude((volume * master) as f64),
-                    Tween::default(),
-                );
-            }
+    fn apply_track_volume(track: Option<&mut TrackHandle>, volume: f32, master: f32) {
+        if let Some(track) = track {
+            track.set_volume(
+                kira_amplitude((volume * master) as f64),
+                Tween::default(),
+            );
         }
     }
 
@@ -1159,29 +1128,25 @@ impl AudioLoader {
         let low_mix = if low_cutoff < 19950.0 { 1.0 } else { 0.0 };
         let high_mix = if high_cutoff > 25.0 { 1.0 } else { 0.0 };
 
-        if let Ok(mut handle) = self.sfx_low_pass.lock() {
-            if let Some(handle) = handle.as_mut() {
-                let _ = handle.set_cutoff(low_cutoff as f64, Tween::default());
-                let _ = handle.set_mix(low_mix, Tween::default());
-            }
+        let mut bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
+
+        if let Some(handle) = bus.sfx_low_pass.as_mut() {
+            let _ = handle.set_cutoff(low_cutoff as f64, Tween::default());
+            let _ = handle.set_mix(low_mix, Tween::default());
         }
 
-        if let Ok(mut handle) = self.sfx_high_pass.lock() {
-            if let Some(handle) = handle.as_mut() {
-                let _ = handle.set_cutoff(high_cutoff as f64, Tween::default());
-                let _ = handle.set_mix(high_mix, Tween::default());
-            }
+        if let Some(handle) = bus.sfx_high_pass.as_mut() {
+            let _ = handle.set_cutoff(high_cutoff as f64, Tween::default());
+            let _ = handle.set_mix(high_mix, Tween::default());
         }
 
         let feedback = (environment.reverb_time / 5.0).clamp(0.0, 0.95);
         let damping = environment.reverb_decay.clamp(0.0, 1.0);
         let mix = environment.reverb_density.clamp(0.0, 1.0);
-        if let Ok(mut handle) = self.sfx_reverb.lock() {
-            if let Some(handle) = handle.as_mut() {
-                let _ = handle.set_feedback(feedback as f64, Tween::default());
-                let _ = handle.set_damping(damping as f64, Tween::default());
-                let _ = handle.set_mix(mix, Tween::default());
-            }
+        if let Some(handle) = bus.sfx_reverb.as_mut() {
+            let _ = handle.set_feedback(feedback as f64, Tween::default());
+            let _ = handle.set_damping(damping as f64, Tween::default());
+            let _ = handle.set_mix(mix, Tween::default());
         }
     }
 
@@ -1189,10 +1154,11 @@ impl AudioLoader {
     pub fn set_master_volume(&mut self, volume: f32) {
         self.config.master_volume = volume.clamp(0.0, 1.0);
         let master = self.config.master_volume;
-        self.apply_track_volume(&self.music_track, self.config.music_volume, master);
-        self.apply_track_volume(&self.sfx_track, self.config.sfx_volume, master);
-        self.apply_track_volume(&self.voice_track, self.config.voice_volume, master);
-        self.apply_track_volume(&self.ui_track, self.config.ui_volume, master);
+        let bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
+        Self::apply_track_volume(bus.music_track.as_mut(), self.config.music_volume, master);
+        Self::apply_track_volume(bus.sfx_track.as_mut(), self.config.sfx_volume, master);
+        Self::apply_track_volume(bus.voice_track.as_mut(), self.config.voice_volume, master);
+        Self::apply_track_volume(bus.ui_track.as_mut(), self.config.ui_volume, master);
     }
 
     /// Set category volumes
@@ -1207,17 +1173,18 @@ impl AudioLoader {
         }
 
         let master = self.config.master_volume;
+        let bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
         match category {
             AudioAssetType::Music => {
-                self.apply_track_volume(&self.music_track, self.config.music_volume, master)
+                Self::apply_track_volume(bus.music_track.as_mut(), self.config.music_volume, master)
             }
             AudioAssetType::Voice => {
-                self.apply_track_volume(&self.voice_track, self.config.voice_volume, master)
+                Self::apply_track_volume(bus.voice_track.as_mut(), self.config.voice_volume, master)
             }
             AudioAssetType::UI => {
-                self.apply_track_volume(&self.ui_track, self.config.ui_volume, master)
+                Self::apply_track_volume(bus.ui_track.as_mut(), self.config.ui_volume, master)
             }
-            _ => self.apply_track_volume(&self.sfx_track, self.config.sfx_volume, master),
+            _ => Self::apply_track_volume(bus.sfx_track.as_mut(), self.config.sfx_volume, master),
         }
     }
 

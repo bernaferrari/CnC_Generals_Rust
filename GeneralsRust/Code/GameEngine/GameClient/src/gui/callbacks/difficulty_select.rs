@@ -10,7 +10,6 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::user_preferences::UserPreferences;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 struct DifficultySelectMenuState {
     parent_id: i32,
@@ -39,12 +38,13 @@ impl Default for DifficultySelectMenuState {
 }
 
 thread_local! {
-    static DIFFICULTY_SELECT_STATE: Arc<Mutex<DifficultySelectMenuState>> =
-        Arc::new(Mutex::new(DifficultySelectMenuState::default()));
+    static DIFFICULTY_SELECT_STATE: RefCell<DifficultySelectMenuState> =
+        RefCell::new(DifficultySelectMenuState::default());
 }
 
-fn difficulty_select_state() -> Arc<Mutex<DifficultySelectMenuState>> {
-    DIFFICULTY_SELECT_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_difficulty_select_state<R>(f: impl FnOnce(&mut DifficultySelectMenuState) -> R) -> R {
+    DIFFICULTY_SELECT_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -138,14 +138,13 @@ fn cancel_difficulty_select(window: &GameWindow) {
         let mut campaign_manager = get_campaign_manager();
         campaign_manager.set_campaign("");
     }
-
-    let state_handle = difficulty_select_state();
-    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_difficulty_select_state(|state| {
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
             let _ = manager.unset_modal(parent);
         });
     }
+    });
 
     destroy_current_layout(window);
 }
@@ -162,15 +161,13 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
     }
 
     save_campaign_difficulty(difficulty);
-
-    let state_handle = difficulty_select_state();
-    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_difficulty_select_state(|state| {
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
             let _ = manager.unset_modal(parent);
         });
     }
-    drop(state);
+    });
 
     destroy_current_layout(window);
 
@@ -181,8 +178,7 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
 }
 
 pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_difficulty_select_state(|state| {
 
     state.parent_id = name_to_id("DifficultySelect.wnd:DifficultySelectParent");
     state.button_ok_id = name_to_id("DifficultySelect.wnd:ButtonOk");
@@ -201,56 +197,68 @@ pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std
         }
     });
 
-    sync_radio_buttons(&state);
+    sync_radio_buttons(state);
     layout.hide(false);
-}
 
+    });
+}
 pub fn difficulty_select_system(
     window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, _data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            if control_id == state.button_ok_id {
-                let difficulty = state.selected_difficulty;
-                drop(state);
-                start_campaign_game(window, difficulty);
-                return WindowMsgHandled::Handled;
+            // Release the state borrow before dispatching: start/cancel
+            // re-enter this state through the layout pipeline.
+            enum GadgetDispatch {
+                Start(GameDifficulty),
+                Cancel,
+                None,
             }
-            if control_id == state.button_cancel_id {
-                drop(state);
-                cancel_difficulty_select(window);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_easy_id {
-                state.selected_difficulty = GameDifficulty::Easy;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_medium_id {
-                state.selected_difficulty = GameDifficulty::Normal;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
-            }
-            if control_id == state.radio_hard_id {
-                state.selected_difficulty = GameDifficulty::Hard;
-                sync_radio_buttons(&state);
-                return WindowMsgHandled::Handled;
+            let dispatch = with_difficulty_select_state(|state| {
+                if control_id == state.button_ok_id {
+                    return GadgetDispatch::Start(state.selected_difficulty);
+                }
+                if control_id == state.button_cancel_id {
+                    return GadgetDispatch::Cancel;
+                }
+                if control_id == state.radio_easy_id {
+                    state.selected_difficulty = GameDifficulty::Easy;
+                    sync_radio_buttons(state);
+                    return GadgetDispatch::None;
+                }
+                if control_id == state.radio_medium_id {
+                    state.selected_difficulty = GameDifficulty::Normal;
+                    sync_radio_buttons(state);
+                    return GadgetDispatch::None;
+                }
+                if control_id == state.radio_hard_id {
+                    state.selected_difficulty = GameDifficulty::Hard;
+                    sync_radio_buttons(state);
+                    return GadgetDispatch::None;
+                }
+                GadgetDispatch::None
+            });
+            match dispatch {
+                GadgetDispatch::Start(difficulty) => {
+                    start_campaign_game(window, difficulty);
+                }
+                GadgetDispatch::Cancel => {
+                    cancel_difficulty_select(window);
+                }
+                GadgetDispatch::None => {}
             }
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
     }
-}
 
+}
 pub fn difficulty_select_input(
     _window: &GameWindow,
     _msg: WindowMessage,
@@ -335,9 +343,8 @@ fn ensure_difficulty_select_control_ids(state: &mut DifficultySelectMenuState) {
 
 /// Residual: bind DifficultySelect control IDs (no layout load).
 pub fn simulate_difficulty_select_bind_controls() -> bool {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_difficulty_select_control_ids(&mut state);
+    with_difficulty_select_state(|state| {
+    ensure_difficulty_select_control_ids(state);
     let _ = (
         state.parent_id,
         state.button_ok_id,
@@ -346,61 +353,62 @@ pub fn simulate_difficulty_select_bind_controls() -> bool {
         state.radio_medium_id,
         state.radio_hard_id,
     );
+    });
     true
 }
 
 /// Residual: select Easy radio without widget sync.
 pub fn simulate_difficulty_select_radio_easy() -> bool {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_difficulty_select_control_ids(&mut state);
+    with_difficulty_select_state(|state| {
+    ensure_difficulty_select_control_ids(state);
     state.selected_difficulty = GameDifficulty::Easy;
     RESIDUAL_DIFF_LEVEL.store(0, std::sync::atomic::Ordering::Relaxed);
     residual_diff_action_store(ResidualDifficultySelectAction::Easy);
+    });
     residual_difficulty_select_level() == 0
 }
 
 /// Residual: select Medium/Normal radio without widget sync.
 pub fn simulate_difficulty_select_radio_medium() -> bool {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_difficulty_select_control_ids(&mut state);
+    with_difficulty_select_state(|state| {
+    ensure_difficulty_select_control_ids(state);
     state.selected_difficulty = GameDifficulty::Normal;
     RESIDUAL_DIFF_LEVEL.store(1, std::sync::atomic::Ordering::Relaxed);
     residual_diff_action_store(ResidualDifficultySelectAction::Medium);
+    });
     residual_difficulty_select_level() == 1
 }
 
 /// Residual: select Hard radio without widget sync.
 pub fn simulate_difficulty_select_radio_hard() -> bool {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_difficulty_select_control_ids(&mut state);
+    with_difficulty_select_state(|state| {
+    ensure_difficulty_select_control_ids(state);
     state.selected_difficulty = GameDifficulty::Hard;
     RESIDUAL_DIFF_LEVEL.store(2, std::sync::atomic::Ordering::Relaxed);
     residual_diff_action_store(ResidualDifficultySelectAction::Hard);
+    });
     residual_difficulty_select_level() == 2
 }
 
 /// Residual: fire ButtonOk without start_campaign_game.
 pub fn simulate_difficulty_select_ok_button_gadget_selected() -> bool {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_difficulty_select_control_ids(&mut state);
+    with_difficulty_select_state(|state| {
+    ensure_difficulty_select_control_ids(state);
     RESIDUAL_DIFF_LEVEL.store(
         difficulty_to_level(state.selected_difficulty),
         std::sync::atomic::Ordering::Relaxed,
     );
     residual_diff_action_store(ResidualDifficultySelectAction::Ok);
+    });
     true
 }
 
 /// Residual: fire ButtonCancel without shell pop.
 pub fn simulate_difficulty_select_cancel_button_gadget_selected() -> bool {
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_difficulty_select_control_ids(&mut state);
+    with_difficulty_select_state(|state| {
+    ensure_difficulty_select_control_ids(state);
     residual_diff_action_store(ResidualDifficultySelectAction::Cancel);
+    });
     true
 }
 
@@ -418,10 +426,9 @@ pub fn simulate_difficulty_select_prepare_ok(level: u8) -> bool {
         return false;
     }
     // Keep selected_difficulty consistent.
-    let state_handle = difficulty_select_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    state.selected_difficulty = level_to_difficulty(level.min(2));
-    drop(state);
+    with_difficulty_select_state(|state| {
+        state.selected_difficulty = level_to_difficulty(level.min(2));
+    });
     simulate_difficulty_select_ok_button_gadget_selected()
 }
 

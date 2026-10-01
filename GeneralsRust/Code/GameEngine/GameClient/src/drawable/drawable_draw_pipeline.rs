@@ -102,7 +102,7 @@ struct MeshBuffers {
 // Pipeline singleton
 // ---------------------------------------------------------------------------
 
-static DRAWABLE_PIPELINE: OnceLock<Arc<Mutex<DrawableDrawPipeline>>> = OnceLock::new();
+static DRAWABLE_PIPELINE: OnceLock<Mutex<DrawableDrawPipeline>> = OnceLock::new();
 
 fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
     let mut rgb = state.construction_tint.unwrap_or([1.0, 1.0, 1.0]);
@@ -135,12 +135,12 @@ fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
     [rgb[0], rgb[1], rgb[2], 1.0]
 }
 
-pub fn register_drawable_pipeline(pipeline: Arc<Mutex<DrawableDrawPipeline>>) {
-    let _ = DRAWABLE_PIPELINE.set(pipeline);
+pub fn register_drawable_pipeline(pipeline: DrawableDrawPipeline) {
+    let _ = DRAWABLE_PIPELINE.set(Mutex::new(pipeline));
 }
 
 pub fn with_drawable_pipeline<R>(
-    f: impl FnOnce(&Arc<Mutex<DrawableDrawPipeline>>) -> R,
+    f: impl FnOnce(&Mutex<DrawableDrawPipeline>) -> R,
 ) -> Option<R> {
     DRAWABLE_PIPELINE.get().map(f)
 }

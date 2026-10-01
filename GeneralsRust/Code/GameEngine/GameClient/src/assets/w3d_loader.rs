@@ -443,20 +443,20 @@ pub struct W3DMetadata {
 /// W3D Loader implementation
 pub struct W3DLoader {
     // Cache for loaded models
-    model_cache: Arc<RwLock<HashMap<PathBuf, Arc<W3DModel>>>>,
+    model_cache: RwLock<HashMap<PathBuf, Arc<W3DModel>>>,
 
     // Statistics
-    load_count: Arc<RwLock<u64>>,
-    parse_time_total: Arc<RwLock<std::time::Duration>>,
+    load_count: RwLock<u64>,
+    parse_time_total: RwLock<std::time::Duration>,
 }
 
 impl W3DLoader {
     /// Create new W3D loader
     pub fn new() -> Result<Self, W3DError> {
         Ok(Self {
-            model_cache: Arc::new(RwLock::new(HashMap::new())),
-            load_count: Arc::new(RwLock::new(0)),
-            parse_time_total: Arc::new(RwLock::new(std::time::Duration::ZERO)),
+            model_cache: RwLock::new(HashMap::new()),
+            load_count: RwLock::new(0),
+            parse_time_total: RwLock::new(std::time::Duration::ZERO),
         })
     }
 

@@ -38,12 +38,10 @@ pub struct TechAndSupplyImages {
     pub supply_positions: Vec<ICoord2D>,
 }
 
-static SUPPLY_AND_TECH_IMAGES: OnceLock<Arc<Mutex<TechAndSupplyImages>>> = OnceLock::new();
+static SUPPLY_AND_TECH_IMAGES: OnceLock<Mutex<TechAndSupplyImages>> = OnceLock::new();
 
-pub fn get_supply_and_tech_image_locations() -> Arc<Mutex<TechAndSupplyImages>> {
-    SUPPLY_AND_TECH_IMAGES
-        .get_or_init(|| Arc::new(Mutex::new(TechAndSupplyImages::default())))
-        .clone()
+pub fn get_supply_and_tech_image_locations() -> &'static Mutex<TechAndSupplyImages> {
+    SUPPLY_AND_TECH_IMAGES.get_or_init(|| Mutex::new(TechAndSupplyImages::default()))
 }
 
 #[derive(Debug)]
@@ -409,13 +407,11 @@ impl MapCache {
     }
 }
 
-static THE_MAP_CACHE: OnceLock<Arc<Mutex<MapCache>>> = OnceLock::new();
+static THE_MAP_CACHE: OnceLock<Mutex<MapCache>> = OnceLock::new();
 static LADDER_PROVIDER_SET: OnceLock<()> = OnceLock::new();
 
-pub fn get_map_cache_manager() -> Arc<Mutex<MapCache>> {
-    let cache = THE_MAP_CACHE
-        .get_or_init(|| Arc::new(Mutex::new(MapCache::new())))
-        .clone();
+pub fn get_map_cache_manager() -> &'static Mutex<MapCache> {
+    let cache = THE_MAP_CACHE.get_or_init(|| Mutex::new(MapCache::new()));
     register_ladder_map_provider();
     cache
 }

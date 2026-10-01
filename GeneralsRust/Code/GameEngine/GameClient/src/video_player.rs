@@ -415,12 +415,12 @@ impl VideoPlayerInterface for VideoPlayer {
     }
 }
 
-static THE_VIDEO_PLAYER: OnceLock<Arc<Mutex<Option<VideoPlayer>>>> = OnceLock::new();
+static THE_VIDEO_PLAYER: OnceLock<Mutex<Option<VideoPlayer>>> = OnceLock::new();
 static VIDEO_STREAM_PROVIDER: OnceLock<Mutex<Option<Arc<dyn VideoStreamProvider>>>> =
     OnceLock::new();
 
 pub fn init_video_player() {
-    let player = THE_VIDEO_PLAYER.get_or_init(|| Arc::new(Mutex::new(Some(VideoPlayer::new()))));
+    let player = THE_VIDEO_PLAYER.get_or_init(|| Mutex::new(Some(VideoPlayer::new())));
     if let Ok(mut guard) = player.lock() {
         if guard.is_none() {
             let mut player = VideoPlayer::new();
@@ -432,8 +432,8 @@ pub fn init_video_player() {
     }
 }
 
-pub fn get_video_player() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
-    THE_VIDEO_PLAYER.get().cloned()
+pub fn get_video_player() -> Option<&'static Mutex<Option<VideoPlayer>>> {
+    THE_VIDEO_PLAYER.get()
 }
 
 pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {

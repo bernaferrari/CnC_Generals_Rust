@@ -14,7 +14,6 @@ use crate::message_stream::meta_event::{
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 const KEY_ESC: u32 = 0x1B;
 const KEY_TAB: u32 = 0x09;
@@ -81,12 +80,13 @@ struct KeyboardOptionsMenuState {
 }
 
 thread_local! {
-    static KEYBOARD_OPTIONS_MENU_STATE: Arc<Mutex<KeyboardOptionsMenuState>> =
-        Arc::new(Mutex::new(KeyboardOptionsMenuState::default()));
+    static KEYBOARD_OPTIONS_MENU_STATE: RefCell<KeyboardOptionsMenuState> =
+        RefCell::new(KeyboardOptionsMenuState::default());
 }
 
-fn keyboard_options_menu_state() -> Arc<Mutex<KeyboardOptionsMenuState>> {
-    KEYBOARD_OPTIONS_MENU_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_keyboard_options_state<R>(f: impl FnOnce(&mut KeyboardOptionsMenuState) -> R) -> R {
+    KEYBOARD_OPTIONS_MENU_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -326,9 +326,6 @@ fn keyboard_text_entry_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
     match msg {
         WindowMessage::Char => {
             let key = data1 as u32;
@@ -340,64 +337,70 @@ fn keyboard_text_entry_input(
 
             match key {
                 KEY_LCTRL | KEY_RCTRL => {
-                    if (key_state & KEY_STATE_DOWN) != 0 {
-                        state.ctrl_down = true;
-                        state.pending_mod_state |= MOD_CTRL;
-                    }
-                    if (key_state & KEY_STATE_UP) != 0 {
-                        state.ctrl_down = false;
-                        state.pending_mod_state &= !MOD_CTRL;
-                        if state.pending_key.is_some() {
-                            state.absolute = true;
+                    with_keyboard_options_state(|state| {
+                        if (key_state & KEY_STATE_DOWN) != 0 {
+                            state.ctrl_down = true;
+                            state.pending_mod_state |= MOD_CTRL;
                         }
-                    }
-                    update_assign_entry_from_capture(&state);
+                        if (key_state & KEY_STATE_UP) != 0 {
+                            state.ctrl_down = false;
+                            state.pending_mod_state &= !MOD_CTRL;
+                            if state.pending_key.is_some() {
+                                state.absolute = true;
+                            }
+                        }
+                        update_assign_entry_from_capture(state);
+                    });
                     return WindowMsgHandled::Handled;
                 }
                 KEY_LSHIFT | KEY_RSHIFT => {
-                    if (key_state & KEY_STATE_DOWN) != 0 {
-                        state.shift_down = true;
-                        state.pending_mod_state |= MOD_SHIFT;
-                    }
-                    if (key_state & KEY_STATE_UP) != 0 {
-                        state.shift_down = false;
-                        state.pending_mod_state &= !MOD_SHIFT;
-                        if state.pending_key.is_some() {
-                            state.absolute = true;
+                    with_keyboard_options_state(|state| {
+                        if (key_state & KEY_STATE_DOWN) != 0 {
+                            state.shift_down = true;
+                            state.pending_mod_state |= MOD_SHIFT;
                         }
-                    }
-                    update_assign_entry_from_capture(&state);
+                        if (key_state & KEY_STATE_UP) != 0 {
+                            state.shift_down = false;
+                            state.pending_mod_state &= !MOD_SHIFT;
+                            if state.pending_key.is_some() {
+                                state.absolute = true;
+                            }
+                        }
+                        update_assign_entry_from_capture(state);
+                    });
                     return WindowMsgHandled::Handled;
                 }
                 KEY_LALT | KEY_RALT => {
-                    if (key_state & KEY_STATE_DOWN) != 0 {
-                        state.alt_down = true;
-                        state.pending_mod_state |= MOD_ALT;
-                    }
-                    if (key_state & KEY_STATE_UP) != 0 {
-                        state.alt_down = false;
-                        state.pending_mod_state &= !MOD_ALT;
-                        if state.pending_key.is_some() {
-                            state.absolute = true;
+                    with_keyboard_options_state(|state| {
+                        if (key_state & KEY_STATE_DOWN) != 0 {
+                            state.alt_down = true;
+                            state.pending_mod_state |= MOD_ALT;
                         }
-                    }
-                    update_assign_entry_from_capture(&state);
+                        if (key_state & KEY_STATE_UP) != 0 {
+                            state.alt_down = false;
+                            state.pending_mod_state &= !MOD_ALT;
+                            if state.pending_key.is_some() {
+                                state.absolute = true;
+                            }
+                        }
+                        update_assign_entry_from_capture(state);
+                    });
                     return WindowMsgHandled::Handled;
                 }
                 KEY_BACKSPACE | KEY_DELETE => {
-                    reset_assign_capture(&mut state);
-                    clear_assign_hotkey_entry(&state);
+                    with_keyboard_options_state(|state| {
+                        reset_assign_capture(state);
+                        clear_assign_hotkey_entry(state);
+                    });
                     return WindowMsgHandled::Handled;
                 }
                 KEY_RIGHT | KEY_DOWN => {
-                    drop(state);
                     with_window_manager(|manager| {
                         manager.navigate_tab(crate::gui::TabDirection::Next)
                     });
                     return WindowMsgHandled::Handled;
                 }
                 KEY_LEFT | KEY_UP => {
-                    drop(state);
                     with_window_manager(|manager| {
                         manager.navigate_tab(crate::gui::TabDirection::Previous)
                     });
@@ -410,9 +413,11 @@ fn keyboard_text_entry_input(
                 return WindowMsgHandled::Ignored;
             }
 
-            state.pending_key = Some(key);
-            state.absolute = true;
-            update_assign_entry_from_capture(&state);
+            with_keyboard_options_state(|state| {
+                state.pending_key = Some(key);
+                state.absolute = true;
+                update_assign_entry_from_capture(state);
+            });
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
@@ -420,8 +425,7 @@ fn keyboard_text_entry_input(
 }
 
 pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_keyboard_options_state(|state| {
 
     state.parent_id = name_to_id("KeyboardOptionsMenu.wnd:ParentKeyboardOptionsMenu");
     state.button_back_id = name_to_id("KeyboardOptionsMenu.wnd:ButtonBack");
@@ -434,7 +438,7 @@ pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn
     state.button_assign_id = name_to_id("KeyboardOptionsMenu.wnd:ButtonAssign");
     state.selected_category_index = 0;
     state.selected_command_index = None;
-    reset_assign_capture(&mut state);
+    reset_assign_capture(state);
 
     with_window_manager(|manager| {
         state.parent = manager.get_window_by_id(state.parent_id);
@@ -453,9 +457,10 @@ pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn
         }
     });
 
-    populate_category_box(&state);
-    populate_command_list(&mut state);
+    populate_category_box(state);
+    populate_command_list(state);
     layout.hide(false);
+    });
 }
 
 pub fn keyboard_options_menu_update(
@@ -468,11 +473,10 @@ pub fn keyboard_options_menu_shutdown(
     layout: &WindowLayout,
     _user_data: Option<&dyn std::any::Any>,
 ) {
-    let state_handle = keyboard_options_menu_state();
-    if let Ok(mut state) = state_handle.lock() {
-        reset_assign_capture(&mut state);
+    with_keyboard_options_state(|state| {
+        reset_assign_capture(state);
         state.selected_command_index = None;
-    }
+    });
     layout.hide(true);
     queue_shell_shutdown_complete(false);
 }
@@ -488,15 +492,15 @@ pub fn keyboard_options_menu_input(
     }
 
     if (data2 & KEY_STATE_UP as WindowMsgData) != 0 {
-        let state_handle = keyboard_options_menu_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(parent) = state.parent.as_ref() {
-            let _ = parent.borrow_mut().send_system_message(
-                WindowMessage::GadgetSelected,
-                state.button_back_id as WindowMsgData,
-                state.button_back_id as WindowMsgData,
-            );
-        }
+        with_keyboard_options_state(|state| {
+            if let Some(parent) = state.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    state.button_back_id as WindowMsgData,
+                    state.button_back_id as WindowMsgData,
+                );
+            }
+        });
     }
 
     WindowMsgHandled::Handled
@@ -541,36 +545,36 @@ pub fn keyboard_options_menu_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
-            if control_id == state.combo_category_id {
-                let selected_category_index = if let Some(window) = state.combo_category.as_ref() {
-                    let guard = window.borrow();
-                    if let Some(widget) = guard.widget() {
-                        if let WindowWidget::ComboBox(combo) = widget {
-                            combo.selected_index().unwrap_or(0)
+            if with_keyboard_options_state(|state| control_id == state.combo_category_id) {
+                with_keyboard_options_state(|state| {
+                    let selected_category_index =
+                        if let Some(window) = state.combo_category.as_ref() {
+                            let guard = window.borrow();
+                            if let Some(widget) = guard.widget() {
+                                if let WindowWidget::ComboBox(combo) = widget {
+                                    combo.selected_index().unwrap_or(0)
+                                } else {
+                                    0
+                                }
+                            } else {
+                                0
+                            }
                         } else {
                             0
-                        }
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-                state.selected_category_index = selected_category_index;
-                populate_command_list(&mut state);
+                        };
+                    state.selected_category_index = selected_category_index;
+                    populate_command_list(state);
+                });
                 return WindowMsgHandled::Handled;
             }
 
-            if control_id == state.list_command_id {
-                update_selected_command(&mut state);
+            if with_keyboard_options_state(|state| control_id == state.list_command_id) {
+                with_keyboard_options_state(|state| update_selected_command(state));
                 return WindowMsgHandled::Handled;
             }
 
@@ -578,40 +582,43 @@ pub fn keyboard_options_menu_system(
         }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
-            if control_id == state.button_back_id {
-                drop(state);
+            if with_keyboard_options_state(|state| control_id == state.button_back_id) {
                 queue_shell_pop();
                 return WindowMsgHandled::Handled;
             }
 
-            if control_id == state.button_reset_all_id {
-                reset_command_map_entries();
-                state.selected_category_index = 0;
-                populate_category_box(&state);
-                populate_command_list(&mut state);
+            if with_keyboard_options_state(|state| control_id == state.button_reset_all_id) {
+                with_keyboard_options_state(|state| {
+                    reset_command_map_entries();
+                    state.selected_category_index = 0;
+                    populate_category_box(state);
+                    populate_command_list(state);
+                });
                 return WindowMsgHandled::Handled;
             }
 
-            if control_id == state.button_assign_id {
-                let Some(selected_index) = state.selected_command_index else {
-                    return WindowMsgHandled::Handled;
-                };
-                let Some(entry) = state.visible_commands.get(selected_index).cloned() else {
-                    return WindowMsgHandled::Handled;
-                };
-                let Some(key) = state.pending_key else {
-                    return WindowMsgHandled::Handled;
-                };
-                if update_command_map_entry(
-                    &entry.category,
-                    &entry.display_name,
-                    key,
-                    state.pending_mod_state,
-                ) {
-                    refresh_selected_command_after_update(&mut state);
-                } else {
-                    clear_assign_hotkey_entry(&state);
-                }
+            if with_keyboard_options_state(|state| control_id == state.button_assign_id) {
+                with_keyboard_options_state(|state| {
+                    let Some(selected_index) = state.selected_command_index else {
+                        return;
+                    };
+                    let Some(entry) = state.visible_commands.get(selected_index).cloned() else {
+                        return;
+                    };
+                    let Some(key) = state.pending_key else {
+                        return;
+                    };
+                    if update_command_map_entry(
+                        &entry.category,
+                        &entry.display_name,
+                        key,
+                        state.pending_mod_state,
+                    ) {
+                        refresh_selected_command_after_update(state);
+                    } else {
+                        clear_assign_hotkey_entry(state);
+                    }
+                });
                 return WindowMsgHandled::Handled;
             }
 
@@ -698,9 +705,8 @@ fn ensure_keyboard_options_control_ids(state: &mut KeyboardOptionsMenuState) {
 
 /// Residual: bind KeyboardOptionsMenu control IDs (no layout load required).
 pub fn simulate_keyboard_options_bind_controls() -> bool {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_keyboard_options_control_ids(&mut state);
+    with_keyboard_options_state(|state| {
+    ensure_keyboard_options_control_ids(state);
     let _ = (
         state.parent_id,
         state.button_back_id,
@@ -709,39 +715,39 @@ pub fn simulate_keyboard_options_bind_controls() -> bool {
         state.button_reset_all_id,
         state.button_assign_id,
     );
+    });
     true
 }
 
 /// Residual: select category without live combo widget.
 pub fn simulate_keyboard_options_select_category(category_index: usize) -> bool {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_keyboard_options_control_ids(&mut state);
+    with_keyboard_options_state(|state| {
+    ensure_keyboard_options_control_ids(state);
     state.selected_category_index = category_index;
     // Clear command selection when category changes (C++ populate_command_list path).
     state.selected_command_index = None;
     RESIDUAL_KB_CATEGORY.store(category_index, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_KB_COMMAND.store(-1, std::sync::atomic::Ordering::Relaxed);
     residual_kb_action_store(ResidualKeyboardOptionsAction::SelectCategory);
-    residual_keyboard_options_category_index() == category_index
+        residual_keyboard_options_category_index() == category_index
+    })
 }
 
 /// Residual: select command list row without live listbox widget.
 pub fn simulate_keyboard_options_select_command(command_index: usize) -> bool {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_keyboard_options_control_ids(&mut state);
+    with_keyboard_options_state(|state| {
+    ensure_keyboard_options_control_ids(state);
     state.selected_command_index = Some(command_index);
     RESIDUAL_KB_COMMAND.store(command_index as i32, std::sync::atomic::Ordering::Relaxed);
     residual_kb_action_store(ResidualKeyboardOptionsAction::SelectCommand);
-    residual_keyboard_options_command_index() == Some(command_index)
+        residual_keyboard_options_command_index() == Some(command_index)
+    })
 }
 
 /// Residual: fire ButtonAssign without mutating the real command map.
 pub fn simulate_keyboard_options_assign_button_gadget_selected() -> bool {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_keyboard_options_control_ids(&mut state);
+    with_keyboard_options_state(|state| {
+    ensure_keyboard_options_control_ids(state);
     if residual_keyboard_options_command_index().is_none() && state.selected_command_index.is_none()
     {
         // C++ ignores Assign with no selection.
@@ -749,27 +755,28 @@ pub fn simulate_keyboard_options_assign_button_gadget_selected() -> bool {
     }
     residual_kb_action_store(ResidualKeyboardOptionsAction::Assign);
     true
+    })
 }
 
 /// Residual: fire ButtonResetAll without rewriting command map entries.
 pub fn simulate_keyboard_options_reset_all_button_gadget_selected() -> bool {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_keyboard_options_control_ids(&mut state);
+    with_keyboard_options_state(|state| {
+    ensure_keyboard_options_control_ids(state);
     state.selected_category_index = 0;
     state.selected_command_index = None;
     RESIDUAL_KB_CATEGORY.store(0, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_KB_COMMAND.store(-1, std::sync::atomic::Ordering::Relaxed);
     residual_kb_action_store(ResidualKeyboardOptionsAction::ResetAll);
+    });
     true
 }
 
 /// Residual: fire ButtonBack (shell pop residual latch).
 pub fn simulate_keyboard_options_back_button_gadget_selected() -> bool {
-    let state_handle = keyboard_options_menu_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    ensure_keyboard_options_control_ids(&mut state);
+    with_keyboard_options_state(|state| {
+    ensure_keyboard_options_control_ids(state);
     residual_kb_action_store(ResidualKeyboardOptionsAction::Back);
+    });
     true
 }
 

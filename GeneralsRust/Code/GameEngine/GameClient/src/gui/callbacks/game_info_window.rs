@@ -2,7 +2,6 @@
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
@@ -33,12 +32,13 @@ struct GameInfoWindowState {
 }
 
 thread_local! {
-    static GAME_INFO_STATE: Arc<Mutex<GameInfoWindowState>> =
-        Arc::new(Mutex::new(GameInfoWindowState::default()));
+    static GAME_INFO_STATE: RefCell<GameInfoWindowState> =
+        RefCell::new(GameInfoWindowState::default());
 }
 
-fn game_info_state() -> Arc<Mutex<GameInfoWindowState>> {
-    GAME_INFO_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_game_info_state<R>(f: impl FnOnce(&mut GameInfoWindowState) -> R) -> R {
+    GAME_INFO_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn name_to_id(name: &str) -> i32 {
@@ -75,11 +75,7 @@ fn map_display_name(map_name: &str) -> String {
 }
 
 pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
-    let needs_layout = {
-        let state_handle = game_info_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        state.layout.is_none()
-    };
+    let needs_layout = with_game_info_state(|state| state.layout.is_none());
 
     if needs_layout {
         if let Some(layout) = with_window_manager(|manager| {
@@ -91,22 +87,18 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
             layout.borrow().run_init(None);
             layout.borrow_mut().bring_forward();
             layout.borrow_mut().hide(true);
-            let state_handle = game_info_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.layout = Some(layout);
+            with_game_info_state(|state| state.layout = Some(layout));
         }
     }
 
-    let parent = {
-        let state_handle = game_info_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    let parent = with_game_info_state(|state| {
         if state.parent.is_none() {
             with_window_manager(|manager| {
                 state.parent = manager.get_window_by_id(state.parent_id);
             });
         }
         state.parent.clone()
-    };
+    });
 
     let Some(parent) = parent.as_ref() else {
         return;
@@ -119,20 +111,19 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
 }
 
 pub fn destroy_game_info_window() {
-    let state_handle = game_info_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(layout) = state.layout.take() {
-        with_window_manager(|manager| manager.destroy_layout(&layout));
-    }
-    state.parent = None;
-    state.static_text_game_name = None;
-    state.static_text_map_name = None;
-    state.list_box_players = None;
+    with_game_info_state(|state| {
+        if let Some(layout) = state.layout.take() {
+            with_window_manager(|manager| manager.destroy_layout(&layout));
+        }
+        state.parent = None;
+        state.static_text_game_name = None;
+        state.static_text_map_name = None;
+        state.list_box_players = None;
+    });
 }
 
 pub fn refresh_game_info_window(game_info: &GameInfo) {
-    let state_handle = game_info_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_game_info_state(|state| {
     if state.layout.is_none() || state.parent.is_none() {
         return;
     }
@@ -238,19 +229,19 @@ pub fn refresh_game_info_window(game_info: &GameInfo) {
             }
         }
     }
+    });
 }
 
 pub fn hide_game_info_window(hide: bool) {
-    let state_handle = game_info_state();
-    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().hide(hide);
-    }
+    with_game_info_state(|state| {
+        if let Some(parent) = state.parent.as_ref() {
+            let _ = parent.borrow_mut().hide(hide);
+        }
+    });
 }
 
 pub fn game_info_window_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let state_handle = game_info_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_game_info_state(|state| {
 
     state.parent_id = name_to_id("GameInfoWindow.wnd:ParentGameInfo");
     state.static_text_game_name_id = name_to_id("GameInfoWindow.wnd:StaticTextGameName");
@@ -284,6 +275,7 @@ pub fn game_info_window_init(layout: &WindowLayout, _user_data: Option<&mut dyn 
     }
 
     let _ = layout;
+    });
 }
 
 pub fn game_info_window_system(

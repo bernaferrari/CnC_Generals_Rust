@@ -62,19 +62,27 @@ struct StoredTexture {
 /// Lightweight texture manager that owns textures uploaded to the GPU.
 pub struct TextureManager {
     context: GraphicsContext,
-    textures: Mutex<HashMap<TextureHandle, Arc<StoredTexture>>>, // store texture + view
-    label_index: Mutex<HashMap<String, TextureHandle>>,
+    /// Texture table plus label index; one lock guards both maps so a
+    /// create is atomic across them.
+    maps: Mutex<TextureMaps>,
     next_handle: AtomicU64,
     memory_budget: u64,
     memory_used: AtomicU64,
+}
+
+struct TextureMaps {
+    textures: HashMap<TextureHandle, Arc<StoredTexture>>, // store texture + view
+    label_index: HashMap<String, TextureHandle>,
 }
 
 impl TextureManager {
     pub fn new(context: GraphicsContext, memory_budget: u64) -> Result<Self, TextureError> {
         Ok(Self {
             context,
-            textures: Mutex::new(HashMap::new()),
-            label_index: Mutex::new(HashMap::new()),
+            maps: Mutex::new(TextureMaps {
+                textures: HashMap::new(),
+                label_index: HashMap::new(),
+            }),
             next_handle: AtomicU64::new(1),
             memory_budget,
             memory_used: AtomicU64::new(0),
@@ -157,14 +165,11 @@ impl TextureManager {
             texture,
             view: Arc::clone(&view),
         });
-        self.textures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(handle, stored);
-        self.label_index
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+        let mut maps = self.maps.lock().unwrap_or_else(|e| e.into_inner());
+        maps.textures.insert(handle, stored);
+        maps.label_index
             .insert(label.to_ascii_lowercase(), handle);
+        drop(maps);
         self.memory_used
             .fetch_add((width as u64) * (height as u64) * 4, Ordering::Relaxed);
 
@@ -172,17 +177,19 @@ impl TextureManager {
     }
 
     pub fn get_handle_by_label(&self, label: &str) -> Option<TextureHandle> {
-        self.label_index
+        self.maps
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .label_index
             .get(&label.to_ascii_lowercase())
             .copied()
     }
 
     pub fn get_view(&self, handle: TextureHandle) -> Option<Arc<wgpu::TextureView>> {
-        self.textures
+        self.maps
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .textures
             .get(&handle)
             .map(|stored| Arc::clone(&stored.view))
     }
@@ -206,9 +213,10 @@ impl TextureManager {
     }
 
     pub fn get_texture_view(&self, handle: TextureHandle) -> Option<Arc<wgpu::TextureView>> {
-        self.textures
+        self.maps
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .textures
             .get(&handle)
             .map(|stored| Arc::clone(&stored.view))
     }

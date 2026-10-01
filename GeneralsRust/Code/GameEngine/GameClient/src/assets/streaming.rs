@@ -256,17 +256,13 @@ pub struct StreamingManager {
     config: AssetConfig,
 
     // Request queues (priority-based)
-    high_priority_queue: Arc<Mutex<BinaryHeap<Reverse<StreamingRequest>>>>,
-    normal_priority_queue: Arc<Mutex<VecDeque<StreamingRequest>>>,
-    background_queue: Arc<Mutex<VecDeque<StreamingRequest>>>,
+    queues: Arc<Mutex<StreamingQueueSet>>,
 
     // Asset tracking
     streaming_assets: Arc<RwLock<HashMap<AssetHandle, StreamingAssetInfo>>>,
-    asset_index: Arc<RwLock<HashMap<PathBuf, AssetHandle>>>,
 
-    // Usage pattern analysis
-    usage_patterns: Arc<RwLock<HashMap<AssetHandle, UsagePattern>>>,
-    prediction_model: Arc<RwLock<PredictionModel>>,
+    // Usage pattern analysis, prediction model, and viewer context
+    analytics: Arc<RwLock<StreamingAnalytics>>,
 
     // Memory management
     memory_budget: u64,
@@ -278,14 +274,11 @@ pub struct StreamingManager {
     active_workers: Arc<AtomicU64>,
     max_workers: usize,
 
-    // Viewer context for LOD calculations
-    viewer_context: Arc<RwLock<ViewerContext>>,
-
     // Performance monitoring
     stats: Arc<RwLock<StreamingStats>>,
 
     // Task management
-    worker_handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    worker_handles: Mutex<Vec<JoinHandle<()>>>,
     shutdown_signal: Arc<AtomicBool>,
     shutdown_notify: Arc<Notify>,
 
@@ -314,6 +307,35 @@ impl Default for PredictionModel {
     }
 }
 
+/// Priority-ordered request queues drained in order by the streaming workers
+#[derive(Default)]
+struct StreamingQueueSet {
+    high_priority: BinaryHeap<Reverse<StreamingRequest>>,
+    normal_priority: VecDeque<StreamingRequest>,
+    background: VecDeque<StreamingRequest>,
+}
+
+impl StreamingQueueSet {
+    /// Pop the next request, honoring high -> normal -> background priority
+    fn pop_next(&mut self) -> Option<StreamingRequest> {
+        if let Some(Reverse(request)) = self.high_priority.pop() {
+            Some(request)
+        } else if let Some(request) = self.normal_priority.pop_front() {
+            Some(request)
+        } else {
+            self.background.pop_front()
+        }
+    }
+}
+
+/// Viewer context plus usage-pattern/prediction state read by the maintenance task
+#[derive(Default)]
+struct StreamingAnalytics {
+    viewer_context: ViewerContext,
+    usage_patterns: HashMap<AssetHandle, UsagePattern>,
+    prediction_model: PredictionModel,
+}
+
 impl StreamingManager {
     /// Create new streaming manager
     pub fn new(config: AssetConfig) -> Result<Self, StreamingError> {
@@ -325,25 +347,20 @@ impl StreamingManager {
 
         Ok(Self {
             config: config.clone(),
-            high_priority_queue: Arc::new(Mutex::new(BinaryHeap::new())),
-            normal_priority_queue: Arc::new(Mutex::new(VecDeque::new())),
-            background_queue: Arc::new(Mutex::new(VecDeque::new())),
+            queues: Arc::new(Mutex::new(StreamingQueueSet::default())),
             streaming_assets: Arc::new(RwLock::new(HashMap::new())),
-            asset_index: Arc::new(RwLock::new(HashMap::new())),
-            usage_patterns: Arc::new(RwLock::new(HashMap::new())),
-            prediction_model: Arc::new(RwLock::new(PredictionModel::default())),
+            analytics: Arc::new(RwLock::new(StreamingAnalytics::default())),
             memory_budget,
             memory_used: Arc::new(AtomicU64::new(0)),
             memory_pressure_threshold: 0.85,
             worker_semaphore: Arc::new(Semaphore::new(max_workers)),
             active_workers: Arc::new(AtomicU64::new(0)),
             max_workers,
-            viewer_context: Arc::new(RwLock::new(ViewerContext::default())),
             stats: Arc::new(RwLock::new(StreamingStats {
                 memory_budget_mb: config.cache_size_mb as f32,
                 ..Default::default()
             })),
-            worker_handles: Arc::new(Mutex::new(Vec::new())),
+            worker_handles: Mutex::new(Vec::new()),
             shutdown_signal: Arc::new(AtomicBool::new(false)),
             shutdown_notify: Arc::new(Notify::new()),
             load_handler: Arc::new(RwLock::new(None)),
@@ -406,9 +423,7 @@ impl StreamingManager {
 
     /// Spawn worker task
     async fn spawn_worker(&self, worker_id: usize) -> Result<JoinHandle<()>, StreamingError> {
-        let high_queue = self.high_priority_queue.clone();
-        let normal_queue = self.normal_priority_queue.clone();
-        let background_queue = self.background_queue.clone();
+        let queues = self.queues.clone();
         let semaphore = self.worker_semaphore.clone();
         let shutdown_signal = self.shutdown_signal.clone();
         let shutdown_notify = self.shutdown_notify.clone();
@@ -438,34 +453,10 @@ impl StreamingManager {
                 };
 
                 // Try to get work from queues (priority order)
-                let request = {
-                    // High priority first
-                    if let Ok(mut queue) = high_queue.try_lock() {
-                        if let Some(Reverse(request)) = queue.pop() {
-                            Some(request)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }
-                .or_else(|| {
-                    // Normal priority second
-                    if let Ok(mut queue) = normal_queue.try_lock() {
-                        queue.pop_front()
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    // Background priority last
-                    if let Ok(mut queue) = background_queue.try_lock() {
-                        queue.pop_front()
-                    } else {
-                        None
-                    }
-                });
+                let request = queues
+                    .try_lock()
+                    .ok()
+                    .and_then(|mut queue_set| queue_set.pop_next());
 
                 if let Some(request) = request {
                     active_workers.fetch_add(1, Ordering::Relaxed);
@@ -520,11 +511,8 @@ impl StreamingManager {
     /// Spawn maintenance task for background operations
     async fn spawn_maintenance_task(&self) -> Result<JoinHandle<()>, StreamingError> {
         let streaming_assets = self.streaming_assets.clone();
-        let viewer_context = self.viewer_context.clone();
-        let normal_queue = self.normal_priority_queue.clone();
-        let background_queue = self.background_queue.clone();
-        let prediction_model = self.prediction_model.clone();
-        let usage_patterns = self.usage_patterns.clone();
+        let analytics = self.analytics.clone();
+        let queues = self.queues.clone();
         let shutdown_signal = self.shutdown_signal.clone();
         let memory_used = self.memory_used.clone();
         let memory_budget = self.memory_budget;
@@ -560,18 +548,12 @@ impl StreamingManager {
 
                 // Update predictive model
                 if now.duration_since(last_prediction_update) >= prediction_interval {
-                    Self::update_prediction_model(&prediction_model, &usage_patterns).await;
+                    Self::update_prediction_model(&analytics).await;
                     last_prediction_update = now;
                 }
 
                 // Update LOD levels based on viewer context
-                Self::update_lod_levels(
-                    &streaming_assets,
-                    &viewer_context,
-                    &normal_queue,
-                    &background_queue,
-                )
-                .await;
+                Self::update_lod_levels(&streaming_assets, &analytics, &queues).await;
 
                 // Update memory stats
                 {
@@ -730,31 +712,22 @@ impl StreamingManager {
         // Route to appropriate queue based on priority
         match priority {
             AssetPriority::Critical => {
-                let mut queue = self
-                    .high_priority_queue
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                queue.push(Reverse(request));
+                let mut queue_set = self.queues.lock().unwrap_or_else(|e| e.into_inner());
+                queue_set.high_priority.push(Reverse(request));
 
                 let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-                stats.peak_queue_size = stats.peak_queue_size.max(queue.len());
+                stats.peak_queue_size = stats.peak_queue_size.max(queue_set.high_priority.len());
             }
             AssetPriority::High | AssetPriority::Normal => {
-                let mut queue = self
-                    .normal_priority_queue
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                queue.push_back(request);
+                let mut queue_set = self.queues.lock().unwrap_or_else(|e| e.into_inner());
+                queue_set.normal_priority.push_back(request);
 
                 let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-                stats.peak_queue_size = stats.peak_queue_size.max(queue.len());
+                stats.peak_queue_size = stats.peak_queue_size.max(queue_set.normal_priority.len());
             }
             AssetPriority::Low | AssetPriority::Lowest => {
-                let mut queue = self
-                    .background_queue
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                queue.push_back(request);
+                let mut queue_set = self.queues.lock().unwrap_or_else(|e| e.into_inner());
+                queue_set.background.push_back(request);
             }
         }
 
@@ -765,21 +738,21 @@ impl StreamingManager {
 
     /// Update viewer context for LOD calculations
     pub fn update_viewer_context(&self, context: ViewerContext) {
-        *self
-            .viewer_context
+        self.analytics
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = context;
+            .unwrap_or_else(|e| e.into_inner())
+            .viewer_context = context;
     }
 
     /// Record asset access for pattern analysis
     pub fn record_asset_access(&self, handle: AssetHandle, position: Vec3) {
         let now = Instant::now();
-        let mut patterns = self
-            .usage_patterns
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut analytics = self.analytics.write().unwrap_or_else(|e| e.into_inner());
 
-        let pattern = patterns.entry(handle).or_insert_with(|| UsagePattern {
+        let pattern = analytics
+            .usage_patterns
+            .entry(handle)
+            .or_insert_with(|| UsagePattern {
             asset_handle: handle,
             access_times: VecDeque::with_capacity(100),
             access_locations: VecDeque::with_capacity(100),
@@ -905,13 +878,13 @@ impl StreamingManager {
     /// Update LOD levels based on viewer context
     async fn update_lod_levels(
         streaming_assets: &Arc<RwLock<HashMap<AssetHandle, StreamingAssetInfo>>>,
-        viewer_context: &Arc<RwLock<ViewerContext>>,
-        normal_queue: &Arc<Mutex<VecDeque<StreamingRequest>>>,
-        background_queue: &Arc<Mutex<VecDeque<StreamingRequest>>>,
+        analytics: &Arc<RwLock<StreamingAnalytics>>,
+        queues: &Arc<Mutex<StreamingQueueSet>>,
     ) {
-        let context = viewer_context
+        let context = analytics
             .read()
             .unwrap_or_else(|e| e.into_inner())
+            .viewer_context
             .clone();
         let mut assets = streaming_assets.write().unwrap_or_else(|e| e.into_inner());
         let mut upgrade_requests = Vec::new();
@@ -967,28 +940,22 @@ impl StreamingManager {
 
         drop(assets);
 
-        if !upgrade_requests.is_empty() {
-            let mut queue = normal_queue.lock().unwrap_or_else(|e| e.into_inner());
+        if !upgrade_requests.is_empty() || !downgrade_requests.is_empty() {
+            let mut queue_set = queues.lock().unwrap_or_else(|e| e.into_inner());
             for request in upgrade_requests {
-                queue.push_back(request);
+                queue_set.normal_priority.push_back(request);
             }
-        }
-
-        if !downgrade_requests.is_empty() {
-            let mut queue = background_queue.lock().unwrap_or_else(|e| e.into_inner());
             for request in downgrade_requests {
-                queue.push_back(request);
+                queue_set.background.push_back(request);
             }
         }
     }
 
     /// Update prediction model based on usage patterns
-    async fn update_prediction_model(
-        prediction_model: &Arc<RwLock<PredictionModel>>,
-        usage_patterns: &Arc<RwLock<HashMap<AssetHandle, UsagePattern>>>,
-    ) {
-        let patterns = usage_patterns.read().unwrap_or_else(|e| e.into_inner());
-        let mut model = prediction_model.write().unwrap_or_else(|e| e.into_inner());
+    async fn update_prediction_model(analytics: &Arc<RwLock<StreamingAnalytics>>) {
+        let mut analytics = analytics.write().unwrap_or_else(|e| e.into_inner());
+        let patterns = &analytics.usage_patterns;
+        let model = &mut analytics.prediction_model;
 
         // Analyze correlations between assets
         for (handle1, pattern1) in patterns.iter() {
@@ -1076,29 +1043,21 @@ impl StreamingManager {
 
     /// Update system (called from main thread)
     pub async fn update(&self) -> Result<(), StreamingError> {
+        // Calculate queue sizes
+        let (high_queue_size, normal_queue_size, background_queue_size) = {
+            let queue_set = self.queues.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                queue_set.high_priority.len(),
+                queue_set.normal_priority.len(),
+                queue_set.background.len(),
+            )
+        };
+        let total_queue_size = high_queue_size + normal_queue_size + background_queue_size;
+
         // Update statistics
         {
             let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.active_streams = self.active_workers.load(Ordering::Relaxed) as u32;
-
-            // Calculate queue sizes
-            let high_queue_size = self
-                .high_priority_queue
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .len();
-            let normal_queue_size = self
-                .normal_priority_queue
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .len();
-            let background_queue_size = self
-                .background_queue
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .len();
-            let total_queue_size = high_queue_size + normal_queue_size + background_queue_size;
-
             stats.peak_queue_size = stats.peak_queue_size.max(total_queue_size);
         }
 

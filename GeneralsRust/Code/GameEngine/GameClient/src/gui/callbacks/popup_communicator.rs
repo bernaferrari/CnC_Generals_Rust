@@ -7,7 +7,6 @@ use crate::gui::{
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -21,12 +20,13 @@ struct PopupCommunicatorState {
 }
 
 thread_local! {
-    static POPUP_COMMUNICATOR_STATE: Arc<Mutex<PopupCommunicatorState>> =
-        Arc::new(Mutex::new(PopupCommunicatorState::default()));
+    static POPUP_COMMUNICATOR_STATE: RefCell<PopupCommunicatorState> =
+        RefCell::new(PopupCommunicatorState::default());
 }
 
-fn popup_communicator_state() -> Arc<Mutex<PopupCommunicatorState>> {
-    POPUP_COMMUNICATOR_STATE.with(|state| state.clone())
+/// Access state with closure - panic on borrow conflict (indicates bug)
+fn with_popup_communicator_state<R>(f: impl FnOnce(&mut PopupCommunicatorState) -> R) -> R {
+    POPUP_COMMUNICATOR_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 pub fn popup_communicator_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -45,12 +45,12 @@ pub fn popup_communicator_init(_layout: &WindowLayout, _user_data: Option<&dyn s
         .as_ref()
         .and_then(|parent| parent.borrow().find_child_by_id(button_ok_id as i32));
 
-    let state_handle = popup_communicator_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    state.parent_id = Some(parent_id);
-    state.button_ok_id = Some(button_ok_id);
-    state.parent = parent;
-    state.button_ok = button_ok;
+    with_popup_communicator_state(|state| {
+        state.parent_id = Some(parent_id);
+        state.button_ok_id = Some(button_ok_id);
+        state.parent = parent;
+        state.button_ok = button_ok;
+    });
 }
 
 pub fn popup_communicator_shutdown(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
@@ -78,9 +78,7 @@ pub fn popup_communicator_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state_handle = popup_communicator_state();
-    let guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    let button_ok_id = guard.button_ok_id.unwrap_or(0);
+    let button_ok_id = with_popup_communicator_state(|state| state.button_ok_id.unwrap_or(0));
 
     with_window_manager(|manager| {
         if let Some(handle) = manager.get_window_by_id(window.get_id()) {
@@ -108,23 +106,23 @@ pub fn popup_communicator_system(
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
-            let state_handle = popup_communicator_state();
-            let mut guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            let button_ok_id = guard.button_ok_id.unwrap_or(0);
+            with_popup_communicator_state(|state| {
+                let button_ok_id = state.button_ok_id.unwrap_or(0);
 
             if control_id == button_ok_id {
-                if let Some(parent) = guard.parent.as_ref() {
+                if let Some(parent) = state.parent.as_ref() {
                     with_window_manager(|manager| {
                         let _ = manager.unset_modal(parent);
                     });
                 }
                 let layout = window.get_layout();
-                guard.parent = None;
-                guard.button_ok = None;
+                state.parent = None;
+                state.button_ok = None;
                 if let Some(layout) = layout {
                     with_window_manager(|manager| manager.destroy_layout(&layout));
                 }
             }
+            });
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
@@ -167,8 +165,7 @@ pub fn residual_popup_communicator_is_visible() -> bool {
 
 /// Residual: bind PopupCommunicator control IDs (no layout/modal).
 pub fn simulate_popup_communicator_bind_controls() -> bool {
-    let state_handle = popup_communicator_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+    with_popup_communicator_state(|state| {
     if state.parent_id.is_none() {
         state.parent_id = Some(NameKeyGenerator::name_to_key(
             "PopupCommunicator.wnd:PopupCommunicator",
@@ -179,6 +176,7 @@ pub fn simulate_popup_communicator_bind_controls() -> bool {
             "PopupCommunicator.wnd:ButtonOk",
         ));
     }
+    });
     residual_popcom_action_store(ResidualPopupCommunicatorAction::Bind);
     true
 }

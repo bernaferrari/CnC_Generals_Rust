@@ -3,7 +3,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 use game_engine::common::ini::get_global_data;
 use game_engine::common::language::Language;
@@ -581,12 +581,13 @@ impl CreditsManager {
 }
 
 thread_local! {
-    static THE_CREDITS: Arc<RwLock<CreditsManager>> =
-        Arc::new(RwLock::new(CreditsManager::new()));
+    static THE_CREDITS: RwLock<CreditsManager> = RwLock::new(CreditsManager::new());
 }
 
-pub fn get_the_credits() -> Arc<RwLock<CreditsManager>> {
-    THE_CREDITS.with(|credits| credits.clone())
+/// Run `f` against the thread-local `TheCredits` under its write lock.
+/// `None` mirrors the previous poisoned-lock early-out.
+pub fn with_the_credits<R>(f: impl FnOnce(&mut CreditsManager) -> R) -> Option<R> {
+    THE_CREDITS.with(|credits| credits.write().ok().map(|mut guard| f(&mut guard)))
 }
 
 fn screen_size() -> (i32, i32) {
@@ -714,26 +715,24 @@ pub fn residual_credits_frames_since_started() -> i32 {
 
 /// Residual: init credits without INI/fonts load.
 pub fn simulate_credits_init() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.init();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::Init);
-    !residual_credits_is_finished()
+    with_the_credits(|credits| {
+        credits.init();
+        residual_credits_sync(credits);
+        residual_credits_action_store(ResidualCreditsAction::Init);
+        !residual_credits_is_finished()
+    })
+    .unwrap_or(false)
 }
 
 /// Residual: reset credits residual.
 pub fn simulate_credits_reset() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.reset();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::Reset);
-    residual_credits_line_count() == 0 && !residual_credits_is_finished()
+    with_the_credits(|credits| {
+        credits.reset();
+        residual_credits_sync(credits);
+        residual_credits_action_store(ResidualCreditsAction::Reset);
+        residual_credits_line_count() == 0 && !residual_credits_is_finished()
+    })
+    .unwrap_or(false)
 }
 
 /// Residual: add text line residual (Normal style default).
@@ -741,51 +740,47 @@ pub fn simulate_credits_add_text(text: &str) -> bool {
     if text.is_empty() {
         return false;
     }
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.add_text(text);
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::AddText);
-    residual_credits_line_count() > 0
+    with_the_credits(|credits| {
+        credits.add_text(text);
+        residual_credits_sync(credits);
+        residual_credits_action_store(ResidualCreditsAction::AddText);
+        residual_credits_line_count() > 0
+    })
+    .unwrap_or(false)
 }
 
 /// Residual: add blank line residual.
 pub fn simulate_credits_add_blank() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    let before = guard.credit_lines.len();
-    guard.add_blank();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::AddBlank);
-    residual_credits_line_count() == before + 1
+    with_the_credits(|credits| {
+        let before = credits.credit_lines.len();
+        credits.add_blank();
+        residual_credits_sync(credits);
+        residual_credits_action_store(ResidualCreditsAction::AddBlank);
+        residual_credits_line_count() == before + 1
+    })
+    .unwrap_or(false)
 }
 
 /// Residual: update credits residual (may no-op without display size).
 pub fn simulate_credits_update() -> bool {
-    let credits = get_the_credits();
-    let Ok(mut guard) = credits.write() else {
-        return false;
-    };
-    guard.update();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::Update);
-    true
+    with_the_credits(|credits| {
+        credits.update();
+        residual_credits_sync(credits);
+        residual_credits_action_store(ResidualCreditsAction::Update);
+        true
+    })
+    .unwrap_or(false)
 }
 
 /// Residual: probe finished residual without forcing complete.
 pub fn simulate_credits_is_finished_probe() -> bool {
-    let credits = get_the_credits();
-    let Ok(guard) = credits.read() else {
-        return false;
-    };
-    let finished = guard.is_finished();
-    residual_credits_sync(&guard);
-    residual_credits_action_store(ResidualCreditsAction::FinishProbe);
-    residual_credits_is_finished() == finished
+    with_the_credits(|credits| {
+        let finished = credits.is_finished();
+        residual_credits_sync(credits);
+        residual_credits_action_store(ResidualCreditsAction::FinishProbe);
+        residual_credits_is_finished() == finished
+    })
+    .unwrap_or(false)
 }
 
 /// Residual: reset + add title lines + blank composite.

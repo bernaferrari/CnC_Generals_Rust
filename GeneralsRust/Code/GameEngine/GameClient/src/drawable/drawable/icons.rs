@@ -5,7 +5,7 @@ use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::{Anim2DTemplate, get_anim2d_collection};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -282,10 +282,10 @@ impl std::fmt::Debug for Anim2DIcon {
 
 impl Anim2DIcon {
     pub fn new(
-        template: Arc<RwLock<Anim2DTemplate>>,
+        template: Arc<Anim2DTemplate>,
         collection: Option<Arc<Mutex<Anim2DCollection>>>,
     ) -> Self {
-        let template_name = template.read().get_name().as_str().to_string();
+        let template_name = template.get_name().as_str().to_string();
         let anim = Anim2D::new(template, collection);
         Self {
             anim,

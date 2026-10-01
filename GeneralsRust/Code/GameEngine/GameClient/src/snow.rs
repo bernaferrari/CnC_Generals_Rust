@@ -3,7 +3,7 @@
 use game_engine::common::ini::ini::{INI, INIError, INIResult, register_block_parser};
 use game_engine::common::ini::ini_weather;
 use once_cell::sync::OnceCell;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 
 const SNOW_NOISE_X: usize = 64;
 const SNOW_NOISE_Y: usize = 64;
@@ -89,10 +89,10 @@ impl WeatherSetting {
     }
 }
 
-static WEATHER_SETTING: OnceCell<Arc<RwLock<WeatherSetting>>> = OnceCell::new();
-static SNOW_MANAGER: OnceCell<Arc<Mutex<SnowManager>>> = OnceCell::new();
+static WEATHER_SETTING: OnceCell<RwLock<WeatherSetting>> = OnceCell::new();
+static SNOW_MANAGER: OnceCell<Mutex<SnowManager>> = OnceCell::new();
 
-fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
+fn sync_weather_from_common(dest: &RwLock<WeatherSetting>) {
     if let Some(common) = ini_weather::get_weather_setting() {
         if let Ok(mut guard) = dest.write() {
             *guard = WeatherSetting::from_common(&common);
@@ -100,36 +100,34 @@ fn sync_weather_from_common(dest: &Arc<RwLock<WeatherSetting>>) {
     }
 }
 
-pub fn get_weather_setting() -> Option<Arc<RwLock<WeatherSetting>>> {
+pub fn get_weather_setting() -> Option<&'static RwLock<WeatherSetting>> {
     let settings = ensure_weather_setting();
-    sync_weather_from_common(&settings);
+    sync_weather_from_common(settings);
     Some(settings)
 }
 
-pub fn get_snow_manager() -> Option<Arc<Mutex<SnowManager>>> {
-    SNOW_MANAGER.get().cloned()
+pub fn get_snow_manager() -> Option<&'static Mutex<SnowManager>> {
+    SNOW_MANAGER.get()
 }
 
-pub fn ensure_weather_setting() -> Arc<RwLock<WeatherSetting>> {
-    let settings = WEATHER_SETTING
-        .get_or_init(|| {
-            let initial = ini_weather::get_weather_setting()
-                .map(|common| WeatherSetting::from_common(&common))
-                .unwrap_or_default();
-            Arc::new(RwLock::new(initial))
-        })
-        .clone();
-    sync_weather_from_common(&settings);
+pub fn ensure_weather_setting() -> &'static RwLock<WeatherSetting> {
+    let settings = WEATHER_SETTING.get_or_init(|| {
+        let initial = ini_weather::get_weather_setting()
+            .map(|common| WeatherSetting::from_common(&common))
+            .unwrap_or_default();
+        RwLock::new(initial)
+    });
+    sync_weather_from_common(settings);
     settings
 }
 
-pub fn initialize_snow_manager() -> Arc<Mutex<SnowManager>> {
+pub fn initialize_snow_manager() -> &'static Mutex<SnowManager> {
     let _ = ensure_weather_setting();
-    let manager = SNOW_MANAGER.get_or_init(|| Arc::new(Mutex::new(SnowManager::new())));
+    let manager = SNOW_MANAGER.get_or_init(|| Mutex::new(SnowManager::new()));
     if let Ok(mut guard) = manager.lock() {
         guard.init();
     }
-    manager.clone()
+    manager
 }
 
 pub fn register_weather_definition_parser() {

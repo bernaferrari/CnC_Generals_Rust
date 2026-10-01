@@ -7,7 +7,6 @@
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use super::drawable::{
     BasicDrawable, Color, Drawable, DrawableId, DrawableStatus, DrawableType, INVALID_DRAWABLE_ID,
@@ -566,13 +565,11 @@ impl DrawableManager {
         }
 
         // Phase 2+3: Flush the bridge and record wgpu draw calls
-        if let Some(pipeline_arc) =
-            super::drawable_draw_pipeline::with_drawable_pipeline(Arc::clone)
-        {
-            let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
+        let _ = super::drawable_draw_pipeline::with_drawable_pipeline(|pipeline| {
+            let mut pipeline = pipeline.lock().unwrap_or_else(|e| e.into_inner());
             pipeline.update_camera(view_matrix, proj_matrix);
             pipeline.record_draw(pass);
-        }
+        });
     }
 
     /// Render a specific pass
@@ -703,9 +700,7 @@ impl DrawableManager {
 
         // Submit collected shadow geometry through the draw pipeline.
         if shadow_casters_visible > 0 {
-            if let Some(pipeline_arc) =
-                super::drawable_draw_pipeline::with_drawable_pipeline(Arc::clone)
-            {
+            let _ = super::drawable_draw_pipeline::with_drawable_pipeline(|pipeline| {
                 let view = glam::Mat4::from_cols_slice(&{
                     let mut v = [0.0f32; 16];
                     for i in 0..4 {
@@ -724,9 +719,9 @@ impl DrawableManager {
                     }
                     v
                 });
-                let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
+                let mut pipeline = pipeline.lock().unwrap_or_else(|e| e.into_inner());
                 pipeline.update_camera(&view, &proj);
-            }
+            });
         }
     }
 

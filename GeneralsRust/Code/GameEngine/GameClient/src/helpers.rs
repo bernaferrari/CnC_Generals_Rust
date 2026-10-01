@@ -491,11 +491,9 @@ struct GameClientPrepareNewGameHooks;
 
 impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
     fn ensure_background_window(&self) {
-        let layout_slot = background_layout_slot();
-        let existing = layout_slot
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let existing = BACKGROUND_LAYOUT_SLOT.with(|slot| {
+            slot.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        });
         if let Some(layout) = existing {
             layout.borrow_mut().hide(false);
             layout.borrow_mut().bring_forward();
@@ -516,8 +514,9 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
             if let Some(window) = layout.borrow().get_first_window() {
                 window.borrow_mut().clear_status(WindowStatus::IMAGE);
             }
-            let mut slot = layout_slot.lock().unwrap_or_else(|e| e.into_inner());
-            *slot = Some(layout);
+            BACKGROUND_LAYOUT_SLOT.with(|slot| {
+                *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(layout);
+            });
         }
     }
 
@@ -527,12 +526,7 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
 }
 
 thread_local! {
-    static BACKGROUND_LAYOUT_SLOT: Arc<Mutex<Option<Rc<RefCell<WindowLayout>>>>> =
-        Arc::new(Mutex::new(None));
-}
-
-fn background_layout_slot() -> Arc<Mutex<Option<Rc<RefCell<WindowLayout>>>>> {
-    BACKGROUND_LAYOUT_SLOT.with(|slot| slot.clone())
+    static BACKGROUND_LAYOUT_SLOT: Mutex<Option<Rc<RefCell<WindowLayout>>>> = Mutex::new(None);
 }
 
 pub fn register_prepare_new_game_hooks() {
@@ -549,8 +543,13 @@ pub fn register_load_screen_hooks() {
 struct GameClientObserverAudioLocalityHooks;
 
 struct GameClientLoadScreenHooks {
-    active_load_screen: Mutex<Option<ActiveLoadScreen>>,
-    pending_game_mode: Mutex<Option<i32>>,
+    state: Mutex<LoadScreenHookState>,
+}
+
+#[derive(Default)]
+struct LoadScreenHookState {
+    active_load_screen: Option<ActiveLoadScreen>,
+    pending_game_mode: Option<i32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -565,18 +564,14 @@ const LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES: usize = 180;
 impl GameClientLoadScreenHooks {
     fn new() -> Self {
         Self {
-            active_load_screen: Mutex::new(None),
-            pending_game_mode: Mutex::new(None),
+            state: Mutex::new(LoadScreenHookState::default()),
         }
     }
 
     fn set_active_load_screen(&self, kind: LoadScreenKind, game_mode: i32) {
         set_mouse_cursor_visibility(false);
-        let mut active_load_screen = self
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
     }
 
     fn reveal_shell_main_menu_after_start(&self, game_mode: i32) {
@@ -616,18 +611,14 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
             current_campaign_is_challenge,
         };
 
-        let old_kind = self
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
+        let old_kind = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.active_load_screen.take()
+        };
         if let Some(active) = old_kind {
             reset_load_screen(active.kind);
         }
-        *self
-            .pending_game_mode
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(game_mode);
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).pending_game_mode = Some(game_mode);
 
         let Some(kind) = select_load_screen(request) else {
             return;
@@ -643,10 +634,11 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
     }
 
     fn update_load_screen(&self, progress: i32) {
-        let active = *self
-            .active_load_screen
+        let active = self
+            .state
             .lock()
-            .unwrap_or_else(|e| e.into_inner());
+            .unwrap_or_else(|e| e.into_inner())
+            .active_load_screen;
         if let Some(active) = active {
             update_game_load_screen(active.kind, progress as f32);
         }
@@ -672,16 +664,13 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
     }
 
     fn end_load_screen(&self) {
-        let active = self
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
-        let pending_game_mode = self
-            .pending_game_mode
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
+        let (active, pending_game_mode) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                state.active_load_screen.take(),
+                state.pending_game_mode.take(),
+            )
+        };
         let game_mode = active.map(|active| active.game_mode).or(pending_game_mode);
 
         if let Some(active) = active {
@@ -736,13 +725,11 @@ mod load_screen_hook_tests {
         set_mouse_cursor_visibility(false);
 
         let hooks = GameClientLoadScreenHooks::new();
-        *hooks
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(ActiveLoadScreen {
-            kind: LoadScreenKind::ShellGame,
-            game_mode: gamelogic::system::game_logic::GAME_NONE,
-        });
+        hooks.state.lock().unwrap_or_else(|e| e.into_inner()).active_load_screen =
+            Some(ActiveLoadScreen {
+                kind: LoadScreenKind::ShellGame,
+                game_mode: gamelogic::system::game_logic::GAME_NONE,
+            });
 
         hooks.end_load_screen();
 
@@ -965,21 +952,19 @@ struct PopupMessageState {
 }
 
 thread_local! {
-    static POPUP_MESSAGE_STATE: Arc<Mutex<PopupMessageState>> =
-        Arc::new(Mutex::new(PopupMessageState::default()));
+    static POPUP_MESSAGE_STATE: Mutex<PopupMessageState> = Mutex::new(PopupMessageState::default());
 }
 
-fn popup_message_state() -> Arc<Mutex<PopupMessageState>> {
-    POPUP_MESSAGE_STATE.with(|state| state.clone())
+fn with_popup_message_state<R>(f: impl FnOnce(&mut PopupMessageState) -> R) -> R {
+    POPUP_MESSAGE_STATE.with(|state| f(&mut state.lock().unwrap_or_else(|e| e.into_inner())))
 }
 
 thread_local! {
-    static HINT_DATA: Arc<Mutex<Vec<HintData>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    static HINT_DATA: Mutex<Vec<HintData>> = Mutex::new(Vec::new());
 }
 
-fn hint_state() -> Arc<Mutex<Vec<HintData>>> {
-    HINT_DATA.with(|state| state.clone())
+fn with_hint_state<R>(f: impl FnOnce(&mut Vec<HintData>) -> R) -> R {
+    HINT_DATA.with(|state| f(&mut state.lock().unwrap_or_else(|e| e.into_inner)))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -2032,11 +2017,7 @@ impl TheInGameUI {
             layout: layout.clone(),
         };
 
-        {
-            let state_handle = popup_message_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.data = Some(data);
-        }
+        with_popup_message_state(|state| state.data = Some(data));
 
         if let Some(layout) = layout {
             layout.borrow().run_init(None);
@@ -2044,21 +2025,13 @@ impl TheInGameUI {
     }
 
     pub fn get_popup_message_data() -> Option<PopupMessageData> {
-        let state_handle = popup_message_state();
-        state_handle
-            .lock()
-            .ok()
-            .and_then(|state| state.data.clone())
+        POPUP_MESSAGE_STATE.with(|state| state.lock().ok().and_then(|state| state.data.clone()))
     }
 
     pub fn clear_popup_message_data() {
         gamelogic::helpers::TheInGameUI::consume_popup_clear_request();
 
-        let data = {
-            let state_handle = popup_message_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.data.take()
-        };
+        let data = with_popup_message_state(|state| state.data.take());
 
         let Some(data) = data else {
             return;
@@ -2146,15 +2119,15 @@ impl TheInGameUI {
             source_id,
             lifetime_frames: 41,
         };
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
-        if guard.len() >= 256 {
-            if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
-                guard.remove(pos);
+        with_hint_state(|guard| {
+            guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
+            if guard.len() >= 256 {
+                if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
+                    guard.remove(pos);
+                }
             }
-        }
-        guard.push(hint);
+            guard.push(hint);
+        });
     }
 
     pub fn create_attack_hint(
@@ -2172,14 +2145,14 @@ impl TheInGameUI {
             source_id,
             lifetime_frames: 41,
         };
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.len() >= 256 {
-            if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
-                guard.remove(pos);
+        with_hint_state(|guard| {
+            if guard.len() >= 256 {
+                if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
+                    guard.remove(pos);
+                }
             }
-        }
-        guard.push(hint);
+            guard.push(hint);
+        });
     }
 
     pub fn begin_area_select_hint() {
@@ -2191,38 +2164,36 @@ impl TheInGameUI {
             source_id: 0,
             lifetime_frames: 300,
         };
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.push(hint);
+        with_hint_state(|guard| {
+            guard.push(hint);
+        });
     }
 
     pub fn end_area_select_hint() {
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(pos) = guard
-            .iter()
-            .rposition(|h| h.hint_type == HintType::AreaSelect)
-        {
-            guard.remove(pos);
-        }
+        with_hint_state(|guard| {
+            if let Some(pos) = guard
+                .iter()
+                .rposition(|h| h.hint_type == HintType::AreaSelect)
+            {
+                guard.remove(pos);
+            }
+        });
     }
 
     pub fn expire_hints(current_frame: u32) {
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames);
+        with_hint_state(|guard| {
+            guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames);
+        });
     }
 
     pub fn clear_hints() {
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.clear();
+        with_hint_state(|guard| {
+            guard.clear();
+        });
     }
 
     pub fn get_hints() -> Vec<HintData> {
-        let state = hint_state();
-        let guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.clone()
+        with_hint_state(|guard| guard.clone())
     }
 
     pub fn is_in_waypoint_mode() -> bool {

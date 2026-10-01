@@ -306,16 +306,28 @@ impl std::fmt::Debug for AssetLoadRequest {
     }
 }
 
+/// Cached assets and their path index, stored under a single lock
+struct AssetRegistry {
+    assets: HashMap<AssetHandle, Arc<AssetData>>,
+    index: HashMap<PathBuf, AssetHandle>,
+}
+
+/// Statistics and memory accounting updated together on load/evict paths
+#[derive(Default)]
+struct AssetAccounting {
+    stats: AssetStats,
+    memory_used: u64,
+}
+
 /// Complete Asset Management System
 pub struct AssetManager {
     config: AssetConfig,
 
     // Core storage
-    assets: Arc<RwLock<HashMap<AssetHandle, Arc<AssetData>>>>,
-    asset_index: Arc<RwLock<HashMap<PathBuf, AssetHandle>>>,
+    registry: RwLock<AssetRegistry>,
 
     // Archive management
-    big_archives: Arc<RwLock<HashMap<PathBuf, Arc<BigArchive>>>>,
+    big_archives: RwLock<HashMap<PathBuf, Arc<BigArchive>>>,
 
     // Loading system
     load_queue: Arc<Mutex<VecDeque<AssetLoadRequest>>>,
@@ -338,11 +350,8 @@ pub struct AssetManager {
     // Localization system
     localization: Arc<LocalizationManager>,
 
-    // Statistics
-    stats: Arc<RwLock<AssetStats>>,
-
-    // Memory management
-    memory_used: Arc<Mutex<u64>>,
+    // Statistics and memory management
+    accounting: Mutex<AssetAccounting>,
     memory_budget: u64,
 
     // Shutdown signal
@@ -392,9 +401,11 @@ impl AssetManager {
 
         let manager = Self {
             config: config.clone(),
-            assets: Arc::new(RwLock::new(HashMap::new())),
-            asset_index: Arc::new(RwLock::new(HashMap::new())),
-            big_archives: Arc::new(RwLock::new(HashMap::new())),
+            registry: RwLock::new(AssetRegistry {
+                assets: HashMap::new(),
+                index: HashMap::new(),
+            }),
+            big_archives: RwLock::new(HashMap::new()),
             load_queue: Arc::new(Mutex::new(VecDeque::new())),
             loading_semaphore: Arc::new(Semaphore::new(config.max_concurrent_loads)),
             w3d_loader,
@@ -404,8 +415,7 @@ impl AssetManager {
             hot_reload,
             validator,
             localization,
-            stats: Arc::new(RwLock::new(AssetStats::default())),
-            memory_used: Arc::new(Mutex::new(0)),
+            accounting: Mutex::new(AssetAccounting::default()),
             memory_budget,
             shutdown_notify: Arc::new(Notify::new()),
         };
@@ -506,8 +516,8 @@ impl AssetManager {
                 archives.insert(archive_path.clone(), Arc::new(archive));
 
                 // Update stats
-                let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-                stats.archives_loaded += 1;
+                let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+                accounting.stats.archives_loaded += 1;
             } else {
                 log::warn!("Archive not found: {}", archive_path.display());
             }
@@ -578,22 +588,15 @@ impl AssetManager {
         let path = path.as_ref().to_path_buf();
 
         // Check if already loaded
-        if let Some(handle) = self
-            .asset_index
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&path)
         {
-            if let Some(asset) = self
-                .assets
-                .read()
-                .unwrap_or_else(|e| e.into_inner())
-                .get(handle)
-            {
-                asset.add_ref();
-                let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-                stats.cache_hits += 1;
-                return Ok(*handle);
+            let registry = self.registry.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(handle) = registry.index.get(&path) {
+                if let Some(asset) = registry.assets.get(handle) {
+                    asset.add_ref();
+                    let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+                    accounting.stats.cache_hits += 1;
+                    return Ok(*handle);
+                }
             }
         }
 
@@ -678,14 +681,11 @@ impl AssetManager {
         let asset_data = Arc::new(AssetData::new(descriptor, data, load_time));
 
         // Store in cache
-        self.assets
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(handle, asset_data.clone());
-        self.asset_index
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(path.clone(), handle);
+        {
+            let mut registry = self.registry.write().unwrap_or_else(|e| e.into_inner());
+            registry.assets.insert(handle, asset_data.clone());
+            registry.index.insert(path.clone(), handle);
+        }
 
         if let Some(hot_reload) = &self.hot_reload {
             hot_reload.register_asset_path(handle, path.clone());
@@ -703,15 +703,12 @@ impl AssetManager {
             });
         }
 
-        // Update memory usage
+        // Update memory usage and statistics
         {
-            let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
-            *memory_used += asset_data.descriptor.size_bytes;
-        }
+            let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+            accounting.memory_used += asset_data.descriptor.size_bytes;
 
-        // Update statistics
-        {
-            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
+            let stats = &mut accounting.stats;
             stats.cache_misses += 1;
             stats.loads_completed += 1;
             stats.total_assets += 1;
@@ -755,8 +752,8 @@ impl AssetManager {
         }
 
         let (priority, dependencies, tags) = {
-            let assets = self.assets.read().unwrap_or_else(|e| e.into_inner());
-            if let Some(existing) = assets.get(&handle) {
+            let registry = self.registry.read().unwrap_or_else(|e| e.into_inner());
+            if let Some(existing) = registry.assets.get(&handle) {
                 (
                     existing.descriptor.priority,
                     existing.descriptor.dependencies.clone(),
@@ -785,32 +782,28 @@ impl AssetManager {
         let asset_data = Arc::new(AssetData::new(descriptor, data, load_time));
 
         let old_size = {
-            let mut assets = self.assets.write().unwrap_or_else(|e| e.into_inner());
-            let old_size = assets
+            let mut registry = self.registry.write().unwrap_or_else(|e| e.into_inner());
+            let old_size = registry
+                .assets
                 .get(&handle)
                 .map(|asset| asset.descriptor.size_bytes)
                 .unwrap_or(0);
-            assets.insert(handle, asset_data.clone());
+            registry.assets.insert(handle, asset_data.clone());
+            registry.index.insert(path.to_path_buf(), handle);
             old_size
         };
 
-        self.asset_index
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(path.to_path_buf(), handle);
-
         let new_size = asset_data.descriptor.size_bytes;
         {
-            let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
+            let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
             if new_size >= old_size {
-                *memory_used += new_size - old_size;
+                accounting.memory_used += new_size - old_size;
             } else {
-                *memory_used = memory_used.saturating_sub(old_size - new_size);
+                accounting.memory_used =
+                    accounting.memory_used.saturating_sub(old_size - new_size);
             }
-        }
 
-        {
-            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
+            let stats = &mut accounting.stats;
             stats.loads_completed += 1;
             stats.hot_reloads += 1;
             stats.memory_used = stats
@@ -1055,10 +1048,11 @@ impl AssetManager {
         let asset_manager = Arc::clone(self);
         hot_reload.register_memory_snapshot_provider(move || {
             let stats = asset_manager.get_stats();
-            let assets = asset_manager
-                .assets
+            let registry = asset_manager
+                .registry
                 .read()
                 .unwrap_or_else(|e| e.into_inner());
+            let assets = &registry.assets;
             let mut texture_memory = 0u64;
             let mut audio_memory = 0u64;
             let mut model_memory = 0u64;
@@ -1289,8 +1283,8 @@ impl AssetManager {
                 }
 
                 {
-                    let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-                    stats.fallback_uses += 1;
+                    let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+                    accounting.stats.fallback_uses += 1;
                 }
 
                 current = fallback_path.clone();
@@ -1305,9 +1299,10 @@ impl AssetManager {
 
     /// Get asset by handle
     pub fn get_asset(&self, handle: AssetHandle) -> Option<Arc<AssetData>> {
-        self.assets
+        self.registry
             .read()
             .unwrap_or_else(|e| e.into_inner())
+            .assets
             .get(&handle)
             .cloned()
     }
@@ -1315,9 +1310,10 @@ impl AssetManager {
     /// Release asset reference
     pub fn release_asset(&self, handle: AssetHandle) {
         if let Some(asset) = self
-            .assets
+            .registry
             .read()
             .unwrap_or_else(|e| e.into_inner())
+            .assets
             .get(&handle)
         {
             asset.release();
@@ -1326,7 +1322,7 @@ impl AssetManager {
 
     /// Check memory pressure and perform cleanup
     async fn check_memory_pressure(&self) {
-        let memory_used = *self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
+        let memory_used = self.accounting.lock().unwrap_or_else(|e| e.into_inner()).memory_used;
         let pressure = memory_used as f32 / self.memory_budget as f32;
 
         if pressure > self.config.memory_pressure_threshold {
@@ -1344,36 +1340,33 @@ impl AssetManager {
         let cutoff_time = Instant::now() - Duration::from_secs(30);
 
         // Find assets with zero references and not recently used
-        let assets = self.assets.read().unwrap_or_else(|e| e.into_inner());
-        for (handle, asset) in assets.iter() {
+        let registry = self.registry.read().unwrap_or_else(|e| e.into_inner());
+        for (handle, asset) in registry.assets.iter() {
             if asset.ref_count() == 0 && asset.last_accessed < cutoff_time {
                 assets_to_remove.push(*handle);
             }
         }
-        drop(assets);
+        drop(registry);
 
         if !assets_to_remove.is_empty() {
             let removed_count = assets_to_remove.len();
-            let mut assets = self.assets.write().unwrap_or_else(|e| e.into_inner());
-            let mut index = self.asset_index.write().unwrap_or_else(|e| e.into_inner());
             let mut memory_freed = 0u64;
 
-            for handle in assets_to_remove {
-                if let Some(asset) = assets.remove(&handle) {
-                    memory_freed += asset.descriptor.size_bytes;
-                    index.remove(&asset.descriptor.path);
+            {
+                let mut registry = self.registry.write().unwrap_or_else(|e| e.into_inner());
+                for handle in assets_to_remove {
+                    if let Some(asset) = registry.assets.remove(&handle) {
+                        memory_freed += asset.descriptor.size_bytes;
+                        registry.index.remove(&asset.descriptor.path);
+                    }
                 }
             }
 
-            drop(assets);
-            drop(index);
-
             if memory_freed > 0 {
-                let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
-                *memory_used = memory_used.saturating_sub(memory_freed);
-
-                let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-                stats.memory_used = stats.memory_used.saturating_sub(memory_freed);
+                let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+                accounting.memory_used = accounting.memory_used.saturating_sub(memory_freed);
+                accounting.stats.memory_used =
+                    accounting.stats.memory_used.saturating_sub(memory_freed);
 
                 log::info!(
                     "Garbage collected {} assets, freed {} bytes",
@@ -1386,9 +1379,9 @@ impl AssetManager {
 
     /// Get asset statistics
     pub fn get_stats(&self) -> AssetStats {
-        let stats = self.stats.read().unwrap_or_else(|e| e.into_inner());
-        let mut result = stats.clone();
-        result.memory_used = *self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
+        let accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+        let mut result = accounting.stats.clone();
+        result.memory_used = accounting.memory_used;
         result
     }
 
@@ -1423,8 +1416,8 @@ impl AssetManager {
     /// Evict an asset from memory if it is no longer referenced
     pub async fn evict_asset(&self, handle: AssetHandle) -> Result<u64, AssetError> {
         let (path, size_bytes, can_evict) = {
-            let assets = self.assets.read().unwrap_or_else(|e| e.into_inner());
-            let Some(asset) = assets.get(&handle) else {
+            let registry = self.registry.read().unwrap_or_else(|e| e.into_inner());
+            let Some(asset) = registry.assets.get(&handle) else {
                 return Ok(0);
             };
             let can_evict = asset.ref_count() == 0;
@@ -1443,23 +1436,16 @@ impl AssetManager {
         }
 
         {
-            let mut assets = self.assets.write().unwrap_or_else(|e| e.into_inner());
-            assets.remove(&handle);
+            let mut registry = self.registry.write().unwrap_or_else(|e| e.into_inner());
+            registry.assets.remove(&handle);
+            registry.index.remove(&path);
         }
 
         {
-            let mut index = self.asset_index.write().unwrap_or_else(|e| e.into_inner());
-            index.remove(&path);
-        }
-
-        {
-            let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
-            *memory_used = memory_used.saturating_sub(size_bytes);
-        }
-
-        {
-            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-            stats.memory_used = stats.memory_used.saturating_sub(size_bytes);
+            let mut accounting = self.accounting.lock().unwrap_or_else(|e| e.into_inner());
+            accounting.memory_used = accounting.memory_used.saturating_sub(size_bytes);
+            accounting.stats.memory_used =
+                accounting.stats.memory_used.saturating_sub(size_bytes);
         }
 
         Ok(size_bytes)
@@ -1480,20 +1466,14 @@ impl SubsystemInterface for AssetManager {
         log::info!("Resetting AssetManager subsystem");
 
         // Clear all assets
-        self.assets
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.asset_index
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        {
+            let mut registry = self.registry.write().unwrap_or_else(|e| e.into_inner());
+            registry.assets.clear();
+            registry.index.clear();
+        }
 
-        // Reset memory usage
-        *self.memory_used.lock().unwrap_or_else(|e| e.into_inner()) = 0;
-
-        // Reset statistics
-        *self.stats.write().unwrap_or_else(|e| e.into_inner()) = AssetStats::default();
+        // Reset memory usage and statistics
+        *self.accounting.lock().unwrap_or_else(|e| e.into_inner()) = AssetAccounting::default();
 
         Ok(())
     }
