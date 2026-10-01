@@ -1113,8 +1113,9 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&cave_name) {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    if let Some(contain) = obj_guard.get_contain() {
+            let _ = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(object_id, |obj_guard| {
+                    if let Some(contain) = obj_guard.get_contain_mut() {
                         contain.try_to_set_cave_index(cave_index);
                     }
                 });

@@ -408,8 +408,8 @@ impl ScriptActionDispatcher {
         solver.solve();
 
         for (unit_id, transport_id) in solver.get_solution() {
-            let _ = OBJECT_REGISTRY.with_object(*unit_id, |unit_guard| {
-                if let Some(ai) = unit_guard.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(*unit_id, |unit_guard| {
+                if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
                     ai.ai_enter(*transport_id, crate::ai::CommandSourceType::FromScript);
                 }
             });
@@ -786,21 +786,18 @@ impl ScriptActionDispatcher {
             let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
                 .unwrap_or_default();
             for object_id in members {
-                    let ai_arc = OBJECT_REGISTRY
-                        .with_object(object_id, |obj| obj.get_ai_update_interface())
-                        .flatten();
-                    let Some(mut ai_guard) = ai_arc else {
-                        continue;
-                    };
-                    {
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                        let Some(ai_guard) = obj.get_ai_update_interface_mut() else {
+                            return;
+                        };
                         let mut params = AiCommandParams::new(
                             AiCommandType::GuardTunnelNetwork,
                             CommandSourceType::FromScript,
                         );
                         params.int_value = GuardMode::Normal.as_i32();
                         let _ = ai_guard.execute_command(&params);
-                    };
-            }
+                    });
+                }
         }
 
         Ok(ScriptActionResult::Success)
@@ -828,24 +825,21 @@ impl ScriptActionDispatcher {
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name));
         if let Some(team_arc) = guard_team {
-            let _ = crate::team::with_team(team_arc, |team| {
-                for &member_id in team.get_members() {
-                        let Some((pos, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |obj| {
-                            let ai_arc = obj.get_ai_update_interface()?;
-                            Some((*obj.get_position(), ai_arc))
-                        }).flatten() else {
-                            continue;
-                        };
-                        let mut guard_params = AiCommandParams::new(
-                            AiCommandType::GuardPosition,
-                            CommandSourceType::FromScript,
-                        );
-                        guard_params.pos = pos;
-                        { let ai = ai_arc;
-                            let _ = ai.execute_command(&guard_params);
-                        };
-                }
-            });
+            let member_ids = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
+                .unwrap_or_default();
+            for member_id in member_ids {
+                let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                    let Some(ai) = obj.get_ai_update_interface_mut() else {
+                        return;
+                    };
+                    let mut guard_params = AiCommandParams::new(
+                        AiCommandType::GuardPosition,
+                        CommandSourceType::FromScript,
+                    );
+                    guard_params.pos = *obj.get_position();
+                    let _ = ai.execute_command(&guard_params);
+                });
+            }
         }
 
         if frames > 0 {
@@ -1169,8 +1163,8 @@ impl ScriptActionDispatcher {
             let member_ids = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
                 .unwrap_or_default();
             for obj_id in member_ids {
-                let _ = OBJECT_REGISTRY.with_object(obj_id, |obj_read| {
-                    if let Some(mut ai_write) = obj_read.get_ai_update_interface() {
+                let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
+                    if let Some(ai_write) = obj.get_ai_update_interface_mut() {
                         let _ = ai_write.set_attitude(module_attitude);
                     }
                 });
@@ -1658,13 +1652,10 @@ impl ScriptActionDispatcher {
         };
 
         for &member_id in &members {
-            let Some(ai_arc) = OBJECT_REGISTRY
-                .with_object(member_id, |obj| obj.get_ai_update_interface())
-                .flatten()
-            else {
-                continue;
-            };
-            { let ai = ai_arc;
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
+                    return;
+                };
                 let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let mut params = AiCommandParams::new(
                     AiCommandType::MoveToObject,
@@ -1672,9 +1663,8 @@ impl ScriptActionDispatcher {
                 );
                 params.obj = Some(target_id);
                 let _ = ai.execute_command(&params);
-            };
+            });
         }
-
         Ok(ScriptActionResult::Success)
     }
 }
