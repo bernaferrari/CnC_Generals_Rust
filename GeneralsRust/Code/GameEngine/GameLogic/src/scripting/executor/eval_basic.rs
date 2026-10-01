@@ -951,9 +951,8 @@ impl ScriptConditionEvaluator {
             crate::scripting::host_query_player_science_purchase_points(&player_name)
                 .or_else(|| {
                     let players = player_list().read().ok()?;
-                    let player_arc = players.find_player_by_name(&player_name)?;
-                    player_arc
-                        .map(|p| p.get_science_purchase_points())
+                    let player = players.find_player_by_name(&player_name)?;
+                    Some(player.get_science_purchase_points())
                 })
                 .unwrap_or(0);
 

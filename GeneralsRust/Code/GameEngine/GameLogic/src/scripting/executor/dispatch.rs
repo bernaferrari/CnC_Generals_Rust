@@ -985,7 +985,7 @@ impl ScriptActionDispatcher {
             sum.z += pos.z;
             count += 1.0;
             if first_unit.is_none() {
-                first_unit = Some(*member_id);
+                first_unit = Some(member_id);
             }
         }
 
