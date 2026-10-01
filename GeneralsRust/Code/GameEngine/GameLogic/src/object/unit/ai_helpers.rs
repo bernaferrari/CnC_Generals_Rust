@@ -27,7 +27,7 @@ pub(super) fn find_enemy_in_container(
         .with_object(container_id, |guard| {
             let contain = guard.get_contain()?;
             let contain_guard = contain.lock().ok()?;
-            Some(contain_guard.get_contained_objects().to_vec())
+            Some(contain_guard.get_contained_objects().into_owned())
         })
         .flatten()?;
 

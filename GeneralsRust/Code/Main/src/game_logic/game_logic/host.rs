@@ -62,6 +62,9 @@ pub struct GameLogic {
     /// Coupled ticks do not dirty-push HashMap mutations back. Fail-open host
     /// fields only when shadow is off. Main still allocates ObjectId.
     pub objects: HostObjectStore,
+    /// C++ `SupplyWarehouseCripplingBehavior` clocks, scoped to this game.
+    pub(in crate::game_logic) warehouse_crippling_states:
+        HashMap<ObjectId, crate::game_logic::host_supply_gather::WarehouseCripplingState>,
     /// Host ids mutated this tick that must write through to GameWorld.
     pub(super) host_view_dirty: HashSet<ObjectId>,
     /// C++ Object partition last-look: unlook previous then look on move/death.

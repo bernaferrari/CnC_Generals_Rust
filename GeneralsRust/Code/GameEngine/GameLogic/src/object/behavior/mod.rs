@@ -21,7 +21,7 @@ pub mod dumb_projectile_behavior;
 pub mod fire_weapon_update;
 pub mod fire_weapon_when_damaged_behavior;
 pub mod fire_weapon_when_damaged_behavior_new;
-pub mod fire_weapon_when_dead_behavior_new;
+pub mod fire_weapon_when_dead_behavior;
 pub mod firing_tracker_behavior;
 pub mod propaganda_center_behavior;
 pub mod propaganda_tower_behavior;
@@ -153,7 +153,7 @@ pub use supply_warehouse_crippling_behavior::{
 pub use auto_heal_behavior::{AutoHealBehavior, AutoHealBehaviorModuleData};
 pub use bridge_behavior::{BridgeBehavior, BridgeBehaviorModule, BridgeBehaviorModuleData};
 pub use dumb_projectile_behavior::{DumbProjectileBehavior, DumbProjectileBehaviorModuleData};
-pub use fire_weapon_when_dead_behavior_new::{
+pub use fire_weapon_when_dead_behavior::{
     FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorFactory,
     FireWeaponWhenDeadBehaviorModule, FireWeaponWhenDeadBehaviorModuleData,
 };

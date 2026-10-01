@@ -9,8 +9,6 @@
 use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock};
 
-
-
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, Int, KIND_OF_MASK_ALL, KIND_OF_MASK_NONE, KindOf, KindOfMaskType,
@@ -849,7 +847,7 @@ impl DumbProjectileBehavior {
             return false;
         }
 
-        let contained_ids = contain_guard.get_contained_objects().to_vec();
+        let contained_ids = contain_guard.get_contained_objects().into_owned();
         drop(contain_guard);
 
         let mut num_killed = 0;

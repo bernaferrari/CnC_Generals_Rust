@@ -2545,8 +2545,8 @@ mod tests {
             self.ids.retain(|id| *id != object_id);
             Ok(())
         }
-        fn get_contained_objects(&self) -> &[ObjectID] {
-            &self.ids
+        fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
+            std::borrow::Cow::Borrowed(&self.ids)
         }
         fn get_contained_count(&self) -> usize {
             self.ids.len()

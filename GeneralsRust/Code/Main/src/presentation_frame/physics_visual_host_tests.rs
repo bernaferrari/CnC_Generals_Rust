@@ -2,7 +2,8 @@
 
 use super::physics_visual_host::{
     FrozenHostPhysicsObject, FrozenHostPhysicsVisuals, HostPhysicsVisualFacts,
-    HostPhysicsVisualState, body_for_object_with_height_samples,
+    HostPhysicsVisualState, body_for_object_with_height_samples, cached_show_client_physics,
+    collect_facts,
 };
 use super::physics_visual_host_inputs::{
     ObjectVisualIni, clear_test_object_visual_ini, set_test_object_visual_ini,
@@ -61,6 +62,34 @@ fn frozen_test_frame(
             },
         )]),
     }
+}
+
+#[test]
+fn physics_option_is_read_lazily_and_once_per_frozen_frame() {
+    let mut cached = None;
+    let mut object = test_object(1, "NonPhysics");
+    object.loco_appearance = crate::game_logic::LocomotorAppearance::Other;
+    let objects = HashMap::from([(object.id, object.clone())]);
+    assert!(collect_facts(&object, &objects, false, false, &mut cached, |_| None).is_none());
+    assert_eq!(cached, None, "no eligible drawable means no option read");
+
+    object.loco_appearance = crate::game_logic::LocomotorAppearance::Hover;
+    let objects = HashMap::from([(object.id, object.clone())]);
+    let first = collect_facts(&object, &objects, false, false, &mut cached, |_| None).unwrap();
+    assert_eq!(cached, Some(first.show_client_physics));
+
+    let second = collect_facts(&object, &objects, false, false, &mut cached, |_| None).unwrap();
+    assert_eq!(second.show_client_physics, first.show_client_physics);
+
+    let mut reads = 0;
+    assert_eq!(
+        cached_show_client_physics(&mut cached, || {
+            reads += 1;
+            !first.show_client_physics
+        }),
+        first.show_client_physics
+    );
+    assert_eq!(reads, 0, "later objects reuse the first sampled option");
 }
 
 #[test]

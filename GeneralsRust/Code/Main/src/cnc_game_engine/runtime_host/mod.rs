@@ -248,7 +248,6 @@ impl CnCGameEngine {
             "click_live_garrison_dual_world_empty_gate" => self.runtime_host_cmd_click_live_garrison_dual_world_empty_gate(&args),
             "click_live_open_contain_dual_world_empty_gate" => self.runtime_host_cmd_click_live_open_contain_dual_world_empty_gate(&args),
             "click_live_pathfind_dual_world_empty_gate" => self.runtime_host_cmd_click_live_pathfind_dual_world_empty_gate(&args),
-            "click_live_fire_weapon_when_dead_behavior_dual_world_empty_gate" => self.runtime_host_cmd_click_live_fire_weapon_when_dead_behavior_dual_world_empty_gate(&args),
             "click_live_guard_dual_world_empty_gate" => self.runtime_host_cmd_click_live_guard_dual_world_empty_gate(&args),
             "click_live_guard_retaliate_dual_world_empty_gate" => self.runtime_host_cmd_click_live_guard_retaliate_dual_world_empty_gate(&args),
             "click_live_wander_ai_dual_world_empty_gate" => self.runtime_host_cmd_click_live_wander_ai_dual_world_empty_gate(&args),

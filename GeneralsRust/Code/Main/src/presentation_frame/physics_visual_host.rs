@@ -87,6 +87,11 @@ impl HostPhysicsVisualState {
         });
         let script_frozen = logic.is_script_time_frozen();
         let camera_frozen = logic.is_script_camera_time_frozen();
+        // Drawable::applyPhysicsXform gates each drawable on this global option.
+        // The host freezes presentation facts per frame, so sample on the first
+        // eligible object and reuse that value for the rest of the frame. Keep
+        // this lazy: frames with no visible physics drawable do not read it.
+        let mut show_client_physics = None;
         FrozenHostPhysicsVisuals {
             origin: std::sync::Arc::clone(&self.origin),
             ordinal: self.next_ordinal,
@@ -104,6 +109,7 @@ impl HostPhysicsVisualState {
                         logic.host_objects(),
                         script_frozen,
                         camera_frozen,
+                        &mut show_client_physics,
                         |pos| logic.terrain_height_at(pos),
                     )?;
                     Some((
@@ -214,11 +220,12 @@ impl HostPhysicsVisualState {
     }
 }
 
-fn collect_facts(
+pub(super) fn collect_facts(
     obj: &Object,
     objects: &std::collections::HashMap<ObjectId, Object>,
     script_time_frozen: bool,
     script_camera_time_frozen: bool,
+    show_client_physics: &mut Option<bool>,
     sample_height: impl Fn(glam::Vec3) -> Option<f32>,
 ) -> Option<HostPhysicsVisualFacts> {
     let appearance = map_appearance(obj.loco_appearance);
@@ -227,9 +234,11 @@ fn collect_facts(
     }
     let params = params_for_object(obj);
     let body = body_for_object(obj, objects, sample_height);
-    let show_client_physics = get_global_data()
-        .map(|data| data.read().show_client_physics)
-        .unwrap_or(true);
+    let show_client_physics = cached_show_client_physics(show_client_physics, || {
+        get_global_data()
+            .map(|data| data.read().show_client_physics)
+            .unwrap_or(true)
+    });
     Some(HostPhysicsVisualFacts {
         appearance,
         params,
@@ -241,6 +250,13 @@ fn collect_facts(
         script_time_frozen_debug: false,
         script_time_frozen_script: script_time_frozen,
     })
+}
+
+pub(super) fn cached_show_client_physics(
+    cached: &mut Option<bool>,
+    read: impl FnOnce() -> bool,
+) -> bool {
+    *cached.get_or_insert_with(read)
 }
 
 fn map_appearance(appearance: LocomotorAppearance) -> PhysicsVisualAppearance {

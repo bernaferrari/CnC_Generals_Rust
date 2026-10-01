@@ -1075,10 +1075,7 @@ impl StealthController {
                 .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
             {
                 if let Ok(guard) = object.read() {
-                    guard.reschedule_named_update(
-                        "StealthUpdate",
-                        current_frame.saturating_add(1),
-                    );
+                    guard.reschedule_named_update("StealthUpdate", current_frame.saturating_add(1));
                 }
             }
             self.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true)?;
@@ -1119,8 +1116,6 @@ impl StealthController {
                 }
             });
         }
-
-
 
         Ok(())
     }
@@ -1284,7 +1279,7 @@ impl StealthController {
             if let Some(contain) = object.get_contain() {
                 if let Ok(contain_guard) = contain.lock() {
                     if contain_guard.is_passenger_allowed_to_fire(None) {
-                        for rider_id in contain_guard.get_contained_objects() {
+                        for rider_id in contain_guard.get_contained_objects().iter() {
                             let Some(attacking) =
                                 OBJECT_REGISTRY.with_object(*rider_id, |rider_guard| {
                                     let rider_status = rider_guard.get_status_bits();
@@ -1459,7 +1454,6 @@ impl StealthUpdateModule {
     pub fn initial_wake_frame(&self) -> UnsignedInt {
         self.next_call_frame_and_phase
     }
-
 
     fn register_with_object(&self) {
         // Wave 283: empty dual-world → no factory object walks.

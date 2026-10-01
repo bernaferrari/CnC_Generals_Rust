@@ -392,7 +392,8 @@ impl SabotageInternetCenterCrateCollide {
         if let Ok(other_lock) = other.read() {
             if let Some(contain) = other_lock.get_contain() {
                 if let Ok(contain_guard) = contain.lock() {
-                    let contained_ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
+                    let contained_ids: Vec<ObjectID> =
+                        contain_guard.get_contained_objects().into_owned();
                     drop(contain_guard);
                     for object_id in contained_ids {
                         let _ = disable_hacker_id(object_id, disable_frame);
@@ -570,12 +571,18 @@ mod tests {
             },
         );
         let mut first_bytes = Vec::new();
-        first.xfer(&mut XferSave::new(Cursor::new(&mut first_bytes), 1)).unwrap();
+        first
+            .xfer(&mut XferSave::new(Cursor::new(&mut first_bytes), 1))
+            .unwrap();
         let mut second_bytes = Vec::new();
-        second.xfer(&mut XferSave::new(Cursor::new(&mut second_bytes), 1)).unwrap();
+        second
+            .xfer(&mut XferSave::new(Cursor::new(&mut second_bytes), 1))
+            .unwrap();
         // C++ xfer writes only its version and CrateCollide base, never definitions.
         assert_eq!(first_bytes, second_bytes);
-        second.xfer(&mut XferLoad::new(Cursor::new(first_bytes), 1)).unwrap();
+        second
+            .xfer(&mut XferLoad::new(Cursor::new(first_bytes), 1))
+            .unwrap();
         assert_eq!(first.module_data.sabotage_frames, 45);
         assert_eq!(second.module_data.sabotage_frames, 150);
     }

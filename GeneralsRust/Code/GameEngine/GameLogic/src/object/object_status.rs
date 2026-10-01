@@ -113,7 +113,6 @@ impl Object {
             }
         });
         detonated
-
     }
 
     /// Set object status bits with proper side effects
@@ -571,7 +570,7 @@ impl Object {
 
         if let Some(contain) = self.get_contain() {
             if let Ok(guard) = contain.lock() {
-                for &contained_id in guard.get_contained_objects() {
+                for &contained_id in guard.get_contained_objects().iter() {
                     if OBJECT_REGISTRY
                         .with_object(contained_id, |obj_guard| obj_guard.is_kind_of(KindOf::Hero))
                         .unwrap_or(false)

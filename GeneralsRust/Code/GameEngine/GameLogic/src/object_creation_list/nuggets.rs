@@ -62,16 +62,8 @@ pub trait ObjectCreationNugget: Send + Sync {
         angle: Real,
         lifetime_frames: UnsignedInt,
     ) -> CreationResult {
-        self.create_with_angle(
-            ctx,
-            primary_obj,
-            primary,
-            primary,
-            angle,
-            lifetime_frames,
-        )
+        self.create_with_angle(ctx, primary_obj, primary, primary, angle, lifetime_frames)
     }
-
 
     /// Create with object-based parameters
     /// Matches C++ virtual Object* create(primary, secondary, lifetimeFrames)
@@ -1124,7 +1116,8 @@ fn notify_first_slaved_update(obj: &Object, source_id: ObjectID) {
 fn add_object_to_pathfind_map(obj: &Object) {
     let id = obj.get_id();
     let pos = *obj.get_position();
-    let ai_store = crate::ai::the_ai();let Ok(ai) = ai_store.read() else {
+    let ai_store = crate::ai::the_ai();
+    let Ok(ai) = ai_store.read() else {
         return;
     };
     let Some(pathfinder) = ai.pathfinder() else {
@@ -1204,15 +1197,20 @@ fn pathfind_cell_type_at(
         _ => AStarLayer::Top,
     };
 
-    let found = crate::ai::the_ai().read().ok().and_then(|ai| ai.pathfinder()).and_then(|pf| {
-        let pf = pf.read().ok()?;
-        let layered = pf.get_cell_type_at_layer(pos, astar_layer);
-        if layered.is_some() || matches!(astar_layer, AStarLayer::Ground | AStarLayer::Invalid) {
-            return layered;
-        }
-        // In-bounds miss already fell through inside C++ getCell. Off-map ground is None.
-        pf.get_cell_type_at_layer(pos, AStarLayer::Ground)
-    });
+    let found = crate::ai::the_ai()
+        .read()
+        .ok()
+        .and_then(|ai| ai.pathfinder())
+        .and_then(|pf| {
+            let pf = pf.read().ok()?;
+            let layered = pf.get_cell_type_at_layer(pos, astar_layer);
+            if layered.is_some() || matches!(astar_layer, AStarLayer::Ground | AStarLayer::Invalid)
+            {
+                return layered;
+            }
+            // In-bounds miss already fell through inside C++ getCell. Off-map ground is None.
+            pf.get_cell_type_at_layer(pos, AStarLayer::Ground)
+        });
     found.unwrap_or(PathfindCellType::Impassable)
 }
 
@@ -1689,8 +1687,8 @@ mod tests {
             self.contained.retain(|id| *id != object_id);
             Ok(())
         }
-        fn get_contained_objects(&self) -> &[ObjectID] {
-            &self.contained
+        fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
+            std::borrow::Cow::Borrowed(&self.contained)
         }
         fn get_contained_count(&self) -> usize {
             self.contained.len()

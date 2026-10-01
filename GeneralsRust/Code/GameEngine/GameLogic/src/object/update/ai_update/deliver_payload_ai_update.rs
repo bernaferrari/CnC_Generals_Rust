@@ -842,7 +842,7 @@ impl DeliverPayloadAIUpdate {
 
         let contained_ids = owner_guard
             .get_contain()
-            .map(|contain| contain.get_contained_objects().to_vec())
+            .map(|contain| contain.get_contained_objects())
             .unwrap_or_default();
         drop(owner_guard);
 

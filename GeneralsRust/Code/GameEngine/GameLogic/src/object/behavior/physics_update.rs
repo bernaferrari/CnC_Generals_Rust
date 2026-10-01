@@ -76,7 +76,7 @@ fn contained_items_mass(obj: &GameObject) -> Real {
         return 0.0;
     };
     let mut mass = 0.0;
-    for &id in contain.get_contained_objects() {
+    for &id in contain.get_contained_objects().iter() {
         if let Some(cargo) = find_object(id) {
             if let Ok(cargo) = cargo.try_read() {
                 if let Some(phys) = cargo.get_physics() {
@@ -556,13 +556,13 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         {
             if let Ok(guard) = object.read() {
                 let now = TheGameLogic::get_frame();
-                let zero_vel = self.state.vel.x == 0.0
-                    && self.state.vel.y == 0.0
-                    && self.state.vel.z == 0.0;
+                let zero_vel =
+                    self.state.vel.x == 0.0 && self.state.vel.y == 0.0 && self.state.vel.z == 0.0;
                 let zero_accel = self.state.accel.x == 0.0
                     && self.state.accel.y == 0.0
                     && self.state.accel.z == 0.0;
-                let asleep = zero_vel && zero_accel
+                let asleep = zero_vel
+                    && zero_accel
                     && !self.state.has_flag(FLAG_HAS_PITCHROLLYAW)
                     && self.state.motive_force_expires <= now
                     && guard.get_layer() == crate::common::PathfindLayerEnum::Ground
@@ -774,7 +774,10 @@ impl PhysicsBehaviorUpdate {
     }
 
     #[allow(dead_code)]
-    fn get_z_friction(module_data: &PhysicsBehaviorModuleData, state: &PhysicsBehaviorState) -> Real {
+    fn get_z_friction(
+        module_data: &PhysicsBehaviorModuleData,
+        state: &PhysicsBehaviorState,
+    ) -> Real {
         Self::clamp_friction(
             module_data.z_friction + state.extra_friction,
             MIN_NON_AERO_FRICTION,
@@ -1083,9 +1086,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             obj.clear_model_condition_state(MODELCONDITION_FREEFALL);
         }
 
-        if module_data.kill_when_resting_on_ground
-            && !airborne_at_end
-            && is_very_small3d(state.vel)
+        if module_data.kill_when_resting_on_ground && !airborne_at_end && is_very_small3d(state.vel)
         {
             if !obj.is_kind_of(KindOf::Drone)
                 || obj.is_effectively_dead()
@@ -1237,11 +1238,13 @@ impl PhysicsBehaviorTrait for PhysicsModuleView {
     }
 
     fn get_turning(&self) -> Real {
-        self.with_handle(|handle| handle.get_turning()).unwrap_or(0.0)
+        self.with_handle(|handle| handle.get_turning())
+            .unwrap_or(0.0)
     }
 
     fn is_motive(&self) -> bool {
-        self.with_handle(|handle| handle.is_motive()).unwrap_or(false)
+        self.with_handle(|handle| handle.is_motive())
+            .unwrap_or(false)
     }
 
     fn get_acceleration(&self) -> Coord3D {

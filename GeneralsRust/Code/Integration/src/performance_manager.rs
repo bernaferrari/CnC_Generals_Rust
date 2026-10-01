@@ -4,9 +4,9 @@
 //! real-time metrics, automatic tuning, and performance alerting.
 
 use game_network::time::NetworkInstant;
-use parking_lot::RwLock;
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use tokio::time::interval;
 use tracing::{debug, info, instrument, trace, warn};
@@ -125,6 +125,11 @@ pub struct PerformanceManager {
     // Alert state
     alert_counts: std::collections::HashMap<String, u32>,
     last_alert_time: std::collections::HashMap<String, NetworkInstant>,
+
+    // Metrics collection state (previously function-local statics)
+    last_alloc_count: AtomicU64,
+    last_alloc_time: Mutex<Option<NetworkInstant>>,
+    frame_timing: Mutex<(Option<NetworkInstant>, Vec<f64>)>,
 }
 
 impl PerformanceManager {
@@ -152,6 +157,9 @@ impl PerformanceManager {
             applied_optimizations: Vec::new(),
             alert_counts: std::collections::HashMap::new(),
             last_alert_time: std::collections::HashMap::new(),
+            last_alloc_count: AtomicU64::new(0),
+            last_alloc_time: Mutex::new(None),
+            frame_timing: Mutex::new((None, Vec::new())),
         })
     }
 
@@ -169,10 +177,10 @@ impl PerformanceManager {
         // Start monitoring task
         let event_system = self.event_system.clone();
         let config = self.config.clone();
-        let metrics = Arc::new(RwLock::new(self.metrics.clone()));
+        let initial_metrics = self.metrics.clone();
 
         self.monitor_handle = Some(tokio::spawn(async move {
-            Self::monitor_task(event_system, config, metrics).await;
+            Self::monitor_task(event_system, config, initial_metrics).await;
         }));
 
         info!("Performance monitoring started");
@@ -650,25 +658,23 @@ impl PerformanceManager {
         }
 
         // Track allocations per second (simplified estimation)
-        static LAST_ALLOC_COUNT: AtomicU64 = AtomicU64::new(0);
-        static LAST_ALLOC_TIME: Mutex<Option<NetworkInstant>> = Mutex::new(None);
 
         {
             let current_time = NetworkInstant::now();
             let current_allocs = self.metrics.memory.used_mb * 1024; // Rough estimate
 
-            let mut last_time_lock = LAST_ALLOC_TIME.lock().unwrap();
+            let mut last_time_lock = self.last_alloc_time.lock();
             if let Some(last_time) = *last_time_lock {
                 let time_diff = current_time.duration_since(last_time).as_secs_f64();
                 if time_diff > 0.0 {
-                    let alloc_diff =
-                        current_allocs.saturating_sub(LAST_ALLOC_COUNT.load(Ordering::Relaxed));
+                    let alloc_diff = current_allocs
+                        .saturating_sub(self.last_alloc_count.load(Ordering::Relaxed));
                     self.metrics.memory.allocations_per_second =
                         (alloc_diff as f64 / time_diff) as u64;
                 }
             }
 
-            LAST_ALLOC_COUNT.store(current_allocs, Ordering::Relaxed);
+            self.last_alloc_count.store(current_allocs, Ordering::Relaxed);
             *last_time_lock = Some(current_time);
         }
 
@@ -679,28 +685,25 @@ impl PerformanceManager {
         // Graphics performance monitoring based on C++ W3D patterns
 
         // Track frame timing for FPS calculation
-        static LAST_FRAME_TIME: Mutex<Option<NetworkInstant>> = Mutex::new(None);
-        static FRAME_TIMES: Mutex<Vec<f64>> = Mutex::new(Vec::new());
 
         {
             let current_time = NetworkInstant::now();
-            let mut last_frame_lock = LAST_FRAME_TIME.lock().unwrap();
-            let mut frame_times_lock = FRAME_TIMES.lock().unwrap();
+            let mut frame_timing_lock = self.frame_timing.lock();
 
-            if let Some(last_time) = *last_frame_lock {
+            if let Some(last_time) = *frame_timing_lock.0 {
                 let frame_duration = current_time.duration_since(last_time).as_secs_f64() * 1000.0;
 
-                frame_times_lock.push(frame_duration);
+                frame_timing_lock.1.push(frame_duration);
 
                 // Keep only last 60 frame times for rolling average
-                if frame_times_lock.len() > 60 {
-                    frame_times_lock.remove(0);
+                if frame_timing_lock.1.len() > 60 {
+                    frame_timing_lock.1.remove(0);
                 }
 
                 // Calculate average frametime and FPS
-                if !frame_times_lock.is_empty() {
-                    let avg_frametime: f64 =
-                        frame_times_lock.iter().sum::<f64>() / frame_times_lock.len() as f64;
+                if !frame_timing_lock.1.is_empty() {
+                    let avg_frametime: f64 = frame_timing_lock.1.iter().sum::<f64>()
+                        / frame_timing_lock.1.len() as f64;
                     self.metrics.graphics.frametime_ms = avg_frametime;
 
                     if avg_frametime > 0.0 {
@@ -718,7 +721,7 @@ impl PerformanceManager {
                 self.metrics.graphics.frametime_ms = 16.67;
             }
 
-            *last_frame_lock = Some(current_time);
+            *frame_timing_lock.0 = Some(current_time);
         }
 
         // Estimate GPU usage and VRAM (simplified)
@@ -1184,7 +1187,7 @@ impl PerformanceManager {
     async fn monitor_task(
         event_system: Arc<EventSystem>,
         config: PerformanceConfig,
-        metrics: Arc<RwLock<PerformanceMetrics>>,
+        mut current_metrics: PerformanceMetrics,
     ) {
         let mut interval = interval(Duration::from_millis(config.monitor_interval_ms));
         let mut consecutive_warnings = 0u32;
@@ -1199,8 +1202,6 @@ impl PerformanceManager {
             // Update metrics periodically
             if now.duration_since(last_metrics_update) >= Duration::from_millis(500) {
                 {
-                    let mut current_metrics = metrics.write();
-
                     // Update timestamp and uptime
                     current_metrics.timestamp = SystemTime::now();
 

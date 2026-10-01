@@ -8,6 +8,8 @@
 
 #[cfg(feature = "allow_surrender")]
 use std::any::Any;
+#[cfg(feature = "allow_surrender")]
+use std::borrow::Cow;
 
 /// Wave 364: host-only path has no dual-world factory objects.
 #[inline]
@@ -327,7 +329,7 @@ impl ContainModuleInterface for PropagandaCenterBehavior {
         self.prison_behavior.release_object(object_id)
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
         self.prison_behavior.get_contained_objects()
     }
 
@@ -566,7 +568,6 @@ impl PropagandaCenterBehaviorModule {
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
         Arc::new(Mutex::new(PropagandaCenterBehaviorContainHandle {
             behavior: Arc::clone(&self.behavior),
-            cached_ids: CachedContainIds::default(),
         }))
     }
 }
@@ -575,32 +576,6 @@ impl PropagandaCenterBehaviorModule {
 #[derive(Debug)]
 struct PropagandaCenterBehaviorContainHandle {
     behavior: Arc<Mutex<PropagandaCenterBehavior>>,
-    cached_ids: CachedContainIds,
-}
-
-/// Slice cache for `get_contained_objects` (C++ iterateContained real list).
-#[derive(Debug, Default)]
-struct CachedContainIds {
-    ids: std::cell::UnsafeCell<Vec<ObjectID>>,
-}
-
-// SAFETY: the `UnsafeCell` cache is only touched through `refresh`, which
-// takes `&self` but is invoked from `&mut self` methods of the owning
-// behavior (itself behind a `Mutex`), so all cell accesses are effectively
-// exclusive. No shared reader can observe a partially written vector because
-// `refresh` swaps in a complete value.
-unsafe impl Sync for CachedContainIds {}
-
-impl CachedContainIds {
-    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
-        // SAFETY: see type-level note — access is exclusive via the owner's
-        // mutex; writing the whole replacement vector keeps the cell valid.
-        let cache = unsafe { &mut *self.ids.get() };
-        *cache = ids;
-        // SAFETY: shared borrow of the just-written cache; no other alias
-        // exists because refresh holds the only path to the cell.
-        unsafe { &*self.ids.get() }
-    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -626,11 +601,11 @@ impl ContainModuleInterface for PropagandaCenterBehaviorContainHandle {
             .release_object(object_id)
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
-        self.cached_ids.refresh(
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
+        Cow::Owned(
             self.behavior
                 .lock()
-                .map(|guard| guard.get_contained_objects().to_vec())
+                .map(|guard| guard.get_contained_objects().into_owned())
                 .unwrap_or_default(),
         )
     }
@@ -759,5 +734,41 @@ mod tests {
         assert!(!utils::is_brainwashing_complete(100, 150, 100));
         assert!(utils::is_brainwashing_complete(100, 200, 100));
         assert!(utils::is_brainwashing_complete(100, 250, 100));
+    }
+}
+
+#[cfg(all(test, feature = "allow_surrender"))]
+mod contain_snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn contain_handle_keeps_first_snapshot_across_a_second_query() {
+        let object = Object::new_with_id(
+            Arc::new(crate::common::DefaultThingTemplate::new(
+                "PropagandaSnapshotOwner".to_string(),
+            )),
+            77003,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("owner");
+        let behavior = PropagandaCenterBehavior::new(
+            Arc::clone(&object),
+            Arc::new(PropagandaCenterBehaviorModuleData::default()),
+        )
+        .expect("behavior");
+        let module = PropagandaCenterBehaviorModule::new(
+            behavior,
+            &AsciiString::from("PropagandaCenterBehavior"),
+            Arc::new(PropagandaCenterBehaviorModuleData::default()),
+        );
+        let handle = module.contain_handle();
+        let guard = handle.lock().expect("contain handle");
+
+        let retained = guard.get_contained_objects();
+        let refreshed = guard.get_contained_objects();
+
+        assert!(retained.is_empty());
+        assert!(refreshed.is_empty());
     }
 }

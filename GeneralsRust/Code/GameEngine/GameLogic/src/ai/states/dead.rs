@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -189,7 +189,7 @@ pub(crate) fn find_enemy_in_container(killer: &Object, building: &Object) -> Opt
         return None;
     };
     let contained_ids = contain_guard.get_contained_objects();
-    for &id in contained_ids {
+    for &id in contained_ids.iter() {
         let Some(is_enemy) = OBJECT_REGISTRY
             .with_object(id, |contained_guard| {
                 // Skip dead things (C++ line 398: isEffectivelyDead check)

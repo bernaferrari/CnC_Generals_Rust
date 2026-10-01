@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
-use crate::ai::the_ai;
 use crate::ai::pathfind_astar::PathfindCellType;
+use crate::ai::the_ai;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, LocomotorSetType, Matrix3D,
@@ -510,66 +510,64 @@ impl ParachuteContain {
         self.with_owner_mut(|owner| {
             owner.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
         });
-            rider.clear_disabled(DisabledType::Held);
-            rider.set_status(ObjectStatusMaskType::PARACHUTING, false);
-            self.position_rider(&mut rider);
-            let _ = rider.clear_and_set_model_condition_flags(
-                ModelConditionFlags::FREEFALL | ModelConditionFlags::PARACHUTING,
-                ModelConditionFlags::empty(),
-            );
-            self.need_to_update_rider_bones = true;
+        rider.clear_disabled(DisabledType::Held);
+        rider.set_status(ObjectStatusMaskType::PARACHUTING, false);
+        self.position_rider(&mut rider);
+        let _ = rider.clear_and_set_model_condition_flags(
+            ModelConditionFlags::FREEFALL | ModelConditionFlags::PARACHUTING,
+            ModelConditionFlags::empty(),
+        );
+        self.need_to_update_rider_bones = true;
 
-            // apply_force read-locks this rider. std RwLock does not reenter.
-            let physics = rider.get_physics();
-            if let Some(physics) = physics {
-                drop(rider);
-                physics.set_allow_to_fall(true);
-                physics.apply_force(&crate::common::Coord3D::new(0.0, 0.0, 0.0));
-                let Ok(guard) = obj.write() else {
-                    return Err("Parachute passenger lock poisoned".into());
-                };
-                rider = guard;
-            }
+        // apply_force read-locks this rider. std RwLock does not reenter.
+        let physics = rider.get_physics();
+        if let Some(physics) = physics {
+            drop(rider);
+            physics.set_allow_to_fall(true);
+            physics.apply_force(&crate::common::Coord3D::new(0.0, 0.0, 0.0));
+            let Ok(guard) = obj.write() else {
+                return Err("Parachute passenger lock poisoned".into());
+            };
+            rider = guard;
+        }
 
-            if let Some(ai) = rider.get_ai() {
-                let is_skirmish = rider
-                    .get_controlling_player()
-                    .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai_player()))
-                    .unwrap_or(false);
-                if is_skirmish {
-                    ai.ai_hunt(CommandSourceType::FromAi);
-                } else {
-                    let mut has_rally = false;
-                    let producer_id = rider.get_producer_id();
-                    if producer_id != crate::common::INVALID_ID {
-                        if let Some(transport) = TheGameLogic::find_object_by_id(producer_id) {
-                            if let Ok(transport_guard) = transport.read() {
-                                let building_id = transport_guard.get_producer_id();
-                                if building_id != crate::common::INVALID_ID {
-                                    if let Some(building) =
-                                        TheGameLogic::find_object_by_id(building_id)
-                                    {
-                                        if let Ok(building_guard) = building.read() {
-                                            if let Some(exit) =
-                                                building_guard.get_object_exit_interface()
-                                            {
-                                                if let Ok(mut exit_guard) = exit.lock() {
-                                                    if exit_guard.use_spawn_rally_point() {
-                                                        let rider_id = rider.get_id();
-                                                        drop(rider);
-                                                        exit_guard.exit_object_via_door(
-                                                            rider_id,
-                                                            crate::modules::ExitDoorType::Primary,
+        if let Some(ai) = rider.get_ai() {
+            let is_skirmish = rider
+                .get_controlling_player()
+                .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai_player()))
+                .unwrap_or(false);
+            if is_skirmish {
+                ai.ai_hunt(CommandSourceType::FromAi);
+            } else {
+                let mut has_rally = false;
+                let producer_id = rider.get_producer_id();
+                if producer_id != crate::common::INVALID_ID {
+                    if let Some(transport) = TheGameLogic::find_object_by_id(producer_id) {
+                        if let Ok(transport_guard) = transport.read() {
+                            let building_id = transport_guard.get_producer_id();
+                            if building_id != crate::common::INVALID_ID {
+                                if let Some(building) = TheGameLogic::find_object_by_id(building_id)
+                                {
+                                    if let Ok(building_guard) = building.read() {
+                                        if let Some(exit) =
+                                            building_guard.get_object_exit_interface()
+                                        {
+                                            if let Ok(mut exit_guard) = exit.lock() {
+                                                if exit_guard.use_spawn_rally_point() {
+                                                    let rider_id = rider.get_id();
+                                                    drop(rider);
+                                                    exit_guard.exit_object_via_door(
+                                                        rider_id,
+                                                        crate::modules::ExitDoorType::Primary,
+                                                    );
+                                                    let Ok(guard) = obj.write() else {
+                                                        return Err(
+                                                            "Parachute passenger lock poisoned"
+                                                                .into(),
                                                         );
-                                                        let Ok(guard) = obj.write() else {
-                                                            return Err(
-                                                                "Parachute passenger lock poisoned"
-                                                                    .into(),
-                                                            );
-                                                        };
-                                                        rider = guard;
-                                                        has_rally = true;
-                                                    }
+                                                    };
+                                                    rider = guard;
+                                                    has_rally = true;
                                                 }
                                             }
                                         }
@@ -578,68 +576,68 @@ impl ParachuteContain {
                             }
                         }
                     }
-                    if !has_rally {
-                        ai.ai_idle(CommandSourceType::FromAi);
+                }
+                if !has_rally {
+                    ai.ai_idle(CommandSourceType::FromAi);
+                }
+            }
+        }
+
+        let rider_pos = *rider.get_position();
+        let mut water_z = 0.0;
+        let mut terrain_z = 0.0;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            if terrain.is_underwater(
+                rider_pos.x,
+                rider_pos.y,
+                Some(&mut water_z),
+                Some(&mut terrain_z),
+            ) && rider_pos.z <= water_z + self.module_data.kill_when_landing_in_water_slop
+                && rider.get_layer() == PathfindLayerEnum::Ground
+            {
+                let mut damage_info = DamageInfo::with_simple(
+                    HUGE_DAMAGE_AMOUNT,
+                    crate::common::INVALID_ID,
+                    DamageType::Water,
+                    DeathType::Flooded,
+                );
+                let _ = rider.attempt_damage(&mut damage_info);
+            }
+        }
+
+        let layer = rider.get_layer();
+        let ai_store = the_ai();
+        let cell_type = ai_store.read().ok().and_then(|ai| {
+            ai.pathfinder().and_then(|pf| {
+                pf.read().ok().and_then(|pf_guard| {
+                    let astar_layer = match layer {
+                        PathfindLayerEnum::Top => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
+                        _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                    };
+                    let found = pf_guard.get_cell_type_at_layer(rider.get_position(), astar_layer);
+                    if found.is_none()
+                        && astar_layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top
+                    {
+                        pf_guard.get_cell_type_at_layer(
+                            rider.get_position(),
+                            crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
+                        )
+                    } else {
+                        found
                     }
-                }
-            }
-
-            let rider_pos = *rider.get_position();
-            let mut water_z = 0.0;
-            let mut terrain_z = 0.0;
-            if let Some(terrain) = TheTerrainLogic::get() {
-                if terrain.is_underwater(
-                    rider_pos.x,
-                    rider_pos.y,
-                    Some(&mut water_z),
-                    Some(&mut terrain_z),
-                ) && rider_pos.z <= water_z + self.module_data.kill_when_landing_in_water_slop
-                    && rider.get_layer() == PathfindLayerEnum::Ground
-                {
-                    let mut damage_info = DamageInfo::with_simple(
-                        HUGE_DAMAGE_AMOUNT,
-                        crate::common::INVALID_ID,
-                        DamageType::Water,
-                        DeathType::Flooded,
-                    );
-                    let _ = rider.attempt_damage(&mut damage_info);
-                }
-            }
-
-            let layer = rider.get_layer();
-            let ai_store = the_ai();let cell_type = ai_store.read().ok().and_then(|ai| {
-                ai.pathfinder().and_then(|pf| {
-                    pf.read().ok().and_then(|pf_guard| {
-                        let astar_layer = match layer {
-                            PathfindLayerEnum::Top => {
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Top
-                            }
-                            _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-                        };
-                        let found = pf_guard.get_cell_type_at_layer(rider.get_position(), astar_layer);
-                        if found.is_none()
-                            && astar_layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top
-                        {
-                            pf_guard.get_cell_type_at_layer(
-                                rider.get_position(),
-                                crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
-                            )
-                        } else {
-                            found
-                        }
-                    })
                 })
-            });
-            let bad_cell = matches!(
-                cell_type,
-                Some(PathfindCellType::Cliff)
-                    | Some(PathfindCellType::Water)
-                    | Some(PathfindCellType::Impassable)
-                    | None
-            );
-            if rider.is_off_map() || bad_cell {
-                rider.kill(None, None);
-            }
+            })
+        });
+        let bad_cell = matches!(
+            cell_type,
+            Some(PathfindCellType::Cliff)
+                | Some(PathfindCellType::Water)
+                | Some(PathfindCellType::Impassable)
+                | None
+        );
+        if rider.is_off_map() || bad_cell {
+            rider.kill(None, None);
+        }
         drop(rider);
         Ok(())
     }
@@ -691,10 +689,7 @@ impl ParachuteContain {
                     }
                 }
                 // apply_force read-locks this rider. Do not hold the rider write.
-                let physics = rider_arc
-                    .read()
-                    .ok()
-                    .and_then(|rider| rider.get_physics());
+                let physics = rider_arc.read().ok().and_then(|rider| rider.get_physics());
                 if let Some(physics) = physics {
                     physics.set_allow_to_fall(true);
                     physics.set_is_in_freefall(true);
@@ -1052,7 +1047,7 @@ impl ContainModuleInterface for ParachuteContain {
         ParachuteContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 

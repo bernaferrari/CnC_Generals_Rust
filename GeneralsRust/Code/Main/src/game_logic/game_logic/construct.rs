@@ -9,6 +9,14 @@ use super::script_camera::*;
 use super::*;
 
 impl GameLogic {
+    pub(in crate::game_logic) fn drain_warehouse_set_value_requests(&self) -> Vec<(String, i32)> {
+        self.mission_scripts.drain_warehouse_set_values()
+    }
+
+    pub(in crate::game_logic) fn queue_warehouse_set_value_request(&self, name: &str, cash: i32) {
+        self.mission_scripts.queue_warehouse_set_value(name, cash);
+    }
+
     /// Leftover ScriptingEngine handle. Always None on the live host (hq-8ta4n).
     pub(super) fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
         self.script_engine.as_ref().map(Arc::clone)
@@ -65,6 +73,7 @@ impl GameLogic {
             gameworld_authority:
                 crate::game_logic::game_logic::gameworld_authority::GameWorldAuthority::DEFAULT_OFF,
             objects: HostObjectStore::new(),
+            warehouse_crippling_states: HashMap::new(),
             host_view_dirty: HashSet::new(),
             vision_last_looks: HashMap::new(),
             vision_last_reveal_all: HashMap::new(),
@@ -759,6 +768,8 @@ impl GameLogic {
         }
         self.drawable_tint_envelopes.clear();
         self.objects.clear();
+        self.warehouse_crippling_states.clear();
+        self.mission_scripts.clear_warehouse_set_values();
         self.host_dock_approach_queues.get_mut().clear();
         self.host_move_attack_machines.clear();
         self.host_view_dirty.clear();

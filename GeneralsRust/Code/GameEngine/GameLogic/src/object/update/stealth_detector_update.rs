@@ -300,7 +300,7 @@ impl StealthedOrStealthGarrisonedFilter {
                 // Check if this is a garrisonable container
                 // and if it contains any stealthed units
                 if contain_guard.get_contained_objects().len() > 0 {
-                    for &contained_id in contain_guard.get_contained_objects() {
+                    for &contained_id in contain_guard.get_contained_objects().iter() {
                         if OBJECT_REGISTRY
                             .with_object(contained_id, |contained_guard| {
                                 contained_guard
@@ -584,7 +584,7 @@ impl StealthDetectorController {
                     drop(obj_guard);
                     if let Ok(contain_guard) = contain.lock() {
                         // Iterate through contained units looking for stealth
-                        for &rider_id in contain_guard.get_contained_objects() {
+                        for &rider_id in contain_guard.get_contained_objects().iter() {
                             if let Some((stealth_module, mark)) = OBJECT_REGISTRY
                                 .with_object(rider_id, |rider_guard| {
                                     rider_guard.get_stealth_module().map(|stealth_module| {

@@ -297,11 +297,7 @@ impl ExperienceTracker {
                             drop(sink_guard);
                             if let Some(old_level) = promoted {
                                 if let Ok(mut sink_mut) = sink.write() {
-                                    sink_mut.on_veterancy_level_changed(
-                                        old_level,
-                                        new_level,
-                                        true,
-                                    );
+                                    sink_mut.on_veterancy_level_changed(old_level, new_level, true);
                                 }
                             }
                             return None;
@@ -347,11 +343,7 @@ impl ExperienceTracker {
                             drop(sink_guard);
                             if let Some(old_level) = promoted {
                                 if let Ok(mut sink_mut) = sink.write() {
-                                    sink_mut.on_veterancy_level_changed(
-                                        old_level,
-                                        new_level,
-                                        true,
-                                    );
+                                    sink_mut.on_veterancy_level_changed(old_level, new_level, true);
                                 }
                             }
                             return None;
@@ -484,6 +476,22 @@ impl ExperienceTracker {
         } else {
             None
         }
+    }
+
+    /// Set local tracker state after the owning Object checked its template.
+    ///
+    /// The Object uses this while it already holds its write lock, so resolving
+    /// `owner_id` here would try to read-lock that same object. Sink forwarding
+    /// and the trainability check remain with the caller.
+    pub(crate) fn set_experience_and_level_already_accepted(
+        &mut self,
+        experience: i32,
+        experience_required: &[i32],
+    ) -> Option<VeterancyLevel> {
+        let old_level = self.current_level;
+        self.current_experience = experience;
+        self.update_level_from_experience(experience_required);
+        (old_level != self.current_level).then_some(old_level)
     }
 
     /// Check if we're accepting experience points (matches C++ isAcceptingExperiencePoints)

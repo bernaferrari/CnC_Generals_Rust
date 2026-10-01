@@ -272,18 +272,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/object/behavior/pow_truck_behavior.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/behavior/prison_behavior.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/behavior/propaganda_center_behavior.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/object/behavior/special_ability_update.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -301,7 +289,7 @@
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/object/contain/cave_contain.rs": {
-      "constructs": 8,
+      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/object/contain/garrison_contain.rs": {
@@ -322,10 +310,6 @@
     },
     "Code/GameEngine/GameLogic/src/object/contain/rider_change_contain.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/contain/tunnel_contain.rs": {
-      "constructs": 7,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/object/object_xfer.rs": {

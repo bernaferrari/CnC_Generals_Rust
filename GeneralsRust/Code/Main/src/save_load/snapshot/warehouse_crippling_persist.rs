@@ -4,20 +4,17 @@
 //! (`SupplyWarehouseCripplingBehavior.cpp:174-193`) writes
 //! `m_healingSupressedUntilFrame` + `m_nextHealingFrame`. Leftover
 //! `supply_warehouse_crippling_behavior.rs` already matches that table. Live
-//! host stores the same clocks in process-global `WAREHOUSE_CRIPPLING_STATES`
+//! host stores the same clocks on each `GameLogic` instance
 //! (plus `last_health`, the live `onDamage` stand-in). Those were session-only
 //! — a mid-suppression save re-armed the full SelfHealSupression window after
 //! load because the first observation below max looked like a fresh hit.
 //!
 //! Append a tagged suffix after the historical v9 contain/producer payload so
 //! older decoders ignore the extra bytes. No WorldSnapshot version bump.
-//! Restore always clears the process-global map first so a load cannot leak
-//! the previous session's heal cadence.
+//! Restore always clears this world's map first so a load cannot leak its
+//! previous heal cadence into the restored state.
 
-use crate::game_logic::host_supply_gather::{
-    WarehouseCripplingState, restore_live_warehouse_crippling_states,
-    snapshot_live_warehouse_crippling_states,
-};
+use crate::game_logic::host_supply_gather::WarehouseCripplingState;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -38,8 +35,8 @@ struct WarehouseCripplingPersist {
     next_healing_frame: u32,
 }
 
-pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
-    let payload = capture();
+pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, game_logic: &GameLogic) {
+    let payload = capture(game_logic);
     if payload.states.is_empty() {
         return;
     }
@@ -52,9 +49,9 @@ pub fn append_to_lifecycle_tail(bytes: &mut Vec<u8>, _game_logic: &GameLogic) {
     bytes.extend_from_slice(&encoded);
 }
 
-pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> SaveLoadResult<()> {
-    // Always drop the previous session first (C++ module state is per-object).
-    restore_live_warehouse_crippling_states(Vec::new());
+pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> SaveLoadResult<()> {
+    // Always drop this world's previous clocks first (C++ module state is per-object).
+    game_logic.restore_warehouse_crippling_states(Vec::new());
     let Some(suffix) = find_whcr_suffix(bytes) else {
         return Ok(());
     };
@@ -71,15 +68,17 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], _game_logic: &mut GameLogic) -> S
             "WHCR payload truncated".to_string(),
         ));
     }
-    let payload: WarehouseCripplingPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("WHCR payload decode: {err}")))?;
-    apply_payload(payload);
+    let payload: WarehouseCripplingPersistPayload =
+        bincode_legacy::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("WHCR payload decode: {err}")))?;
+    apply_payload(payload, game_logic);
     Ok(())
 }
 
-fn capture() -> WarehouseCripplingPersistPayload {
+fn capture(game_logic: &GameLogic) -> WarehouseCripplingPersistPayload {
     WarehouseCripplingPersistPayload {
-        states: snapshot_live_warehouse_crippling_states()
+        states: game_logic
+            .snapshot_warehouse_crippling_states()
             .into_iter()
             .map(|(id, state)| WarehouseCripplingPersist {
                 object_id: id.0,
@@ -91,7 +90,7 @@ fn capture() -> WarehouseCripplingPersistPayload {
     }
 }
 
-fn apply_payload(payload: WarehouseCripplingPersistPayload) {
+fn apply_payload(payload: WarehouseCripplingPersistPayload, game_logic: &mut GameLogic) {
     let restored = payload
         .states
         .into_iter()
@@ -106,7 +105,7 @@ fn apply_payload(payload: WarehouseCripplingPersistPayload) {
             )
         })
         .collect();
-    restore_live_warehouse_crippling_states(restored);
+    game_logic.restore_warehouse_crippling_states(restored);
 }
 
 fn find_whcr_suffix(bytes: &[u8]) -> Option<&[u8]> {
@@ -132,16 +131,15 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::host_supply_gather::{
-        reset_live_warehouse_host_state, warehouse_crippling_heal_amount,
-    };
+    use crate::game_logic::host_supply_gather::warehouse_crippling_heal_amount;
 
     #[test]
     fn snapshot_round_trips_mid_suppression_heal_cadence() {
-        reset_live_warehouse_host_state();
         let warehouse = ObjectId(7);
+        let mut source = GameLogic::new();
+        let mut other_world = GameLogic::new();
         // Damage at frame 10 → suppress until 100. Save mid-window at frame 50.
-        restore_live_warehouse_crippling_states(vec![(
+        source.restore_warehouse_crippling_states(vec![(
             warehouse,
             WarehouseCripplingState {
                 last_health: 200.0,
@@ -149,16 +147,24 @@ mod tests {
                 next_healing_frame: 100,
             },
         )]);
+        other_world.restore_warehouse_crippling_states(vec![(
+            warehouse,
+            WarehouseCripplingState {
+                last_health: 400.0,
+                healing_suppressed_until_frame: 250,
+                next_healing_frame: 275,
+            },
+        )]);
 
         let builder = super::super::SnapshotBuilder::new();
-        let source = GameLogic::new();
         let snapshot = builder.create_world_snapshot(&source).expect("snapshot");
         assert!(
             find_whcr_suffix(&snapshot.lifecycle_tail).is_some(),
             "WHCR suffix must be appended to lifecycle tail"
         );
 
-        restore_live_warehouse_crippling_states(vec![(
+        let mut restored = GameLogic::new();
+        restored.restore_warehouse_crippling_states(vec![(
             ObjectId(99),
             WarehouseCripplingState {
                 last_health: 1.0,
@@ -166,18 +172,24 @@ mod tests {
                 next_healing_frame: 1,
             },
         )]);
-        let mut restored = GameLogic::new();
         builder
             .restore_from_snapshot(&snapshot, &mut restored)
             .expect("restore");
 
-        let states = snapshot_live_warehouse_crippling_states();
+        let states = restored.snapshot_warehouse_crippling_states();
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].0, warehouse);
         let mut state = states[0].1;
         assert!((state.last_health - 200.0).abs() < 0.01);
         assert_eq!(state.healing_suppressed_until_frame, 100);
         assert_eq!(state.next_healing_frame, 100);
+        assert_eq!(
+            other_world.snapshot_warehouse_crippling_states()[0]
+                .1
+                .last_health,
+            400.0,
+            "restoring one same-ID world must leave the other world's clock intact"
+        );
 
         let mid = warehouse_crippling_heal_amount(
             50,
@@ -201,12 +213,12 @@ mod tests {
             &mut state.next_healing_frame,
         );
         assert!((heal - 5.0).abs() < 0.01);
-        reset_live_warehouse_host_state();
     }
 
     #[test]
     fn absent_suffix_clears_stale_warehouse_crippling() {
-        restore_live_warehouse_crippling_states(vec![(
+        let mut logic = GameLogic::new();
+        logic.restore_warehouse_crippling_states(vec![(
             ObjectId(3),
             WarehouseCripplingState {
                 last_health: 200.0,
@@ -214,8 +226,7 @@ mod tests {
                 next_healing_frame: 90,
             },
         )]);
-        let mut logic = GameLogic::new();
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
-        assert!(snapshot_live_warehouse_crippling_states().is_empty());
+        assert!(logic.snapshot_warehouse_crippling_states().is_empty());
     }
 }

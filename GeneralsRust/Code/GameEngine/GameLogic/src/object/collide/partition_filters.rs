@@ -1747,8 +1747,8 @@ mod tests {
             Ok(())
         }
 
-        fn get_contained_objects(&self) -> &[crate::common::ObjectID] {
-            &self.contained
+        fn get_contained_objects(&self) -> std::borrow::Cow<'_, [crate::common::ObjectID]> {
+            std::borrow::Cow::Borrowed(&self.contained)
         }
 
         fn get_contained_count(&self) -> usize {

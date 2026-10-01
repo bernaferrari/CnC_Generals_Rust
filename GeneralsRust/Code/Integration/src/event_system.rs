@@ -13,7 +13,6 @@
 
 use crossbeam::queue::SegQueue;
 use parking_lot::RwLock;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use tokio::sync::broadcast;
 use tracing::{debug, info, instrument, trace, warn};
@@ -57,23 +56,29 @@ pub enum SystemEvent {
 /// Uses crossbeam::queue::SegQueue for zero-allocation, lock-free event passing
 #[derive(Debug)]
 pub struct EventSystem {
-    config: RwLock<EventConfig>,
+    state: RwLock<CombinedState>,
     // Legacy broadcast channel for compatibility
     sender: broadcast::Sender<SystemEvent>,
     _receiver: broadcast::Receiver<SystemEvent>,
 
     // NEW: Lock-free event queues for maximum performance
-    high_priority_events: Arc<SegQueue<SystemEvent>>,
-    normal_events: Arc<SegQueue<SystemEvent>>,
-    low_priority_events: Arc<SegQueue<SystemEvent>>,
+    high_priority_events: SegQueue<SystemEvent>,
+    normal_events: SegQueue<SystemEvent>,
+    low_priority_events: SegQueue<SystemEvent>,
 
     // Performance counters (atomic for thread safety)
     events_sent: AtomicU64,
     events_processed: AtomicU64,
     queue_overflow_count: AtomicUsize,
-    latest_performance_sample: RwLock<Option<PerformanceMetrics>>,
-    latest_resource_usage: RwLock<Option<ResourceUsage>>,
-    latest_diagnostics: RwLock<Option<SystemDiagnostics>>,
+}
+
+/// Internal mutable state guarded by a single lock
+#[derive(Debug)]
+struct CombinedState {
+    config: EventConfig,
+    latest_performance_sample: Option<PerformanceMetrics>,
+    latest_resource_usage: Option<ResourceUsage>,
+    latest_diagnostics: Option<SystemDiagnostics>,
 }
 
 impl EventSystem {
@@ -88,22 +93,24 @@ impl EventSystem {
         let (sender, receiver) = broadcast::channel(config.queue_capacity);
 
         Ok(Self {
-            config: RwLock::new(config),
+            state: RwLock::new(CombinedState {
+                config,
+                latest_performance_sample: None,
+                latest_resource_usage: None,
+                latest_diagnostics: None,
+            }),
             sender,
             _receiver: receiver,
 
             // Initialize lock-free queues
-            high_priority_events: Arc::new(SegQueue::new()),
-            normal_events: Arc::new(SegQueue::new()),
-            low_priority_events: Arc::new(SegQueue::new()),
+            high_priority_events: SegQueue::new(),
+            normal_events: SegQueue::new(),
+            low_priority_events: SegQueue::new(),
 
             // Initialize performance counters
             events_sent: AtomicU64::new(0),
             events_processed: AtomicU64::new(0),
             queue_overflow_count: AtomicUsize::new(0),
-            latest_performance_sample: RwLock::new(None),
-            latest_resource_usage: RwLock::new(None),
-            latest_diagnostics: RwLock::new(None),
         })
     }
 
@@ -171,7 +178,7 @@ impl EventSystem {
         }
 
         // Check for event queue overflow (legacy broadcast channel)
-        let queue_capacity = self.config.read().queue_capacity;
+        let queue_capacity = self.state.read().config.queue_capacity;
         if self.sender.len() >= queue_capacity {
             warn!(
                 "Legacy event queue nearing capacity: {}/{}",
@@ -200,7 +207,7 @@ impl EventSystem {
                     "Performance sample frame {} FPS {:.1}",
                     metrics.frame_number, metrics.graphics.fps
                 );
-                *self.latest_performance_sample.write() = Some(metrics.clone());
+                self.state.write().latest_performance_sample = Some(metrics.clone());
             }
             SystemEvent::ResourceExhausted { resource_type } => {
                 warn!("Resource exhausted: {}", resource_type);
@@ -210,11 +217,11 @@ impl EventSystem {
                     "Resource usage sample: total={}MB assets={}",
                     usage.total_memory_mb, usage.loaded_assets
                 );
-                *self.latest_resource_usage.write() = Some(usage.clone());
+                self.state.write().latest_resource_usage = Some(usage.clone());
             }
             SystemEvent::DiagnosticsSample { diagnostics } => {
                 trace!("Diagnostics sample health {:.1}", diagnostics.health_score);
-                *self.latest_diagnostics.write() = Some(diagnostics.clone());
+                self.state.write().latest_diagnostics = Some(diagnostics.clone());
             }
             _ => {
                 trace!("Handled event: {:?} (priority: {:?})", event, priority);
@@ -261,17 +268,17 @@ impl EventSystem {
 
     /// Returns the latest performance telemetry sample, if any.
     pub fn latest_performance_sample(&self) -> Option<PerformanceMetrics> {
-        self.latest_performance_sample.read().clone()
+        self.state.read().latest_performance_sample.clone()
     }
 
     /// Returns the latest resource usage sample, if any.
     pub fn latest_resource_usage(&self) -> Option<ResourceUsage> {
-        self.latest_resource_usage.read().clone()
+        self.state.read().latest_resource_usage.clone()
     }
 
     /// Latest diagnostics snapshot.
     pub fn latest_diagnostics(&self) -> Option<SystemDiagnostics> {
-        self.latest_diagnostics.read().clone()
+        self.state.read().latest_diagnostics.clone()
     }
 
     /// Subscribe to system events
@@ -285,14 +292,14 @@ impl EventSystem {
         info!("Updating Event System configuration");
 
         // Update configuration
-        let mut guard = self.config.write();
-        let old_capacity = guard.queue_capacity;
-        *guard = config;
+        let mut guard = self.state.write();
+        let old_capacity = guard.config.queue_capacity;
+        guard.config = config;
 
-        if guard.queue_capacity != old_capacity {
+        if guard.config.queue_capacity != old_capacity {
             info!(
                 "Event queue capacity changed: {} -> {}",
-                old_capacity, guard.queue_capacity
+                old_capacity, guard.config.queue_capacity
             );
 
             // Note: tokio::sync::broadcast doesn't support runtime capacity changes
@@ -341,8 +348,9 @@ impl EventSystem {
         // Event system maintenance tasks
 
         // Check for excessive queue growth
-        let queue_usage =
-            (self.sender.len() as f64 / self.config.read().queue_capacity as f64) * 100.0;
+        let queue_usage = (self.sender.len() as f64
+            / self.state.read().config.queue_capacity as f64)
+            * 100.0;
 
         if queue_usage > 80.0 {
             warn!("Event queue usage high: {:.1}%", queue_usage);
@@ -403,11 +411,11 @@ impl EventSystem {
 
         EventSystemStatistics {
             // Legacy statistics
-            queue_capacity: self.config.read().queue_capacity,
+            queue_capacity: self.state.read().config.queue_capacity,
             current_queue_length: self.sender.len(),
             active_receivers: self.sender.receiver_count(),
             queue_usage_percent: (self.sender.len() as f64
-                / self.config.read().queue_capacity as f64)
+                / self.state.read().config.queue_capacity as f64)
                 * 100.0,
 
             // NEW: Lock-free queue statistics
@@ -440,19 +448,6 @@ impl EventSystem {
         }
 
         count
-    }
-
-    /// Get lock-free queue handles for other systems to use directly
-    pub fn get_high_priority_queue(&self) -> Arc<SegQueue<SystemEvent>> {
-        self.high_priority_events.clone()
-    }
-
-    pub fn get_normal_queue(&self) -> Arc<SegQueue<SystemEvent>> {
-        self.normal_events.clone()
-    }
-
-    pub fn get_low_priority_queue(&self) -> Arc<SegQueue<SystemEvent>> {
-        self.low_priority_events.clone()
     }
 
     /// Create a filtered event receiver

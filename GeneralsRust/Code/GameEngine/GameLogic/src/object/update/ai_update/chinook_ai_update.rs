@@ -1344,7 +1344,8 @@ impl ChinookAIUpdate {
                 if let Some(partition) = ThePartitionManager::get() {
                     if partition.find_position_around_with_options(&dest, &options, &mut tmp) {
                         dest = tmp;
-                        let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
+                        let ai_store = crate::ai::the_ai();
+                        if let Ok(ai_guard) = ai_store.read() {
                             if let Some(pathfinder) = ai_guard.pathfinder() {
                                 if let Ok(pf) = pathfinder.read() {
                                     pf.adjust_to_landing_destination(&*owner_guard, &mut dest);
@@ -1748,9 +1749,7 @@ impl ChinookAIUpdate {
         }
 
         match params.cmd {
-            AiCommandType::Idle
-            | AiCommandType::Busy
-            | AiCommandType::FollowExitProductionPath => {
+            AiCommandType::Idle | AiCommandType::Busy | AiCommandType::FollowExitProductionPath => {
                 self.pending_command = None;
                 false
             }
@@ -1873,7 +1872,7 @@ impl ChinookAIUpdate {
                         cmd_source,
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
-                        let passengers = contain.get_contained_objects().to_vec();
+                        let passengers = contain.get_contained_objects();
                         for passenger_id in passengers {
                             if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                                 continue;
@@ -1942,7 +1941,7 @@ impl ChinookAIUpdate {
                         cmd_source,
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
-                        let passengers = contain.get_contained_objects().to_vec();
+                        let passengers = contain.get_contained_objects();
                         for passenger_id in passengers {
                             if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                                 continue;
@@ -1986,39 +1985,40 @@ impl ChinookAIUpdate {
                         cmd_source,
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
-                    if let Some(rider_id) = contain.friend_get_rider() {
-                        if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                            if let Ok(rider_guard) = rider.read() {
-                                if rider_guard.is_kind_of(KindOf::PortableStructure)
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledHacked,
-                                    )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledEmp,
-                                    )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledSubdued,
-                                    )
-                                    && !rider_guard
-                                        .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
-                                {
-                                    if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                        if let Some(victim_arc) = victim.as_ref() {
-                                            ai.ai_force_attack_object(
-                                                victim_arc
-                                                    .read()
-                                                    .ok()
-                                                    .map(|g| g.get_id())
-                                                    .unwrap_or(0),
-                                                max_shots_to_fire,
-                                                cmd_source,
-                                            );
+                        if let Some(rider_id) = contain.friend_get_rider() {
+                            if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                                if let Ok(rider_guard) = rider.read() {
+                                    if rider_guard.is_kind_of(KindOf::PortableStructure)
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::DisabledHacked,
+                                        )
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::DisabledEmp,
+                                        )
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::DisabledSubdued,
+                                        )
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::Paralyzed,
+                                        )
+                                    {
+                                        if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                            if let Some(victim_arc) = victim.as_ref() {
+                                                ai.ai_force_attack_object(
+                                                    victim_arc
+                                                        .read()
+                                                        .ok()
+                                                        .map(|g| g.get_id())
+                                                        .unwrap_or(0),
+                                                    max_shots_to_fire,
+                                                    cmd_source,
+                                                );
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
                     }
                 }
             }
@@ -2046,7 +2046,7 @@ impl ChinookAIUpdate {
                         cmd_source,
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
-                        let passengers = contain.get_contained_objects().to_vec();
+                        let passengers = contain.get_contained_objects();
                         for passenger_id in passengers {
                             if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                                 continue;
@@ -2084,29 +2084,34 @@ impl ChinookAIUpdate {
                         cmd_source,
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
-                    if let Some(rider_id) = contain.friend_get_rider() {
-                        if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                            if let Ok(rider_guard) = rider.read() {
-                                if rider_guard.is_kind_of(KindOf::PortableStructure)
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledHacked,
-                                    )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledEmp,
-                                    )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledSubdued,
-                                    )
-                                    && !rider_guard
-                                        .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
-                                {
-                                    if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                        ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
+                        if let Some(rider_id) = contain.friend_get_rider() {
+                            if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                                if let Ok(rider_guard) = rider.read() {
+                                    if rider_guard.is_kind_of(KindOf::PortableStructure)
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::DisabledHacked,
+                                        )
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::DisabledEmp,
+                                        )
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::DisabledSubdued,
+                                        )
+                                        && !rider_guard.is_disabled_by_type(
+                                            crate::common::DisabledType::Paralyzed,
+                                        )
+                                    {
+                                        if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                            ai.ai_attack_position(
+                                                pos,
+                                                max_shots_to_fire,
+                                                cmd_source,
+                                            );
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
                     }
                 }
             }
@@ -2424,7 +2429,7 @@ impl ChinookAIUpdate {
                             if let Ok(ai_guard) = ai_update.lock() {
                                 if let Some(victim_id) = ai_guard.get_current_victim() {
                                     if contain.is_passenger_allowed_to_fire(None) {
-                                        let passengers = contain.get_contained_objects().to_vec();
+                                        let passengers = contain.get_contained_objects();
                                         for passenger_id in passengers {
                                             if let Some(passenger) =
                                                 TheGameLogic::find_object_by_id(passenger_id)

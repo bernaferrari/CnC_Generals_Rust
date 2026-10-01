@@ -5,7 +5,6 @@
 //! major game systems.
 
 use game_network::NetworkInstant;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 use tracing::{debug, info, instrument, trace, warn};
@@ -28,10 +27,7 @@ impl From<TaskExecutionError> for IntegrationError {
         }
     }
 }
-use crate::diagnostics::DiagnosticsSystem;
 use crate::event_system::{EventSystem, SystemEvent};
-use crate::performance_manager::PerformanceManager;
-use crate::resource_manager::ResourceManager;
 
 /// Engine subsystem state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,10 +45,7 @@ pub enum SubsystemState {
 #[derive(Debug)]
 pub struct EngineCoordinator {
     // Core subsystem managers
-    performance_manager: Arc<RwLock<PerformanceManager>>,
-    resource_manager: Arc<RwLock<ResourceManager>>,
     event_system: Arc<EventSystem>,
-    diagnostics: Arc<RwLock<DiagnosticsSystem>>,
 
     // Game subsystems
     game_client: Option<GameClientSystem>,
@@ -101,21 +94,13 @@ pub struct AudioSystem {
 impl EngineCoordinator {
     /// Create a new engine coordinator
     #[instrument(name = "coordinator_new")]
-    pub fn new(
-        performance_manager: Arc<RwLock<PerformanceManager>>,
-        resource_manager: Arc<RwLock<ResourceManager>>,
-        event_system: Arc<EventSystem>,
-        diagnostics: Arc<RwLock<DiagnosticsSystem>>,
-    ) -> IntegrationResult<Self> {
+    pub fn new(event_system: Arc<EventSystem>) -> IntegrationResult<Self> {
         info!("Creating Engine Coordinator");
 
         let target_frametime = Duration::from_secs_f64(1.0 / 60.0); // 60 FPS target
 
         Ok(Self {
-            performance_manager,
-            resource_manager,
             event_system,
-            diagnostics,
 
             game_client: None,
             game_network: None,

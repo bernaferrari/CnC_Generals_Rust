@@ -67,16 +67,6 @@
 //! partition.deregister_object(1);
 //! ```
 //!
-//! ## Thread-Safe Access
-//!
-//! ```rust,ignore
-//! use game_engine::common::partition_solver::create_thread_safe_partition;
-//!
-//! let partition = create_thread_safe_partition(10000.0, 10000.0, 100.0);
-//!
-//! // Multiple threads can query simultaneously
-//! let guard = partition.read().unwrap();
-//! let nearby = guard.nearby_objects(Point2D::new(1000.0, 1000.0), 500.0);
 //! ```
 //!
 //! ## Performance Statistics
@@ -133,7 +123,6 @@
 //! ```
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
 
 /// Object identifier type
 pub type ObjectID = u32;
@@ -880,17 +869,6 @@ impl Default for PartitionSolver {
     }
 }
 
-// Thread-safe wrapper for multi-threaded access
-pub type ThreadSafePartitionSolver = Arc<RwLock<PartitionSolver>>;
-
-pub fn create_thread_safe_partition(
-    width: f32,
-    height: f32,
-    cell_size: f32,
-) -> ThreadSafePartitionSolver {
-    Arc::new(RwLock::new(PartitionSolver::new(width, height, cell_size)))
-}
-
 /// C++ `SolutionType` from PartitionSolver.h.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SolutionType {
@@ -1213,45 +1191,6 @@ mod tests {
         // Object should be found from multiple cells
         let nearby = partition.nearby_objects(Point2D::new(520.0, 520.0), 30.0);
         assert!(nearby.contains(&1));
-    }
-
-    #[test]
-    fn test_thread_safe_partition() {
-        use std::thread;
-
-        let partition = create_thread_safe_partition(1000.0, 1000.0, 100.0);
-
-        // Register some objects
-        {
-            let mut p = partition.write().unwrap();
-            for i in 0..100 {
-                let x = (i as f32) * 10.0;
-                let y = (i as f32) * 10.0;
-                p.register_object(PartitionObject::new(
-                    i,
-                    Point2D::new(x, y),
-                    ObjectType::Unit,
-                ));
-            }
-        }
-
-        // Spawn multiple reader threads
-        let handles: Vec<_> = (0..4)
-            .map(|_| {
-                let p = Arc::clone(&partition);
-                thread::spawn(move || {
-                    let guard = p.read().unwrap();
-                    let nearby = guard.nearby_objects(Point2D::new(500.0, 500.0), 200.0);
-                    nearby.len()
-                })
-            })
-            .collect();
-
-        // All threads should complete successfully
-        for handle in handles {
-            let count = handle.join().unwrap();
-            assert!(count >= 0);
-        }
     }
 
     #[test]

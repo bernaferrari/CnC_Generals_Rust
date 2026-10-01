@@ -65,7 +65,16 @@ impl GameLogic {
                     // If this id was queued without destroyObject, finish
                     // contain-eject / module onDelete / partition here.
                     if !obj_write.is_destroyed() {
-                        obj_write.on_destroy();
+                        obj_write.on_destroy_with_game_logic_services(|object_id, action| {
+                            match action {
+                                crate::object::ObjectDestroyServiceAction::UnregisterUpdateModule(
+                                    update_module,
+                                ) => self.unregister_update_module(object_id, update_module),
+                                crate::object::ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
+                                    self.queue_objects_changed_trigger_areas(object_id)
+                                }
+                            }
+                        });
                     }
                     obj_write.set_next_object_id(None);
                     obj_write.set_prev_object_id(None);
@@ -317,7 +326,16 @@ impl GameLogic {
                     let is_wall = obj.is_kind_of(KindOf::WalkOnTopOfWall);
                     let has_special_power = obj.has_any_special_power();
                     let is_local = obj.is_locally_controlled();
-                    obj.on_destroy();
+                    obj.on_destroy_with_game_logic_services(|object_id, action| {
+                        match action {
+                            crate::object::ObjectDestroyServiceAction::UnregisterUpdateModule(
+                                update_module,
+                            ) => self.unregister_update_module(object_id, update_module),
+                            crate::object::ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
+                                self.queue_objects_changed_trigger_areas(object_id)
+                            }
+                        }
+                    });
                     (is_wall, has_special_power, is_local)
                 } else {
                     (false, false, false)
@@ -1072,4 +1090,3 @@ fn apply_challenge_the_player_relationships() {
         }
     }
 }
-

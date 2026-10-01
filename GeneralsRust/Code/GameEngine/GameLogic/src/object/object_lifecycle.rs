@@ -369,6 +369,26 @@ impl Object {
 
     /// Called during object destruction
     pub fn on_destroy(&mut self) {
+        self.on_destroy_with_game_logic_services(|object_id, action| match action {
+            ObjectDestroyServiceAction::UnregisterUpdateModule(update_module) => {
+                let _ = crate::helpers::TheGameLogic::unregister_update_module(
+                    object_id,
+                    update_module,
+                );
+            }
+            ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
+                crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(object_id);
+            }
+        });
+    }
+
+    /// Run destruction using immediate services borrowed from the owning
+    /// GameLogic. The named actions keep both effects on the same owner borrow
+    /// and preserve their original call sites.
+    pub(crate) fn on_destroy_with_game_logic_services(
+        &mut self,
+        mut service: impl FnMut(ObjectID, ObjectDestroyServiceAction),
+    ) {
         if self.destroyed {
             return;
         }
@@ -378,30 +398,44 @@ impl Object {
         let _ = crate::scripting::engine::get_named_object_tracker().unregister_object(self.id);
 
         for module in self.update_module_registrations.drain(..) {
-            let _ = crate::helpers::TheGameLogic::unregister_update_module(self.id, module);
+            service(
+                self.id,
+                ObjectDestroyServiceAction::UnregisterUpdateModule(module),
+            );
         }
 
         self.on_destroy_internal();
-        self.run_destructor_tail();
+        self.run_destructor_tail_with_game_logic_service(&mut service);
     }
 
     /// C++ `Object::~Object` after `onDestroy`: pathfinder, scripts, radar,
     /// `sendObjectDestroyed`, clear team/group, ControlBar dirty.
     pub(crate) fn run_destructor_tail(&mut self) {
+        self.run_destructor_tail_with_game_logic_service(&mut |object_id, action| {
+            if let ObjectDestroyServiceAction::QueueTriggerAreaRefresh = action {
+                crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(object_id);
+            }
+        });
+    }
+
+    fn run_destructor_tail_with_game_logic_service(
+        &mut self,
+        service: &mut impl FnMut(ObjectID, ObjectDestroyServiceAction),
+    ) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
         let ai_store = crate::ai::the_ai();
         if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
-                    pf.remove_object_from_map(self.id, &footprint);
+                    pf.remove_object_from_map_at_positions(&footprint);
                     pf.remove_wall_from_object(self);
                 }
             }
         }
 
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
-            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+            service(self.id, ObjectDestroyServiceAction::QueueTriggerAreaRefresh);
             crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
         }
 

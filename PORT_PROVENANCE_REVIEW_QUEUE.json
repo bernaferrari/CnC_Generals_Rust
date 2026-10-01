@@ -41371,13 +41371,12 @@
         },
         {
           "blockers": [
-            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
-              "cargo_reachable": false,
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/fire_weapon_when_dead_behavior.rs"
             }
@@ -183383,7 +183382,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "0396e1e1f87212254d7daedd09bb2195af1ed28818ac2d6e30152d547e3e512f",
+  "provenance_input_digest": "6fd34328d5abe0ab051e0a3147c040d25b03266302578288f6b57a3bdfa67b1c",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

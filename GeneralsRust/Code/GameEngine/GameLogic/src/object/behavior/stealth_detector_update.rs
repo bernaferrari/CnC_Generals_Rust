@@ -600,9 +600,9 @@ impl StealthDetectorUpdate {
         if self.object_id == crate::common::INVALID_ID {
             return;
         }
-        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
-        ) else {
+        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        else {
             return;
         };
         if let Ok(guard) = object.read() {
@@ -795,7 +795,7 @@ impl StealthDetectorUpdate {
                             }
                             (false, _, _, Some(contain)) => {
                                 if let Ok(contain_guard) = contain.lock() {
-                                    for &rider_id in contain_guard.get_contained_objects() {
+                                    for &rider_id in contain_guard.get_contained_objects().iter() {
                                         if let Some(stealth_module) =
                                             crate::object::registry::OBJECT_REGISTRY
                                                 .with_object(rider_id, |rider_guard| {

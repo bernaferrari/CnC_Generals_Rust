@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
-    AsciiString, Coord3D, GameResult, LocomotorSetType, Matrix3D, ModelConditionFlags, ObjectID, ObjectStatusMaskType,
-    ObjectStatusTypes, PlayerMaskType,
+    AsciiString, Coord3D, GameResult, LocomotorSetType, Matrix3D, ModelConditionFlags, ObjectID,
+    ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheInGameUI, TheMessageStream, TheThingFactory};
@@ -19,7 +19,7 @@ use crate::object::contain::TransportContain;
 use crate::object::{Object, ObjectId};
 use crate::upgrade::modules::model_condition::parse_model_condition_flag as parse_model_condition_name;
 use crate::weapon::WeaponSetType;
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 277 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -330,10 +330,7 @@ fn rider_info_matches_template(
 /// skips only the promotion anim + UnitPromoted sound — the C++ tracker still
 /// fires `Object::onVeterancyLevelChanged` internally (ExperienceTracker.cpp:82-95),
 /// so weapon-set flags, veterancy upgrade, body healthBonus/armor rescale run.
-fn transfer_veterancy(
-    from: &Arc<RwLock<Object>>,
-    to: &Arc<RwLock<Object>>,
-) {
+fn transfer_veterancy(from: &Arc<RwLock<Object>>, to: &Arc<RwLock<Object>>) {
     let Some(level) = from
         .read()
         .ok()
@@ -356,7 +353,7 @@ mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
     use crate::messages::{
-        MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP, MessageArgument, drain_messages,
+        drain_messages, MessageArgument, MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP,
     };
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
@@ -498,6 +495,32 @@ mod tests {
         let template = Arc::new(template);
         Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
             .expect("owned test object")
+    }
+
+    fn owned_trainable_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+        fields.insert("IsTrainable".to_string(), "Yes".to_string());
+        fields.insert(
+            "ExperienceRequired".to_string(),
+            "0 100 300 600".to_string(),
+        );
+        template.parse_object_fields_from_ini(&fields);
+        Object::new_with_id(
+            Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            Some(team),
+        )
+        .expect("owned trainable test object")
     }
 
     fn rider(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
@@ -971,14 +994,11 @@ mod tests {
         assert_eq!(xfer.bytes[1], 1, "delegated TransportContain xfer version");
         assert_eq!(xfer.bytes[2], 2, "delegated OpenContain xfer version");
 
-        let tail = &xfer.bytes[xfer.bytes.len() - 12..];
-        assert_eq!(
-            &tail[0..4],
-            &1_u32.to_le_bytes(),
-            "duplicated m_payloadCreated"
-        );
-        assert_eq!(&tail[4..8], &7_i32.to_le_bytes());
-        assert_eq!(&tail[8..12], &1234_u32.to_le_bytes());
+        // C++ Bool is one byte; the duplicated fields occupy 1 + 4 + 4 bytes.
+        let tail = &xfer.bytes[xfer.bytes.len() - 9..];
+        assert_eq!(&tail[0..1], &[1], "duplicated m_payloadCreated");
+        assert_eq!(&tail[1..5], &7_i32.to_le_bytes());
+        assert_eq!(&tail[5..9], &1234_u32.to_le_bytes());
 
         cleanup_objects(&[97007]);
     }
@@ -1005,8 +1025,16 @@ mod tests {
         // level even with provideFeedback=FALSE.
         let _lock = crate::test_sync::lock();
 
-        let rider = owned_object("BikeRiderVet", 97021, 0);
+        let rider = owned_trainable_object("BikeRiderVet", 97021, 0);
         let bike = owned_object("CombatBikeVet", 97022, 0);
+        assert!(
+            rider
+                .read()
+                .expect("rider read")
+                .get_template()
+                .is_trainable(),
+            "the reset regression uses an authored IsTrainable template"
+        );
         let rider_tracker = Arc::new(std::sync::Mutex::new(
             crate::common::ExperienceTracker::new(97021),
         ));
@@ -1017,33 +1045,126 @@ mod tests {
             .lock()
             .expect("rider tracker")
             .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
-        rider.write().expect("rider write").experience_tracker =
-            Some(Arc::clone(&rider_tracker));
+        rider.write().expect("rider write").experience_tracker = Some(Arc::clone(&rider_tracker));
         bike.write().expect("bike write").experience_tracker = Some(Arc::clone(&bike_tracker));
 
         transfer_veterancy(&rider, &bike);
 
         // Bike took the rider's level — weapon-set flag follows (side effect).
         assert!(
-            bike.read().expect("bike read").test_weapon_set_flag(WeaponSetType::Veteran),
+            bike.read()
+                .expect("bike read")
+                .test_weapon_set_flag(WeaponSetType::Veteran),
             "C++ fires onVeterancyLevelChanged on mount: bike weapon set becomes Veteran"
         );
         assert_eq!(
-            bike_tracker.lock().expect("bike tracker").get_veterancy_level(),
+            bike_tracker
+                .lock()
+                .expect("bike tracker")
+                .get_veterancy_level(),
             crate::common::VeterancyLevel::Veteran
         );
         // Rider resets to Regular via setExperienceAndLevel(0, FALSE) — side
         // effects clear the Veteran weapon-set flag on demotion too.
         assert_eq!(
-            rider_tracker.lock().expect("rider tracker").get_veterancy_level(),
+            rider_tracker
+                .lock()
+                .expect("rider tracker")
+                .get_veterancy_level(),
             crate::common::VeterancyLevel::Regular
         );
         assert!(
-            !rider.read().expect("rider read").test_weapon_set_flag(WeaponSetType::Veteran),
+            !rider
+                .read()
+                .expect("rider read")
+                .test_weapon_set_flag(WeaponSetType::Veteran),
             "C++ setExperienceAndLevel fires onVeterancyLevelChanged on demotion"
         );
 
         cleanup_objects(&[97021, 97022]);
+    }
+
+    #[test]
+    fn set_experience_and_level_keeps_nontrainable_object_unchanged_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let object = owned_object("NontrainableExperienceReset", 97023, 0);
+        let tracker = Arc::new(std::sync::Mutex::new(
+            crate::common::ExperienceTracker::new(97023),
+        ));
+        tracker
+            .lock()
+            .expect("tracker")
+            .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
+        object.write().expect("object write").experience_tracker = Some(Arc::clone(&tracker));
+
+        assert!(!object
+            .write()
+            .expect("object write")
+            .set_experience_and_level_with_side_effects(0, false));
+        assert_eq!(
+            tracker.lock().expect("tracker").get_veterancy_level(),
+            crate::common::VeterancyLevel::Veteran,
+            "CPP setExperienceAndLevel returns without mutation when IsTrainable is false"
+        );
+
+        cleanup_objects(&[97023]);
+    }
+
+    #[test]
+    fn set_experience_and_level_sink_uses_target_owner_and_side_effects_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let source = owned_object("ExperienceSinkSource", 97024, 0);
+        let target = owned_trainable_object("ExperienceSinkTarget", 97025, 0);
+        let source_tracker = Arc::new(std::sync::Mutex::new(
+            crate::common::ExperienceTracker::new(97024),
+        ));
+        let target_tracker = Arc::new(std::sync::Mutex::new(
+            crate::common::ExperienceTracker::new(97025),
+        ));
+        source_tracker
+            .lock()
+            .expect("source tracker")
+            .set_experience_sink(97025);
+        source.write().expect("source write").experience_tracker =
+            Some(Arc::clone(&source_tracker));
+        target.write().expect("target write").experience_tracker =
+            Some(Arc::clone(&target_tracker));
+        assert!(target
+            .write()
+            .expect("target write")
+            .set_veterancy_level_with_side_effects(crate::common::VeterancyLevel::Veteran, false,));
+
+        assert!(source
+            .write()
+            .expect("source write")
+            .set_experience_and_level_with_side_effects(0, false));
+        assert_eq!(
+            target_tracker
+                .lock()
+                .expect("target tracker")
+                .get_veterancy_level(),
+            crate::common::VeterancyLevel::Regular,
+            "CPP forwards the reset to the sink Object and applies its level change"
+        );
+        assert!(
+            !target
+                .read()
+                .expect("target read")
+                .test_weapon_set_flag(WeaponSetType::Veteran),
+            "sink Object receives onVeterancyLevelChanged on demotion"
+        );
+        assert_eq!(
+            source_tracker
+                .lock()
+                .expect("source tracker")
+                .get_veterancy_level(),
+            crate::common::VeterancyLevel::Regular,
+            "the forwarding source tracker is not mutated"
+        );
+
+        cleanup_objects(&[97024, 97025]);
     }
 }
 
@@ -1219,7 +1340,9 @@ impl RiderChangeContain {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
-                if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.try_read(), rider.try_write()) {
+                if let (Ok(owner_guard), Ok(mut rider_guard)) =
+                    (owner.try_read(), rider.try_write())
+                {
                     let _ = rider_guard.set_position(owner_guard.get_position());
                     rider_guard.set_layer(owner_guard.get_layer());
                 }
@@ -1236,7 +1359,10 @@ impl RiderChangeContain {
         }
         self.base.base.do_unload_sound();
         if let Err(err) = self.on_removing(rider_id) {
-            let _ = self.base.base.add_to_contain_list_id(rider_id, stealth_garrison);
+            let _ = self
+                .base
+                .base
+                .add_to_contain_list_id(rider_id, stealth_garrison);
             if should_add_to_world {
                 let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
             }
@@ -1244,7 +1370,10 @@ impl RiderChangeContain {
         }
 
         if let Err(err) = self.base.base.note_removed_from(rider_id) {
-            let _ = self.base.base.add_to_contain_list_id(rider_id, stealth_garrison);
+            let _ = self
+                .base
+                .base
+                .add_to_contain_list_id(rider_id, stealth_garrison);
             if should_add_to_world {
                 let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
             }
@@ -1739,10 +1868,11 @@ impl ContainModuleInterface for RiderChangeContain {
         object_id: ObjectID,
         expose_stealth: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        RiderChangeContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
+        RiderChangeContain::remove_from_contain(self, object_id, expose_stealth)
+            .map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 
@@ -1756,7 +1886,11 @@ impl ContainModuleInterface for RiderChangeContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 { usize::MAX } else { max as usize }
+        if max < 0 {
+            usize::MAX
+        } else {
+            max as usize
+        }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1815,9 +1949,10 @@ impl ContainModuleInterface for RiderChangeContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id, false)?;
         }
@@ -1929,4 +2064,3 @@ impl ContainerInterface for RiderChangeContain {
         (0, 0)
     }
 }
-

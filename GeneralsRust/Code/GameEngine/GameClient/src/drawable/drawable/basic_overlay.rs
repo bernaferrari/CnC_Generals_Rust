@@ -590,7 +590,7 @@ impl BasicDrawable {
         // C++ counts infantry among contained items for green/blue color coding
         let contained_objects = contain_guard.get_contained_objects();
         let mut infantry_count: u8 = 0;
-        for &cid in contained_objects {
+        for &cid in contained_objects.iter() {
             if let Some(c_arc) = OBJECT_REGISTRY.get_object(cid) {
                 if let Ok(c_guard) = c_arc.read() {
                     if c_guard.is_kind_of(gamelogic::common::types::KindOf::Infantry) {

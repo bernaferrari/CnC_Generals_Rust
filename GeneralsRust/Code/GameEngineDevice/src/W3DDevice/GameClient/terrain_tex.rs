@@ -13,7 +13,7 @@
 //! - CloudMapTerrainTextureClass: Animated cloud shadows
 //! - ScorchTextureClass: Scorch marks and damage
 
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use wgpu::{Device, Queue, Sampler, Texture, TextureView};
 
@@ -242,11 +242,7 @@ impl WorldHeightMap {
             }
         }
 
-        if seen_tiles == 1 {
-            fallback
-        } else {
-            None
-        }
+        if seen_tiles == 1 { fallback } else { None }
     }
 
     fn tile_data_for_width(tile: &TileData, width: u32) -> Vec<u8> {
@@ -338,7 +334,7 @@ pub struct TextureClass {
     /// Texture name
     name: String,
     /// Last state requested by `apply()`.
-    apply_state: Mutex<TextureApplyState>,
+    apply_state: TextureApplyState,
 }
 
 impl TextureClass {
@@ -354,7 +350,7 @@ impl TextureClass {
             mip_levels,
             current_lod: 0,
             name: String::new(),
-            apply_state: Mutex::new(TextureApplyState::default()),
+            apply_state: TextureApplyState::default(),
         }
     }
 
@@ -370,7 +366,7 @@ impl TextureClass {
             mip_levels,
             current_lod: 0,
             name: name.to_string(),
-            apply_state: Mutex::new(TextureApplyState::default()),
+            apply_state: TextureApplyState::default(),
         }
     }
 
@@ -386,20 +382,12 @@ impl TextureClass {
 
     /// Apply texture to rendering pipeline (virtual function in C++)
     /// To be overridden by subclasses
-    pub fn apply(&self, stage: u32) {
-        let mut state = self
-            .apply_state
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        state.stage = stage;
+    pub fn apply(&mut self, stage: u32) {
+        self.apply_state.stage = stage;
     }
 
-    fn reset_apply_state(&self) {
-        let mut state = self
-            .apply_state
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        state.stage = 0;
+    fn reset_apply_state(&mut self) {
+        self.apply_state.stage = 0;
     }
 
     /// Set LOD level (C++ line 332)
@@ -410,19 +398,12 @@ impl TextureClass {
 
     /// Get filter settings (simplified)
     pub fn get_filter(&self) -> TextureFilter {
-        self.apply_state
-            .lock()
-            .map(|state| state.filter)
-            .unwrap_or_default()
+        self.apply_state.filter
     }
 
-    fn set_apply_state(&self, stage: u32, filter: TextureFilter) {
-        let mut state = self
-            .apply_state
-            .lock()
-            .unwrap_or_else(|err| err.into_inner());
-        state.stage = stage;
-        state.filter = filter;
+    fn set_apply_state(&mut self, stage: u32, filter: TextureFilter) {
+        self.apply_state.stage = stage;
+        self.apply_state.filter = filter;
     }
 }
 

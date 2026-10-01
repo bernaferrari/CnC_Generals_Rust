@@ -309,20 +309,23 @@ impl AIExitInstantlyState {
 
     fn release_from_container(owner: &GameObject) {
         if let Some(container_id) = owner.get_container_id() {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container| {
-                if let Some(contain) = container.get_contain() {
-                    if let Ok(mut contain_guard) = contain.lock() {
-                        let _ = contain_guard.release_object(owner.get_id());
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                container_id,
+                |container| {
+                    if let Some(contain) = container.get_contain() {
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            let _ = contain_guard.release_object(owner.get_id());
+                        }
                     }
-                }
-            });
+                },
+            );
         }
     }
 
     fn evacuate_contents(owner: &mut GameObject) {
         if let Some(contain) = owner.get_contain() {
             if let Ok(mut contain_guard) = contain.lock() {
-                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
+                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().into_owned();
                 for id in ids {
                     let _ = contain_guard.release_object(id);
                 }
@@ -369,16 +372,16 @@ impl AIState for AIExitInstantlyState {
                 return;
             };
             let Some(contain) = OBJECT_REGISTRY
-                .with_object(container_id, |container_guard| container_guard.get_contain())
+                .with_object(container_id, |container_guard| {
+                    container_guard.get_contain()
+                })
                 .flatten()
             else {
                 return;
             };
             if let Ok(mut contain_guard) = contain.lock() {
-                let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                    owner_guard,
-                    ContainWant::WantsNeither,
-                );
+                let _ = contain_guard
+                    .on_object_wants_to_enter_or_exit(owner_guard, ContainWant::WantsNeither);
             };
         });
     }
@@ -417,9 +420,9 @@ impl AIState for AIGetRepairedState {
             return StateReturnType::Failed;
         }
 
-        let Some(dead) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
-            owner.is_effectively_dead()
-        }) else {
+        let Some(dead) =
+            OBJECT_REGISTRY.with_object(context.owner_id, |owner| owner.is_effectively_dead())
+        else {
             return StateReturnType::Failed;
         };
         if dead {
@@ -453,4 +456,3 @@ impl AIState for AIGetRepairedState {
         AIStateType::GetRepaired
     }
 }
-

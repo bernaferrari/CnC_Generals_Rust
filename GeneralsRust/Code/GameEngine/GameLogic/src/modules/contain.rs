@@ -3,6 +3,8 @@
 // Split from `modules.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+use std::borrow::Cow;
+
 /// Contain module interface for garrison/transport (matching C++ ContainModuleInterface)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainWant {
@@ -23,7 +25,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         let _ = expose_stealth;
         self.release_object(object_id).map_err(|e| e.into())
     }
-    fn get_contained_objects(&self) -> &[ObjectID];
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]>;
     fn get_contained_count(&self) -> usize;
     fn get_max_capacity(&self) -> usize;
 
@@ -200,7 +202,6 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
-
     /// Whether clear-building attacks should spare passengers.
     ///
     /// C++ parity: OpenContain defaults this to true; GarrisonContain overrides from INI.
@@ -238,7 +239,6 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     ) -> bool {
         false
     }
-
 
     /// Returns the apparent controlling player when the container is garrisoned/stealth-contained.
     fn get_apparent_controlling_player(
@@ -340,7 +340,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         if dual_world_registry_unavailable() {
             return;
         }
-        for object_id in self.get_contained_objects() {
+        for object_id in self.get_contained_objects().iter() {
             let Some(obj) = TheGameLogic::find_object_by_id(*object_id) else {
                 continue;
             };
@@ -360,7 +360,6 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         }
     }
 
-
     /// Order all passengers to exit (matches C++ OpenContain::orderAllPassengersToExit).
     fn order_all_passengers_to_exit(
         &mut self,
@@ -372,9 +371,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
             return Ok(());
         }
 
-
-
-        for object_id in self.get_contained_objects() {
+        for object_id in self.get_contained_objects().iter() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
                 let Ok(mut obj_guard) = obj.try_write() else {
                     continue;
@@ -401,7 +398,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
             return Ok(());
         }
 
-        for object_id in self.get_contained_objects() {
+        for object_id in self.get_contained_objects().iter() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
                 let Ok(mut obj_guard) = obj.try_write() else {
                     continue;
@@ -427,7 +424,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
             return Ok(());
         }
 
-        for object_id in self.get_contained_objects() {
+        for object_id in self.get_contained_objects().iter() {
             if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
                 let Ok(mut obj_guard) = obj.try_write() else {
                     continue;
@@ -541,11 +538,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Get contain max as i32 (matches legacy API).
     fn get_contain_max(&self) -> i32 {
         let max = self.get_max_capacity();
-        if max == usize::MAX {
-            -1
-        } else {
-            max as i32
-        }
+        if max == usize::MAX { -1 } else { max as i32 }
     }
 
     /// Return container pip display data for selected-object UI.

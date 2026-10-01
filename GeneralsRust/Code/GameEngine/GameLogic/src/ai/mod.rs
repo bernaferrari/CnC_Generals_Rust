@@ -1802,7 +1802,7 @@ impl AI {
                                 contain
                                     .lock()
                                     .ok()
-                                    .map(|cg| cg.get_contained_objects().to_vec())
+                                    .map(|cg| cg.get_contained_objects().into_owned())
                             })
                             .unwrap_or_default();
 
@@ -3582,10 +3582,25 @@ impl Pathfinder {
         } else {
             scratch.as_slice()
         };
-        for pos in use_positions {
+        self.clear_object_from_map_positions(use_positions);
+    }
+
+    /// Remove pathfinding occupancy using positions already captured from the
+    /// object. Destruction calls this while holding that object's write guard,
+    /// so it must not resolve the ObjectID through OBJECT_REGISTRY again.
+    pub(crate) fn remove_object_from_map_at_positions(&mut self, positions: &[Coord3D]) {
+        // Match the ID-based entry point's host-only empty-registry behavior.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+        self.clear_object_from_map_positions(positions);
+    }
+
+    fn clear_object_from_map_positions(&mut self, positions: &[Coord3D]) {
+        for pos in positions {
             self.inner.set_cell_type(pos, PathfindCellType::Clear);
         }
-        self.inner.refresh_pinched_for_positions(use_positions);
+        self.inner.refresh_pinched_for_positions(positions);
     }
 
     pub fn create_wall_from_object(&mut self, obj: &Object) {

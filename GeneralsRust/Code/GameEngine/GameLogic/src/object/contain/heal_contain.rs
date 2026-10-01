@@ -135,7 +135,11 @@ impl HealContain {
             let done_healing = match self.do_heal(patient_id, module_data.frames_for_full_heal) {
                 Ok(done) => done,
                 Err(err) => {
-                    log::warn!("HealContain::update skipped patient {}: {}", patient_id, err);
+                    log::warn!(
+                        "HealContain::update skipped patient {}: {}",
+                        patient_id,
+                        err
+                    );
                     continue;
                 }
             };
@@ -157,7 +161,8 @@ impl HealContain {
                                 {
                                     log::warn!(
                                         "HealContain::update exit failed for {}: {}",
-                                        patient_id, err
+                                        patient_id,
+                                        err
                                     );
                                 }
                             }
@@ -371,7 +376,7 @@ impl ContainModuleInterface for HealContain {
             .map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 
@@ -445,9 +450,10 @@ impl ContainModuleInterface for HealContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.contain_object(other_id)?;
         }
