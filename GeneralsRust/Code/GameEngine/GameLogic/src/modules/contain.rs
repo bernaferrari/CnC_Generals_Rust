@@ -244,7 +244,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn get_apparent_controlling_player(
         &self,
         _observing_player: Option<&Player>,
-    ) -> Option<Arc<RwLock<Player>>> {
+    ) -> Option<PlayerIndex> {
         None
     }
 
@@ -451,8 +451,8 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn on_capture(
         &mut self,
         _owner: &Object,
-        _old_owner: Option<&Arc<RwLock<Player>>>,
-        _new_owner: Option<&Arc<RwLock<Player>>>,
+        _old_owner: Option<PlayerIndex>,
+        _new_owner: Option<PlayerIndex>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }

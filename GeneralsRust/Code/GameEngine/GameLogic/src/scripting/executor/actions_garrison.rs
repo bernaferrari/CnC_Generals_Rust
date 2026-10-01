@@ -37,11 +37,8 @@ impl ScriptActionDispatcher {
         }
 
         let leader_id = members[0];
-        let Some(leader_obj) = TheGameLogic::find_object_by_id(leader_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let (leader_pos, leader_off_map, leader_is_hacker, leader_player_mask) =
-            if let Ok(leader) = leader_obj.read() {
+        let Some((leader_pos, leader_off_map, leader_is_hacker, leader_player_mask)) =
+            OBJECT_REGISTRY.with_object(leader_id, |leader| {
                 (
                     *leader.get_position(),
                     leader.is_off_map(),
@@ -51,9 +48,10 @@ impl ScriptActionDispatcher {
                         .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
                         .unwrap_or_else(crate::common::PlayerMaskType::none),
                 )
-            } else {
-                return Ok(ScriptActionResult::Success);
-            };
+            })
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
 
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(ScriptActionResult::Success);
@@ -114,20 +112,13 @@ impl ScriptActionDispatcher {
 
         let mut member_idx = 0usize;
         for (_, building_id) in buildings {
-            let Some(building) = TheGameLogic::find_object_by_id(building_id) else {
+            let slots_available = OBJECT_REGISTRY.with_object(building_id, |obj| {
+                let contain = obj.get_contain()?;
+                let contain_guard = contain.lock().ok()?;
+                Some(contain_guard.get_contain_max() - contain_guard.get_contain_count() as i32)
+            });
+            let Some(Some(slots_available)) = slots_available else {
                 continue;
-            };
-            let slots_available = {
-                let Ok(obj) = building.read() else {
-                    continue;
-                };
-                let Some(contain) = obj.get_contain() else {
-                    continue;
-                };
-                let Ok(contain_guard) = contain.lock() else {
-                    continue;
-                };
-                contain_guard.get_contain_max() - contain_guard.get_contain_count() as i32
             };
             if slots_available <= 0 {
                 continue;

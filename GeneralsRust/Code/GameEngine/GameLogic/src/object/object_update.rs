@@ -767,7 +767,7 @@ impl Object {
     /// # Arguments
     /// * `new_team` - The team to defect to
     /// * `defection_type` - Type of defection (0 = normal)
-    pub fn defect(&mut self, new_team: Option<Arc<RwLock<Team>>>, defection_type: u32) {
+    pub fn defect(&mut self, new_team: Option<TeamID>, defection_type: u32) {
         // C++ Object::defect does not early-out on an empty dual-world registry.
 
         // C++ parity: contained units do not defect.
@@ -775,26 +775,19 @@ impl Object {
             return;
         }
 
-        let Some(player) = self.get_controlling_player() else {
+        let Some(player_id) = self.get_controlling_player_id() else {
             return;
         };
-        let my_default_team = player
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_default_team());
+        let my_default_team_id =
+            crate::player::with_player(player_id as crate::player::PlayerIndex, |player| {
+                player.get_default_team_id()
+            })
+            .flatten();
 
-        let Some(target_team) = new_team.clone() else {
+        let Some(new_team_id) = new_team else {
             return;
         };
-        let my_default_team_id = my_default_team
-            .as_ref()
-            .and_then(|team_ref| team_ref.read().ok())
-            .map(|team_guard| team_guard.get_id());
-        let new_team_id = target_team
-            .read()
-            .ok()
-            .map(|team_guard| team_guard.get_id());
-        if my_default_team_id.is_some() && my_default_team_id == new_team_id {
+        if my_default_team_id == Some(new_team_id) {
             return;
         }
 
@@ -809,28 +802,19 @@ impl Object {
         self.cancel_and_refund_all_production_for_capture_or_defection();
 
         // C++ parity: radar infiltration ping before team switch when both sides are playable.
-        let team_controller_is_playable = |team: &Arc<RwLock<Team>>| -> bool {
-            team.read()
-                .ok()
-                .and_then(|team_guard| team_guard.get_controlling_player_id())
+        let team_controller_is_playable = |team_id: TeamID| -> bool {
+            crate::team::with_team(team_id, |team| team.get_controlling_player_id())
+                .flatten()
                 .and_then(|id| {
-                    player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(id as i32).cloned())
-                })
-                .and_then(|player_arc| {
-                    player_arc
-                        .read()
-                        .ok()
-                        .map(|player_guard| player_guard.is_playable_side())
+                    crate::player::with_player(id as crate::player::PlayerIndex, |player| {
+                        player.is_playable_side()
+                    })
                 })
                 .unwrap_or(false)
         };
         if self.radar_data.is_some()
-            && team_controller_is_playable(&target_team)
-            && my_default_team
-                .as_ref()
+            && team_controller_is_playable(new_team_id)
+            && my_default_team_id
                 .map(team_controller_is_playable)
                 .unwrap_or(false)
         {
@@ -850,7 +834,7 @@ impl Object {
             );
         }
 
-        if let Err(err) = self.set_team(Some(target_team.clone())) {
+        if let Err(err) = self.set_team(Some(new_team_id)) {
             log::warn!(
                 "Object::defect failed to set team for object {}: {}",
                 self.id,
@@ -886,9 +870,9 @@ impl Object {
 
         let detection_time = defection_type as UnsignedInt;
         let _ = self.with_parking_place_behavior(|parking| {
-            parking.defect_all_parked_units(target_team.clone(), detection_time);
+            parking.defect_all_parked_units(new_team_id, detection_time);
         });
 
-        self.defect_owned_mines(&target_team);
+        self.defect_owned_mines(new_team_id);
     }
 }

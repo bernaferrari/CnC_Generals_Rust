@@ -655,17 +655,11 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             // C++ ScriptActions::doNamedKill: pUnit->kill().
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if obj_arc
-                    .write()
-                    .ok()
-                    .map(|mut obj_guard| {
-                        obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
-                    })
-                    .is_some()
-                {
-                    log::info!("Named unit '{}' killed (ID: {})", unit_name, object_id);
-                }
+            let killed = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+            });
+            if killed.is_some() {
+                log::info!("Named unit '{}' killed (ID: {})", unit_name, object_id);
             }
         } else {
             log::warn!("Named unit '{}' not found for kill", unit_name);
@@ -703,29 +697,24 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             // Get the object from manager and apply damage
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-            // The object guard is held across attempt_damage by necessity
-            // (&mut self method). With DamageType::Unresistable and source
-            // INVALID_ID, the damage path's registry re-entry targets only
-            // the (absent) source ID, not this object; own-id re-entry would
-            // require reworking the object-owned damage cascade (object/**).
-                let _ = obj_arc.write().ok().map(|mut obj_guard| {
-                    // Create damage info with script damage (unresistable type)
-                    let mut damage_info = DamageInfo::with_simple(
-                        damage_amount as f32,
-                        INVALID_ID,
-                        DamageType::Unresistable,
-                        DeathType::Normal,
-                    );
-                    let _ = obj_guard.attempt_damage(&mut damage_info);
-                    log::info!(
-                        "Named unit '{}' damaged for {} points (ID: {})",
-                        unit_name,
-                        damage_amount,
-                        object_id
-                    );
-                });
-            } else {
+            // attempt_damage stays inside the checkout. Unresistable + INVALID_ID
+            // re-enters the registry only for the absent source, not this object.
+            let damaged = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                let mut damage_info = DamageInfo::with_simple(
+                    damage_amount as f32,
+                    INVALID_ID,
+                    DamageType::Unresistable,
+                    DeathType::Normal,
+                );
+                let _ = obj_guard.attempt_damage(&mut damage_info);
+                log::info!(
+                    "Named unit '{}' damaged for {} points (ID: {})",
+                    unit_name,
+                    damage_amount,
+                    object_id
+                );
+            });
+            if damaged.is_none() {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
             }
         } else {
@@ -766,10 +755,10 @@ impl ScriptActionDispatcher {
             log::warn!("Named unit '{}' not found for move to waypoint", unit_name);
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
             log::warn!("Named unit '{}' not found in object registry", unit_name);
             return Ok(ScriptActionResult::Success);
-        };
+        }
 
         let waypoint_name_ascii = AsciiString::from(waypoint_name.as_str());
         let Some(position) = get_terrain_logic().read().ok().and_then(|terrain| {
@@ -781,10 +770,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(mut obj_guard) = obj_arc.write() {
+        let moved = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
             let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                log::warn!("Named unit '{}' has no AI update interface", unit_name);
-                return Ok(ScriptActionResult::Success);
+                return false;
             };
             obj_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
@@ -805,7 +793,12 @@ impl ScriptActionDispatcher {
                     position.y,
                     position.z
                 );
-            };
+            }
+            true
+        });
+        if moved == Some(false) {
+            log::warn!("Named unit '{}' has no AI update interface", unit_name);
+            return Ok(ScriptActionResult::Success);
         }
 
         Ok(ScriptActionResult::Success)
@@ -886,30 +879,27 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             // Get the object and issue hunt command via AI interface
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                let ai_result = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface());
-                if let Some(ai_arc) = ai_result {
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                        let hunt_params = AiCommandParams::new(
-                            AiCommandType::Hunt,
-                            CommandSourceType::FromScript,
-                        );
-                        let _ = ai.execute_command(&hunt_params);
-                        log::info!(
-                            "Named unit '{}' hunt command issued (ID: {})",
-                            unit_name,
-                            object_id
-                        );
-                    };
-                } else {
-                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
+            let hunted = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                let ai_arc = obj.get_ai_update_interface()?;
+                if let Ok(mut ai) = ai_arc.lock() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let hunt_params = AiCommandParams::new(
+                        AiCommandType::Hunt,
+                        CommandSourceType::FromScript,
+                    );
+                    let _ = ai.execute_command(&hunt_params);
+                    log::info!(
+                        "Named unit '{}' hunt command issued (ID: {})",
+                        unit_name,
+                        object_id
+                    );
                 }
-            } else {
-                log::warn!("Named unit '{}' not found in object registry", unit_name);
+                Some(())
+            });
+            match hunted {
+                None => log::warn!("Named unit '{}' not found in object registry", unit_name),
+                Some(None) => log::warn!("Named unit '{}' has no AI update interface", unit_name),
+                Some(Some(())) => {}
             }
         } else {
             log::warn!("Named unit '{}' not found for hunt", unit_name);
@@ -938,44 +928,30 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             // Get the object and issue guard command via AI interface
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                // Get object's current position for guard position
-                let position = obj_arc
-                    .read()
-                    .ok()
-                    .map(|obj| obj.get_position().clone())
-                    .unwrap_or_default();
-
-                let ai_result = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface());
-                if let Some(ai_arc) = ai_result {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
-                        obj_guard.leave_group();
-                    }
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    }
-
+            let guarded = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                let position = *obj_guard.get_position();
+                let ai_arc = obj_guard.get_ai_update_interface()?;
+                obj_guard.leave_group();
+                if let Ok(mut ai) = ai_arc.lock() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                     let mut guard_params = AiCommandParams::new(
                         AiCommandType::GuardPosition,
                         CommandSourceType::FromScript,
                     );
                     guard_params.pos = position;
                     guard_params.int_value = GuardMode::Normal.as_i32();
-                    let _ = ai_arc.lock().ok().map(|mut ai| {
-                        let _ = ai.execute_command(&guard_params);
-                        log::info!(
-                            "Named unit '{}' guard command issued (ID: {}) at ({:.1}, {:.1}, {:.1})",
-                            unit_name, object_id, position.x, position.y, position.z
-                        );
-                    });
-                } else {
-                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
+                    let _ = ai.execute_command(&guard_params);
+                    log::info!(
+                        "Named unit '{}' guard command issued (ID: {}) at ({:.1}, {:.1}, {:.1})",
+                        unit_name, object_id, position.x, position.y, position.z
+                    );
                 }
-            } else {
-                log::warn!("Named unit '{}' not found in object registry", unit_name);
+                Some(())
+            });
+            match guarded {
+                None => log::warn!("Named unit '{}' not found in object registry", unit_name),
+                Some(None) => log::warn!("Named unit '{}' has no AI update interface", unit_name),
+                Some(Some(())) => {}
             }
         } else {
             log::warn!("Named unit '{}' not found for guard", unit_name);
@@ -1003,26 +979,22 @@ impl ScriptActionDispatcher {
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                let ai_result = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface());
-
-                if let Some(ai_arc) = ai_result {
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        let params = AiCommandParams::new(
-                            AiCommandType::Idle,
-                            CommandSourceType::FromScript,
-                        );
-                        let _ = ai.execute_command(&params);
-                        log::info!("Named unit '{}' stopped (ID: {})", unit_name, object_id);
-                    };
-                } else {
-                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
+            let stopped = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                let ai_arc = obj.get_ai_update_interface()?;
+                if let Ok(mut ai) = ai_arc.lock() {
+                    let params = AiCommandParams::new(
+                        AiCommandType::Idle,
+                        CommandSourceType::FromScript,
+                    );
+                    let _ = ai.execute_command(&params);
+                    log::info!("Named unit '{}' stopped (ID: {})", unit_name, object_id);
                 }
-            } else {
-                log::warn!("Named unit '{}' not found in object registry", unit_name);
+                Some(())
+            });
+            match stopped {
+                None => log::warn!("Named unit '{}' not found in object registry", unit_name),
+                Some(None) => log::warn!("Named unit '{}' has no AI update interface", unit_name),
+                Some(Some(())) => {}
             }
         } else {
             log::warn!("Named unit '{}' not found for stop", unit_name);

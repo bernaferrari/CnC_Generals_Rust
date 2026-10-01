@@ -334,9 +334,7 @@ pub struct GarrisonPointData {
     pub place_frame: u32,
     /// Last frame effects were fired
     pub last_effect_frame: u32,
-    /// Effect drawable for gun barrels and muzzle flash
-    pub effect: Option<Arc<RwLock<Drawable>>>,
-    /// Drawable ID for save/load post-process
+    /// Drawable ID for the muzzle-flash effect. Resolved through the client.
     pub effect_id: Option<u32>,
 }
 
@@ -347,7 +345,6 @@ impl Default for GarrisonPointData {
             target_id: INVALID_ID,
             place_frame: 0,
             last_effect_frame: 0,
-            effect: None,
             effect_id: None,
         }
     }
@@ -1400,7 +1397,7 @@ impl GarrisonContain {
         let contain_count = self.base.get_contain_count() as usize;
         let contained_ids = self.base.get_contained_object_ids().to_vec();
         let mut hide_garrison = false;
-        let mut rider_team: Option<Arc<RwLock<Team>>> = None;
+        let mut rider_team: Option<crate::team::TeamID> = None;
 
         if contain_count > 0 {
             if let Some(&first_id) = contained_ids.first() {
@@ -1409,8 +1406,11 @@ impl GarrisonContain {
                         let detected = rider.test_status(ObjectStatusTypes::Detected);
                         let first_hidden = rider.test_status(ObjectStatusTypes::Stealthed)
                             && !rider.test_status(ObjectStatusTypes::Detected);
-                        let team = rider.get_controlling_player().and_then(|player| {
-                            player.read().ok().and_then(|p| p.get_default_team())
+                        let team = rider.get_controlling_player().and_then(|player_index| {
+                            crate::player::with_player(player_index, |player| {
+                                player.get_default_team_id()
+                            })
+                            .flatten()
                         });
                         (detected, first_hidden, team)
                     })
@@ -1444,11 +1444,13 @@ impl GarrisonContain {
         let original_team = self.original_team.as_ref().and_then(|t| t.upgrade());
         let _ = self.with_owner_object_mut(|owner| {
             if contain_count > 0 {
-                if let Some(team) = rider_team.clone() {
-                    let _ = owner.set_team(Some(team));
+                if let Some(team) = rider_team {
+                    let _ = owner.set_team_id(Some(team));
                 }
-            } else {
-                let _ = owner.set_team(original_team.clone());
+            } else if let Some(team) = original_team.as_ref() {
+                if let Ok(guard) = team.read() {
+                    let _ = owner.set_team_id(Some(guard.get_id()));
+                }
             }
         });
         if contain_count > 0 {
@@ -1823,7 +1825,7 @@ impl GarrisonContain {
                 }
             });
             if let Some(Some((garrison_index, true))) = flash {
-                if let Some(effect) = self.garrison_point_data[garrison_index].effect.clone() {
+                if let Some(effect) = crate::helpers::TheGameClient::get().and_then(|client| client.get_drawable_arc(self.garrison_point_data[garrison_index].effect_id.unwrap_or(0))) {
                     if let Ok(mut eff) = effect.write() {
                         eff.set_model_condition_state(ModelConditionState::FiringA);
                         self.garrison_point_data[garrison_index].last_effect_frame = current_frame;
@@ -1834,7 +1836,7 @@ impl GarrisonContain {
 
         // Remove old firing effects
         for i in 0..MAX_GARRISON_POINTS {
-            if let Some(ref mut effect) = self.garrison_point_data[i].effect {
+            if let Some(effect) = crate::helpers::TheGameClient::get().and_then(|client| client.get_drawable_arc(self.garrison_point_data[i].effect_id.unwrap_or(0))) {
                 let last_effect_frame = self.garrison_point_data[i].last_effect_frame;
 
                 // Clear muzzle flash after lifetime expires
@@ -2080,7 +2082,6 @@ impl GarrisonContain {
                 client.destroy_drawable(effect_id);
             }
         }
-        self.garrison_point_data[point_index].effect = None;
         self.garrison_point_data[point_index].effect_id = None;
 
         if self.garrison_points_in_use > 0 {
@@ -2261,7 +2262,7 @@ impl GarrisonContain {
                 }
 
                 // Orient effect drawable towards target
-                if let Some(effect) = self.garrison_point_data[our_index].effect.clone() {
+                if let Some(effect) = crate::helpers::TheGameClient::get().and_then(|client| client.get_drawable_arc(self.garrison_point_data[our_index].effect_id.unwrap_or(0))) {
                     let dx = target_pos.x - our_pos.x;
                     let dy = target_pos.y - our_pos.y;
                     let angle = dy.atan2(dx);
@@ -2642,7 +2643,6 @@ impl GarrisonContain {
             client.set_drawable_shroud_status_object_id(drawable_id, owner_id);
         }
 
-        self.garrison_point_data[point_index].effect = client.get_drawable_arc(drawable_id);
         self.garrison_point_data[point_index].effect_id = Some(drawable_id);
         self.garrison_point_data[point_index].last_effect_frame = 0;
         Ok(())
@@ -2807,7 +2807,7 @@ impl GarrisonContain {
                 } else {
                     Some(effect_id)
                 };
-                point.effect = None;
+
             }
         }
 
@@ -2870,10 +2870,10 @@ impl GarrisonContain {
                         if effect.is_none() {
                             return Err("GarrisonContain::load_post_process: missing effect".into());
                         }
-                        point.effect = effect;
+
                     }
                 } else {
-                    point.effect = None;
+
                 }
             }
         }
@@ -2955,7 +2955,7 @@ impl Snapshotable for GarrisonContain {
                 } else {
                     Some(effect_id)
                 };
-                point.effect = None;
+
             }
         }
 
@@ -3458,7 +3458,6 @@ mod tests {
         assert_eq!(point.target_id, INVALID_ID);
         assert_eq!(point.place_frame, 0);
         assert_eq!(point.last_effect_frame, 0);
-        assert!(point.effect.is_none());
         assert!(point.effect_id.is_none());
     }
 

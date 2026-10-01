@@ -1032,13 +1032,11 @@ impl StealthController {
                 continue;
             }
             let _ = player.iterate_objects(|enemy| {
-                if let Ok(enemy_guard) = enemy.read() {
-                    if enemy_guard.get_ai().is_some() {
-                        let vision = enemy_guard.get_vision_range();
-                        let delta = *enemy_guard.get_position() - self_pos;
-                        if delta.length() <= vision {
-                            TheGameLogic::set_wake_frame(enemy_guard.get_id(), UPDATE_SLEEP_NONE);
-                        }
+                if enemy.get_ai().is_some() {
+                    let vision = enemy.get_vision_range();
+                    let delta = *enemy.get_position() - self_pos;
+                    if delta.length() <= vision {
+                        TheGameLogic::set_wake_frame(enemy.get_id(), UPDATE_SLEEP_NONE);
                     }
                 }
                 Ok(())

@@ -104,7 +104,7 @@ impl Object {
     }
 
     /// C++ world walk: every `KINDOF_MINE` whose producer is this object `setTeam`s.
-    pub(super) fn defect_owned_mines(&mut self, new_team: &Arc<RwLock<Team>>) {
+    pub(super) fn defect_owned_mines(&mut self, new_team: TeamID) {
         let mut ids: Vec<ObjectID> = OBJECT_REGISTRY.get_all_object_ids();
         if let Ok(logic) = crate::system::game_logic::get_game_logic().lock() {
             for id in logic.get_all_object_ids() {
@@ -131,7 +131,7 @@ impl Object {
             if mine_guard.get_producer_id() != self.id {
                 continue;
             }
-            let _ = mine_guard.set_team(Some(new_team.clone()));
+            let _ = mine_guard.set_team(Some(new_team));
         }
     }
 }

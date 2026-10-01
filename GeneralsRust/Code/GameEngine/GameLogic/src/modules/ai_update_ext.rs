@@ -53,7 +53,7 @@ pub trait AIUpdateInterfaceExt {
     );
     fn ai_attack_team(
         &mut self,
-        team: &Arc<RwLock<Team>>,
+        team: crate::team::TeamID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     );
@@ -300,17 +300,17 @@ impl AIUpdateInterfaceExt for dyn AIUpdateInterface {
 
     fn ai_attack_team(
         &mut self,
-        team: &Arc<RwLock<Team>>,
+        team: crate::team::TeamID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiAttackTeam()
-        if let Ok(team_guard) = team.read() {
+        if let Some(name) = crate::team::factory_access::with_team(team, |t| t.get_name().as_str().to_string()) {
             let mut params = crate::ai::AiCommandParams::new(
                 crate::ai::AiCommandType::AttackTeam,
                 cmd_source,
             );
-            params.team = Some(team_guard.get_name().as_str().to_string());
+            params.team = Some(name);
             params.int_value = max_shots_to_fire;
             let _ = AIUpdateInterface::execute_command(self, &params);
         }

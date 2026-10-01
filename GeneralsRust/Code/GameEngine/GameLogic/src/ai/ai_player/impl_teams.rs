@@ -50,7 +50,7 @@ impl AIPlayer {
                         else {
                             break;
                         };
-                        let Some(unit_arc) = crate::team::with_team(team_id, |team_g| {
+                        let Some(unit_id) = crate::team::with_team(team_id, |team_g| {
                             team_g.try_to_recruit(&thing, &home, max_recruit)
                         }).flatten() else {
                             break;
@@ -58,9 +58,9 @@ impl AIPlayer {
 
                         order.num_completed = order.num_completed.saturating_add(1);
 
-                        if let Ok(mut unit_g) = unit_arc.write() {
+                        let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_g| {
                             let _ = unit_g.set_team_id(Some(team_id));
-                            if let Some(ai) = unit_g.get_ai_update_interface() {
+                            if let Some(ai) = unit_g.get_ai_update_interface_mut() {
                                 if has_home {
                                     // C++ aiMoveToPosition(&home, CMD_FROM_AI)
                                     ai.ai_move_to_position(&home, false, CommandSourceType::FromAi);
@@ -69,7 +69,7 @@ impl AIPlayer {
                                     ai.ai_idle(CommandSourceType::FromAi);
                                 }
                             }
-                        }
+                        });
 
                         log::debug!(
                             "Team '{}' recruits {} (queueUnits)",
@@ -606,35 +606,28 @@ impl AIPlayer {
             };
             let mut count = unit_info.max_units.max(0);
             while count > 0 {
-                let Some(unit_arc) = crate::team::with_team(team_id, |tg| {
+                let Some(unit_id) = crate::team::with_team(team_id, |tg| {
                     tg.try_to_recruit(&thing, &home, radius)
                 }).flatten() else {
                     break;
                 };
-                let unit_id = unit_arc
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(INVALID_ID);
-                if let Ok(mut ug) = unit_arc.write() {
+                let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |ug| {
                     let _ = ug.set_team_id(Some(team_id));
-                }
+                });
                 crate::team::with_team_mut(team_id, |tg| {
                     tg.add_member(unit_id);
                 });
                 // Move to home (CMD_FROM_AI).
-                if let Ok(ug) = unit_arc.read() {
-                    if let Some(ai) = ug.get_ai_update_interface() {
-                        if let Ok(mut ai_g) = ai.lock() {
-                            let mut params = crate::ai::AiCommandParams::new(
-                                crate::ai::AiCommandType::MoveToPosition,
-                                CommandSourceType::FromAi,
-                            );
-                            params.pos = home;
-                            let _ = ai_g.execute_command(&params);
-                        }
+                let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |ug| {
+                    if let Some(ai) = ug.get_ai_update_interface_mut() {
+                        let mut params = crate::ai::AiCommandParams::new(
+                            crate::ai::AiCommandType::MoveToPosition,
+                            CommandSourceType::FromAi,
+                        );
+                        params.pos = home;
+                        let _ = ai.execute_command(&params);
                     }
-                }
+                });
                 units_recruited += 1;
                 count -= 1;
             }

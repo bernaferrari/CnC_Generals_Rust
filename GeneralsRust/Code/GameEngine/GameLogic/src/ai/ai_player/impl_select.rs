@@ -736,42 +736,38 @@ impl AIPlayer {
 
     pub(super) fn select_current_enemy_player(
         &self,
-    ) -> Result<Option<(Arc<RwLock<Player>>, i32)>, AiError> {
+    ) -> Result<Option<(i32, i32)>, AiError> {
+        let enemy = crate::player::list::with_player(self.player_id as i32, |me| {
+            me.get_current_enemy_player_index()
+        })
+        .flatten();
+        if let Some(enemy_index) = enemy {
+            let non_neutral = crate::player::list::with_player(enemy_index, |enemy_guard| {
+                enemy_guard.get_player_type() != PlayerType::Neutral
+            })
+            .unwrap_or(false);
+            if non_neutral {
+                return Ok(Some((enemy_index, enemy_index)));
+            }
+        }
         let Ok(list) = player_list().read() else {
             return Ok(None);
         };
-        let Some(me_arc) = list.get_player(self.player_id as i32) else {
-            return Ok(None);
-        };
-        let Ok(me_guard) = me_arc.read() else {
-            return Ok(None);
-        };
-        if let Some(enemy_index) = me_guard.get_current_enemy_player_index() {
-            if let Some(enemy_arc) = list.get_player(enemy_index).cloned() {
-                let is_non_neutral = if let Ok(enemy_guard) = enemy_arc.read() {
-                    enemy_guard.get_player_type() != PlayerType::Neutral
-                } else {
-                    false
-                };
-                if is_non_neutral {
-                    return Ok(Some((enemy_arc, enemy_index)));
-                }
+        let count = list.get_player_count() as i32;
+        drop(list);
+        for index in 0..count {
+            if index == self.player_id as i32 {
+                continue;
+            }
+            let hit = crate::player::list::with_player(index, |player_guard| {
+                player_guard.get_player_type() != PlayerType::Neutral
+                    && player_guard.get_id() != self.player_id as i32
+            })
+            .unwrap_or(false);
+            if hit {
+                return Ok(Some((index, index)));
             }
         }
-
-        for (index, player_arc) in list.iter().enumerate() {
-            let Ok(player_guard) = player_arc.read() else {
-                continue;
-            };
-            if player_guard.get_player_type() == PlayerType::Neutral {
-                continue;
-            }
-            if player_guard.get_id() == self.player_id as i32 {
-                continue;
-            }
-            return Ok(Some((player_arc.clone(), index as i32)));
-        }
-
         Ok(None)
     }
 

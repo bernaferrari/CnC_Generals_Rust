@@ -31,21 +31,7 @@ fn dual_world_registry_unavailable() -> bool {
     false
 }
 
-/// Factory teams are owned values. Callers that still pass `Weak<RwLock<Team>>`
-/// (defect, original-team restore) get a snapshot arc with the factory id.
-fn arc_team_for_factory_id(team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
-    if team_id == TEAM_ID_INVALID {
-        return None;
-    }
-    let (name, controller) = crate::team::with_team(team_id, |team| {
-        (team.get_name().clone(), team.get_controlling_player_id())
-    })?;
-    let team = Arc::new(RwLock::new(Team::new(name, team_id)));
-    if let Ok(mut guard) = team.write() {
-        guard.set_controlling_player_id(controller);
-    }
-    Some(team)
-}
+/// Original team is a factory `TeamID`. Unregistered weaks are read once for their id.
 
 /// Configuration data for CaveContain module
 #[derive(Debug, Clone)]
@@ -109,11 +95,8 @@ pub struct CaveContain {
     need_to_run_on_build_complete: bool,
     /// Cave index for this container
     cave_index: i32,
-    /// Original team before garrison
-    original_team: Option<Weak<RwLock<Team>>>,
-    /// Keeps the xfer snapshot behind `original_team` alive. External weaks
-    /// stay anchored by their owner and leave this empty.
-    original_team_anchor: Option<Arc<RwLock<Team>>>,
+    /// Original team before garrison (factory id).
+    original_team_anchor: Option<TeamID>,
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
     contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
@@ -136,7 +119,6 @@ impl CaveContain {
             module_data: module_data.clone(),
             need_to_run_on_build_complete: true,
             cave_index: module_data.cave_index_data,
-            original_team: None,
             original_team_anchor: None,
             contained_object_ids: Vec::new(),
             object_id: object_id,
@@ -255,12 +237,11 @@ impl CaveContain {
         // If no more units contained, revert to original team
         if self.get_contain_count()? == 0 {
             if self
-                .with_owner_object(|owner| owner.get_team().is_some())
+                .with_owner_object(|owner| owner.get_team_id().is_some())
                 .unwrap_or(false)
             {
-                self.change_team_on_all_connected_caves(self.original_team.clone(), false)?;
+                self.change_team_on_all_connected_caves(self.original_team_anchor, false)?;
                 self.original_team_anchor = None;
-                self.original_team = None;
             }
 
             // Clear garrisoned model condition
@@ -732,35 +713,27 @@ impl CaveContain {
 
     /// Set the original team (used for distributed garrison)
     pub fn set_original_team(&mut self, old_team: Option<Weak<RwLock<Team>>>) {
-        self.original_team_anchor = None;
-        self.original_team = old_team;
+        self.original_team_anchor = old_team.and_then(|team| {
+            let team = team.upgrade()?;
+            team.read().ok().map(|guard| guard.get_id())
+        });
     }
 
     fn original_team_id(&self) -> TeamID {
-        if let Some(team) = &self.original_team_anchor {
-            if let Ok(guard) = team.read() {
-                return guard.get_id();
-            }
-        }
-        self.original_team
-            .as_ref()
-            .and_then(|team| team.upgrade())
-            .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(TEAM_ID_INVALID)
+        self.original_team_anchor.unwrap_or(TEAM_ID_INVALID)
     }
 
     fn restore_original_team_by_id(&mut self, team_id: TeamID) -> Result<(), String> {
         if team_id == TEAM_ID_INVALID {
             self.original_team_anchor = None;
-            self.original_team = None;
             return Ok(());
         }
-
-        let team = arc_team_for_factory_id(team_id).ok_or_else(|| {
-            format!("CaveContain::xfer could not find original team {team_id}")
-        })?;
-        self.original_team = Some(Arc::downgrade(&team));
-        self.original_team_anchor = Some(team);
+        if crate::team::with_team(team_id, |_| ()).is_none() {
+            return Err(format!(
+                "CaveContain::xfer could not find original team {team_id}"
+            ));
+        }
+        self.original_team_anchor = Some(team_id);
         Ok(())
     }
 
@@ -785,16 +758,15 @@ impl CaveContain {
         }
 
         // Record original team first time through
-        if self.original_team.is_none() {
-            if let Some(team) = self.with_owner_object(|owner| owner.get_team()).flatten() {
-                self.original_team = Some(Arc::downgrade(&team));
-            }
+        if self.original_team_anchor.is_none() {
+            self.original_team_anchor = self
+                .with_owner_object(|owner| owner.get_team_id())
+                .flatten();
         }
 
         // Check if team is null (game teardown)
-        if let Some(true) = self.with_owner_object(|owner| owner.get_team().is_none()) {
+        if let Some(true) = self.with_owner_object(|owner| owner.get_team_id().is_none()) {
             self.original_team_anchor = None;
-            self.original_team = None;
         }
 
         // Edge trigger on count == 1 to do capture stuff
@@ -810,16 +782,15 @@ impl CaveContain {
                                 .flatten()
                             })
                         })
-                        .flatten()
-                        .and_then(arc_team_for_factory_id);
+                        .flatten();
                     if let Some(team) = capture_team {
-                        self.change_team_on_all_connected_caves(Some(Arc::downgrade(&team)), true)?;
+                        self.change_team_on_all_connected_caves(Some(team), true)?;
                     }
                 }
             }
         } else if self.get_contain_count()? == 0 {
             // Edge trigger on count == 0 to do uncapture stuff
-            self.change_team_on_all_connected_caves(self.original_team.clone(), false)?;
+            self.change_team_on_all_connected_caves(self.original_team_anchor, false)?;
         }
 
         // Handle the team color that is rendered.
@@ -859,7 +830,7 @@ impl CaveContain {
     /// Change team on all connected caves (distributed garrison)
     pub fn change_team_on_all_connected_caves(
         &mut self,
-        new_team: Option<Weak<RwLock<Team>>>,
+        new_team: Option<TeamID>,
         set_original_teams: bool,
     ) -> GameResult<()> {
         let tracker = if let Some(cave_system) = &self.cave_system {
@@ -871,7 +842,6 @@ impl CaveContain {
 
         if let Ok(tunnel) = tracker.read() {
             let all_caves = tunnel.get_container_list()?;
-            let team_arc = new_team.as_ref().and_then(|weak| weak.upgrade());
 
             for cave_id in all_caves {
                 let current_team = crate::object::registry::OBJECT_REGISTRY
@@ -888,7 +858,7 @@ impl CaveContain {
                         };
                         contain.set_original_team(original_team);
                     }
-                    obj_guard.defect(team_arc.clone(), 0);
+                    let _ = obj_guard.set_team_id(new_team);
                 });
             }
         }
@@ -1287,21 +1257,17 @@ mod tests {
         register_test_object(name, id, None)
     }
 
-    fn test_object_with_team(name: &str, id: ObjectID, team: Arc<RwLock<Team>>) -> ObjectID {
+    fn test_object_with_team(name: &str, id: ObjectID, team: TeamID) -> ObjectID {
         register_test_object(name, id, Some(team))
     }
 
-    fn register_test_object(
-        name: &str,
-        id: ObjectID,
-        team: Option<Arc<RwLock<Team>>>,
-    ) -> ObjectID {
+    fn register_test_object(name: &str, id: ObjectID, team: Option<TeamID>) -> ObjectID {
         let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
         let object = Object::new_raw(template, id, ObjectStatusMaskType::none(), None);
         OBJECT_REGISTRY.register_object(id, object);
         if let Some(team) = team {
             OBJECT_REGISTRY
-                .with_object_mut(id, |object| object.set_team(Some(team)).expect("set team"))
+                .with_object_mut(id, |object| object.set_team_id(Some(team)).expect("set team"))
                 .expect("object write");
         }
         id
@@ -1313,7 +1279,7 @@ mod tests {
             .flatten()
     }
 
-    fn attach_drawable(obj: &ObjectID, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
+    fn attach_drawable(obj: &ObjectID, drawable_id: ObjectID) {
         let object_id = *obj;
         let drawable = Arc::new(RwLock::new(Drawable::new(
             drawable_id,
@@ -1323,10 +1289,9 @@ mod tests {
         )));
         crate::object::registry::OBJECT_REGISTRY
             .with_object_mut(object_id, |object| {
-                object.set_drawable(Some(drawable.clone()));
+                object.set_drawable(Some(drawable));
             })
             .expect("object write");
-        drawable
     }
 
     fn reset_players() {
@@ -1435,17 +1400,14 @@ mod tests {
         let _lock = crate::test_sync::lock();
         let cave_a = test_object("CaveTeamA", 93005);
         let cave_b = test_object("CaveTeamB", 93006);
-        let (mut controller, cave_system) = cave_with_registered_tracker(&cave_a, 0);
-        let team = Arc::new(RwLock::new(Team::new("TunnelTeam".into(), 930)));
+        let _team = 930u32;
 
         let calls_a = Arc::new(Mutex::new(Vec::new()));
         let calls_b = Arc::new(Mutex::new(Vec::new()));
 
         OBJECT_REGISTRY
             .with_object_mut(cave_a, |object| {
-                object
-                    .set_team(Some(Arc::clone(&team)))
-                    .expect("set cave a team");
+                object.set_team_id(Some(930)).expect("set cave a team");
                 object.set_contain(Some(Box::new(RecordingContain {
                     original_team_calls: Arc::clone(&calls_a),
                 })));
@@ -1563,18 +1525,14 @@ mod tests {
 
         let player_color = Color::rgb(12, 34, 56);
         let night_color = Color::rgb(65, 43, 21);
-        let team = Arc::new(RwLock::new(Team::new("CaveColorTeam".into(), 9300)));
-        team.write()
-            .expect("team write")
-            .set_controlling_player_id(Some(0));
-        let owner = test_object_with_team("CaveColorOwner", 93008, Arc::clone(&team));
-        let owner_drawable = attach_drawable(&owner, 930080);
+        let owner = test_object_with_team("CaveColorOwner", 93008, 9300);
+        attach_drawable(&owner, 930080);
         let data = CaveContainModuleData::default();
         let mut cave = CaveContain::new(owner, &data, None).expect("cave contain");
         cave.on_create(&data).expect("on create");
 
         let mut player = Player::new(0);
-        player.set_default_team(Some(team.read().expect("team read").get_id()));
+        player.set_default_team(Some(9300));
         player.set_colors(player_color, night_color);
         {
             let mut list = ThePlayerList().write().expect("player list write");
@@ -1586,12 +1544,14 @@ mod tests {
         cave.recalc_apparent_controlling_player()
             .expect("recalc apparent controller");
 
+        let color = OBJECT_REGISTRY.with_object(owner, |object| {
+            object
+                .get_drawable()
+                .and_then(|drawable| drawable.read().ok().map(|draw| draw.get_indicator_color()))
+        });
         assert_eq!(
-            owner_drawable
-                .read()
-                .expect("drawable read")
-                .get_indicator_color(),
-            player_color,
+            color.flatten(),
+            Some(player_color),
             "C++ CaveContain applies the apparent controller color to the cave drawable"
         );
 

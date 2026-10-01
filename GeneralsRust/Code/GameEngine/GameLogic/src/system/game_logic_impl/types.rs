@@ -113,7 +113,7 @@ impl TheObjectFactory {
 
     pub fn new_object(
         template: Arc<dyn crate::common::ThingTemplate>,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<crate::team::TeamID>,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_object_with_status(template, team, crate::common::ObjectStatusMaskType::NONE)
     }
@@ -121,7 +121,7 @@ impl TheObjectFactory {
     /// C++ `ThingFactory::newObject` / `friend_createObject` — statusBits then onCreate.
     pub fn new_object_with_status(
         template: Arc<dyn crate::common::ThingTemplate>,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<crate::team::TeamID>,
         status_bits: crate::common::ObjectStatusMaskType,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = {
@@ -134,8 +134,11 @@ impl TheObjectFactory {
 
         let mut status_mask = template.get_initial_object_status();
         status_mask |= status_bits;
-        let mut object = Object::new_with_id(template.clone(), object_id, status_mask, team)?;
+        let mut object = Object::new_raw(template.clone(), object_id, status_mask, None);
         object.init_object()?;
+        if let Some(team_id) = team {
+            let _ = object.set_team_id(Some(team_id));
+        }
         OBJECT_REGISTRY.register_object(object_id, object);
         {
             let mutex = get_game_logic();

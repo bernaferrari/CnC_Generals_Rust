@@ -1329,7 +1329,7 @@ impl ProductionUpdateComplete {
                 .and_then(|guard| guard.get_controlling_player())
             {
                 if let Ok(mut player_guard) = player.write() {
-                    player_guard.on_unit_created(&owner, &new_obj);
+                    player_guard.on_unit_created(producer_id, new_id);
                 }
             }
             if let Ok(mut new_guard) = new_obj.write() {

@@ -628,10 +628,10 @@ impl BridgeBehavior {
             return Ok(());
         }
 
-        let (position, team) =
-            self.with_object(|me_read| (*me_read.get_position(), me_read.get_team()))?;
+        let (position, team_id) =
+            self.with_object(|me_read| (*me_read.get_position(), me_read.get_team_id()))?;
 
-        let Some(team_arc) = team else {
+        let Some(team_id) = team_id else {
             return Ok(());
         };
 
@@ -643,9 +643,7 @@ impl BridgeBehavior {
             return Ok(());
         };
 
-        self.create_scaffold_objects(&template, &bridge, &team_arc)?;
-        self.scaffold_present = true;
-        self.update_bridge_pathfinding(&bridge, false);
+        self.create_scaffold_objects(&template, &bridge, team_id)?;
 
         Ok(())
     }
@@ -1231,7 +1229,7 @@ impl BridgeBehavior {
         &mut self,
         bridge_template: &TerrainRoadType,
         bridge: &Bridge,
-        team: &Arc<RwLock<Team>>,
+        team_id: crate::team::TeamID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.scaffold_object_id_list.clear();
 
@@ -1295,9 +1293,6 @@ impl BridgeBehavior {
         right_vector = right_vector.normalize();
 
         let factory = TheThingFactory::get()?;
-        let team_guard = team
-            .read()
-            .map_err(|_| "BridgeBehavior::create_scaffold_objects team lock poisoned")?;
 
         let mut scaffold_objects_created = 0usize;
         for i in 0..num_iterations {
@@ -1306,14 +1301,14 @@ impl BridgeBehavior {
             }
 
             let spacing_offset = spacing * (i as f32);
-
-            // Left side scaffold
-            let rise_to_pos = left_start;
             let mut destination_pos =
                 left_vector * spacing_offset + rise_to_pos + Coord3D::new(0.1, 0.0, 0.0);
             destination_pos.z = left_vector.z * spacing_offset + rise_to_pos.z;
 
-            let obj = factory.new_object(scaffold_template.clone(), &team_guard)?;
+            let obj = crate::team::with_team(team_id, |team_guard| {
+                factory.new_object(scaffold_template.clone(), team_guard)
+            })
+            .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
             let obj_id = obj
                 .read()
                 .map(|guard| guard.get_id())
@@ -1341,7 +1336,10 @@ impl BridgeBehavior {
                     support_rise.z -= support_height;
                     support_destination.z -= support_height;
                     support_center.z -= support_height;
-                    let support_obj = factory.new_object(support_template.clone(), &team_guard)?;
+                    let support_obj = crate::team::with_team(team_id, |team_guard| {
+                        factory.new_object(support_template.clone(), team_guard)
+                    })
+                    .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
                     let support_id = support_obj
                         .read()
                         .map(|guard| guard.get_id())
@@ -1371,7 +1369,10 @@ impl BridgeBehavior {
                 right_vector * spacing_offset + rise_to_pos + Coord3D::new(0.1, 0.0, 0.0);
             destination_pos.z = right_vector.z * spacing_offset + rise_to_pos.z;
 
-            let obj = factory.new_object(scaffold_template.clone(), &team_guard)?;
+            let obj = crate::team::with_team(team_id, |team_guard| {
+                factory.new_object(scaffold_template.clone(), team_guard)
+            })
+            .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
             let obj_id = obj
                 .read()
                 .map(|guard| guard.get_id())
@@ -1399,7 +1400,10 @@ impl BridgeBehavior {
                     support_rise.z -= support_height;
                     support_destination.z -= support_height;
                     support_center.z -= support_height;
-                    let support_obj = factory.new_object(support_template.clone(), &team_guard)?;
+                    let support_obj = crate::team::with_team(team_id, |team_guard| {
+                        factory.new_object(support_template.clone(), team_guard)
+                    })
+                    .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
                     let support_id = support_obj
                         .read()
                         .map(|guard| guard.get_id())

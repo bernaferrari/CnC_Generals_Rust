@@ -1,3 +1,4 @@
+use crate::object::registry::OBJECT_REGISTRY;
 // Script evaluate_script / OR / AND / evaluate_condition dispatch
 //
 // Split from `scripting/evaluator.rs` for module-size parity.
@@ -525,18 +526,14 @@ impl ScriptEvaluator {
                 let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
                     return Ok(false);
                 };
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                    return Ok(false);
-                };
-                let (obj_pos, vision, source_off_map) = {
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        return Ok(false);
-                    };
+                let Some((obj_pos, vision, source_off_map)) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                     (
                         *obj_guard.get_position(),
                         obj_guard.get_vision_range(),
                         obj_guard.is_off_map(),
                     )
+                }) else {
+                    return Ok(false);
                 };
 
                 let Some(partition) = crate::helpers::ThePartitionManager::get() else {
@@ -548,44 +545,31 @@ impl ScriptEvaluator {
                     if nearby_id == object_id {
                         continue;
                     }
-                    let Some(nearby_arc) = TheGameLogic::find_object_by_id(nearby_id) else {
-                        continue;
-                    };
-                    // Keep C++'s source-then-candidate read order.  Besides making the
-                    // relation snapshot coherent, this avoids a reverse-lock order with
-                    // gameplay code that evaluates a source object before its target.
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let Ok(nearby_guard) = nearby_arc.read() else {
-                        continue;
-                    };
-                    if nearby_guard.is_effectively_dead() {
-                        continue;
-                    }
-                    if nearby_guard.is_off_map() != source_off_map {
-                        continue;
-                    }
-
-                    let status = nearby_guard.get_status_bits();
-                    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
-                        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
-                        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
-                    {
-                        continue;
-                    }
-
-                    if obj_guard.relationship_to(&nearby_guard) != expected_relationship {
-                        continue;
-                    }
-
-                    // C++ compares Player* identity, not merely a player index.  Retain
-                    // that exact ownership test so duplicate/stale player records cannot
-                    // make the condition fire for the wrong side.
-                    if nearby_guard
-                        .get_controlling_player()
-                        .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
-                    {
+                    // Source checkout, then candidate. Same-id nested lookup is None.
+                    let hit = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                        OBJECT_REGISTRY.with_object(nearby_id, |nearby_guard| {
+                            if nearby_guard.is_effectively_dead() {
+                                return false;
+                            }
+                            if nearby_guard.is_off_map() != source_off_map {
+                                return false;
+                            }
+                            let status = nearby_guard.get_status_bits();
+                            if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                                && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                                && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                            {
+                                return false;
+                            }
+                            if obj_guard.relationship_to(nearby_guard) != expected_relationship {
+                                return false;
+                            }
+                            nearby_guard
+                                .get_controlling_player()
+                                .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
+                        })
+                    });
+                    if hit == Some(Some(true)) {
                         return Ok(true);
                     }
                 }
@@ -692,20 +676,12 @@ impl ScriptEvaluator {
 
                     let mut count = 0;
                     for obj_id in player_guard.get_object_ids() {
-                        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                            .or_else(|| {
-                                crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-                            })
-                        else {
-                            continue;
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            continue;
-                        };
-                        if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
-                            continue;
-                        }
-                        if types.contains_template(Some(obj_guard.get_template())) {
+                        let matches = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            __omp_shell("obj_guard.is_effectively_dead()")
+                                && !obj_guard.is_destroyed()
+                                && types.contains_template(Some(obj_guard.get_template()))
+                        });
+                        if matches == Some(true) {
                             count += 1;
                         }
                     }
@@ -1092,18 +1068,14 @@ impl ScriptEvaluator {
                 let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
                     return Ok(false);
                 };
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                    return Ok(false);
-                };
-                let (obj_pos, vision, source_off_map) = {
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        return Ok(false);
-                    };
+                let Some((obj_pos, vision, source_off_map)) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                     (
                         *obj_guard.get_position(),
                         obj_guard.get_vision_range(),
                         obj_guard.is_off_map(),
                     )
+                }) else {
+                    return Ok(false);
                 };
 
                 let Some(partition) = crate::helpers::ThePartitionManager::get() else {
@@ -2123,21 +2095,14 @@ impl ScriptEvaluator {
                 };
 
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_inside_trigger(&trigger) {
-                        if !obj_guard.is_effectively_dead()
+                    let inside = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                        obj_guard.is_inside_trigger(&trigger)
+                            && !obj_guard.is_effectively_dead()
                             && !obj_guard.is_kind_of(KindOf::Inert)
                             && !obj_guard.is_kind_of(KindOf::Projectile)
-                        {
-                            return Ok(false); // Found a unit inside = not outside
-                        }
+                    });
+                    if inside == Some(true) {
+                        return Ok(false);
                     }
                 }
 
@@ -2269,19 +2234,11 @@ impl ScriptEvaluator {
 
                     let mut current_count = 0i32;
                     for obj_id in player_guard.get_object_ids() {
-                        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                            .or_else(|| {
-                                crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-                            })
-                        else {
-                            continue;
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            continue;
-                        };
-                        if !obj_guard.is_destroyed()
-                            && types.contains_template(Some(obj_guard.get_template()))
-                        {
+                        let matches = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            __omp_shell("obj_guard.is_destroyed()")
+                                && types.contains_template(Some(obj_guard.get_template()))
+                        });
+                        if matches == Some(true) {
                             current_count += 1;
                         }
                     }

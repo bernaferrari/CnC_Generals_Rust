@@ -733,10 +733,10 @@ impl TheGameLogic {
             return;
         };
         let Some(instance_arc) = manager.get_object(object_id) else {
-            if let Some(object_arc) = Self::find_object_by_id(object_id) {
-                if let Ok(mut object) = object_arc.write() {
+            if Self::find_object_by_id(object_id) {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
                     object.wake_update_modules_after(current_frame, sleep_time);
-                }
+                });
             }
             return;
         };
@@ -745,10 +745,10 @@ impl TheGameLogic {
             instance.wake_all_update_modules_after(current_frame, sleep_time);
         };
 
-        if let Some(object_arc) = Self::find_object_by_id(object_id) {
-            if let Ok(mut object) = object_arc.write() {
+        if Self::find_object_by_id(object_id) {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
                 object.wake_update_modules_after(current_frame, sleep_time);
-            }
+            });
         }
     }
 }

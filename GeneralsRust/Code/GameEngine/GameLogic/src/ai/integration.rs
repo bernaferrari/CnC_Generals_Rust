@@ -322,9 +322,7 @@ impl IntegratedAiPlayer {
     pub fn get_ai_enemy_index(&mut self) -> Option<i32> {
         match self {
             IntegratedAiPlayer::Standard(_) => None,
-            IntegratedAiPlayer::Skirmish(player) => player
-                .get_ai_enemy()
-                .and_then(|arc| arc.read().ok().map(|guard| guard.get_player_index() as i32)),
+            IntegratedAiPlayer::Skirmish(player) => player.get_ai_enemy(),
         }
     }
 

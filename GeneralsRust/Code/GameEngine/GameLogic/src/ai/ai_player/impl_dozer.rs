@@ -1046,14 +1046,14 @@ impl AIPlayer {
         order.factory_id = None;
 
         let mut recruited_id = None;
-        if let Some(Some(unit_arc)) = crate::team::with_team(team_id, |team_g| team_g.try_to_recruit(&thing, &origin, max_recruit)) {
-            if let Ok(mut unit_g) = unit_arc.write() {
+        if let Some(Some(unit_id)) = crate::team::with_team(team_id, |team_g| team_g.try_to_recruit(&thing, &origin, max_recruit)) {
+            let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_g| {
                 let _ = unit_g.set_team_id(Some(team_id));
                 if let Some(ai) = unit_g.get_ai_update_interface_mut() {
                     ai.ai_idle(CommandSourceType::FromAi);
                 }
-                recruited_id = Some(unit_g.get_id());
-            }
+            });
+            recruited_id = Some(unit_id);
             order.num_completed = 1;
         }
 

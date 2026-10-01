@@ -24,48 +24,49 @@ impl Object {
     pub fn new(
         thing_template: Arc<dyn ThingTemplate>,
         object_status_mask: ObjectStatusMaskType,
-        team: Option<Arc<RwLock<Team>>>,
-    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        Self::new_with_id(thing_template, INVALID_ID, object_status_mask, team)
+        team: Option<TeamID>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Self::build(thing_template, INVALID_ID, object_status_mask, team)
     }
 
     /// Creates a new Object instance with a specified object ID.
+    /// A valid id is moved into the object registry.
     pub fn new_with_id(
         thing_template: Arc<dyn ThingTemplate>,
         object_id: ObjectID,
         object_status_mask: ObjectStatusMaskType,
-        team: Option<Arc<RwLock<Team>>>,
-    ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        let obj = Self::new_raw(
-            thing_template.clone(),
-            object_id,
-            object_status_mask,
-            team.clone(),
-        );
+        team: Option<TeamID>,
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
+        let obj = Self::build(thing_template, object_id, object_status_mask, team)?;
+        let id = obj.get_id();
+        if id != INVALID_ID {
+            OBJECT_REGISTRY.register_object(id, obj);
+            register_legacy_object(id);
+        }
+        Ok(id)
+    }
 
-        let object_arc = Arc::new(RwLock::new(obj));
-
+    fn build(
+        thing_template: Arc<dyn ThingTemplate>,
+        object_id: ObjectID,
+        object_status_mask: ObjectStatusMaskType,
+        team: Option<TeamID>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let obj = Self::new_raw(thing_template.clone(), object_id, object_status_mask, team);
+        let handle = std::sync::Arc::new(std::sync::RwLock::new(obj));
         {
-            let mut guard = object_arc
+            let mut guard = handle
                 .write()
                 .map_err(|_| "object lock poisoned during initialization")?;
             guard.set_team(team)?;
         }
-
-        if object_id != INVALID_ID {
-            OBJECT_REGISTRY.register_object(object_id, &object_arc);
-            register_legacy_object(&object_arc);
-        }
-
-        if let Err(err) = Self::init_modules_for(&object_arc, &thing_template) {
-            if object_id != INVALID_ID {
-                OBJECT_REGISTRY.unregister_object(object_id);
-                unregister_legacy_object(object_id);
-            }
+        if let Err(err) = Self::init_modules_for(&handle, &thing_template) {
             return Err(err);
         }
-
-        Ok(object_arc)
+        std::sync::Arc::try_unwrap(handle)
+            .map_err(|_| "object still shared after initialization")?
+            .into_inner()
+            .map_err(|_| "object lock poisoned after initialization")
     }
 
     /// Creates a raw Object instance (internal use)
@@ -73,7 +74,7 @@ impl Object {
         thing_template: Arc<dyn ThingTemplate>,
         object_id: ObjectID,
         object_status_mask: ObjectStatusMaskType,
-        team: Option<Arc<RwLock<Team>>>,
+        _team: Option<TeamID>,
     ) -> Self {
         Self {
             id: object_id,
@@ -657,8 +658,8 @@ impl Object {
 
     // Team management. Factory-registered teams are an id. `team_pin` remains
     // only for a team that was never inserted into the factory.
-    pub fn get_team(&self) -> Option<Arc<RwLock<Team>>> {
-        self.team_pin.clone()
+    pub fn get_team(&self) -> Option<TeamID> {
+        self.get_team_id()
     }
 
     pub fn get_team_id(&self) -> Option<TeamID> {
@@ -696,19 +697,18 @@ impl Object {
 
     pub fn set_team(
         &mut self,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // C++ parity (Object::setTeam): if team owner is inactive, force neutral default team.
-        let resolved_team = if let Some(team_ref) = team {
-            let controlling = team_ref
-                .read()
-                .ok()
-                .and_then(|team_guard| team_guard.get_controlling_player_id());
+        let resolved_team = if let Some(team_id) = team {
+            let controlling = crate::team::with_team(team_id, |team| {
+                team.get_controlling_player_id()
+            })
+            .flatten();
             let owner_inactive = controlling
                 .and_then(|player_id| {
-                    player_list().read().ok().and_then(|list| {
-                        list.get_player(player_id as PlayerIndex)
-                            .map(|player| !player.is_player_active())
+                    crate::player::with_player(player_id as PlayerIndex, |player| {
+                        !player.is_player_active()
                     })
                 })
                 .unwrap_or(false);
@@ -719,9 +719,8 @@ impl Object {
                         .and_then(|neutral| neutral.get_default_team_id())
                 });
                 return self.set_team_id(neutral_team);
-            } else {
-                Some(team_ref)
             }
+            Some(team_id)
         } else {
             None
         };
@@ -738,7 +737,7 @@ impl Object {
 
     pub fn set_temporary_team(
         &mut self,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.set_or_restore_team(team, false)
     }
@@ -755,12 +754,12 @@ impl Object {
         }
 
         let original_name = self.original_team_name.to_string();
-        let restored_team = get_team_factory()
+        let restored_team_id = get_team_factory()
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&original_name));
 
-        let Some(restored_team) = restored_team else {
+        let Some(restored_team_id) = restored_team_id else {
             log::warn!(
                 "Object::restore_original_team failed to resolve original team '{}'",
                 original_name
@@ -769,15 +768,11 @@ impl Object {
         };
 
         let current_team_id = self.get_team_id();
-        let restored_team_id = restored_team
-            .read()
-            .ok()
-            .map(|team_guard| team_guard.get_id());
-        if current_team_id.is_some() && current_team_id == restored_team_id {
+        if current_team_id == Some(restored_team_id) {
             return Ok(());
         }
 
-        self.set_team(Some(restored_team))?;
+        self.set_team(Some(restored_team_id))?;
 
         Ok(())
     }
@@ -819,7 +814,7 @@ impl Object {
 
     pub(super) fn set_or_restore_team(
         &mut self,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         restoring: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let old_team_id = self.get_team_id();
@@ -827,39 +822,15 @@ impl Object {
         let old_player_id = old_team_id.and_then(|id| {
             crate::team::with_team(id, |team| team.get_controlling_player_id()).flatten()
         });
-        let incoming_player_id = team.as_ref().and_then(|team_ref| {
-            team_ref
-                .read()
-                .ok()
-                .and_then(|team_guard| team_guard.get_controlling_player_id())
+        let incoming_player_id = team.and_then(|team_id| {
+            crate::team::with_team(team_id, |team| team.get_controlling_player_id()).flatten()
         });
         if old_player_id != incoming_player_id {
             self.adjust_power_for_player(false);
         }
 
-        match &team {
-            Some(team_ref) => {
-                let id = team_ref.read().ok().map(|g| g.get_id());
-                self.team_id = id;
-                let factory_has = id
-                    .and_then(|tid| {
-                        crate::team::get_team_factory()
-                            .lock()
-                            .ok()
-                            .and_then(|f| f.find_team_by_id(tid).map(|_| ()))
-                    })
-                    .is_some();
-                self.team_pin = if factory_has {
-                    None
-                } else {
-                    Some(Arc::clone(team_ref))
-                };
-            }
-            None => {
-                self.team_id = None;
-                self.team_pin = None;
-            }
-        }
+        self.team_id = team;
+        self.team_pin = None;
 
         let new_team_id = self.get_team_id();
 
@@ -924,10 +895,9 @@ impl Object {
     }
 
     pub(super) fn apply_team_ai_profile(&mut self) {
-        let team_name = {
-            let team = self.get_team();
-            team.and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().to_string()))
-        };
+        let team_name = self.get_team().and_then(|team_id| {
+            crate::team::with_team(team_id, |team| team.get_name().to_string())
+        });
 
         let attitude = team_name
             .as_deref()
@@ -1314,23 +1284,22 @@ mod team_membership_borrow_tests {
     use crate::common::DefaultThingTemplate;
     use crate::object::registry::{OBJECT_REGISTRY, test_isolation_lock};
     use crate::player::{Player, PlayerTemplate, player_list};
-    use std::sync::{Arc, Mutex, OnceLock, RwLock};
-
+    use std::sync::{Mutex, OnceLock};
     struct RestorePlayers {
-        players: Vec<Arc<RwLock<Player>>>,
+        players: Vec<Player>,
         local_player_index: i32,
     }
 
     impl RestorePlayers {
-        fn replace(players: &[Arc<RwLock<Player>>]) -> Self {
+        fn replace(players: Vec<Player>) -> Self {
             let mut list = player_list().write().unwrap();
             let previous = Self {
-                players: list.iter().cloned().collect(),
+                players: list.take_players(),
                 local_player_index: list.get_local_player_index(),
             };
             list.clear();
             for player in players {
-                list.add_player(Arc::clone(player));
+                list.add_player(player);
             }
             list.set_local_player_index(0);
             previous
@@ -1350,23 +1319,25 @@ mod team_membership_borrow_tests {
         }
     }
 
-    fn make_playable_player(index: i32, name: &str) -> Arc<RwLock<Player>> {
-        let player = Arc::new(RwLock::new(Player::new(index)));
+    fn make_playable_player(index: i32, name: &str) -> Player {
+        let mut player = Player::new(index);
         let mut template = PlayerTemplate::new(name.to_string());
         template.playable = true;
-        player.write().unwrap().init(Arc::new(template));
+        player.init(Arc::new(template));
         player
     }
 
-    fn team_for_player(index: u32, player_index: u32) -> Arc<RwLock<Team>> {
-        let team = Arc::new(RwLock::new(Team::new(
-            format!("OwnershipTeam{index}").into(),
-            index,
-        )));
-        team.write()
-            .unwrap()
-            .set_controlling_player_id(Some(player_index));
-        team
+    fn team_for_player(name: &str, player_index: u32) -> TeamID {
+        let mut factory = crate::team::get_team_factory()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let _ = factory.init_team(name.into(), AsciiString::new(), false, None);
+        let team_id = factory.create_team(name).expect("factory team");
+        drop(factory);
+        let _ = crate::team::with_team_mut(team_id, |team| {
+            team.set_controlling_player_id(Some(player_index));
+        });
+        team_id
     }
 
     #[test]
@@ -1383,31 +1354,34 @@ mod team_membership_borrow_tests {
 
         let first = make_playable_player(0, "OwnershipFirst");
         let second = make_playable_player(1, "OwnershipSecond");
-        let _restore_players = RestorePlayers::replace(&[Arc::clone(&first), Arc::clone(&second)]);
-        let first_team = team_for_player(96_101, 0);
-        let second_team = team_for_player(96_102, 1);
+        let _restore_players = RestorePlayers::replace(vec![first, second]);
+        let first_team = team_for_player("OwnershipTeam96101", 0);
+        let second_team = team_for_player("OwnershipTeam96102", 1);
 
-        let first_power_before = first.read().unwrap().get_energy().production();
-        let second_power_before = second.read().unwrap().get_energy().production();
+        let first_power_before =
+            crate::player::with_player(0, |player| player.get_energy().production()).unwrap();
+        let second_power_before =
+            crate::player::with_player(1, |player| player.get_energy().production()).unwrap();
         let mut template = DefaultThingTemplate::new("PowerPlantMembershipTest".to_string());
         template.set_energy_production(10);
         template.add_kind_of(crate::common::KindOf::Structure);
         let object_id = 96_103;
-        let object = Arc::new(RwLock::new(Object::new_test_from_template(
-            object_id,
-            100.0,
-            Arc::new(template),
-        )));
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        let mut object = Object::new_test_from_template(object_id, 100.0, Arc::new(template));
 
         object
-            .write()
-            .unwrap()
-            .set_team(Some(Arc::clone(&first_team)))
+            .set_team(Some(first_team))
             .expect("assign first playable team");
-        assert_eq!(first.read().unwrap().get_all_objects(), vec![object_id]);
-        assert!(second.read().unwrap().get_all_objects().is_empty());
-        let first_power_after_add = first.read().unwrap().get_energy().production();
+        assert_eq!(
+            crate::player::with_player(0, |player| player.get_all_objects()).unwrap(),
+            vec![object_id]
+        );
+        assert!(
+            crate::player::with_player(1, |player| player.get_all_objects())
+                .unwrap()
+                .is_empty()
+        );
+        let first_power_after_add =
+            crate::player::with_player(0, |player| player.get_energy().production()).unwrap();
         let first_power_delta = first_power_after_add - first_power_before;
         assert!(
             first_power_delta > 0,
@@ -1415,27 +1389,33 @@ mod team_membership_borrow_tests {
         );
 
         object
-            .write()
-            .unwrap()
-            .set_team(Some(Arc::clone(&second_team)))
+            .set_team(Some(second_team))
             .expect("reassign second playable team");
-        assert!(first.read().unwrap().get_all_objects().is_empty());
-        assert_eq!(second.read().unwrap().get_all_objects(), vec![object_id]);
-        let second_power_after_add = second.read().unwrap().get_energy().production();
+        assert!(
+            crate::player::with_player(0, |player| player.get_all_objects())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            crate::player::with_player(1, |player| player.get_all_objects()).unwrap(),
+            vec![object_id]
+        );
+        let second_power_after_add =
+            crate::player::with_player(1, |player| player.get_energy().production()).unwrap();
         assert_eq!(
             second_power_after_add - second_power_before,
             first_power_delta,
             "reassignment must transfer the same production delta"
         );
 
-        object
-            .write()
-            .unwrap()
-            .set_team(None)
-            .expect("remove final playable team");
-        assert!(second.read().unwrap().get_all_objects().is_empty());
+        object.set_team(None).expect("remove final playable team");
+        assert!(
+            crate::player::with_player(1, |player| player.get_all_objects())
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
-            second.read().unwrap().get_energy().production(),
+            crate::player::with_player(1, |player| player.get_energy().production()).unwrap(),
             second_power_before,
             "removing ownership must restore the prior power production"
         );

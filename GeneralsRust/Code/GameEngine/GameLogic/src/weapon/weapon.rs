@@ -509,7 +509,6 @@ impl Weapon {
             let target_pos_val = if let Some(tid) = target_id {
                 // Get position from target object (matches C++ Weapon.cpp line 2589)
                 // In C++: victimPos = victimObj->getPosition()
-                // Requires TheGameLogic::find_object_by_id integration
                 OBJECT_REGISTRY
                     .with_object(tid, |obj| *obj.get_position())
                     .unwrap_or_else(|| target_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0)))

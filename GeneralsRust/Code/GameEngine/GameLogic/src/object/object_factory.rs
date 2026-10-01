@@ -35,7 +35,7 @@ use crate::pow_truck_ai_update::{
 use crate::supply_system::{
     SupplyTruckAIUpdate, SupplyTruckAIUpdateData, WorkerAIUpdate, WorkerAIUpdateData,
 };
-use crate::team::Team;
+use crate::team::TeamID;
 use crate::weapon::WeaponTemplate;
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleInterfaceType, ModuleType, Thing as ModuleThing,
@@ -208,7 +208,7 @@ impl ObjectFactory {
         &mut self,
         template_name: &str,
         position: Coord3D,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         flags: ObjectCreationFlags,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         self.create_object_with_status(
@@ -226,7 +226,7 @@ impl ObjectFactory {
         &mut self,
         template_name: &str,
         position: Coord3D,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         flags: ObjectCreationFlags,
         extra_status: ObjectStatusMaskType,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
@@ -243,7 +243,7 @@ impl ObjectFactory {
         let mut status_mask = template.get_initial_object_status();
         status_mask |= extra_status;
         let base_object =
-            Object::new_with_id(template.clone(), object_id, status_mask, team.clone())?;
+            Object::new_with_id(template.clone(), object_id, status_mask, team)?;
 
         // Set object ID and position
         {

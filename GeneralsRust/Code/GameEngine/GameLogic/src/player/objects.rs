@@ -60,22 +60,15 @@ impl Player {
     /// Check if player has any buildings that count for victory.
     /// C++ Reference: Player::hasAnyBuildings(KINDOF_MP_COUNT_FOR_VICTORY)
     pub fn has_any_buildings_counts_for_victory(&self) -> Bool {
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-            for obj_id in object_ids {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    let base_arc = obj_arc.read().ok().map(|g| g.base());
-                    if let Some(base_arc) = base_arc {
-                        if let Ok(base_obj) = base_arc.read() {
-                            if base_obj.is_kind_of(KindOf::Structure)
-                                && base_obj.is_kind_of(KindOf::CountsForVictory)
-                            {
-                                return true;
-                            }
-                        }
-                    }
-                }
+        for &object_id in &self.owned_objects {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |base_obj| {
+                    base_obj.is_kind_of(KindOf::Structure)
+                        && base_obj.is_kind_of(KindOf::CountsForVictory)
+                })
+                .unwrap_or(false)
+            {
+                return true;
             }
         }
         false
@@ -123,24 +116,13 @@ impl Player {
         });
     }
 
-    pub fn on_unit_created(&mut self, producer: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
-        let producer_id = producer
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
-        let unit_id = unit.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    pub fn on_unit_created(&mut self, producer_id: ObjectID, unit_id: ObjectID) {
         self.on_unit_created_id(producer_id, unit_id);
     }
 
     /// Called when a structure is undone (e.g. AI rebuild clears old CC).
     /// Matches C++ Player::onStructureUndone — scoreKeeper.removeObjectBuilt only.
-    pub fn on_structure_undone(&mut self, structure: &Arc<RwLock<Object>>) {
-        let structure_id = structure
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
+    pub fn on_structure_undone(&mut self, structure_id: ObjectID) {
         self.on_structure_undone_id(structure_id);
     }
 
@@ -172,36 +154,28 @@ impl Player {
 
         crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
 
-        let Some(structure) = crate::object::registry::OBJECT_REGISTRY
-            .get_object(structure_id)
-            .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(structure_id))
-        else {
-            return;
-        };
-
-        let (
+        let Some((
             structure_pos,
             structure_layer,
             is_superweapon_particle,
             is_superweapon_nuke,
             is_superweapon_scud,
-        ) = {
-            let Ok(structure_guard) = structure.read() else {
-                return;
-            };
+        )) = crate::object::registry::OBJECT_REGISTRY.with_object(structure_id, |structure| {
             (
-                *structure_guard.get_position(),
-                structure_guard.get_layer(),
-                structure_guard.has_special_power(
+                *structure.get_position(),
+                structure.get_layer(),
+                structure.has_special_power(
                     crate::object::special_power_types::SpecialPowerType::ParticleUplinkCannon,
                 ),
-                structure_guard.has_special_power(
+                structure.has_special_power(
                     crate::object::special_power_types::SpecialPowerType::NeutronMissile,
                 ),
-                structure_guard.has_special_power(
+                structure.has_special_power(
                     crate::object::special_power_types::SpecialPowerType::ScudStorm,
                 ),
             )
+        }) else {
+            return;
         };
 
         let ai_store = crate::ai::the_ai(); if let Ok(ai_guard) = ai_store.read() {
@@ -217,22 +191,22 @@ impl Player {
         }
 
         if !is_rebuild {
-            if let Ok(structure_guard) = structure.read() {
-                // C++ onStructureConstructionComplete → addObjectBuilt + addMoneySpent.
-                self.score_keeper.add_object_built_obj(&*structure_guard);
-                let cost = structure_guard
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(structure_id, |structure| {
+                let cost = structure
                     .get_template()
                     .calc_cost_to_build(Some(self))
                     .max(0) as u32;
+                let name = structure.get_template().get_name().as_str().to_string();
+                self.score_keeper.add_object_built_obj(structure);
                 self.score_keeper.add_money_spent(cost);
-                self.academy_stats
-                    .record_building_built(structure_guard.get_template().get_name().as_str());
-            }
+                self.academy_stats.record_building_built(&name);
+            });
         }
 
-        if let Ok(structure_guard) = structure.read() {
-            structure_guard.adjust_power_for_player(true);
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY
+            .with_object(structure_id, |structure| {
+                structure.adjust_power_for_player(true);
+            });
 
         if let Some(factory_id) = builder_id.filter(|id| *id != INVALID_ID) {
             let player_id = self.player_index as u32;
@@ -249,11 +223,9 @@ impl Player {
             let index = list.get_local_player_index();
             (index != PLAYER_INDEX_INVALID).then_some(index)
         });
-        let Ok(structure_guard) = structure.read() else {
-            return;
-        };
-        let structure_team_id = structure_guard.get_team_id();
-        drop(structure_guard);
+        let structure_team_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(structure_id, |structure| structure.get_team_id())
+            .flatten();
         if let Some(local_index) = local_index {
             let is_own = local_index == self.player_index;
             let relation = structure_team_id
@@ -324,19 +296,12 @@ impl Player {
         }
     }
 
-    /// Prefer [`Self::on_structure_construction_complete_id`].
     pub fn on_structure_construction_complete(
         &mut self,
-        builder: Option<&Arc<RwLock<Object>>>,
-        structure: &Arc<RwLock<Object>>,
+        builder_id: Option<ObjectID>,
+        structure_id: ObjectID,
         is_rebuild: Bool,
     ) {
-        let builder_id = builder.and_then(|b| b.read().ok().map(|g| g.get_id()));
-        let structure_id = structure
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
         self.on_structure_construction_complete_id(builder_id, structure_id, is_rebuild);
     }
 
@@ -383,12 +348,7 @@ impl Player {
         });
     }
 
-    pub fn on_unit_destroyed(
-        &mut self,
-        unit: &Arc<RwLock<Object>>,
-        by_player: Option<PlayerIndex>,
-    ) {
-        let unit_id = unit.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    pub fn on_unit_destroyed(&mut self, unit_id: ObjectID, by_player: Option<PlayerIndex>) {
         self.on_unit_destroyed_id(unit_id, by_player);
     }
 
@@ -416,12 +376,7 @@ impl Player {
             });
     }
 
-    pub fn on_enemy_unit_killed(&mut self, killed_unit: &Arc<RwLock<Object>>) {
-        let killed_unit_id = killed_unit
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
+    pub fn on_enemy_unit_killed(&mut self, killed_unit_id: ObjectID) {
         self.on_enemy_unit_killed_id(killed_unit_id);
     }
 

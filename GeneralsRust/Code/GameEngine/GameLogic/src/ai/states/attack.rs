@@ -120,13 +120,13 @@ impl StateImplementation for AIAttackMoveToState {
             return StateReturnType::Failure;
         };
         let mut attack_machine =
-            AIAttackMoveStateMachine::new(Arc::downgrade(&owner), "AIAttackMoveMachine");
+            AIAttackMoveStateMachine::new(owner, "AIAttackMoveMachine");
         attack_machine.clear();
         let _ = attack_machine.set_state(AIStateType::Idle);
         self.attack_move_machine = Some(attack_machine);
-        if let Ok(owner_guard) = owner.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             self.command_src = owner_guard.ai_fire_last_command_source;
-        }
+        });
         self.retry_count = ATTACK_RETRY_COUNT;
         self.frame_to_sleep_until = 0;
         result
@@ -139,19 +139,15 @@ impl StateImplementation for AIAttackMoveToState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let crate_id = owner
-            .read()
-            .ok()
-            .map(|guard| guard.ai_fire_crate_id)
-            .unwrap_or(crate::common::INVALID_ID);
+        let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_move_machine.as_mut() {
             if !machine.is_in_idle_state() {
                 ai.set_locomotor_goal_none();
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
                 let _ = machine.update_with_ai(ai);
                 if machine.is_in_idle_state() {
                     force_retarget_this_frame = true;
@@ -197,7 +193,7 @@ impl StateImplementation for AIAttackMoveToState {
             if self.retry_count < 1 {
                 return ret;
             }
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 let dx = owner_guard.get_position().x - self.base.path_goal_position.x;
                 let dy = owner_guard.get_position().y - self.base.path_goal_position.y;
                 let dist_sqr = dx * dx + dy * dy;
@@ -206,7 +202,7 @@ impl StateImplementation for AIAttackMoveToState {
                 if dist_sqr < close_enough {
                     return ret;
                 }
-            }
+            });
             ret = StateReturnType::Continue;
             self.retry_count -= 1;
             self.frame_to_sleep_until = current_frame + 3 * LOGICFRAMES_PER_SECOND;
@@ -248,14 +244,14 @@ impl ClassicState for AIAttackMoveToState {
             .get_machine_owner()
             .ok_or_else(|| "attack move-to missing machine owner".to_string())?;
         let mut attack_machine =
-            AIAttackMoveStateMachine::new(Arc::downgrade(&owner), "AIAttackMoveMachine");
+            AIAttackMoveStateMachine::new(owner, "AIAttackMoveMachine");
         attack_machine.clear();
         let _ = attack_machine.set_state(AIStateType::Idle);
         self.attack_move_machine = Some(attack_machine);
 
-        if let Ok(owner_guard) = owner.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             self.command_src = owner_guard.ai_fire_last_command_source;
-        }
+        });
         self.retry_count = ATTACK_RETRY_COUNT;
         self.frame_to_sleep_until = 0;
 
@@ -302,11 +298,7 @@ impl AIAttackMoveToState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack move-to missing machine owner".to_string())?;
-        let crate_id = owner
-            .read()
-            .ok()
-            .map(|guard| guard.ai_fire_crate_id)
-            .unwrap_or(crate::common::INVALID_ID);
+        let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let ai_arc;
         let mut locked_ai;
         let has_ai = borrowed.is_some();
@@ -314,10 +306,9 @@ impl AIAttackMoveToState {
         {
             *ai
         } else {
-            ai_arc = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
+            ai_arc = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |guard| guard.get_ai_update_interface())
+                .flatten()
                 .ok_or_else(|| "attack move-to missing AIUpdateInterface".to_string())?;
             locked_ai = ai_arc
                 .lock()
@@ -329,9 +320,9 @@ impl AIAttackMoveToState {
         if let Some(machine) = self.attack_move_machine.as_mut() {
             if !machine.is_in_idle_state() {
                 ai_guard.set_locomotor_goal_none();
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
                 let _ = if has_ai {
                     machine.update_with_ai(ai_guard)
                 } else {
@@ -387,7 +378,7 @@ impl AIAttackMoveToState {
             if self.retry_count < 1 {
                 return Ok(ret);
             }
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 let dx = owner_guard.get_position().x - self.base.path_goal_position.x;
                 let dy = owner_guard.get_position().y - self.base.path_goal_position.y;
                 let dist_sqr = dx * dx + dy * dy;
@@ -396,7 +387,7 @@ impl AIAttackMoveToState {
                 if dist_sqr < close_enough {
                     return Ok(ret);
                 }
-            }
+            });
             ret = StateReturnType::Continue;
             self.retry_count -= 1;
             self.frame_to_sleep_until = current_frame + 3 * LOGICFRAMES_PER_SECOND;
@@ -447,7 +438,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
             return StateReturnType::Failure;
         };
         let mut attack_machine =
-            AIAttackMoveStateMachine::new(Arc::downgrade(&owner), "AIAttackFollowMachine");
+            AIAttackMoveStateMachine::new(owner, "AIAttackFollowMachine");
         attack_machine.clear();
         let _ = attack_machine.set_state(AIStateType::Idle);
         self.attack_follow_machine = Some(attack_machine);
@@ -461,19 +452,15 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let crate_id = owner
-            .read()
-            .ok()
-            .map(|guard| guard.ai_fire_crate_id)
-            .unwrap_or(crate::common::INVALID_ID);
+        let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if !machine.is_in_idle_state() {
                 ai.set_locomotor_goal_none();
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
                 let _ = machine.update_with_ai(ai);
                 if machine.is_in_idle_state() {
                     force_retarget_this_frame = true;
@@ -498,7 +485,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
             }
         }
         if should_repath_this_frame {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if self
                     .base
                     .core
@@ -513,7 +500,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
                 {
                     return StateReturnType::Failure;
                 }
-            }
+            });
         }
         self.base.update_with_ai(ai)
     }
@@ -588,7 +575,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
             .get_machine_owner()
             .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
         let mut attack_machine =
-            AIAttackMoveStateMachine::new(Arc::downgrade(&owner), "AIAttackFollowMachine");
+            AIAttackMoveStateMachine::new(owner, "AIAttackFollowMachine");
         attack_machine.clear();
         let _ = attack_machine.set_state(AIStateType::Idle);
         self.attack_follow_machine = Some(attack_machine);
@@ -604,11 +591,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
-        let crate_id = owner
-            .read()
-            .ok()
-            .map(|guard| guard.ai_fire_crate_id)
-            .unwrap_or(crate::common::INVALID_ID);
+        let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let ai_arc;
         let mut locked_ai;
         let has_ai = borrowed.is_some();
@@ -616,10 +599,9 @@ impl AIAttackFollowWaypointPathAsTeamState {
         {
             *ai
         } else {
-            ai_arc = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
+            ai_arc = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |guard| guard.get_ai_update_interface())
+                .flatten()
                 .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
             locked_ai = ai_arc
                 .lock()
@@ -631,9 +613,9 @@ impl AIAttackFollowWaypointPathAsTeamState {
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if !machine.is_in_idle_state() {
                 ai_guard.set_locomotor_goal_none();
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
                 let _ = if has_ai {
                     machine.update_with_ai(ai_guard)
                 } else {
@@ -664,7 +646,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
             }
         }
         if should_repath_this_frame {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 self.base.core.compute_goal(
                     &self.base.base,
                     &owner_guard,
@@ -672,7 +654,7 @@ impl AIAttackFollowWaypointPathAsTeamState {
                     self.base.core.move_as_group,
                 )?;
                 self.base.core.compute_path(&mut *ai_guard)?;
-            }
+            });
         }
         if has_ai {
             self.base.classic_on_update_with_ai(ai_guard)
@@ -720,7 +702,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
             return StateReturnType::Failure;
         };
         let mut attack_machine =
-            AIAttackMoveStateMachine::new(Arc::downgrade(&owner), "AIAttackFollowMachine");
+            AIAttackMoveStateMachine::new(owner, "AIAttackFollowMachine");
         attack_machine.clear();
         let _ = attack_machine.set_state(AIStateType::Idle);
         self.attack_follow_machine = Some(attack_machine);
@@ -734,19 +716,15 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let crate_id = owner
-            .read()
-            .ok()
-            .map(|guard| guard.ai_fire_crate_id)
-            .unwrap_or(crate::common::INVALID_ID);
+        let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if !machine.is_in_idle_state() {
                 ai.set_locomotor_goal_none();
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
                 let _ = machine.update_with_ai(ai);
                 if machine.is_in_idle_state() {
                     force_retarget_this_frame = true;
@@ -771,7 +749,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
             }
         }
         if should_repath_this_frame {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if self
                     .base
                     .core
@@ -781,7 +759,7 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
                 {
                     return StateReturnType::Failure;
                 }
-            }
+            });
         }
         self.base.update_with_ai(ai)
     }
@@ -856,7 +834,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
             .get_machine_owner()
             .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
         let mut attack_machine =
-            AIAttackMoveStateMachine::new(Arc::downgrade(&owner), "AIAttackFollowMachine");
+            AIAttackMoveStateMachine::new(owner, "AIAttackFollowMachine");
         attack_machine.clear();
         let _ = attack_machine.set_state(AIStateType::Idle);
         self.attack_follow_machine = Some(attack_machine);
@@ -872,11 +850,7 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
-        let crate_id = owner
-            .read()
-            .ok()
-            .map(|guard| guard.ai_fire_crate_id)
-            .unwrap_or(crate::common::INVALID_ID);
+        let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let has_ai = borrowed.is_some();
         let ai_arc;
         let mut locked_ai;
@@ -884,10 +858,9 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
         {
             *ai
         } else {
-            ai_arc = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
+            ai_arc = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |guard| guard.get_ai_update_interface())
+                .flatten()
                 .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
             locked_ai = ai_arc
                 .lock()
@@ -899,9 +872,9 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if !machine.is_in_idle_state() {
                 ai_guard.set_locomotor_goal_none();
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
                 let _ = if has_ai {
                     machine.update_with_ai(ai_guard)
                 } else {
@@ -932,10 +905,10 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
             }
         }
         if should_repath_this_frame {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 self.base.core.compute_goal(&self.base.base, &owner_guard, &mut *ai_guard, false)?;
                 self.base.core.compute_path(&mut *ai_guard)?;
-            }
+            });
         }
         if has_ai {
             self.base.classic_on_update_with_ai(ai_guard)
@@ -1087,19 +1060,23 @@ impl ClassicState for AIAttackObjectState {
 
         // C++ lines 5474-5478: Mood matrix sleep mode check
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if !owner_guard.ai_fire_attack_ok {
-                return Ok(StateReturnType::Success);
+            let gate = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                if !owner_guard.ai_fire_attack_ok {
+                    return Some(StateReturnType::Success);
+                }
+                if owner_guard.test_status(ObjectStatusTypes::UnderConstruction) {
+                    return Some(StateReturnType::Failure);
+                }
+                if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+                    return Some(StateReturnType::Failure);
+                }
+                None
+            });
+            if let Some(Some(code)) = gate {
+                return Ok(code);
             }
-
-            // C++ lines 5487-5490: Under construction check
-            if owner_guard.test_status(ObjectStatusTypes::UnderConstruction) {
-                return Ok(StateReturnType::Failure);
-            }
-
-            // C++ lines 5493-5495: Out of ammo check
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
-                return Ok(StateReturnType::Failure);
+            if gate.is_none() {
+                return Err("lock poisoned".to_string());
             }
         }
 
@@ -1127,37 +1104,36 @@ impl ClassicState for AIAttackObjectState {
         self.original_victim_pos = pos;
 
         if dead {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_victim_dead = true;
-            }
+            });
             return Ok(StateReturnType::Failure);
         }
 
         self.victim_team = team;
 
         // Set original victim pos on AI
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_original_victim_pos = Some(Some(self.original_victim_pos));
-        }
+        });
 
         // C++ lines 5525-5527: Choose weapon
-        let cmd_source = {
-            let Ok(owner_guard) = owner.read() else {
-                return Ok(StateReturnType::Failure);
-            };
+        let Some(cmd_source) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             owner_guard.ai_fire_last_command_source
+        }) else {
+            return Ok(StateReturnType::Failure);
         };
 
         {
             let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
-            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = owner_guard.choose_best_weapon_for_target(
+            let stop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                        let weapon_found = owner_guard.choose_best_weapon_for_target(
                 &*target_guard,
                 WeaponChoiceCriteria::PreferMostDamage,
                 cmd_source,
             );
             if !weapon_found {
-                return Ok(StateReturnType::Failure);
+                return Some(StateReturnType::Failure);
             }
 
             // C++ lines 5529-5536: Set max shots and stealth check
@@ -1180,11 +1156,16 @@ impl ClassicState for AIAttackObjectState {
             } else {
                 self.locked_weapon_on_enter = None;
             }
+        None
+            }).ok_or_else(|| "lock poisoned".to_string())?;
+            if let Some(code) = stop {
+                return Ok(code);
+            }
         }
 
         // Create attack machine (C++ lines 5499)
         let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
+            owner,
             "AIAttackMachine",
             self.follow_target,
             true,
@@ -1196,13 +1177,13 @@ impl ClassicState for AIAttackObjectState {
         // C++ lines 5540-5545: Init default state and set attacking status
         let ret = attack_machine.init_default_state();
         if ret == StateReturnType::Continue {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.set_status(
                     ObjectStatusMaskType::from_status(ObjectStatusTypes::IsAttacking),
                     true,
                 );
                 owner_guard.set_model_condition_state(ModelConditionFlags::ATTACKING);
-            }
+            });
         }
         self.attack_machine = Some(attack_machine);
         self.issued_attack = true;
@@ -1228,7 +1209,7 @@ impl ClassicState for AIAttackObjectState {
             let _ = machine.halt();
         }
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.clear_status(
                     ObjectStatusMaskType::IS_FIRING_WEAPON
                         | ObjectStatusMaskType::IS_AIMING_WEAPON
@@ -1245,7 +1226,7 @@ impl ClassicState for AIAttackObjectState {
                         .push((turret, None, false));
                 }
                 owner_guard.ai_pending_clear_goal = true;
-            }
+            });
         }
         Ok(())
     }
@@ -1279,8 +1260,13 @@ impl AIAttackObjectState {
 
         // C++ lines 5565-5570: Out of ammo check every frame
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            let out = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile)
+            });
+            if out.is_none() {
+                return Err("lock poisoned".to_string());
+            }
+            if out == Some(true) {
                 return Ok(StateReturnType::Failure);
             }
         }
@@ -1302,13 +1288,13 @@ impl AIAttackObjectState {
             }
 
             let victim_id = target_guard.get_id();
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_set_victim = Some(victim_id);
-            }
+            });
 
             let target_team = target_guard.get_team_id();
             if self.victim_team != target_team {
-                let stop = if let Ok(owner_guard) = owner.read() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                     let relationship = owner_guard.relationship_to(target_guard);
                     let empty_garrison = !target_guard.test_status(ObjectStatusTypes::CanAttack)
                         && target_guard.get_contain().is_some_and(|contain| {
@@ -1325,7 +1311,7 @@ impl AIAttackObjectState {
                     stop
                 } else {
                     false
-                };
+                });
                 if stop {
                     should_stop = true;
                 } else {
@@ -1337,16 +1323,16 @@ impl AIAttackObjectState {
             return Ok(StateReturnType::Failure);
         }
         if victim_dead {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_victim_dead = true;
-            }
+            });
             return Ok(StateReturnType::Success);
         }
         if should_stop {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_clear_goal = true;
                 owner_guard.ai_pending_victim_dead = true;
-            }
+            });
             return Ok(StateReturnType::Failure);
         }
 
@@ -1357,15 +1343,14 @@ impl AIAttackObjectState {
 
         // C++ lines 5640-5642: Re-evaluate weapon choice every frame
         {
-            let cmd_source = {
-                let Ok(owner_guard) = owner.read() else {
-                    return Ok(StateReturnType::Failure);
-                };
+            let Some(cmd_source) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 owner_guard.ai_fire_last_command_source
+            }) else {
+                return Ok(StateReturnType::Failure);
             };
 
-            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = crate::object::registry::OBJECT_REGISTRY
+            let stop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                        let weapon_found = crate::object::registry::OBJECT_REGISTRY
                 .with_object(self.target_id, |target_guard| {
                     owner_guard.choose_best_weapon_for_target(
                         target_guard,
@@ -1375,23 +1360,28 @@ impl AIAttackObjectState {
                 })
                 .unwrap_or(false);
             if !weapon_found {
-                return Ok(StateReturnType::Failure);
+                return Some(StateReturnType::Failure);
             }
 
             if let Some(locked_slot) = self.locked_weapon_on_enter {
                 if let Some((_weapon, cur_slot)) = owner_guard.get_current_weapon() {
                     if cur_slot != locked_slot {
-                        return Ok(StateReturnType::Failure);
+                        return Some(StateReturnType::Failure);
                     }
                 }
             }
 
             if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
                 if weapon.get_max_shot_count() <= 0 {
-                    return Ok(StateReturnType::Failure);
+                    return Some(StateReturnType::Failure);
                 }
             } else {
-                return Ok(StateReturnType::Failure);
+                return Some(StateReturnType::Failure);
+            }
+        None
+            }).ok_or_else(|| "lock poisoned".to_string())?;
+            if let Some(code) = stop {
+                return Ok(code);
             }
         }
 
@@ -1487,19 +1477,23 @@ impl ClassicState for AIAttackPositionState {
 
         // C++ lines 5474-5478: Mood matrix sleep mode check
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if !owner_guard.ai_fire_attack_ok {
-                return Ok(StateReturnType::Success);
+            let gate = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                if !owner_guard.ai_fire_attack_ok {
+                    return Some(StateReturnType::Success);
+                }
+                if owner_guard.test_status(ObjectStatusTypes::UnderConstruction) {
+                    return Some(StateReturnType::Failure);
+                }
+                if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+                    return Some(StateReturnType::Failure);
+                }
+                None
+            });
+            if let Some(Some(code)) = gate {
+                return Ok(code);
             }
-
-            // C++ lines 5487-5490: Under construction check
-            if owner_guard.test_status(ObjectStatusTypes::UnderConstruction) {
-                return Ok(StateReturnType::Failure);
-            }
-
-            // C++ lines 5493-5495: Out of ammo check
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
-                return Ok(StateReturnType::Failure);
+            if gate.is_none() {
+                return Err("lock poisoned".to_string());
             }
         }
 
@@ -1507,31 +1501,30 @@ impl ClassicState for AIAttackPositionState {
         if let Some(pos) = self.base.get_machine_goal_position() {
             self.target_position = pos;
             // C++ AIStates.cpp:5519 assigns getMachineGoalPosition before chooseWeapon.
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_original_victim_pos = Some(Some(pos));
-            }
-        } else if let Ok(owner_guard) = owner.read() {
-            self.target_position = *owner_guard.get_position();
+            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+        });
         }
 
 
         // C++ lines 5525-5527: Choose weapon (position variant uses INVALID_ID)
-        let cmd_source = {
-            let Ok(owner_guard) = owner.read() else {
-                return Ok(StateReturnType::Failure);
-            };
+        let Some(cmd_source) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             owner_guard.ai_fire_last_command_source
+        }) else {
+            return Ok(StateReturnType::Failure);
         };
 
         {
-            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = owner_guard.choose_best_weapon_for_target_id(
+            let stop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                        let weapon_found = owner_guard.choose_best_weapon_for_target_id(
                 INVALID_ID,
                 WeaponChoiceCriteria::PreferMostDamage,
                 cmd_source,
             );
             if !weapon_found {
-                return Ok(StateReturnType::Failure);
+                return Some(StateReturnType::Failure);
             }
 
             // C++ lines 5529-5536: Set max shots
@@ -1554,11 +1547,16 @@ impl ClassicState for AIAttackPositionState {
             } else {
                 self.locked_weapon_on_enter = None;
             }
+        None
+            }).ok_or_else(|| "lock poisoned".to_string())?;
+            if let Some(code) = stop {
+                return Ok(code);
+            }
         }
 
         // Create attack machine
         let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
+            owner,
             "AIAttackMachine",
             false,
             false,
@@ -1569,13 +1567,13 @@ impl ClassicState for AIAttackPositionState {
         // C++ lines 5540-5545: Init default state and set attacking status
         let ret = attack_machine.init_default_state();
         if ret == StateReturnType::Continue {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.set_status(
                     ObjectStatusMaskType::from_status(ObjectStatusTypes::IsAttacking),
                     true,
                 );
                 owner_guard.set_model_condition_state(ModelConditionFlags::ATTACKING);
-            }
+            });
         }
         self.attack_machine = Some(attack_machine);
         self.issued_attack = true;
@@ -1591,36 +1589,40 @@ impl ClassicState for AIAttackPositionState {
 
         // C++ lines 5565-5570: Out of ammo check every frame
         {
-            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+            let out = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile)
+            });
+            if out.is_none() {
+                return Err("lock poisoned".to_string());
+            }
+            if out == Some(true) {
                 return Ok(StateReturnType::Failure);
             }
         }
 
         // C++ lines 5640-5642: Re-evaluate weapon choice every frame
         {
-            let cmd_source = {
-                let Ok(owner_guard) = owner.read() else {
-                    return Ok(StateReturnType::Failure);
-                };
+            let Some(cmd_source) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 owner_guard.ai_fire_last_command_source
+            }) else {
+                return Ok(StateReturnType::Failure);
             };
 
-            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = owner_guard.choose_best_weapon_for_target_id(
+            let stop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                        let weapon_found = owner_guard.choose_best_weapon_for_target_id(
                 crate::common::INVALID_ID,
                 WeaponChoiceCriteria::PreferMostDamage,
                 cmd_source,
             );
             if !weapon_found {
-                return Ok(StateReturnType::Failure);
+                return Some(StateReturnType::Failure);
             }
 
             // C++ lines 5649-5650: Locked weapon drift check
             if let Some(locked_slot) = self.locked_weapon_on_enter {
                 if let Some((_weapon, cur_slot)) = owner_guard.get_current_weapon() {
                     if cur_slot != locked_slot {
-                        return Ok(StateReturnType::Failure);
+                        return Some(StateReturnType::Failure);
                     }
                 }
             }
@@ -1628,10 +1630,15 @@ impl ClassicState for AIAttackPositionState {
             // C++ lines 5653-5654: Shot count check
             if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
                 if weapon.get_max_shot_count() <= 0 {
-                    return Ok(StateReturnType::Failure);
+                    return Some(StateReturnType::Failure);
                 }
             } else {
-                return Ok(StateReturnType::Failure);
+                return Some(StateReturnType::Failure);
+            }
+        None
+            }).ok_or_else(|| "lock poisoned".to_string())?;
+            if let Some(code) = stop {
+                return Ok(code);
             }
         }
 
@@ -1657,7 +1664,7 @@ impl ClassicState for AIAttackPositionState {
 
         if let Some(owner) = self.base.get_machine_owner() {
             // Clear attack-related status flags
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.clear_status(
                     ObjectStatusMaskType::IS_FIRING_WEAPON
                         | ObjectStatusMaskType::IS_AIMING_WEAPON
@@ -1675,7 +1682,7 @@ impl ClassicState for AIAttackPositionState {
                         .push((turret, None, false));
                 }
                 owner_guard.ai_pending_clear_goal = true;
-            }
+            });
         }
         Ok(())
     }
@@ -1883,50 +1890,47 @@ impl AIAttackSquadState {
             return None;
         };
         let owner = self.base.get_machine_owner()?;
-        let owner_guard = owner.read().ok()?;
-        let owner_pos = *owner_guard.get_position();
-        let owner_off_map = owner_guard.is_off_map();
-        let mood_val = owner_guard.ai_fire_mood_value;
-        if (mood_val & mood_matrix_parameters::CONTROLLER_AI) != 0 {
-            if (mood_val & mood_matrix_parameters::MOOD_SLEEP) != 0 {
-                return None;
-            }
-            if (mood_val & mood_matrix_parameters::MOOD_PASSIVE) != 0 {
-                let victim_id = owner_guard
-                    .get_body_module()
-                    .and_then(|body| body.get_last_damage_info())
-                    .map(|info| info.input.source_id)
-                    .unwrap_or(INVALID_ID);
-                if victim_id == INVALID_ID {
-                    return None;
+        let snap = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            let owner_pos = *owner_guard.get_position();
+            let owner_off_map = owner_guard.is_off_map();
+            let mood_val = owner_guard.ai_fire_mood_value;
+            if (mood_val & mood_matrix_parameters::CONTROLLER_AI) != 0 {
+                if (mood_val & mood_matrix_parameters::MOOD_SLEEP) != 0 {
+                    return Err(None);
                 }
-                return Some(victim_id);
+                if (mood_val & mood_matrix_parameters::MOOD_PASSIVE) != 0 {
+                    let victim_id = owner_guard
+                        .get_body_module()
+                        .and_then(|body| body.get_last_damage_info())
+                        .map(|info| info.input.source_id)
+                        .unwrap_or(INVALID_ID);
+                    if victim_id == INVALID_ID {
+                        return Err(None);
+                    }
+                    return Err(Some(victim_id));
+                }
             }
-        }
-
-        let mut difficulty = owner_guard
-            .get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|player| player.get_player_difficulty())
-            })
-            .unwrap_or(crate::player::GameDifficulty::Normal);
-
-        if owner_guard.ai_fire_last_command_source == CommandSourceType::FromPlayer {
-            difficulty = crate::player::GameDifficulty::Hard;
-        }
-        if let Ok(script_guard) = get_script_engine().read() {
-            if script_guard
-                .as_ref()
-                .map(|engine| engine.get_choose_victim_always_uses_normal())
-                .unwrap_or(false)
-            {
-                difficulty = crate::player::GameDifficulty::Normal;
+            let mut difficulty = owner_guard
+                .get_controlling_player()
+                .and_then(|player| {
+                    player
+                        .read()
+                        .ok()
+                        .map(|player| player.get_player_difficulty())
+                })
+                .unwrap_or(crate::player::GameDifficulty::Normal);
+            if owner_guard.ai_fire_last_command_source == CommandSourceType::FromPlayer {
+                difficulty = crate::player::GameDifficulty::Hard;
             }
-        }
-        drop(owner_guard);
+            Ok((owner_pos, owner_off_map, difficulty))
+        });
+        let Some(snap) = snap else {
+            return None;
+        };
+        let (owner_pos, owner_off_map, mut difficulty) = match snap {
+            Err(early) => return early,
+            Ok(v) => v,
+        };
 
         let object_ids = squad.get_live_object_ids();
 
@@ -2020,7 +2024,7 @@ impl ClassicState for AIAttackSquadState {
             .get_machine_owner()
             .ok_or_else(|| "attack squad missing owner".to_string())?;
         let mut attack_machine =
-            AIAttackThenIdleStateMachine::new(owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID), "AIAttackMachine");
+            AIAttackThenIdleStateMachine::new(owner, "AIAttackMachine");
 
 
         if let Some(victim_id) = self.choose_victim() {
@@ -2048,14 +2052,17 @@ impl ClassicState for AIAttackSquadState {
         };
         let _ = attack_status;
 
-        if let Ok(owner_guard) = self
+        let owner = self
             .base
             .get_machine_owner()
-            .ok_or_else(|| "attack squad missing owner".to_string())?
-            .read()
-        {
-            if owner_guard.ai_fire_crate_id != crate::common::INVALID_ID {
-                let crate_id = owner_guard.ai_fire_crate_id;
+            .ok_or_else(|| "attack squad missing owner".to_string())?;
+        let crate_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| owner_guard.ai_fire_crate_id);
+        if crate_id.is_none() {
+            return Err("attack squad owner missing".to_string());
+        }
+        if crate_id != Some(crate::common::INVALID_ID) {
+            if let Some(crate_id) = crate_id {
                 if let Some(attack_machine) = self.attack_squad_machine.as_mut() {
                     attack_machine.set_goal_object(Some(crate_id));
                     attack_machine.set_state(AIStateType::PickUpCrate);
@@ -2194,7 +2201,7 @@ impl ClassicState for AIAttackAreaState {
             .get_machine_owner()
             .ok_or_else(|| "attack area missing owner".to_string())?;
         let mut attack_machine = AIAttackThenIdleStateMachine::new(
-            owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID),
+            owner,
             "AIAttackThenIdleStateMachine",
         );
 
@@ -2215,20 +2222,19 @@ impl ClassicState for AIAttackAreaState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack area missing owner".to_string())?;
 
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
                     return Ok(StateReturnType::Failure);
                 }
-            }
+            });
 
             self.next_enemy_scan_time = now + ENEMY_SCAN_RATE;
             if self.base.get_machine_goal_polygon().is_none() {
                 return Ok(StateReturnType::Failure);
             }
-            let victim = owner
-                .read()
-                .ok()
-                .and_then(|owner_guard| self.find_area_victim(&owner_guard));
+            let victim = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| self.find_area_victim(owner_guard))
+                .flatten();
 
             if let Some(attack_machine) = self.attack_machine.as_mut() {
                 attack_machine.set_goal_object(victim);
@@ -2305,7 +2311,7 @@ impl Snapshotable for AIAttackObjectState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack object state missing machine owner".to_string())?;
             let mut machine = AttackStateMachine::new(
-                Arc::downgrade(&owner),
+                owner,
                 "AIAttackMachine",
                 self.follow_target,
                 true,
@@ -2367,7 +2373,7 @@ impl Snapshotable for AIAttackPositionState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack position state missing machine owner".to_string())?;
             let mut machine = AttackStateMachine::new(
-                Arc::downgrade(&owner),
+                owner,
                 "AIAttackMachine",
                 false,
                 false,
@@ -2443,7 +2449,7 @@ impl Snapshotable for AIAttackMoveToState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack move-to missing machine owner".to_string())?;
             self.attack_move_machine = Some(AIAttackMoveStateMachine::new(
-                Arc::downgrade(&owner),
+                owner,
                 "AIAttackMoveMachine",
             ));
         }
@@ -2500,7 +2506,7 @@ impl Snapshotable for AIAttackFollowWaypointPathAsTeamState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
             self.attack_follow_machine = Some(AIAttackMoveStateMachine::new(
-                Arc::downgrade(&owner),
+                owner,
                 "AIAttackFollowMachine",
             ));
         }
@@ -2565,7 +2571,7 @@ impl Snapshotable for AIAttackFollowWaypointPathAsIndividualsState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
             self.attack_follow_machine = Some(AIAttackMoveStateMachine::new(
-                Arc::downgrade(&owner),
+                owner,
                 "AIAttackFollowMachine",
             ));
         }
@@ -2648,7 +2654,7 @@ impl Snapshotable for AIAttackSquadState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack squad missing owner".to_string())?;
             self.attack_squad_machine = Some(AIAttackThenIdleStateMachine::new(
-                owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID),
+                owner,
                 "AIAttackMachine",
             ));
         }
@@ -2704,7 +2710,7 @@ impl Snapshotable for AIAttackAreaState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack area missing owner".to_string())?;
             self.attack_machine = Some(AIAttackThenIdleStateMachine::new(
-                owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID),
+                owner,
                 "AIAttackThenIdleStateMachine",
             ));
         }

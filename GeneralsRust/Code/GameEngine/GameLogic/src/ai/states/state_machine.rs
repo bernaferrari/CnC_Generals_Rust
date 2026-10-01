@@ -765,10 +765,11 @@ impl AIStateMachine {
     }
 
     /// Set goal team (converts to squad)
-    pub fn set_goal_team(&mut self, team: &Arc<RwLock<Team>>) {
+    pub fn set_goal_team(&mut self, team_id: crate::team::TeamID) {
         let squad = self.goal_squad.get_or_insert_with(Squad::new);
-        if let Ok(team_guard) = team.read() {
-            squad.squad_from_team(&team_guard, true);
+        if let Some(()) = crate::team::with_team(team_id, |team_guard| {
+            squad.squad_from_team(team_guard, true);
+        }) {
         }
         self.base.set_goal_squad(self.goal_squad.clone());
     }
@@ -930,7 +931,7 @@ impl AiCommandInterface for AIStateMachine {
         if let Some(team_name) = params.team.as_ref() {
             if let Ok(mut factory) = TheTeamFactory().lock() {
                 if let Some(team) = factory.find_team(team_name) {
-                    self.set_goal_team(&team);
+                    self.set_goal_team(team);
                 }
             }
         }

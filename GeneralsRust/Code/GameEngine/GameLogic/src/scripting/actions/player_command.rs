@@ -181,13 +181,9 @@ impl ScriptAction for PlayerDisableFactoriesAction {
             }
         };
         for obj_id in object_ids {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    obj_guard.set_production_enabled(false);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+                obj_guard.set_production_enabled(false);
+            });
         }
 
         Ok(ScriptResult::Success(None))
@@ -255,13 +251,9 @@ impl ScriptAction for PlayerEnableFactoriesAction {
             }
         };
         for obj_id in object_ids {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    obj_guard.set_production_enabled(true);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+                obj_guard.set_production_enabled(true);
+            });
         }
 
         Ok(ScriptResult::Success(None))
@@ -439,57 +431,46 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
             let mut infantry_units = Vec::new();
 
             for obj_id in object_ids {
-                let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if let Some(contain) = obj_guard.get_contain() {
-                    if contain.is_garrisonable() {
-                        garrison_buildings.push(obj_arc.clone());
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    if let Some(contain) = obj_guard.get_contain() {
+                        if contain.is_garrisonable() {
+                            garrison_buildings.push(obj_id);
+                        }
                     }
-                }
-
-                if obj_guard.is_kind_of(crate::common::KindOf::Infantry) {
-                    infantry_units.push(obj_arc.clone());
-                }
+                    if obj_guard.is_kind_of(crate::common::KindOf::Infantry) {
+                        infantry_units.push(obj_id);
+                    }
+                });
             }
 
             if garrison_buildings.is_empty() || infantry_units.is_empty() {
                 return Ok(ScriptResult::Success(None));
             }
 
-            for unit_arc in infantry_units {
-                let Ok(mut unit_guard) = unit_arc.write() else {
-                    continue;
-                };
-                let unit_pos = *unit_guard.get_position();
-                let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
-                    continue;
-                };
-                let mut best: Option<(f32, u32)> = None;
-
-                for building_arc in &garrison_buildings {
-                    let Ok(building_guard) = building_arc.read() else {
-                        continue;
+            for unit_id in infantry_units {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
+                    let unit_pos = *unit_guard.get_position();
+                    let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
+                        return;
                     };
-                    let pos = building_guard.get_position();
-                    let dx = pos.x - unit_pos.x;
-                    let dy = pos.y - unit_pos.y;
-                    let dz = pos.z - unit_pos.z;
-                    let dist_sq = dx * dx + dy * dy + dz * dz;
-                    let id = building_guard.get_id();
-                    if best.map(|(d, _)| dist_sq < d).unwrap_or(true) {
-                        best = Some((dist_sq, id));
+                    let mut best: Option<(f32, u32)> = None;
+                    for building_id in &garrison_buildings {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*building_id, |building_guard| {
+                            let pos = building_guard.get_position();
+                            let dx = pos.x - unit_pos.x;
+                            let dy = pos.y - unit_pos.y;
+                            let dz = pos.z - unit_pos.z;
+                            let dist_sq = dx * dx + dy * dy + dz * dz;
+                            let id = building_guard.get_id();
+                            if best.map(|(d, _)| dist_sq < d).unwrap_or(true) {
+                                best = Some((dist_sq, id));
+                            }
+                        });
                     }
-                }
-
-                if let Some((_, building_id)) = best {
-                    ai.ai_enter(building_id, CommandSourceType::FromScript);
-                }
+                    if let Some((_, building_id)) = best {
+                        ai.ai_enter(building_id, CommandSourceType::FromScript);
+                    }
+                });
             }
         }
 

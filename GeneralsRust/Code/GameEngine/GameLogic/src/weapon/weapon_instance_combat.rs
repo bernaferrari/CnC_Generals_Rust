@@ -268,14 +268,21 @@ impl Weapon {
         }
 
         let damage_source_id = self.projectile_damage_source_id(source_obj_id);
-        let source_arc = TheGameLogic::find_object_by_id(source_obj_id);
-        let source_guard = source_arc.as_ref().and_then(|arc| arc.try_read().ok());
-        let damage_source_arc = if damage_source_id == source_obj_id {
-            None
-        } else {
-            TheGameLogic::find_object_by_id(damage_source_id)
+        let mask_from = |id: ObjectId| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(id, |source| {
+                source.get_controlling_player().and_then(|player| {
+                    player.read().ok().map(|player_guard| player_guard.get_player_mask())
+                })
+            })
         };
-        let damage_source_guard = damage_source_arc.as_ref().and_then(|arc| arc.read().ok());
+        let source_known_exists = crate::object::registry::OBJECT_REGISTRY.contains(source_obj_id);
+        let source_player_mask = mask_from(damage_source_id).flatten().or_else(|| {
+            if damage_source_id == source_obj_id {
+                None
+            } else {
+                mask_from(source_obj_id).flatten()
+            }
+        });
 
         let mut impact_pos = *impact_pos;
         self.template
@@ -298,12 +305,8 @@ impl Weapon {
         damage_info.input.shock_wave_amount = self.template.shock_wave_amount;
         damage_info.input.shock_wave_radius = self.template.shock_wave_radius;
         damage_info.input.shock_wave_taper_off = self.template.shock_wave_taper_off;
-        if let Some(source) = damage_source_guard.as_ref().or(source_guard.as_ref()) {
-            if let Some(player) = source.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    damage_info.input.source_player_mask = player_guard.get_player_mask();
-                }
-            }
+        if let Some(mask) = source_player_mask {
+            damage_info.input.source_player_mask = mask;
         }
         if damage_info.input.source_player_mask.is_empty() {
             if let Some(mask) = self.caller_player_mask() {
@@ -320,62 +323,77 @@ impl Weapon {
         // Determine if this is radius damage
         let max_radius = primary_radius.max(secondary_radius);
         if max_radius > 0.0 {
-            // Drop the firer read before the gather and the victim loop.
-            // A second read of the same RwLock hangs when the blast includes it.
-            drop(source_guard);
-            drop(damage_source_guard);
             let targets = self.find_objects_in_radius(source_obj_id, &impact_pos, max_radius)?;
 
             for (obj_id, obj_pos, _relationship) in targets {
-                let Some(victim_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                    continue;
-                };
-                let Ok(victim_guard) = victim_arc.try_read() else {
-                    continue;
-                };
-                let source_now = if obj_id == source_obj_id {
-                    None
-                } else {
-                    source_arc.as_ref().and_then(|arc| arc.try_read().ok())
-                };
-                let source_known = obj_id == source_obj_id || source_now.is_some();
-                let (producer_id, relationship, similar_skip, source_pos, x_axis) =
-                    if obj_id == source_obj_id {
-                        let rel = if victim_guard.is_undetected_defector() {
-                            Relationship::Neutral
+                let Some((
+                    producer_id,
+                    relationship,
+                    similar_skip,
+                    source_pos,
+                    x_axis,
+                    source_known,
+                    airborne,
+                    splash_geom_info,
+                    victim_pos,
+                )) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |victim_guard| {
+                    let (producer_id, relationship, similar_skip, source_pos, x_axis, source_known) =
+                        if obj_id == source_obj_id {
+                            let rel = if victim_guard.is_undetected_defector() {
+                                Relationship::Neutral
+                            } else {
+                                Relationship::Allies
+                            };
+                            (
+                                victim_guard.get_producer_id(),
+                                rel,
+                                matches!(rel, Relationship::Allies),
+                                *victim_guard.get_position(),
+                                victim_guard.get_transform_matrix().x_axis,
+                                true,
+                            )
+                        } else if let Some(pair) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(source_obj_id, |source| {
+                                let rel = source.relationship_to(victim_guard);
+                                let similar = matches!(rel, Relationship::Allies)
+                                    && source
+                                        .get_template()
+                                        .is_equivalent_to(victim_guard.get_template().as_ref());
+                                (
+                                    source.get_producer_id(),
+                                    victim_guard.relationship_to(source),
+                                    similar,
+                                    *source.get_position(),
+                                    source.get_transform_matrix().x_axis,
+                                )
+                            })
+                        {
+                            let (producer_id, relationship, similar_skip, source_pos, x_axis) = pair;
+                            (producer_id, relationship, similar_skip, source_pos, x_axis, true)
                         } else {
-                            Relationship::Allies
+                            (
+                                INVALID_OBJECT_ID,
+                                Relationship::Neutral,
+                                false,
+                                glam::Vec3::ZERO,
+                                victim_guard.get_transform_matrix().x_axis,
+                                false,
+                            )
                         };
-                        (
-                            victim_guard.get_producer_id(),
-                            rel,
-                            matches!(rel, Relationship::Allies),
-                            *victim_guard.get_position(),
-                            victim_guard.get_transform_matrix().x_axis,
-                        )
-                    } else if let Some(source) = source_now.as_ref() {
-                        let rel = source.relationship_to(&victim_guard);
-                        let similar = matches!(rel, Relationship::Allies)
-                            && source
-                                .get_template()
-                                .is_equivalent_to(victim_guard.get_template().as_ref());
-                        (
-                            source.get_producer_id(),
-                            victim_guard.relationship_to(source),
-                            similar,
-                            *source.get_position(),
-                            source.get_transform_matrix().x_axis,
-                        )
-                    } else {
-                        (
-                            INVALID_OBJECT_ID,
-                            Relationship::Neutral,
-                            false,
-                            glam::Vec3::ZERO,
-                            victim_guard.get_transform_matrix().x_axis,
-                        )
-                    };
-                drop(source_now);
+                    (
+                        producer_id,
+                        relationship,
+                        similar_skip,
+                        source_pos,
+                        x_axis,
+                        source_known,
+                        victim_guard.is_significantly_above_terrain(),
+                        victim_guard.get_geometry_info().clone(),
+                        *victim_guard.get_position(),
+                    )
+                }) else {
+                    continue;
+                };
 
                 let is_primary_victim = primary_victim_id == Some(obj_id);
                 let mut kill_self = false;
@@ -408,7 +426,7 @@ impl Weapon {
                             .template
                             .affects_mask
                             .contains(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE)
-                            && victim_guard.is_significantly_above_terrain()
+                            && airborne
                         {
                             continue;
                         }
@@ -461,12 +479,12 @@ impl Weapon {
                     )
                 } else {
                     let splash_geom = crate::object::Object::collision_geometry_from_bounds(
-                        victim_guard.get_geometry_info(),
+                        &splash_geom_info,
                         None,
                     );
                     crate::object::collide::partition_distance::distance_from_position(
                         &impact_pos,
-                        victim_guard.get_position(),
+                        &victim_pos,
                         &splash_geom,
                         crate::object::collide::partition_distance::DistanceCalculationType::FromBoundingSphere3D,
                     )
@@ -505,7 +523,6 @@ impl Weapon {
                         target_damage_info.input.shock_wave_vector = shock_wave_vector;
                     }
 
-                    drop(victim_guard);
                     if let Ok(actual_damage) =
                         self.apply_damage_to_object(obj_id, &mut target_damage_info)
                     {
@@ -522,8 +539,7 @@ impl Weapon {
                     .affects_mask
                     .contains(WeaponAffectsMask::KILLS_SELF)
                 {
-                    let self_id = source_guard.as_ref().map(|source| source.get_id());
-                    drop(source_guard);
+                    let self_id = if source_known_exists { Some(source_obj_id) } else { None };
                     if let Some(self_id) = self_id {
                         let mut self_damage = damage_info.clone();
                         self_damage.input.amount = HUGE_DAMAGE_AMOUNT;
@@ -536,7 +552,6 @@ impl Weapon {
                     }
                     return Ok(total_damage);
                 }
-                drop(source_guard);
                 if let Ok(actual_damage) = self.apply_damage_to_object(target_id, &mut damage_info)
                 {
                     total_damage = actual_damage as u32;
@@ -980,21 +995,26 @@ impl Weapon {
                 let _ = proj.set_team_id(projectile_team);
                 let _ = proj.set_position(source_pos);
             });
-            let Some(projectile_arc) = TheGameLogic::find_object_by_id(projectile_id) else {
+            if !crate::object::registry::OBJECT_REGISTRY.contains(projectile_id) {
                 return Err(WeaponError::SystemError("Projectile missing after create".into()));
-            };
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                if let Ok(source_guard) = source_arc.try_read() {
-                    if let Ok(mut proj_guard) = projectile_arc.write() {
-                        proj_guard.set_producer(Some(&source_guard));
-                        if source_guard.notify_special_power_completion_die() {
+            }
+            if projectile_id != source_obj_id {
+                let notify = crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, |source_guard| {
+                    let notify = source_guard.notify_special_power_completion_die();
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj_guard| {
+                        proj_guard.set_producer(Some(source_guard));
+                        if notify {
                             proj_guard.set_special_power_completion_creator(INVALID_OBJECT_ID);
                         } else {
                             proj_guard.set_special_power_completion_creator(source_obj_id);
                         }
-                    }
-                } else if let Ok(mut proj_guard) = projectile_arc.write() {
-                    proj_guard.set_special_power_completion_creator(source_obj_id);
+                    });
+                    notify
+                });
+                if notify.is_none() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj_guard| {
+                        proj_guard.set_special_power_completion_creator(source_obj_id);
+                    });
                 }
             }
 
@@ -1002,9 +1022,9 @@ impl Weapon {
                 if let Ok(list) = crate::player::player_list().read() {
                     if let Some(player_guard) = list.get_player(player_index) {
                         if player_guard.get_num_battle_plans_active() > 0 {
-                            if let Ok(mut proj_guard) = projectile_arc.write() {
-                                player_guard.apply_battle_plan_bonuses_for_object(&mut proj_guard);
-                            }
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj_guard| {
+                                player_guard.apply_battle_plan_bonuses_for_object(proj_guard);
+                            });
                         }
                     }
                 }
@@ -1014,9 +1034,10 @@ impl Weapon {
 
             let weapon_template = Arc::clone(&self.template);
             let mut launched = false;
-            if let Ok(mut proj_guard) = projectile_arc.write() {
-                let modules = proj_guard.behavior_modules();
-                drop(proj_guard);
+            let modules = crate::object::registry::OBJECT_REGISTRY
+                .with_object(projectile_id, |proj_guard| proj_guard.behavior_modules())
+                .unwrap_or_default();
+            {
 
                 for module in modules {
                     let mut did_launch = false;
@@ -1040,43 +1061,38 @@ impl Weapon {
                                 did_launch = true;
                             }
                             ProjectileLaunchKindMut::NeutronMissileUpdate(neutron) => {
-                                if let Some(launcher_arc) =
-                                    TheGameLogic::find_object_by_id(source_obj_id)
-                                {
-                                    if let Ok(launcher_guard) = launcher_arc.read() {
-                                        if let Some(victim_id) = target_obj_id {
-                                            if let Some(victim_arc) =
-                                                TheGameLogic::find_object_by_id(victim_id)
-                                            {
-                                                if let Ok(victim_guard) = victim_arc.read() {
-                                                    neutron
-                                                        .projectile_launch_at_object_or_position(
-                                                            Some(&victim_guard),
-                                                            Some(target_pos),
-                                                            Some(&launcher_guard),
-                                                            map_weapon_slot_to_common(
-                                                                self.weapon_slot,
-                                                            ),
-                                                            self.current_barrel,
-                                                            Some(&weapon_template),
-                                                            None,
-                                                        );
-                                                    did_launch = true;
-                                                }
-                                            }
-                                        } else {
+                                let launched_neutron = crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, |launcher_guard| {
+                                    if let Some(victim_id) = target_obj_id {
+                                        if victim_id == source_obj_id {
+                                            return false;
+                                        }
+                                        crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
                                             neutron.projectile_launch_at_object_or_position(
-                                                None,
+                                                Some(victim_guard),
                                                 Some(target_pos),
-                                                Some(&launcher_guard),
+                                                Some(launcher_guard),
                                                 map_weapon_slot_to_common(self.weapon_slot),
                                                 self.current_barrel,
                                                 Some(&weapon_template),
                                                 None,
                                             );
-                                            did_launch = true;
-                                        }
+                                            true
+                                        }).unwrap_or(false)
+                                    } else {
+                                        neutron.projectile_launch_at_object_or_position(
+                                            None,
+                                            Some(target_pos),
+                                            Some(launcher_guard),
+                                            map_weapon_slot_to_common(self.weapon_slot),
+                                            self.current_barrel,
+                                            Some(&weapon_template),
+                                            None,
+                                        );
+                                        true
                                     }
+                                }).unwrap_or(false);
+                                if launched_neutron {
+                                    did_launch = true;
                                 }
                             }
                             ProjectileLaunchKindMut::DumbProjectileBehavior(dumb) => {
@@ -1123,29 +1139,24 @@ impl Weapon {
             return Ok(None);
         }
 
-        let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
+        let Some((team_id, source_pos)) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj_id, |source_guard| {
+                let team_id = source_guard
+                    .get_controlling_player()
+                    .and_then(|player_index| {
+                        crate::player::player_list().read().ok().and_then(|list| {
+                            list.get_player(player_index)
+                                .and_then(|guard| guard.get_default_team_id())
+                        })
+                    })
+                    .or_else(|| source_guard.get_team_id())?;
+                Some((team_id, *source_guard.get_position()))
+            })
+            .flatten()
+        else {
             return Err(WeaponError::InvalidTarget);
         };
-        let (team_id, source_pos) = {
-            let source_guard = source_arc
-                .read()
-                .map_err(|_| WeaponError::SystemError("Source object lock failed".to_string()))?;
-            let team_id = source_guard
-                .get_controlling_player()
-                .and_then(|player_index| {
-                    crate::player::player_list().read().ok().and_then(|list| {
-                        list.get_player(player_index)
-                            .and_then(|guard| guard.get_default_team_id())
-                    })
-                })
-                .or_else(|| source_guard.get_team_id());
-            let Some(team_id) = team_id else {
-                return Err(WeaponError::SystemError(
-                    "Laser creation requires source player default team".to_string(),
-                ));
-            };
-            (team_id, *source_guard.get_position())
-        };
+
         let Some(template) =
             crate::helpers::TheThingFactory::find_template(&self.template.laser_name)
         else {
@@ -1171,13 +1182,9 @@ impl Weapon {
         // their feet. Do not replace the aim point with getPosition().
         let mut end_pos = *target_pos;
         if let Some(target_id) = target_obj_id {
-            let raise = TheGameLogic::find_object_by_id(target_id)
-                .and_then(|arc| {
-                    arc.read().ok().map(|guard| {
-                        !guard.is_kind_of(KindOf::Projectile) && !guard.is_airborne_target()
-                    })
-                })
-                .unwrap_or(false);
+            let raise = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |guard| {
+                    !guard.is_kind_of(KindOf::Projectile) && !guard.is_airborne_target()
+                }).unwrap_or(false);
             if raise {
                 end_pos.z += 10.0;
             }
@@ -1190,22 +1197,14 @@ impl Weapon {
         let client_modules = laser_guard.client_update_modules();
         drop(laser_guard);
 
-        let source_guard = source_arc
-            .read()
-            .map_err(|_| WeaponError::SystemError("Source object lock failed".to_string()))?;
-        let target_arc = target_obj_id.and_then(TheGameLogic::find_object_by_id);
-        let target_guard = match target_arc.as_ref() {
-            Some(arc) => arc.read().ok(),
-            None => None,
-        };
-        let target_ref = target_guard.as_deref();
+        let target_id_for_laser = target_obj_id.filter(|id| crate::object::registry::OBJECT_REGISTRY.contains(*id));
 
         for module in client_modules {
             module.with_module(|module| {
                 if let Some(laser_update) = module.get_laser_update_interface() {
                     laser_update.init_laser(
-                        Some(source_guard.get_id()),
-                        target_ref.map(|target| target.get_id()),
+                        Some(source_obj_id),
+                        target_id_for_laser,
                         Some(source_pos.to_array()),
                         Some(end_pos.to_array()),
                         self.template.laser_bone_name.clone(),
@@ -1260,12 +1259,9 @@ impl Weapon {
         // bones and must not re-enter a guard this thread still holds.
         let mut handled = false;
         if !stealthed_hidden {
-            let drawable = TheGameLogic::find_object_by_id(source_obj_id).and_then(|source_arc| {
-                source_arc
-                    .try_read()
-                    .ok()
-                    .and_then(|source| source.get_drawable())
-            });
+            let drawable = crate::object::registry::OBJECT_REGISTRY
+                .with_object(source_obj_id, |source| source.get_drawable())
+                .flatten();
             if let Some(drawable) = drawable {
                 if let Ok(mut draw) = drawable.try_write() {
                     let recoil = self.template.weapon_recoil;
@@ -1290,22 +1286,19 @@ impl Weapon {
         if !handled {
             if let Some(fx_list) = fx {
                 let (where_pos, matrix) =
-                    if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                        source_arc
-                            .try_read()
-                            .ok()
-                            .and_then(|source| source.get_drawable())
-                            .and_then(|drawable| {
-                                drawable.try_read().ok().map(|draw| {
-                                    let pos = if self.template.is_contact_weapon() {
-                                        *impact_pos
-                                    } else {
-                                        draw.get_position()
-                                    };
-                                    (pos, Some(draw.get_transform_matrix()))
-                                })
-                            })
-                            .unwrap_or((*source_pos, None))
+                    if let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(source_obj_id, |source| source.get_drawable())
+                        .flatten()
+                    {
+                        drawable.try_read().ok().map(|draw| {
+                            let pos = if self.template.is_contact_weapon() {
+                                *impact_pos
+                            } else {
+                                draw.get_position()
+                            };
+                            (pos, Some(draw.get_transform_matrix()))
+                        })
+                        .unwrap_or((*source_pos, None))
                     } else {
                         (
                             if self.template.is_contact_weapon() {
@@ -1331,9 +1324,12 @@ impl Weapon {
             self.template.get_fire_ocl(veterancy)
         };
         if let Some(ocl) = ocl {
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                let _ = ObjectCreationList::create(&ocl, &source_arc, None);
-            } else {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(source_obj_id, |source| {
+                    let _ = ObjectCreationList::create(&ocl, source, None);
+                })
+                .is_none()
+            {
                 let _ = ocl.create_at_position(source_pos, source_obj_id);
             }
         }
@@ -1342,32 +1338,27 @@ impl Weapon {
     }
 
     pub(crate) fn projectile_damage_source_id(&self, source_obj_id: ObjectId) -> ObjectId {
-        let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
-            return source_obj_id;
-        };
-        let Ok(source) = source_arc.read() else {
-            return source_obj_id;
-        };
-        if !source.is_kind_of(KindOf::Projectile) {
-            return source_obj_id;
-        }
-
-        for behavior in source.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            let Some(projectile) = guard.get_projectile_update_interface() else {
-                continue;
-            };
-            let launcher_id = projectile.projectile_get_launcher_id();
-            if launcher_id != INVALID_ID {
-                return launcher_id;
-            }
-        }
-
-        source_obj_id
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj_id, |source| {
+                if !source.is_kind_of(KindOf::Projectile) {
+                    return source_obj_id;
+                }
+                for behavior in source.get_behavior_modules() {
+                    let Ok(mut guard) = behavior.lock() else {
+                        continue;
+                    };
+                    let Some(projectile) = guard.get_projectile_update_interface() else {
+                        continue;
+                    };
+                    let launcher_id = projectile.projectile_get_launcher_id();
+                    if launcher_id != INVALID_ID {
+                        return launcher_id;
+                    }
+                }
+                source_obj_id
+            })
+            .unwrap_or(source_obj_id)
     }
-
     /// Find objects in radius - queries spatial partition for objects in blast radius
     /// Returns (object_id, position, relationship_flags) for all objects in area
     pub(crate) fn find_objects_in_radius(
@@ -1510,36 +1501,27 @@ fn report_missile_for_countermeasures(projectile_id: ObjectId, victim_id: Option
     let Some(victim_id) = victim_id else {
         return;
     };
-    let Some(proj_arc) = TheGameLogic::find_object_by_id(projectile_id) else {
-        return;
-    };
-    let Ok(proj_guard) = proj_arc.read() else {
-        return;
-    };
-    if !proj_guard.is_kind_of(KindOf::SmallMissile) {
-        return;
-    }
-    drop(proj_guard);
-
-    let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) else {
-        return;
-    };
-    let Ok(victim_guard) = victim_arc.read() else {
-        return;
-    };
-    if !victim_guard.has_countermeasures() {
-        return;
-    }
-    let supersonic = victim_guard
-        .get_ai()
-        .and_then(|ai| {
-            ai.lock().ok().map(|ai_guard| {
-                ai_guard.get_cur_locomotor_set_type() == LocomotorSetType::Supersonic
-            })
-        })
+    let small = crate::object::registry::OBJECT_REGISTRY
+        .with_object(projectile_id, |proj| proj.is_kind_of(KindOf::SmallMissile))
         .unwrap_or(false);
-    if supersonic {
+    if !small {
         return;
     }
-    victim_guard.report_missile_for_countermeasures(projectile_id);
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
+        if !victim_guard.has_countermeasures() {
+            return;
+        }
+        let supersonic = victim_guard
+            .get_ai()
+            .and_then(|ai| {
+                ai.lock().ok().map(|ai_guard| {
+                    ai_guard.get_cur_locomotor_set_type() == LocomotorSetType::Supersonic
+                })
+            })
+            .unwrap_or(false);
+        if supersonic {
+            return;
+        }
+        victim_guard.report_missile_for_countermeasures(projectile_id);
+    });
 }

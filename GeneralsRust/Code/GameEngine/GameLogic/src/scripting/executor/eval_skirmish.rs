@@ -258,60 +258,49 @@ impl ScriptConditionEvaluator {
         let mut max_value = 0.0;
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
             for obj_id in partition.get_objects_in_range(&center, radius) {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() || obj_guard.is_off_map() {
-                    continue;
-                }
-                if !obj_guard.is_kind_of(crate::common::KindOf::Structure) {
-                    continue;
-                }
-
-                let allow_affiliation =
-                    if let Some(owner_id) = obj_guard.get_controlling_player_id() {
-                        if owner_id == player_guard.get_player_index() as u32 {
-                            true
-                        } else if let Some(owner_arc) = player_list()
-                            .read()
-                            .ok()
-                            .and_then(|list| list.get_player(owner_id as i32).cloned())
-                        {
-                            if let Ok(owner_guard) = owner_arc.read() {
-                                player_guard.get_relationship(&owner_guard) == Relationship::Neutral
+                let value = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || obj_guard.is_off_map() {
+                        return None;
+                    }
+                    if !obj_guard.is_kind_of(crate::common::KindOf::Structure) {
+                        return None;
+                    }
+                    let allow_affiliation =
+                        if let Some(owner_id) = obj_guard.get_controlling_player_id() {
+                            if owner_id == player_guard.get_player_index() as u32 {
+                                true
+                            } else if let Some(owner_arc) = player_list()
+                                .read()
+                                .ok()
+                                .and_then(|list| list.get_player(owner_id as i32).cloned())
+                            {
+                                if let Ok(owner_guard) = owner_arc.read() {
+                                    player_guard.get_relationship(&owner_guard) == Relationship::Neutral
+                                } else {
+                                    false
+                                }
                             } else {
                                 false
                             }
                         } else {
                             false
-                        }
-                    } else {
-                        false
-                    };
-
-                if !allow_affiliation {
-                    continue;
-                }
-
-                let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
-                    continue;
-                };
-                let mut boxes = None;
-                module.with_module(|module| {
-                    if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
-                        boxes = Some(warehouse.boxes_stored());
+                        };
+                    if !allow_affiliation {
+                        return None;
                     }
+                    let module = obj_guard.find_update_module("SupplyWarehouseDockUpdate")?;
+                    let mut boxes = None;
+                    module.with_module(|module| {
+                        if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                            boxes = Some(warehouse.boxes_stored());
+                        }
+                    });
+                    boxes.map(|boxes| supply_box_value * boxes as f32)
                 });
-                let Some(boxes) = boxes else {
-                    continue;
-                };
-
-                let value = supply_box_value * boxes as f32;
-                if value > max_value {
-                    max_value = value;
+                if let Some(Some(value)) = value {
+                    if value > max_value {
+                        max_value = value;
+                    }
                 }
             }
         }
@@ -380,40 +369,37 @@ impl ScriptConditionEvaluator {
         let mut found = false;
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
             for obj_id in partition.get_objects_in_range(&center, radius) {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() || obj_guard.is_off_map() {
-                    continue;
-                }
-                if !obj_guard.is_kind_of(crate::common::KindOf::TechBuilding) {
-                    continue;
-                }
-
-                let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                    continue;
-                };
-                if owner_id == player_guard.get_player_index() as u32 {
-                    continue;
-                }
-                if let Some(owner_arc) = player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(owner_id as i32).cloned())
-                {
-                    if let Ok(owner_guard) = owner_arc.read() {
-                        let rel = player_guard.get_relationship(&owner_guard);
-                        if matches!(rel, Relationship::Allies) {
-                            continue;
+                let hit = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || obj_guard.is_off_map() {
+                        return false;
+                    }
+                    if !obj_guard.is_kind_of(crate::common::KindOf::TechBuilding) {
+                        return false;
+                    }
+                    let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                        return false;
+                    };
+                    if owner_id == player_guard.get_player_index() as u32 {
+                        return false;
+                    }
+                    if let Some(owner_arc) = player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(owner_id as i32).cloned())
+                    {
+                        if let Ok(owner_guard) = owner_arc.read() {
+                            let rel = player_guard.get_relationship(&owner_guard);
+                            if matches!(rel, Relationship::Allies) {
+                                return false;
+                            }
                         }
                     }
+                    true
+                });
+                if hit == Some(true) {
+                    found = true;
+                    break;
                 }
-
-                found = true;
-                break;
             }
         }
 

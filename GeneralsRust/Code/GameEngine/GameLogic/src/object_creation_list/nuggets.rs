@@ -1572,37 +1572,14 @@ mod tests {
         }
     }
 
-    fn ensure_neutral_player_with_team() -> Arc<RwLock<Team>> {
-        {
-            let list = ThePlayerList().read().expect("player list");
-            if let Some(neutral) = list.get_neutral_player() {
-                drop(list);
-                if let Ok(mut player) = neutral.write() {
-                    if let Some(team) = player.get_default_team() {
-                        return team;
-                    }
-                    let team = Arc::new(RwLock::new(Team::new(
-                        AsciiString::from("teamOclNeutral"),
-                        9_001,
-                    )));
-                    player.set_default_team(Some(Arc::clone(&team)));
-                    return team;
-                }
+    fn ensure_neutral_player_with_team() -> crate::team::TeamID {
+        let list = ThePlayerList().read().expect("player list");
+        if let Some(neutral) = list.get_neutral_player() {
+            if let Some(id) = neutral.get_default_team_id() {
+                return id;
             }
         }
-
-        let team = Arc::new(RwLock::new(Team::new(
-            AsciiString::from("teamOclNeutral"),
-            9_001,
-        )));
-        let mut player = Player::new(0);
-        player.set_player_type(PlayerType::Neutral, false);
-        player.set_default_team(Some(Arc::clone(&team)));
-        ThePlayerList()
-            .write()
-            .expect("player list")
-            .add_player(Arc::new(RwLock::new(player)));
-        team
+        crate::team::TEAM_ID_INVALID
     }
 
     fn object_nugget(name: &str) -> GenericObjectCreationNugget {

@@ -318,39 +318,25 @@ impl Player {
         // disturb modules that are intentionally sleeping for timing/performance reasons.
         {
             use crate::helpers::TheGameLogic;
-            use crate::object_manager::get_object_manager;
 
             let current_frame = TheGameLogic::get_frame();
-            let obj_mgr = get_object_manager();
-            let obj_mgr_lock = &*obj_mgr;
-            if let Ok(manager) = obj_mgr_lock.read() {
-                let owned_ids =
-                    manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-                for object_id in owned_ids {
-                    if let Some(instance_arc) = manager.get_object(object_id) {
-                        let instance_lock = &*instance_arc;
-                        if let Ok(mut instance) = instance_lock.write() {
-                            for behavior in instance.get_behavior_modules() {
-                                if let Ok(mut module_guard) = behavior.lock() {
-                                    if let Some(module) =
-                                        module_guard.get_special_power_module_interface()
-                                    {
-                                        let required_science = module
-                                            .get_special_power_template_full()
-                                            .map(|template| template.get_required_science())
-                                            .unwrap_or(SCIENCE_INVALID);
-                                        if required_science == science {
-                                            module.on_special_power_creation();
-                                            // C++ Player.cpp:2536-2538 — instantly ready.
-                                            module.set_ready_frame(current_frame);
-                                        }
-                                    }
-                                }
+            let owned_ids = self.owned_objects.clone();
+            for object_id in owned_ids {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                    for behavior in object.get_behavior_modules_mut() {
+                        if let Some(module) = behavior.get_special_power_module_interface() {
+                            let required_science = module
+                                .get_special_power_template_full()
+                                .map(|template| template.get_required_science())
+                                .unwrap_or(SCIENCE_INVALID);
+                            if required_science == science {
+                                module.on_special_power_creation();
+                                module.set_ready_frame(current_frame);
                             }
-                        };
+                        }
                     }
-                }
-            };
+                });
+            }
         }
 
         if !self.player_team_prototypes.is_empty() {

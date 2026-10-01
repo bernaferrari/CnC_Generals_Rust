@@ -1621,7 +1621,7 @@ impl AIGroup {
     /// C++ `AIGroup::groupAttackTeam` — persistent attack-team state per member.
     pub fn group_attack_team(
         &self,
-        team: &Arc<RwLock<Team>>,
+        team_id: crate::team::TeamID,
         max_shots_to_fire: i32,
         cmd_source: CommandSourceType,
     ) {
@@ -1629,9 +1629,19 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
+            let team_name = crate::team::with_team(team_id, |team| team.get_name().as_str().to_string());
+            let Some(team_name) = team_name else {
+                continue;
+            };
             let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
-                    ai.ai_attack_team(team, max_shots_to_fire, cmd_source);
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::AttackTeam,
+                        cmd_source,
+                    );
+                    params.team = Some(team_name);
+                    params.int_value = max_shots_to_fire;
+                    let _ = crate::object::update::ai::AIUpdateInterface::execute_command(ai, &params);
                 }
             });
         }

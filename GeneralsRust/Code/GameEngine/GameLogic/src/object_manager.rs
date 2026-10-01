@@ -128,7 +128,7 @@ pub struct GameObjectInstance {
 
     /// Owning team id (resolve via TeamFactory / pin)
     team_id: Option<TeamID>,
-    team_pin: Option<Arc<RwLock<crate::team::Team>>>,
+
 
     /// Owning player index cache (derived from team; not an Arc owner)
     player_index: Option<PlayerIndex>,
@@ -192,31 +192,15 @@ impl engine_module::Thing for GameObjectInstance {
 }
 
 impl GameObjectInstance {
-    fn player_from_team(team: Option<&Arc<RwLock<Team>>>) -> Option<Arc<RwLock<Player>>> {
-        let player_index = team?.read().ok()?.get_controlling_player_id()? as Int;
-        let list = crate::player::player_list().read().ok()?;
-        list.get_player(player_index).cloned()
+    fn player_index_from_team(team: Option<TeamID>) -> Option<PlayerIndex> {
+        let team_id = team?;
+        crate::team::with_team(team_id, |team| {
+            team.get_controlling_player_id()
+                .map(|id| id as PlayerIndex)
+        })
+        .flatten()
     }
 
-    fn store_team(team: Option<Arc<RwLock<Team>>>) -> (Option<TeamID>, Option<Arc<RwLock<Team>>>) {
-        let Some(team_ref) = team else {
-            return (None, None);
-        };
-        let id = team_ref.read().ok().map(|g| g.get_id());
-        let factory_has = id
-            .and_then(|tid| {
-                crate::team::get_team_factory()
-                    .lock()
-                    .ok()
-                    .and_then(|f| f.find_team_by_id(tid))
-            })
-            .is_some();
-        if factory_has {
-            (id, None)
-        } else {
-            (id, Some(team_ref))
-        }
-    }
 
     /// Wave 304: empty dual-world or invalid id cannot resolve a base object.
     fn base_id_resolvable(&self) -> bool {
@@ -248,21 +232,20 @@ impl GameObjectInstance {
     fn instance_from_snapshot(
         object_id: ObjectID,
         template: Option<Arc<dyn ThingTemplate>>,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         status_bits: ObjectStatusMaskType,
         transform: Matrix3D,
         position: Coord3D,
         current_health: Real,
         max_health: Real,
     ) -> Self {
-        let player_index = Self::player_from_team(team.as_ref())
-            .and_then(|p| p.read().ok().map(|g| g.get_player_index()));
-        let (team_id, team_pin) = Self::store_team(team);
+        let player_index = Self::player_index_from_team(team);
+        let team_id = team;
         Self {
             object_id,
             template,
             team_id,
-            team_pin,
+
             player_index,
             status_bits,
             script_status: HashMap::new(),
@@ -284,7 +267,7 @@ impl GameObjectInstance {
     pub fn from_existing(
         base: Object,
         template: Option<Arc<dyn ThingTemplate>>,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
     ) -> Self {
         let object_id = base.get_id();
         let status_bits = base.get_status_bits();
@@ -313,7 +296,7 @@ impl GameObjectInstance {
     fn from_registered_id(
         object_id: ObjectID,
         template: Option<Arc<dyn ThingTemplate>>,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
     ) -> Self {
         let (status_bits, transform, position, current_health, max_health) = OBJECT_REGISTRY
             .with_object(object_id, |base| {
@@ -349,7 +332,7 @@ impl GameObjectInstance {
     pub fn new(
         id: ObjectID,
         template: Option<Arc<dyn ThingTemplate>>,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         flags: ObjectCreationFlags,
     ) -> GameLogicResult<Self> {
         let template: Arc<dyn ThingTemplate> = match template {
@@ -360,9 +343,8 @@ impl GameObjectInstance {
             ))),
         };
 
-        let mut base = Object::new_raw(template.clone(), id, flags.status_mask, team.clone());
-        base.set_team(team.clone())
-            .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?;
+        let mut base = Object::new_raw(template.clone(), id, flags.status_mask, None);
+        base.set_team_id(team);
 
         if id != INVALID_ID {
             OBJECT_REGISTRY.register_object(id, base);
@@ -459,15 +441,8 @@ impl GameObjectInstance {
     }
 
     /// Get owning team
-    pub fn get_team(&self) -> Option<Arc<RwLock<Team>>> {
-        if let Some(id) = self.team_id {
-            if let Ok(factory) = crate::team::get_team_factory().lock() {
-                if let Some(team) = factory.find_team_by_id(id) {
-                    return Some(team);
-                }
-            }
-        }
-        self.team_pin.clone()
+    pub fn get_team(&self) -> Option<TeamID> {
+        self.team_id
     }
 
     /// Check if object has specific status bit
@@ -701,9 +676,9 @@ impl GameObjectInstance {
     /// Get the controlling player ID for this object
     /// C++ Reference: Object::getControllingPlayer()
     pub fn get_controlling_player_id(&self) -> Option<UnsignedInt> {
-        self.get_team()
-            .as_ref()
-            .and_then(|team| team.read().ok()?.get_controlling_player_id())
+        self.team_id.and_then(|team_id| {
+            crate::team::with_team(team_id, |team| team.get_controlling_player_id()).flatten()
+        })
     }
 
     /// Set the controlling player ID for this object by updating its team
@@ -712,27 +687,25 @@ impl GameObjectInstance {
         &mut self,
         player_id: Option<UnsignedInt>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(team_arc) = self.get_team() {
-            if let Ok(mut team) = team_arc.write() {
-                team.set_controlling_player_id(player_id);
-                self.player_index = player_id.map(|id| id as PlayerIndex);
-                return Ok(());
-            }
-            return Err("Failed to acquire write lock on team".into());
+        let Some(team_id) = self.team_id else {
+            return Err("Object has no assigned team".into());
+        };
+        let updated = crate::team::with_team_mut(team_id, |team| {
+            team.set_controlling_player_id(player_id);
+        });
+        if updated.is_none() {
+            return Err("Failed to acquire team".into());
         }
-        Err("Object has no assigned team".into())
+        self.player_index = player_id.map(|id| id as PlayerIndex);
+        Ok(())
     }
 
-    /// Get the controlling player for this object
-    pub fn get_controlling_player(&self) -> Option<Arc<RwLock<crate::player::Player>>> {
+    /// Get the controlling player index for this object
+    pub fn get_controlling_player(&self) -> Option<PlayerIndex> {
         if let Some(idx) = self.player_index {
-            let list = crate::player::player_list().read().ok()?;
-            return list.get_player(idx as Int).cloned();
+            return Some(idx);
         }
-        let team = self.get_team()?;
-        let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
-        let list = crate::player::player_list().read().ok()?;
-        list.get_player(player_index).cloned()
+        Self::player_index_from_team(self.team_id)
     }
 }
 
@@ -782,7 +755,7 @@ impl ObjectFactory {
         &mut self,
         template_name: &str,
         id: ObjectID,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         flags: ObjectCreationFlags,
     ) -> GameLogicResult<GameObjectInstance> {
         if !self.enabled {
@@ -1094,7 +1067,7 @@ impl ObjectManager {
         &mut self,
         template_name: &str,
         position: Coord3D,
-        team: Option<Arc<RwLock<Team>>>,
+        team: Option<TeamID>,
         flags: ObjectCreationFlags,
     ) -> GameLogicResult<ObjectID> {
         let factory_flags = Self::map_creation_flags(flags);
@@ -1107,7 +1080,7 @@ impl ObjectManager {
                 .create_object_with_status(
                     template_name,
                     position,
-                    team.clone(),
+        None,
                     factory_flags,
                     flags.status_mask,
                 )
@@ -1130,11 +1103,13 @@ impl ObjectManager {
                 base_template,
                 object_id,
                 flags.status_mask,
-                team.clone(),
+                None,
             );
-            let _ = base.set_team(team.clone());
+            base.set_team_id(team);
             let _ = base.set_position(&position);
             OBJECT_REGISTRY.register_object(object_id, base);
+        } else if let Some(team_id) = team {
+            OBJECT_REGISTRY.with_object_mut(object_id, |obj| obj.set_team_id(Some(team_id)));
         }
         let object = GameObjectInstance::from_registered_id(object_id, template, team);
 
@@ -1167,57 +1142,21 @@ impl ObjectManager {
     }
 
     fn register_player_ownership(&self, object_id: ObjectID, object: &GameObjectInstance) {
-        let team_arc = object.get_team().or_else(|| {
-            object
-                .with_base(|base| base.get_team())
-                .flatten()
+        let Some(player_id) = object.get_controlling_player_id() else {
+            return;
+        };
+        crate::player::with_player_mut(player_id as PlayerIndex, |player| {
+            player.add_owned_object(object_id);
         });
-
-        let Some(team_arc) = team_arc else {
-            return;
-        };
-
-        let Ok(team_guard) = team_arc.read() else {
-            return;
-        };
-
-        let Some(player_id) = team_guard.get_controlling_player_id() else {
-            return;
-        };
-
-        let Ok(list_guard) = crate::player::player_list().read() else {
-            return;
-        };
-
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex).cloned() else {
-            return;
-        };
-
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
-        player_guard.add_owned_object(object_id);
     }
 
     fn unregister_player_ownership(&self, object_id: ObjectID, object: &GameObjectInstance) {
-        let player_id = object.get_controlling_player_id();
-
-        let Some(player_id) = player_id else {
+        let Some(player_id) = object.get_controlling_player_id() else {
             return;
         };
-
-        let Ok(list_guard) = crate::player::player_list().read() else {
-            return;
-        };
-
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex).cloned() else {
-            return;
-        };
-
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
-        player_guard.remove_owned_object(object_id);
+        crate::player::with_player_mut(player_id as PlayerIndex, |player| {
+            player.remove_owned_object(object_id);
+        });
     }
 
     /// Get object by ID
@@ -1532,26 +1471,23 @@ mod tests {
         player_list().write().expect("player list write").clear();
     }
 
-    fn player_with_team(index: PlayerIndex, team_id: crate::team::TeamID) -> Arc<RwLock<Team>> {
-        let team = Arc::new(RwLock::new(Team::new(
-            format!("Player{}DefaultTeam", index).into(),
-            team_id,
-        )));
-        team.write()
-            .expect("team write")
-            .set_controlling_player_id(Some(index as UnsignedInt));
-
-        let player = Arc::new(RwLock::new(Player::new(index)));
-        player
-            .write()
-            .expect("player write")
-            .set_default_team(Some(Arc::clone(&team)));
+    fn player_with_team(index: PlayerIndex, team_id: crate::team::TeamID) -> crate::team::TeamID {
+        let mut factory = crate::team::get_team_factory()
+            .lock()
+            .expect("team factory");
+        let name = format!("Player{}DefaultTeam{}", index, team_id);
+        let created = factory.create_team(&name).unwrap_or(team_id);
+        drop(factory);
+        crate::team::with_team_mut(created, |team| {
+            team.set_controlling_player_id(Some(index as UnsignedInt));
+        });
+        let mut player = Player::new(index);
+        player.set_default_team(Some(created));
         player_list()
             .write()
             .expect("player list write")
             .add_player(player);
-
-        team
+        created
     }
 
     #[test]
@@ -1586,7 +1522,7 @@ mod tests {
                 .expect("failed to create object instance");
 
         let player = obj.get_controlling_player().expect("cached player");
-        assert_eq!(player.read().expect("player read").get_player_index(), 0);
+        assert_eq!(player, 0);
         reset_players();
     }
 
@@ -1602,13 +1538,13 @@ mod tests {
             template.clone(),
             44,
             ObjectStatusMaskType::none(),
-            Some(Arc::clone(&team)),
+            None,
         );
 
         let obj = GameObjectInstance::from_existing(base, Some(template), Some(team));
 
         let player = obj.get_controlling_player().expect("cached player");
-        assert_eq!(player.read().expect("player read").get_player_index(), 0);
+        assert_eq!(player, 0);
         reset_players();
     }
 

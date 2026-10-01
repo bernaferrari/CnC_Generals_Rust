@@ -942,7 +942,7 @@ impl ScriptActionDispatcher {
         let Some(selected_id) = best_guess else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(selected_obj) = TheGameLogic::find_object_by_id(selected_id) else {
+        if OBJECT_REGISTRY.with_object(selected_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
         };
 
@@ -953,11 +953,13 @@ impl ScriptActionDispatcher {
             .and_then(|player| player.read().ok().map(|guard| guard.get_player_mask()))
             .unwrap_or(crate::common::PLAYERMASK_ALL);
 
-        let mut selected_pos = Coord3D::ZERO;
-        if let Ok(selected_guard) = selected_obj.read() {
-            selected_pos = *selected_guard.get_position();
-            let _ = TheGameLogic::select_object(&*selected_guard, true, local_player_mask, true);
-        }
+        let selected_pos = OBJECT_REGISTRY
+            .with_object_mut(selected_id, |selected_guard| {
+                let selected_pos = *selected_guard.get_position();
+                let _ = TheGameLogic::select_object(selected_guard, true, local_player_mask, true);
+                selected_pos
+            })
+            .unwrap_or(Coord3D::ZERO);
 
         if !audio_to_play.is_empty() {
             let mut audio_event = crate::common::audio::AudioEventRts::new(audio_to_play.as_str());

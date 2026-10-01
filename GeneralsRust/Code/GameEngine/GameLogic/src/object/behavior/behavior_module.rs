@@ -8,6 +8,7 @@ use crate::common::{
     Bool, Coord2D, Coord3D, CoordOrigin, Int, ModuleData, ObjectID, Real, UnsignedInt, Xfer,
     XferVersion,
 };
+use crate::team::TeamID;
 use crate::object::Object;
 use std::result::Result;
 use std::sync::{Arc, Mutex, RwLock};
@@ -78,7 +79,7 @@ pub trait ParkingPlaceBehaviorInterface: Send + Sync {
     fn get_landing_deck_height_offset(&self) -> Real;
     fn set_healee(&mut self, healee: Option<ObjectID>, add: Bool);
     fn kill_all_parked_units(&mut self);
-    fn defect_all_parked_units(&mut self, new_team: Arc<RwLock<Team>>, detection_time: UnsignedInt);
+    fn defect_all_parked_units(&mut self, new_team: TeamID, detection_time: UnsignedInt);
     fn calc_best_parking_assignment(
         &mut self,
         id: ObjectID,
@@ -141,7 +142,7 @@ pub trait TransportPassengerInterface: Send + Sync {
 
 pub trait CaveInterface: Send + Sync {
     fn try_to_set_cave_index(&mut self, new_index: Int);
-    fn set_original_team(&mut self, old_team: Option<Arc<RwLock<Team>>>);
+    fn set_original_team(&mut self, old_team: Option<TeamID>);
 }
 
 pub trait LandMineInterface: Send + Sync {

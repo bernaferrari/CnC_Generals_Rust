@@ -484,10 +484,9 @@ impl ScriptActionDispatcher {
                     let _flow = OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
                         
                         for transport_id in &team_transports {
-                            let Some(transport_arc) = TheGameLogic::find_object_by_id(*transport_id) else {
-                                return _ObjFlow::Cont;
-                            };
-                            let contain_arc = transport_arc.read().ok().and_then(|t| t.get_contain());
+                            let contain_arc = OBJECT_REGISTRY
+                                .with_object(*transport_id, |t| t.get_contain())
+                                .flatten();
                             let Some(contain_arc) = contain_arc else {
                                 return _ObjFlow::Cont;
                             };
@@ -538,27 +537,17 @@ impl ScriptActionDispatcher {
                             return _ObjFlow::Cont;
                         }
                         
-                        let Some(current_transport_arc) =
-                            TheGameLogic::find_object_by_id(current_transport_id)
-                        else {
-                            return _ObjFlow::Cont;
-                        };
-                        let (contains, full, transport_radius) = {
-                            let Ok(transport_guard) = current_transport_arc.read() else {
-                                return _ObjFlow::Cont;
-                            };
+                        let Some((contains, full, transport_radius)) = OBJECT_REGISTRY.with_object(current_transport_id, |transport_guard| {
                             let transport_radius = transport_guard.get_geometry_info().get_major_radius();
-                            let Some(contain_arc) = transport_guard.get_contain() else {
-                                return _ObjFlow::Cont;
-                            };
-                            let Ok(contain_guard) = contain_arc.lock() else {
-                                return _ObjFlow::Cont;
-                            };
-                            (
+                            let contain_arc = transport_guard.get_contain()?;
+                            let contain_guard = contain_arc.lock().ok()?;
+                            Some((
                                 contain_guard.is_valid_container_for(&member_guard, false),
                                 contain_guard.is_valid_container_for(&member_guard, true),
                                 transport_radius,
-                            )
+                            ))
+                        }).flatten() else {
+                            return _ObjFlow::Cont;
                         };
                         
                         if !contains {
@@ -598,14 +587,10 @@ impl ScriptActionDispatcher {
                             };
                         
                             if new_transport_id != INVALID_ID {
-                                if let Some(new_transport_arc) =
-                                    TheGameLogic::find_object_by_id(new_transport_id)
-                                {
-                                    if let Ok(mut new_transport) = new_transport_arc.write() {
-                                        let _ = new_transport.set_position(&pos);
-                                        let _ = new_transport.set_orientation(0.0);
-                                    }
-                                }
+                                let _ = OBJECT_REGISTRY.with_object_mut(new_transport_id, |new_transport| {
+                                    let _ = new_transport.set_position(&pos);
+                                    let _ = new_transport.set_orientation(0.0);
+                                });
                                 if let Ok(mut team) = team_arc.write() {
                                     team.add_member(new_transport_id);
                                 }
@@ -652,41 +637,16 @@ impl ScriptActionDispatcher {
                                 }
                                 created_any = true;
                         
-                                let inserted = if let Some(container_arc) =
-                                    TheGameLogic::find_object_by_id(container_id)
-                                {
-                                    if let Some(payload_arc) = TheGameLogic::find_object_by_id(member_id) {
-                                        if let (Ok(container_guard), Ok(payload_guard)) =
-                                            (container_arc.read(), payload_arc.read())
-                                        {
-                                            if let Some(container_contain) = container_guard.get_contain() {
-                                                if let Ok(mut container_contain_guard) =
-                                                    container_contain.lock()
-                                                {
-                                                    if container_contain_guard
-                                                        .is_valid_container_for(&payload_guard, true)
-                                                    {
-                                                        let _ = container_contain_guard
-                                                            .add_to_contain(&payload_guard);
-                                                        true
-                                                    } else {
-                                                        false
-                                                    }
-                                                } else {
-                                                    false
-                                                }
-                                            } else {
-                                                false
-                                            }
-                                        } else {
-                                            false
-                                        }
+                                let inserted = OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                                    let container_contain = container_guard.get_contain()?;
+                                    let mut container_contain_guard = container_contain.lock().ok()?;
+                                    if container_contain_guard.is_valid_container_for(&member_guard, true) {
+                                        let _ = container_contain_guard.add_to_contain(&member_guard);
+                                        Some(true)
                                     } else {
-                                        false
+                                        Some(false)
                                     }
-                                } else {
-                                    false
-                                };
+                                }).flatten().unwrap_or(false);
                         
                                 if inserted {
                                     payload_object_id = container_id;
@@ -698,14 +658,12 @@ impl ScriptActionDispatcher {
                             enum _ObjFlow<T> { Cont, Ret(T), Fall }
                             let _flow = OBJECT_REGISTRY.with_object(payload_object_id, |payload_guard| {
                                 
-                                let Some(transport_arc) = TheGameLogic::find_object_by_id(current_transport_id)
-                                else {
+                                let contain_arc = OBJECT_REGISTRY
+                                    .with_object(current_transport_id, |transport| transport.get_contain())
+                                    .flatten();
+                                if contain_arc.is_none() && OBJECT_REGISTRY.with_object(current_transport_id, |_| ()).is_none() {
                                     return _ObjFlow::Ret(_ObjFlow::Cont);
-                                };
-                                let contain_arc = transport_arc
-                                    .read()
-                                    .ok()
-                                    .and_then(|transport| transport.get_contain());
+                                }
                                 let Some(contain_arc) = contain_arc else {
                                     return _ObjFlow::Ret(_ObjFlow::Cont);
                                 };
@@ -747,13 +705,7 @@ impl ScriptActionDispatcher {
             };
 
             for member_id in member_ids {
-                let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                    continue;
-                };
-                let (is_transport_template, is_held, ai_arc) = {
-                    let Ok(member) = member_arc.read() else {
-                        continue;
-                    };
+                let Some((is_transport_template, is_held, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |member| {
                     (
                         transport_template_for_equivalence
                             .as_ref()
@@ -764,6 +716,8 @@ impl ScriptActionDispatcher {
                         member.is_disabled_by_type(crate::common::DisabledType::Held),
                         member.get_ai_update_interface(),
                     )
+                }) else {
+                    continue;
                 };
 
                 let Some(ai_arc) = ai_arc else {
@@ -854,14 +808,10 @@ impl ScriptActionDispatcher {
         };
 
         for member_id in members {
-            let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let (member_pos, ai_arc) = {
-                let Ok(member) = member_arc.read() else {
-                    continue;
-                };
+            let Some((member_pos, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |member| {
                 (*member.get_position(), member.get_ai_update_interface())
+            }) else {
+                continue;
             };
             let Some(ai_arc) = ai_arc else {
                 continue;
@@ -911,14 +861,9 @@ impl ScriptActionDispatcher {
         };
 
         for member_id in members {
-            let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
+            let ai_arc = OBJECT_REGISTRY.with_object(member_id, |member| member.get_ai_update_interface());
+            let Some(ai_arc) = ai_arc else {
                 continue;
-            };
-            let ai_arc = {
-                let Ok(member) = member_arc.read() else {
-                    continue;
-                };
-                member.get_ai_update_interface()
             };
             let Some(ai_arc) = ai_arc else {
                 continue;
@@ -965,14 +910,10 @@ impl ScriptActionDispatcher {
         };
 
         for member_id in members {
-            let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let (member_pos, ai_arc) = {
-                let Ok(member) = member_arc.read() else {
-                    continue;
-                };
+            let Some((member_pos, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |member| {
                 (*member.get_position(), member.get_ai_update_interface())
+            }) else {
+                continue;
             };
             let Some(ai_arc) = ai_arc else {
                 continue;
@@ -1077,12 +1018,9 @@ impl ScriptActionDispatcher {
             (team_guard.get_members().to_vec(), default_team_name)
         };
         for object_id in members {
-            let ai_arc = TheGameLogic::find_object_by_id(object_id).and_then(|object| {
-                object
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface())
-            });
+            let ai_arc = OBJECT_REGISTRY
+                .with_object(object_id, |obj| obj.get_ai_update_interface())
+                .flatten();
             if let Some(ai_arc) = ai_arc {
                 if let Ok(mut ai) = ai_arc.lock() {
                     ai.set_is_recruitable(true);

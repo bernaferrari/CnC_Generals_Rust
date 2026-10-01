@@ -536,51 +536,38 @@ impl SalvageCrateCollide {
             return Ok(());
         }
 
-        let owner = {
-            let guard = other
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
-            guard.get_controlling_player()
-        };
+        let owner = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| guard.get_controlling_player())
+            .flatten();
 
-        let Some(player_arc) = owner else {
+        let Some(player_index) = owner else {
             return Ok(());
         };
 
-        {
-            let mut player = player_arc
-                .write()
-                .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
+        let updated = crate::player::with_player_mut(player_index, |player| {
             player.get_money_mut().add_money(payout);
-            player
-                .get_score_keeper_mut()
-                .add_money_earned(payout as u32);
+            player.get_score_keeper_mut().add_money_earned(payout as u32);
+        });
+        if updated.is_none() {
+            return Ok(());
         }
 
-        let _ = self.display_money_floating_text(payout as u32, &other, &player_arc);
+        let _ = self.display_money_floating_text(payout as u32, other_id, player_index);
         Ok(())
     }
 
     fn display_money_floating_text(
         &self,
         amount: u32,
-        object: &ObjectID,
-        player: &Arc<RwLock<Player>>,
+        object_id: ObjectID,
+        player: crate::player::PlayerIndex,
     ) -> Result<(), CollisionError> {
-        let (position, color) = {
-            let object_id = object
-                .read()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            let position = self.money_floating_text_position(object_id)?;
-            let player_guard = player
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
-            let mut color = player_guard.get_player_color();
-            color.a = 230;
-            (position, color)
-        };
-
+        let position = self.money_floating_text_position(object_id)?;
+        let mut color = crate::player::with_player(player, |player_guard| {
+            player_guard.get_player_color()
+        })
+        .ok_or_else(|| CollisionError::InvalidObject("player unavailable".into()))?;
+        color.a = 230;
         let caption = format_add_cash(amount);
         TheInGameUI::add_floating_text(&caption, &position, color)
             .map_err(|err| CollisionError::InvalidObject(err.to_string()))
@@ -590,20 +577,11 @@ impl SalvageCrateCollide {
         &self,
         collector_id: ObjectID,
     ) -> Result<Coord3D, CollisionError> {
-        let Some(collector) = resolve_crate_object(collector_id) else {
-            return Err(CollisionError::InvalidObject(
-                "collector unavailable".into(),
-            ));
-        };
 
-        let source = self
-            .base
-            .get_object()
-            .unwrap_or_else(|_| Arc::clone(&collector));
-        let mut position = *source
-            .read()
-            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
-            .get_position();
+
+        let mut position = crate::object::registry::OBJECT_REGISTRY
+            .with_object(collector_id, |obj| *obj.get_position())
+            .ok_or_else(|| CollisionError::InvalidObject("collector unavailable".into()))?;
         position.z += 10.0;
         Ok(position)
     }
@@ -647,21 +625,17 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let owner = {
-            let Ok(guard) = other.read() else {
-                return Ok(());
-            };
-            guard.get_controlling_player()
-        };
+        let owner = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| guard.get_controlling_player())
+            .flatten();
 
-        let Some(player_arc) = owner else {
+        let Some(player_index) = owner else {
             return Ok(());
         };
 
-        let Ok(mut player) = player_arc.write() else {
-            return Ok(());
-        };
-        player.get_academy_stats_mut().record_salvage_collected();
+        crate::player::with_player_mut(player_index, |player| {
+            player.get_academy_stats_mut().record_salvage_collected();
+        });
         Ok(())
     }
 }

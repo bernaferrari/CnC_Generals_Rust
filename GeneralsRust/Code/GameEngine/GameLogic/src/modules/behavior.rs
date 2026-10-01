@@ -86,8 +86,8 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     /// Called when the object is captured by a new owner.
     fn on_capture(
         &mut self,
-        _old_owner: Option<&Arc<RwLock<Player>>>,
-        _new_owner: Option<&Arc<RwLock<Player>>>,
+        _old_owner: Option<PlayerIndex>,
+        _new_owner: Option<PlayerIndex>,
     ) {
     }
     /// Core module interface hooks

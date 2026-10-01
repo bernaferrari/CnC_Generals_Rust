@@ -126,9 +126,7 @@ pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, Str
     let target_id = base
         .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
-    let owner_guard = owner
-        .lock()
-        .map_err(|_| "attack condition owner lock poisoned".to_string())?;
+    let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
     let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
         return Ok(false);
     };
@@ -136,15 +134,15 @@ pub(crate) fn out_of_weapon_range_object_state(base: &State) -> Result<bool, Str
         return Ok(false);
     }
     Ok(!weapon.is_within_attack_range(owner_guard.get_id(), Some(target_id), None))
+    });
+    return __owner_checkout.ok_or_else(|| "attack condition owner lock poisoned".to_string())?;
 }
 
 pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, String> {
     let owner = base
         .get_machine_owner()
         .ok_or_else(|| "attack condition missing owner".to_string())?;
-    let owner_guard = owner
-        .lock()
-        .map_err(|_| "attack condition owner lock poisoned".to_string())?;
+    let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
     let Some(pos) = base.get_machine_goal_position() else {
         return Ok(false);
     };
@@ -152,6 +150,8 @@ pub(crate) fn out_of_weapon_range_position_state(base: &State) -> Result<bool, S
         return Ok(false);
     };
     Ok(!weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&pos)))
+    });
+    return __owner_checkout.ok_or_else(|| "attack condition owner lock poisoned".to_string())?;
 }
 
 pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> {
@@ -166,15 +166,8 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
     let target_id = base
         .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
-    let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-        .ok_or_else(|| "attack condition missing target".to_string())?;
-    let owner_guard = owner
-        .lock()
-        .map_err(|_| "attack condition owner lock poisoned".to_string())?;
-    let target_guard = target
-        .lock()
-        .map_err(|_| "attack condition target lock poisoned".to_string())?;
+    let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+    let nested = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
 
     if target_guard.get_contained_by().is_some() {
         return Ok(false);
@@ -207,6 +200,10 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
     }
 
     Ok(true)
+    });
+    nested.unwrap_or(Err("attack condition missing target".to_string()))
+    });
+    return __owner_checkout.ok_or_else(|| "attack condition owner lock poisoned".to_string())?;
 }
 
 pub(crate) fn cannot_possibly_attack_object_state(
@@ -224,15 +221,8 @@ pub(crate) fn cannot_possibly_attack_object_state(
     let target_id = base
         .get_machine_goal_object_id()
         .ok_or_else(|| "attack condition missing target".to_string())?;
-    let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-        .ok_or_else(|| "attack condition missing target".to_string())?;
-    let owner_guard = owner
-        .lock()
-        .map_err(|_| "attack condition owner lock poisoned".to_string())?;
-    let target_guard = target
-        .lock()
-        .map_err(|_| "attack condition target lock poisoned".to_string())?;
+    let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+    let nested = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
 
     if !owner_guard.is_able_to_attack() {
         return Ok(true);
@@ -253,6 +243,10 @@ pub(crate) fn cannot_possibly_attack_object_state(
         result,
         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
     ))
+    });
+    nested.unwrap_or(Err("attack condition missing target".to_string()))
+    });
+    return __owner_checkout.ok_or_else(|| "attack condition owner lock poisoned".to_string())?;
 }
 
 pub(crate) fn out_of_weapon_range_object_aim(
@@ -337,14 +331,14 @@ pub trait AttackExitConditionsInterface: Send + Sync {
 
 impl AttackStateMachine {
     pub fn new(
-        owner: Weak<RwLock<Object>>,
         owner: crate::common::ObjectID,
+        name: &str,
         follow: Bool,
         attacking_object: Bool,
         force_attacking: Bool,
     ) -> Self {
-        let mut base = StateMachine::new(Some(owner), name);
         let mut base = StateMachine::new_with_owner_id(owner, name);
+        let aim_state = AIAttackAimAtTargetState::new(&base, attacking_object, force_attacking);
         let fire_state = AIAttackFireWeaponState::new(&base, attacking_object);
         let pursue_state =
             AIAttackPursueTargetState::new(&base, follow, attacking_object, force_attacking);
@@ -656,9 +650,7 @@ impl ClassicState for AIAttackAimAtTargetState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack aim missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack aim owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
         let weapon = owner_guard
             .get_current_weapon()
             .map(|(weapon, _slot)| weapon)
@@ -673,22 +665,16 @@ impl ClassicState for AIAttackAimAtTargetState {
 
         let mut used_contain = false;
         if let Some(container_id) = owner_guard.get_contained_by() {
-            if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                if let Ok(container_guard) = container.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
                     if let Some(contain) = container_guard.get_contain() {
                         if let Ok(mut contain_guard) = contain.lock() {
                             if contain_guard.is_enclosing_container_for(&*owner_guard) {
                                 used_contain = true;
-                                let goal = self.base.get_machine_goal_object_id().and_then(|id| {
-                                    crate::helpers::TheGameLogic::find_object_by_id(id).or_else(
-                                        || crate::object::registry::OBJECT_REGISTRY.get_object(id),
-                                    )
-                                });
-                                if let Some(target) = goal {
+                                if let Some(goal_id) = self.base.get_machine_goal_object_id() {
                                     in_range = contain_guard.attempt_best_fire_point_position(
                                         owner,
                                         weapon,
-                                        target.read().map(|g| g.get_id()).unwrap_or(0),
+                                        goal_id,
                                     );
                                 } else if let Some(pos) = target_pos {
                                     in_range = contain_guard.attempt_best_fire_point_position_coord(
@@ -751,11 +737,7 @@ impl ClassicState for AIAttackAimAtTargetState {
             }
         } else if let Some(pos) = target_pos {
             if !used_contain {
-                let goal_id = self.base.get_machine_goal_object_id().and_then(|id| {
-                    crate::helpers::TheGameLogic::find_object_by_id(id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                        .and_then(|target| target.read().ok().map(|guard| guard.get_id()))
-                });
+                let goal_id = self.base.get_machine_goal_object_id();
                 in_range = if let Some(goal_id) = goal_id {
                     weapon.is_within_attack_range(owner_guard.get_id(), Some(goal_id), None)
                 } else {
@@ -795,6 +777,8 @@ impl ClassicState for AIAttackAimAtTargetState {
 
         owner_guard.set_status(ObjectStatusMaskType::IS_AIMING_WEAPON, true);
         Ok(StateReturnType::Continue)
+        });
+        return __owner_checkout.ok_or_else(|| "attack aim owner lock poisoned".to_string())?;
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -808,9 +792,7 @@ impl ClassicState for AIAttackAimAtTargetState {
             .get_machine_owner()
             .ok_or_else(|| "attack aim missing owner".to_string())?;
 
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack aim owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
 
         if !owner_guard.has_any_weapon() {
             return Ok(StateReturnType::Failure);
@@ -916,11 +898,7 @@ impl ClassicState for AIAttackAimAtTargetState {
         if owner_guard.is_disabled_by_type(DisabledType::Held) {
             let owner_id = owner_guard.get_id();
             let target_id = if self.attacking_object {
-                self.base.get_machine_goal_object_id().and_then(|id| {
-                    crate::helpers::TheGameLogic::find_object_by_id(id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                        .and_then(|target| target.read().ok().map(|target_guard| target_guard.get_id()))
-                })
+                self.base.get_machine_goal_object_id()
             } else {
                 None
             };
@@ -939,6 +917,8 @@ impl ClassicState for AIAttackAimAtTargetState {
         }
 
         Ok(StateReturnType::Continue)
+        });
+        return __owner_checkout.ok_or_else(|| "attack aim owner lock poisoned".to_string())?;
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -1029,9 +1009,7 @@ impl ClassicState for AIAttackFireWeaponState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack fire missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack fire owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
 
         if !owner_guard.ai_fire_attack_ok {
             return Ok(StateReturnType::Failure);
@@ -1053,6 +1031,8 @@ impl ClassicState for AIAttackFireWeaponState {
         );
         owner_guard.pre_fire_current_weapon(victim_id);
         Ok(StateReturnType::Continue)
+        });
+        return __owner_checkout.ok_or_else(|| "attack fire owner lock poisoned".to_string())?;
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -1065,9 +1045,7 @@ impl ClassicState for AIAttackFireWeaponState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack fire missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack fire owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
 
         let victim = self.base.get_machine_goal_object_id().and_then(|id| {
             crate::helpers::TheGameLogic::find_object_by_id(id)
@@ -1215,6 +1193,8 @@ impl ClassicState for AIAttackFireWeaponState {
 
 
         Ok(StateReturnType::Success)
+        });
+        return __owner_checkout.ok_or_else(|| "attack fire owner lock poisoned".to_string())?;
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -1222,9 +1202,7 @@ impl ClassicState for AIAttackFireWeaponState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack fire missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack fire owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
 
         owner_guard.clear_status(ObjectStatusMaskType::from_status(
             ObjectStatusTypes::IsFiringWeapon,
@@ -1240,6 +1218,8 @@ impl ClassicState for AIAttackFireWeaponState {
         }
 
         Ok(())
+        });
+        return __owner_checkout.ok_or_else(|| "attack fire owner lock poisoned".to_string())?;
     }
 
     fn classic_is_attack(&self) -> bool {
@@ -1394,9 +1374,7 @@ impl AIAttackPursueTargetState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack pursue missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack pursue owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
         if owner_guard.is_kind_of(KindOf::Immobile) {
             return Ok(false);
         }
@@ -1459,6 +1437,8 @@ impl AIAttackPursueTargetState {
         self.stop_if_in_range = false;
 
         Ok(true)
+        });
+        return __owner_checkout.ok_or_else(|| "attack pursue owner lock poisoned".to_string())?;
     }
 
     pub(crate) fn update_internal(
@@ -1527,9 +1507,7 @@ impl AIAttackPursueTargetState {
             return Ok(StateReturnType::Success);
         }
 
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack pursue owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
         let victim_guard = victim
             .read()
             .map_err(|_| "attack pursue victim lock poisoned".to_string())?;
@@ -1583,6 +1561,8 @@ impl AIAttackPursueTargetState {
         }
 
         Ok(code)
+        });
+        return __owner_checkout.ok_or_else(|| "attack pursue owner lock poisoned".to_string())?;
     }
 }
 
@@ -1665,12 +1645,10 @@ impl ClassicState for AIAttackPursueTargetState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack pursue missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack pursue owner lock poisoned".to_string())?;
+let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<Option<StateReturnType>, String> {
 
         if owner_guard.is_kind_of(KindOf::Projectile) {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         }
         if self
             .base
@@ -1682,10 +1660,10 @@ impl ClassicState for AIAttackPursueTargetState {
             })
             .unwrap_or(true)
         {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         }
         if !self.attacking_object {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         }
 
         self.base.set_adjusts_destination(false);
@@ -1702,7 +1680,7 @@ impl ClassicState for AIAttackPursueTargetState {
             if is_human
                 && owner_guard.ai_fire_last_command_source == CommandSourceType::FromAi
             {
-                return Ok(StateReturnType::Success);
+                return Ok(Some(StateReturnType::Success));
             }
         }
 
@@ -1710,25 +1688,25 @@ impl ClassicState for AIAttackPursueTargetState {
         self.approach_timestamp = 0u32.wrapping_sub(ATTACK_MIN_RECOMPUTE_TIME);
 
         let Some(victim_id) = self.base.base.get_machine_goal_object_id() else {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         };
         let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(victim_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
         else {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         };
         let victim_guard = victim
             .read()
             .map_err(|_| "attack pursue victim lock poisoned".to_string())?;
         let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-            return Ok(StateReturnType::Failure);
+            return Ok(Some(StateReturnType::Failure));
         };
         if !attack_can_pursue(&owner_guard, weapon, &victim_guard) {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         }
         let turret = owner_guard.ai_fire_which_turret;
         if turret == TurretType::Invalid {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         }
         owner_guard.ai_pending_turret_objects.push((
             turret,
@@ -1736,7 +1714,12 @@ impl ClassicState for AIAttackPursueTargetState {
             self.force_attacking,
         ));
         drop(victim_guard);
-        drop(owner_guard);
+        Ok(None)
+        });
+        let __early = __early.ok_or_else(|| "attack pursue owner lock poisoned".to_string())?;
+        if let Some(code) = __early? {
+            return Ok(code);
+        }
 
         if !self.compute_path()? {
             return Ok(StateReturnType::Success);
@@ -1833,9 +1816,7 @@ impl AIAttackApproachTargetState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack approach missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack approach owner lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
         if owner_guard.is_kind_of(KindOf::Immobile) {
             return Ok(false);
         }
@@ -1915,6 +1896,8 @@ impl AIAttackApproachTargetState {
         self.base.waiting_for_path = true;
         owner_guard.ai_pending_attack_path = Some((INVALID_ID, self.base.goal_position));
         Ok(true)
+        });
+        return __owner_checkout.ok_or_else(|| "attack approach owner lock poisoned".to_string())?;
     }
 
     pub(crate) fn update_internal(&mut self) -> Result<StateReturnType, String> {
@@ -1952,12 +1935,10 @@ impl AIAttackApproachTargetState {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
         }) {
             {
-                let owner_guard = owner
-                    .lock()
-                    .map_err(|_| "attack approach owner lock poisoned".to_string())?;
                 let victim_guard = victim
                     .read()
                     .map_err(|_| "attack approach victim lock poisoned".to_string())?;
+                let early = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if owner_guard
                     .get_controlling_player()
                     .and_then(|player| {
@@ -1972,14 +1953,14 @@ impl AIAttackApproachTargetState {
                         && victim_guard.is_kind_of(KindOf::Aircraft)
                         && victim_guard.is_airborne_target()
                     {
-                        return Ok(StateReturnType::Failure);
+                        return Some(StateReturnType::Failure);
                     }
                 }
                 if victim_guard.test_status(ObjectStatusTypes::Stealthed)
                     && !victim_guard.test_status(ObjectStatusTypes::Detected)
                     && !victim_guard.test_status(ObjectStatusTypes::Disguised)
                 {
-                    return Ok(StateReturnType::Failure);
+                    return Some(StateReturnType::Failure);
                 }
 
                 if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
@@ -1990,7 +1971,7 @@ impl AIAttackApproachTargetState {
                             None,
                         )
                     {
-                        return Ok(StateReturnType::Success);
+                        return Some(StateReturnType::Success);
                     }
                     if self.stop_if_in_range
                         && weapon.is_within_attack_range(
@@ -2004,11 +1985,18 @@ impl AIAttackApproachTargetState {
                             victim_guard.get_position(),
                         )
                     {
-                        return Ok(StateReturnType::Success);
+                        return Some(StateReturnType::Success);
                     }
                 }
+                    None
+                });
+                if early.is_none() {
+                    return Err("attack approach owner lock poisoned".to_string());
+                }
+                if let Some(Some(code)) = early {
+                    return Ok(code);
+                }
             }
-
             if !self.compute_path()? {
                 return Ok(StateReturnType::Success);
             }
@@ -2020,20 +2008,23 @@ impl AIAttackApproachTargetState {
         }
 
         {
-            let owner_guard = owner
-                .lock()
-                .map_err(|_| "attack approach owner lock poisoned".to_string())?;
-            if self.stop_if_in_range {
-                if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
-                    if weapon.is_within_attack_range(
-                        owner_guard.get_id(),
-                        None,
-                        Some(&self.base.goal_position),
-                    ) && !attack_view_blocked(&owner_guard, None, &self.base.goal_position)
-                    {
-                        return Ok(StateReturnType::Success);
+            let in_range = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                if self.stop_if_in_range {
+                    if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
+                        if weapon.is_within_attack_range(
+                            owner_guard.get_id(),
+                            None,
+                            Some(&self.base.goal_position),
+                        ) && !attack_view_blocked(owner_guard, None, &self.base.goal_position)
+                        {
+                            return true;
+                        }
                     }
                 }
+                false
+            }).unwrap_or(false);
+            if in_range {
+                return Ok(StateReturnType::Success);
             }
         }
 
@@ -2081,11 +2072,10 @@ impl StateImplementation for AIAttackApproachTargetState {
                 .base
                 .get_machine_owner()
                 .and_then(|owner| {
-                    owner
-                        .read()
-                        .ok()
-                        .map(|owner_guard| !owner_guard.is_kind_of(KindOf::Immobile))
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(owner, |owner_guard| !owner_guard.is_kind_of(KindOf::Immobile))
                 })
+                .flatten()
                 .unwrap_or(false)
                 && self
                     .base
@@ -2161,9 +2151,7 @@ impl ClassicState for AIAttackApproachTargetState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "attack approach missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "attack approach owner lock poisoned".to_string())?;
+let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<Option<StateReturnType>, String> {
 
         if self
             .base
@@ -2175,7 +2163,7 @@ impl ClassicState for AIAttackApproachTargetState {
             })
             .unwrap_or(false)
         {
-            return Ok(StateReturnType::Success);
+            return Ok(Some(StateReturnType::Success));
         }
 
         self.prev_victim_pos = Coord3D::new(0.0, 0.0, 0.0);
@@ -2189,7 +2177,7 @@ impl ClassicState for AIAttackApproachTargetState {
                 .read()
                 .map_err(|_| "attack approach victim lock poisoned".to_string())?;
             let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-                return Ok(StateReturnType::Failure);
+                return Ok(Some(StateReturnType::Failure));
             };
             if weapon.is_within_attack_range(
                 owner_guard.get_id(),
@@ -2200,7 +2188,7 @@ impl ClassicState for AIAttackApproachTargetState {
                 Some(&victim_guard),
                 victim_guard.get_position(),
             ) {
-                return Ok(StateReturnType::Success);
+                return Ok(Some(StateReturnType::Success));
             }
 
             if owner_guard.ai_fire_state_id != Some(AIStateType::GuardRetaliate as u32) {
@@ -2216,7 +2204,7 @@ impl ClassicState for AIAttackApproachTargetState {
                     && owner_guard.ai_fire_last_command_source == CommandSourceType::FromAi
                     && !weapon.is_contact_weapon()
                 {
-                    return Ok(StateReturnType::Failure);
+                    return Ok(Some(StateReturnType::Failure));
                 }
 
                 let is_computer = owner_guard
@@ -2232,12 +2220,12 @@ impl ClassicState for AIAttackApproachTargetState {
                     && victim_guard.is_kind_of(KindOf::Aircraft)
                     && victim_guard.is_airborne_target()
                 {
-                    return Ok(StateReturnType::Failure);
+                    return Ok(Some(StateReturnType::Failure));
                 }
             }
 
             if attack_can_pursue(&owner_guard, weapon, &victim_guard) {
-                return Ok(StateReturnType::Success);
+                return Ok(Some(StateReturnType::Success));
             }
         } else {
             owner_guard.ai_pending_destroy_path = true;
@@ -2259,7 +2247,12 @@ impl ClassicState for AIAttackApproachTargetState {
                     .push((turret, goal_position));
             }
         }
-        drop(owner_guard);
+        Ok(None)
+        });
+        let __early = __early.ok_or_else(|| "attack approach owner lock poisoned".to_string())?;
+        if let Some(code) = __early? {
+            return Ok(code);
+        }
 
         if !self.compute_path()? {
             return Ok(StateReturnType::Failure);
@@ -2414,8 +2407,8 @@ impl AIAttackMoveStateMachine {
         self.base.set_current_state(state as u32)
     }
 
-    pub fn set_goal_object(&mut self, obj: Option<Weak<RwLock<Object>>>) {
-        self.base.set_goal_object(obj);
+    pub fn set_goal_object(&mut self, obj: Option<ObjectID>) {
+        self.base.set_goal_object_by_id(obj);
     }
 
     pub fn set_goal_object_by_id(&mut self, object_id: Option<ObjectID>) {

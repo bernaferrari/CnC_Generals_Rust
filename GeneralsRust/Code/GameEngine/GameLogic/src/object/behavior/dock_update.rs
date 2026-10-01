@@ -61,12 +61,18 @@ pub struct DockUpdate {
     dock_open: Bool,
 }
 
-fn resolve_dock_object(id: ObjectID) -> Option<std::sync::Arc<std::sync::RwLock<Object>>> {
+fn with_dock_object<R>(id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
     if id == INVALID_ID {
         return None;
     }
-    TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
+}
+
+fn with_dock_object_mut<R>(id: ObjectID, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+    if id == INVALID_ID {
+        return None;
+    }
+    crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
 }
 
 impl DockUpdate {
@@ -212,7 +218,7 @@ impl DockUpdate {
         self.positions_loaded = true;
     }
 
-    fn compute_approach_position(&mut self, position_index: usize, docker: &Object) -> Coord3D {
+    fn compute_approach_position(&mut self, position_index: usize, docker_id: ObjectID) -> Coord3D {
         if !self.positions_loaded {
             self.load_dock_positions();
         }
@@ -222,7 +228,11 @@ impl DockUpdate {
         } else {
             None
         };
-        let their_position = *docker.get_position();
+        let Some((their_position, airborne)) = with_dock_object(docker_id, |docker| {
+            (*docker.get_position(), docker.is_using_airborne_locomotor())
+        }) else {
+            return Coord3D::ZERO;
+        };
         let Some(mut working_position) =
             crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 let mut working_position = if let Some(approach_pos) = approach {
@@ -253,10 +263,11 @@ impl DockUpdate {
             let mut options = FindPositionOptions::default();
             options.min_radius = 0.0;
             options.max_radius = 100.0;
-            options.source_to_path_to_dest_id = Some(docker.get_id());
-            if docker.is_using_airborne_locomotor() {
+            options.source_to_path_to_dest_id = Some(docker_id);
+            options.source_to_path_to_dest_id = Some(docker_id);
+            if airborne {
                 options.ignore_object_id = Some(self.owner_id);
-            }
+            };
 
             if partition.find_position_around_with_options(
                 &working_position,
@@ -290,20 +301,19 @@ impl DockUpdate {
         if !self.positions_loaded {
             self.load_dock_positions();
         }
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if with_dock_object(obj_id, |_| ()).is_none() {
             return false;
-        };
-        let obj_guard = obj.write().unwrap();
+        }
 
         for (position_index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
-                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *goal_pos = self.compute_approach_position(position_index, obj_id);
                 *approach_pos = position_index as i32;
                 return true;
             }
             if *owner == INVALID_ID {
                 self.approach_position_owners[position_index] = obj_id;
-                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *goal_pos = self.compute_approach_position(position_index, obj_id);
                 *approach_pos = position_index as i32;
                 return true;
             }
@@ -316,7 +326,7 @@ impl DockUpdate {
             self.load_dock_positions();
             let position_index = self.approach_position_owners.len() - 1;
             self.approach_position_owners[position_index] = obj_id;
-            *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+            *goal_pos = self.compute_approach_position(position_index, obj_id);
             *approach_pos = position_index as i32;
             return true;
         }
@@ -334,10 +344,9 @@ impl DockUpdate {
         if !self.positions_loaded {
             self.load_dock_positions();
         }
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if with_dock_object(obj_id, |_| ()).is_none() {
             return false;
-        };
-        let obj_guard = obj.write().unwrap();
+        }
         if *approach_pos <= 0 {
             return false;
         }
@@ -352,7 +361,7 @@ impl DockUpdate {
         self.approach_position_reached[current_pos - 1] = false;
         self.approach_position_owners[current_pos] = INVALID_ID;
         self.approach_position_reached[current_pos] = false;
-        *goal_pos = self.compute_approach_position(current_pos - 1, &obj_guard);
+        *goal_pos = self.compute_approach_position(current_pos - 1, obj_id);
         *approach_pos = (current_pos - 1) as i32;
         true
     }
@@ -405,19 +414,17 @@ impl DockUpdate {
         }
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
-            if let Some(obj) = resolve_dock_object(obj_id) {
-                if let Ok(docker_guard) = obj.read() {
-                    if docker_guard.is_using_airborne_locomotor() {
-                        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                            if let Ok(owner_guard) = owner.read() {
-                                *goal_pos = *owner_guard.get_position();
-                                return;
-                            }
-                        }
+            let _ = with_dock_object(obj_id, |docker_guard| {
+                if docker_guard.is_using_airborne_locomotor() {
+                    if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.owner_id, |owner_guard| *owner_guard.get_position())
+                    {
+                        *goal_pos = pos;
+                        return;
                     }
-                    *goal_pos = *docker_guard.get_position();
                 }
-            }
+                *goal_pos = *docker_guard.get_position();
+            });
             return;
         }
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -435,11 +442,9 @@ impl DockUpdate {
         }
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
-            if let Some(obj) = resolve_dock_object(obj_id) {
-                if let Ok(docker_guard) = obj.read() {
-                    *goal_pos = *docker_guard.get_position();
-                }
-            }
+            let _ = with_dock_object(obj_id, |docker_guard| {
+                *goal_pos = *docker_guard.get_position();
+            });
             return;
         }
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -457,11 +462,9 @@ impl DockUpdate {
         }
         let zero = Coord3D::ZERO;
         if self.enter_position == zero {
-            if let Some(obj) = resolve_dock_object(obj_id) {
-                if let Ok(docker_guard) = obj.read() {
-                    *goal_pos = *docker_guard.get_position();
-                }
-            }
+            let _ = with_dock_object(obj_id, |docker_guard| {
+                *goal_pos = *docker_guard.get_position();
+            });
             return;
         }
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -474,10 +477,9 @@ impl DockUpdate {
     }
 
     pub fn on_enter_reached(&mut self, obj_id: ObjectID) {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if with_dock_object(obj_id, |_| ()).is_none() {
             return;
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
         let clear = MODELCONDITION_DOCKING_ENDING;
         let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -485,7 +487,9 @@ impl DockUpdate {
                 let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
             }
         }
-        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        let _ = with_dock_object_mut(obj_id, |obj_guard| {
+            obj_guard.clear_and_set_model_condition_flags(clear, set)
+        });
         self.docker_inside = true;
         for (index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
@@ -497,10 +501,9 @@ impl DockUpdate {
     }
 
     pub fn on_dock_reached(&mut self, obj_id: ObjectID) {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if with_dock_object(obj_id, |_| ()).is_none() {
             return;
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
         let clear = MODELCONDITION_DOCKING_BEGINNING;
         let set = MODELCONDITION_DOCKING_ACTIVE;
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -508,14 +511,15 @@ impl DockUpdate {
                 let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
             }
         }
-        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        let _ = with_dock_object_mut(obj_id, |obj_guard| {
+            obj_guard.clear_and_set_model_condition_flags(clear, set)
+        });
     }
 
     pub fn on_exit_reached(&mut self, obj_id: ObjectID) {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if with_dock_object(obj_id, |_| ()).is_none() {
             return;
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
         let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
         let set = MODELCONDITION_DOCKING_ENDING;
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -523,7 +527,9 @@ impl DockUpdate {
                 let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
             }
         }
-        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        let _ = with_dock_object_mut(obj_id, |obj_guard| {
+            obj_guard.clear_and_set_model_condition_flags(clear, set)
+        });
         self.docker_inside = false;
         if self.active_docker == obj_id {
             self.active_docker = INVALID_ID;
@@ -531,7 +537,7 @@ impl DockUpdate {
     }
 
     pub fn cancel_dock(&mut self, obj_id: ObjectID) {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if with_dock_object(obj_id, |_| ()).is_none() {
             for (owner, reached) in self
                 .approach_position_owners
                 .iter_mut()
@@ -547,8 +553,7 @@ impl DockUpdate {
                 self.docker_inside = false;
             }
             return;
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
         for (owner, reached) in self
             .approach_position_owners
             .iter_mut()
@@ -571,7 +576,7 @@ impl DockUpdate {
                     let _ = owner_guard.clear_model_condition_flags(clear);
                 }
             }
-            let _ = obj_guard.clear_model_condition_flags(clear).ok();
+            let _ = with_dock_object_mut(obj_id, |obj_guard| obj_guard.clear_model_condition_flags(clear));
         }
     }
 

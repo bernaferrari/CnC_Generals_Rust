@@ -1106,12 +1106,9 @@ impl ScriptActionDispatcher {
                     .map(|team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                        continue;
-                    };
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                         let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                            continue;
+                            return;
                         };
                         obj_guard.leave_group();
                         if let Ok(mut ai_guard) = ai_arc.lock() {
@@ -1123,8 +1120,8 @@ impl ScriptActionDispatcher {
                             );
                             params.obj = Some(target_id);
                             let _ = ai_guard.execute_command(&params);
-                        };
-                    };
+                        }
+                    });
                 }
             }
         }
@@ -1161,12 +1158,9 @@ impl ScriptActionDispatcher {
                     .map(|team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                        continue;
-                    };
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                         let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                            continue;
+                            return;
                         };
                         obj_guard.leave_group();
                         if let Ok(mut ai_guard) = ai_arc.lock() {
@@ -1178,8 +1172,8 @@ impl ScriptActionDispatcher {
                             );
                             params.pos = waypoint_pos;
                             let _ = ai_guard.execute_command(&params);
-                        };
-                    };
+                        }
+                    });
                 }
             }
         }

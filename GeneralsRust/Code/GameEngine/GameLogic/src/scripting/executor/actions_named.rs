@@ -123,29 +123,34 @@ impl ScriptActionDispatcher {
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(oid) = object_id {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(oid) {
-                let reference_pos = obj_arc.read().ok().map(|obj| *obj.get_position());
-                let waypoint_id = reference_pos
-                    .and_then(|pos| self.resolve_follow_waypoint_id(&waypoint_name, pos));
-                let Some(waypoint_id) = waypoint_id else {
-                    return Ok(ScriptActionResult::Success);
-                };
-                // C++ ScriptActions.cpp:1621-1623 leaveGroup + NORMAL loco.
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if obj_guard.get_ai_update_interface().is_none() {
-                        return Ok(ScriptActionResult::Success);
-                    }
-                    obj_guard.leave_group();
-                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::FollowWaypointPath,
-                            CommandSourceType::FromScript,
-                        );
-                        params.waypoint = Some(waypoint_id);
-                        let _ = ai.execute_command(&params);
-                    }
+            let reference_pos = OBJECT_REGISTRY.with_object(oid, |obj| *obj.get_position());
+            let Some(reference_pos) = reference_pos else {
+                log::warn!("Unit '{}' not found for follow waypoints", unit_name);
+                return Ok(ScriptActionResult::Success);
+            };
+            let waypoint_id = self.resolve_follow_waypoint_id(&waypoint_name, reference_pos);
+            let Some(waypoint_id) = waypoint_id else {
+                return Ok(ScriptActionResult::Success);
+            };
+            // C++ leaveGroup + NORMAL loco. Return stays outside the checkout.
+            let issued = OBJECT_REGISTRY.with_object_mut(oid, |obj_guard| {
+                if obj_guard.get_ai_update_interface().is_none() {
+                    return false;
                 }
+                obj_guard.leave_group();
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::FollowWaypointPath,
+                        CommandSourceType::FromScript,
+                    );
+                    params.waypoint = Some(waypoint_id);
+                    let _ = ai.execute_command(&params);
+                }
+                true
+            });
+            if issued == Some(false) {
+                return Ok(ScriptActionResult::Success);
             }
         } else {
             log::warn!("Unit '{}' not found for follow waypoints", unit_name);
@@ -180,29 +185,34 @@ impl ScriptActionDispatcher {
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(oid) = object_id {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(oid) {
-                let reference_pos = obj_arc.read().ok().map(|obj| *obj.get_position());
-                let waypoint_id = reference_pos
-                    .and_then(|pos| self.resolve_follow_waypoint_id(&waypoint_name, pos));
-                let Some(waypoint_id) = waypoint_id else {
-                    return Ok(ScriptActionResult::Success);
-                };
-                // C++ ScriptActions.cpp:1648-1650 leaveGroup + NORMAL loco.
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if obj_guard.get_ai_update_interface().is_none() {
-                        return Ok(ScriptActionResult::Success);
-                    }
-                    obj_guard.leave_group();
-                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::FollowWaypointPathExact,
-                            CommandSourceType::FromScript,
-                        );
-                        params.waypoint = Some(waypoint_id);
-                        let _ = ai.execute_command(&params);
-                    }
+            let reference_pos = OBJECT_REGISTRY.with_object(oid, |obj| *obj.get_position());
+            let Some(reference_pos) = reference_pos else {
+                log::warn!("Unit '{}' not found for follow waypoints exact", unit_name);
+                return Ok(ScriptActionResult::Success);
+            };
+            let waypoint_id = self.resolve_follow_waypoint_id(&waypoint_name, reference_pos);
+            let Some(waypoint_id) = waypoint_id else {
+                return Ok(ScriptActionResult::Success);
+            };
+            // C++ leaveGroup + NORMAL loco. Return stays outside the checkout.
+            let issued = OBJECT_REGISTRY.with_object_mut(oid, |obj_guard| {
+                if obj_guard.get_ai_update_interface().is_none() {
+                    return false;
                 }
+                obj_guard.leave_group();
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::FollowWaypointPathExact,
+                        CommandSourceType::FromScript,
+                    );
+                    params.waypoint = Some(waypoint_id);
+                    let _ = ai.execute_command(&params);
+                }
+                true
+            });
+            if issued == Some(false) {
+                return Ok(ScriptActionResult::Success);
             }
         } else {
             log::warn!("Unit '{}' not found for follow waypoints exact", unit_name);
@@ -240,32 +250,30 @@ impl ScriptActionDispatcher {
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if obj_guard.get_ai_update_interface().is_none() {
-                        log::warn!("Named unit '{}' has no AI update interface", unit_name);
-                    } else {
-                        obj_guard.leave_group();
-                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                            let _ =
-                                ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::AttackArea,
-                                CommandSourceType::FromScript,
-                            );
-                            params.pos = area_center;
-                            params.polygon = Some(trigger_id);
-                            let _ = ai.execute_command(&params);
-                            log::info!(
-                                "Named unit '{}' attack area '{}' command issued (ID: {})",
-                                unit_name,
-                                area_name,
-                                object_id
-                            );
-                        }
+            let found = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if obj_guard.get_ai_update_interface().is_none() {
+                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
+                } else {
+                    obj_guard.leave_group();
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::AttackArea,
+                            CommandSourceType::FromScript,
+                        );
+                        params.pos = area_center;
+                        params.polygon = Some(trigger_id);
+                        let _ = ai.execute_command(&params);
+                        log::info!(
+                            "Named unit '{}' attack area '{}' command issued (ID: {})",
+                            unit_name,
+                            area_name,
+                            object_id
+                        );
                     }
                 }
-            } else {
+            });
+            if found.is_none() {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
             }
         } else {
@@ -306,32 +314,30 @@ impl ScriptActionDispatcher {
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if obj_guard.get_ai_update_interface().is_none() {
-                        log::warn!("Named unit '{}' has no AI update interface", unit_name);
-                    } else {
-                        obj_guard.leave_group();
-                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                            let _ =
-                                ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::AttackTeam,
-                                CommandSourceType::FromScript,
-                            );
-                            params.team = Some(team_name.clone());
-                            params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                            let _ = ai.execute_command(&params);
-                            log::info!(
-                                "Named unit '{}' attack team '{}' command issued (ID: {})",
-                                unit_name,
-                                team_name,
-                                object_id
-                            );
-                        }
+            let found = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if obj_guard.get_ai_update_interface().is_none() {
+                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
+                } else {
+                    obj_guard.leave_group();
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::AttackTeam,
+                            CommandSourceType::FromScript,
+                        );
+                        params.team = Some(team_name.clone());
+                        params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                        let _ = ai.execute_command(&params);
+                        log::info!(
+                            "Named unit '{}' attack team '{}' command issued (ID: {})",
+                            unit_name,
+                            team_name,
+                            object_id
+                        );
                     }
                 }
-            } else {
+            });
+            if found.is_none() {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
             }
         } else {
@@ -413,27 +419,26 @@ impl ScriptActionDispatcher {
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                        if let Err(err) = ai.set_attitude(attitude) {
-                            log::debug!(
-                                "ScriptActions::do_named_set_attitude failed for object {}: {}",
-                                object_id,
-                                err
-                            );
-                        }
-                        log::info!(
-                            "Named unit '{}' attitude set to {:?} (ID: {})",
-                            unit_name,
-                            attitude,
-                            object_id
+            let found = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    if let Err(err) = ai.set_attitude(attitude) {
+                        log::debug!(
+                            "ScriptActions::do_named_set_attitude failed for object {}: {}",
+                            object_id,
+                            err
                         );
-                    } else {
-                        log::warn!("Named unit '{}' has no AI update interface", unit_name);
                     }
+                    log::info!(
+                        "Named unit '{}' attitude set to {:?} (ID: {})",
+                        unit_name,
+                        attitude,
+                        object_id
+                    );
+                } else {
+                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
-            } else {
+            });
+            if found.is_none() {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
             }
         } else {
@@ -525,39 +530,29 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let Some(unit_obj) = TheGameLogic::find_object_by_id(unit_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(building_obj) = TheGameLogic::find_object_by_id(building_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let can_garrison = if let (Ok(unit_guard), Ok(building_guard)) =
-            (unit_obj.read(), building_obj.read())
-        {
-            let player_mask = unit_guard
-                .get_controlling_player()
-                .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
-                .unwrap_or_else(crate::common::PlayerMaskType::none);
-
-            if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
-                false
-            } else if let Some(contain) = building_guard.get_contain() {
-                let entered_mask = contain.get_player_who_entered();
-                entered_mask == crate::common::PlayerMaskType::none() || entered_mask == player_mask
-            } else {
-                false
-            }
-        } else {
-            false
-        };
-        if !can_garrison {
+        let can_garrison = OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+            OBJECT_REGISTRY.with_object(building_id, |building_guard| {
+                let player_mask = unit_guard
+                    .get_controlling_player()
+                    .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
+                    .unwrap_or_else(crate::common::PlayerMaskType::none);
+                if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
+                    false
+                } else if let Some(contain) = building_guard.get_contain() {
+                    let entered_mask = contain.get_player_who_entered();
+                    entered_mask == crate::common::PlayerMaskType::none() || entered_mask == player_mask
+                } else {
+                    false
+                }
+            })
+        });
+        if can_garrison != Some(Some(true)) {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(mut unit_guard) = unit_obj.write() {
+        let entered = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
             let Some(ai_arc) = unit_guard.get_ai_update_interface() else {
-                return Ok(ScriptActionResult::Success);
+                return false;
             };
             unit_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
@@ -566,8 +561,12 @@ impl ScriptActionDispatcher {
                     AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
                 params.obj = Some(building_id);
                 let _ = ai_guard.execute_command(&params);
-            };
-        };
+            }
+            true
+        });
+        if entered.is_none() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         Ok(ScriptActionResult::Success)
     }
@@ -591,12 +590,8 @@ impl ScriptActionDispatcher {
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(unit_obj) = TheGameLogic::find_object_by_id(unit_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let (unit_pos, unit_off_map, unit_is_hacker, unit_player_mask) =
-            if let Ok(unit_guard) = unit_obj.read() {
+        let Some((unit_pos, unit_off_map, unit_is_hacker, unit_player_mask)) =
+            OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
                 (
                     *unit_guard.get_position(),
                     unit_guard.is_off_map(),
@@ -606,9 +601,10 @@ impl ScriptActionDispatcher {
                         .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
                         .unwrap_or_else(crate::common::PlayerMaskType::none),
                 )
-            } else {
-                return Ok(ScriptActionResult::Success);
-            };
+            })
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
 
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(ScriptActionResult::Success);
@@ -650,9 +646,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(mut unit_guard) = unit_obj.write() {
+        let entered = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
             let Some(ai_arc) = unit_guard.get_ai_update_interface() else {
-                return Ok(ScriptActionResult::Success);
+                return false;
             };
             unit_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
@@ -661,8 +657,12 @@ impl ScriptActionDispatcher {
                     AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
                 params.obj = Some(target_id);
                 let _ = ai_guard.execute_command(&params);
-            };
-        };
+            }
+            true
+        });
+        if entered != Some(true) {
+            return Ok(ScriptActionResult::Success);
+        }
 
         Ok(ScriptActionResult::Success)
     }
@@ -731,14 +731,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(unit_obj) = TheGameLogic::find_object_by_id(unit_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let ai_arc = unit_obj
-            .read()
-            .ok()
-            .and_then(|unit| unit.get_ai_update_interface());
+        let ai_arc = OBJECT_REGISTRY
+            .with_object(unit_id, |unit| unit.get_ai_update_interface())
+            .flatten();
         let Some(ai_arc) = ai_arc else {
             return Ok(ScriptActionResult::Success);
         };
@@ -780,9 +775,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(unit_obj) = TheGameLogic::find_object_by_id(unit_id) else {
+        if OBJECT_REGISTRY.with_object(unit_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
+        }
 
         let destination_team = player_list()
             .read()
@@ -793,12 +788,12 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(mut unit_guard) = unit_obj.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
             let old_owner = unit_guard.get_controlling_player();
             let _ = unit_guard.set_team(Some(destination_team));
             let new_owner = unit_guard.get_controlling_player();
             unit_guard.on_capture(old_owner, new_owner);
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -981,9 +976,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
+        if OBJECT_REGISTRY.with_object(source_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
+        }
 
         let waypoint_pos = {
             let waypoint_ascii = AsciiString::from(waypoint.as_str());
@@ -1007,16 +1002,15 @@ impl ScriptActionDispatcher {
             template.get_name().to_string()
         };
 
-        if let Ok(source_guard) = source_obj.read() {
-            let _ =
-                source_guard.with_special_power_module_mut_by_name(&template_name, |sp_module| {
-                    sp_module.do_special_power_at_location(
-                        &waypoint_pos,
-                        INVALID_ANGLE,
-                        SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
-                    );
-                });
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
+            let _ = source_guard.with_special_power_module_mut_by_name(&template_name, |sp_module| {
+                sp_module.do_special_power_at_location(
+                    &waypoint_pos,
+                    INVALID_ANGLE,
+                    SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
+                );
+            });
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1052,9 +1046,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(target_id)) = tracker.get_object_id(&target_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
+        if OBJECT_REGISTRY.with_object(source_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
+        }
         if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
         }
@@ -1069,15 +1063,14 @@ impl ScriptActionDispatcher {
             template.get_name().to_string()
         };
 
-        if let Ok(source_guard) = source_obj.read() {
-            let _ =
-                source_guard.with_special_power_module_mut_by_name(&template_name, |sp_module| {
-                    sp_module.do_special_power_at_object(
-                        target_id,
-                        SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
-                    );
-                });
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
+            let _ = source_guard.with_special_power_module_mut_by_name(&template_name, |sp_module| {
+                sp_module.do_special_power_at_object(
+                    target_id,
+                    SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
+                );
+            });
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1106,11 +1099,7 @@ impl ScriptActionDispatcher {
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let (source_pos, waypoint) = if let Ok(source_guard) = source_obj.read() {
+        let Some((source_pos, waypoint)) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
             let source_pos = *source_guard.get_position();
             let waypoint = get_terrain_logic().read().ok().and_then(|terrain| {
                 terrain
@@ -1118,7 +1107,7 @@ impl ScriptActionDispatcher {
                     .map(crate::waypoint::Waypoint::from_terrain)
             });
             (source_pos, waypoint)
-        } else {
+        }) else {
             return Ok(ScriptActionResult::Success);
         };
         let Some(waypoint) = waypoint else {
@@ -1131,28 +1120,27 @@ impl ScriptActionDispatcher {
             .and_then(|mgr| mgr.all_object_ids().into_iter().max())
             .unwrap_or(0);
 
-        let fired = if let Ok(mut source_guard) = source_obj.write() {
-            match source_guard
+        let taken = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
+            source_guard
                 .weapon_set
                 .take_waypoint_following_capable_weapon()
-            {
-                Some((slot, mut weapon)) => {
-                    // Fire with the object guard released: the projectile /
-                    // damage cascade re-reads the source object from the
-                    // registry and would deadlock against a live write guard.
-                    drop(source_guard);
-                    let _ = weapon.force_fire_weapon(source_id, &source_pos);
-                    if let Ok(mut source_guard) = source_obj.write() {
-                        source_guard
-                            .weapon_set
-                            .restore_waypoint_following_weapon(slot, weapon);
-                    }
-                    true
-                }
-                None => false,
+        });
+        let Some(taken) = taken else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let fired = match taken {
+            Some((slot, mut weapon)) => {
+                // Fire outside the checkout: the projectile cascade re-enters
+                // the source id, and a nested same-id lookup is None.
+                let _ = weapon.force_fire_weapon(source_id, &source_pos);
+                let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
+                    source_guard
+                        .weapon_set
+                        .restore_waypoint_following_weapon(slot, weapon);
+                });
+                true
             }
-        } else {
-            false
+            None => false,
         };
         if !fired {
             return Ok(ScriptActionResult::Success);
@@ -1210,31 +1198,30 @@ impl ScriptActionDispatcher {
         let Ok(Some(target_id)) = tracker.get_object_id(&target_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
+        if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
-        let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) else {
+        }
+        let button_ids = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            self.matching_command_button_ids_for_object(source_guard, &command_button)
+        });
+        let Some(button_ids) = button_ids else {
             return Ok(ScriptActionResult::Success);
-        };
-
-        let button_ids = if let Ok(source_guard) = source_obj.read() {
-            self.matching_command_button_ids_for_object(&source_guard, &command_button)
-        } else {
-            Vec::new()
         };
         if button_ids.is_empty() {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let (Ok(mut source_guard), Ok(target_guard)) = (source_obj.write(), target_obj.read()) {
+        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
             for button_id in button_ids {
-                let _ = source_guard.do_command_button_at_object(
-                    button_id,
-                    &target_guard,
-                    CommandSourceType::FromScript,
-                );
+                let _ = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    let _ = source_guard.do_command_button_at_object(
+                        button_id,
+                        target_guard,
+                        CommandSourceType::FromScript,
+                    );
+                });
             }
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1267,9 +1254,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
+        if OBJECT_REGISTRY.with_object(source_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
+        }
         let waypoint_pos = {
             let waypoint_ascii = AsciiString::from(waypoint.as_str());
             get_terrain_logic().read().ok().and_then(|terrain| {
@@ -1282,16 +1269,17 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let button_ids = if let Ok(source_guard) = source_obj.read() {
-            self.matching_command_button_ids_for_object(&source_guard, &command_button)
-        } else {
-            Vec::new()
+        let button_ids = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            self.matching_command_button_ids_for_object(source_guard, &command_button)
+        });
+        let Some(button_ids) = button_ids else {
+            return Ok(ScriptActionResult::Success);
         };
         if button_ids.is_empty() {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(mut source_guard) = source_obj.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
             for button_id in button_ids {
                 let _ = source_guard.do_command_button_at_position(
                     button_id,
@@ -1299,7 +1287,7 @@ impl ScriptActionDispatcher {
                     CommandSourceType::FromScript,
                 );
             }
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1325,24 +1313,21 @@ impl ScriptActionDispatcher {
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
+        let button_ids = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            self.matching_command_button_ids_for_object(source_guard, &command_button)
+        });
+        let Some(button_ids) = button_ids else {
             return Ok(ScriptActionResult::Success);
-        };
-
-        let button_ids = if let Ok(source_guard) = source_obj.read() {
-            self.matching_command_button_ids_for_object(&source_guard, &command_button)
-        } else {
-            Vec::new()
         };
         if button_ids.is_empty() {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(mut source_guard) = source_obj.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
             for button_id in button_ids {
                 let _ = source_guard.do_command_button(button_id, CommandSourceType::FromScript);
             }
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1375,34 +1360,28 @@ impl ScriptActionDispatcher {
         let Ok(Some(source_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let waypoint = if let Ok(source_guard) = source_obj.read() {
+        let waypoint = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
             let source_pos = *source_guard.get_position();
             get_terrain_logic().read().ok().and_then(|terrain| {
                 terrain
                     .get_closest_waypoint_on_path(&source_pos, &waypoint_path)
                     .map(crate::waypoint::Waypoint::from_terrain)
             })
-        } else {
-            None
-        };
+        }).flatten();
         let Some(waypoint) = waypoint else {
             return Ok(ScriptActionResult::Success);
         };
 
-        let button_ids = if let Ok(source_guard) = source_obj.read() {
-            self.matching_command_button_ids_for_object(&source_guard, &command_button)
-        } else {
-            Vec::new()
-        };
+        let button_ids = OBJECT_REGISTRY
+            .with_object(source_id, |source_guard| {
+                self.matching_command_button_ids_for_object(source_guard, &command_button)
+            })
+            .unwrap_or_default();
         if button_ids.is_empty() {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(source_guard) = source_obj.read() {
+        let _ = OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
             for button_id in button_ids {
                 let _ = source_guard.do_command_button_using_waypoints(
                     button_id,
@@ -1410,7 +1389,7 @@ impl ScriptActionDispatcher {
                     CommandSourceType::FromScript,
                 );
             }
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1461,9 +1440,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
+        }
 
         let upgrade = get_upgrade_center()
             .read()
@@ -1473,11 +1452,11 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(mut obj_guard) = obj_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
             if obj_guard.affected_by_upgrade(upgrade.as_ref()) {
                 obj_guard.give_upgrade(upgrade.as_ref());
             }
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1666,28 +1645,27 @@ impl ScriptActionDispatcher {
         let Ok(Some(target_id)) = tracker.get_object_id(&target_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
         if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
         }
-
-        if let Ok(mut obj_guard) = obj_arc.write() {
+        let faced = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
             let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                return Ok(ScriptActionResult::Success);
+                return false;
             };
             obj_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
-                // C++ ScriptActions.cpp:6092-6095 clearWaypointQueue first.
                 ai_guard.clear_waypoint_queue();
                 let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let mut params =
                     AiCommandParams::new(AiCommandType::FaceObject, CommandSourceType::FromScript);
                 params.obj = Some(target_id);
                 let _ = ai_guard.execute_command(&params);
-            };
-        };
+            }
+            true
+        });
+        if faced.is_none() {
+            return Ok(ScriptActionResult::Success);
+        }
 
         Ok(ScriptActionResult::Success)
     }
@@ -1711,9 +1689,9 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
-        };
+        }
 
         let waypoint_pos = {
             let waypoint_ascii = AsciiString::from(waypoint.as_str());
@@ -1727,13 +1705,12 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(mut obj_guard) = obj_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
             let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                return Ok(ScriptActionResult::Success);
+                return;
             };
             obj_guard.leave_group();
             if let Ok(mut ai_guard) = ai_arc.lock() {
-                // C++ ScriptActions.cpp:6113-6116 clearWaypointQueue first.
                 ai_guard.clear_waypoint_queue();
                 let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                 let mut params = AiCommandParams::new(
@@ -1742,8 +1719,8 @@ impl ScriptActionDispatcher {
                 );
                 params.pos = waypoint_pos;
                 let _ = ai_guard.execute_command(&params);
-            };
-        };
+            }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -1846,10 +1823,12 @@ impl ScriptActionDispatcher {
         boobytrap_template_name: &str,
         target_object_id: ObjectID,
     ) -> bool {
-        let Some(target_obj) = TheGameLogic::find_object_by_id(target_object_id) else {
+        let Some(target_team) = OBJECT_REGISTRY
+            .with_object(target_object_id, |obj| obj.get_team())
+        else {
             return false;
         };
-        let target_team = target_obj.read().ok().and_then(|obj| obj.get_team());
+        let target_team = target_team;
 
         let Some(template) = TheObjectFactory::find_template(boobytrap_template_name) else {
             return false;
@@ -1866,7 +1845,7 @@ impl ScriptActionDispatcher {
             return false;
         };
         let mut initialized = false;
-        let placed = target_obj.read().ok().map(|obj| {
+        let placed = OBJECT_REGISTRY.with_object(target_object_id, |obj| {
             let geom = obj.get_geometry_info();
             let mut local = crate::common::Coord3D::new(0.0, 0.0, 0.0);
             if let Some((x, y)) = obj.get_template().random_offset_on_perimeter() {
@@ -2079,35 +2058,26 @@ impl ScriptActionDispatcher {
                 Ok(ScriptActionResult::Success)
             };
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return if frames > 0 {
-                Ok(ScriptActionResult::Pending(frames as f32))
-            } else {
-                Ok(ScriptActionResult::Success)
+        let guarded = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let pos = *obj.get_position();
+            let ai_arc = obj.get_ai_update_interface()?;
+            let Ok(mut ai) = ai_arc.lock() else {
+                return Some(());
             };
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return if frames > 0 {
-                Ok(ScriptActionResult::Pending(frames as f32))
-            } else {
-                Ok(ScriptActionResult::Success)
-            };
-        };
-        let pos = *obj.get_position();
-        let Some(ai_arc) = obj.get_ai_update_interface() else {
-            return if frames > 0 {
-                Ok(ScriptActionResult::Pending(frames as f32))
-            } else {
-                Ok(ScriptActionResult::Success)
-            };
-        };
-        if let Ok(mut ai) = ai_arc.lock() {
             let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
             let mut guard_params =
                 AiCommandParams::new(AiCommandType::GuardPosition, CommandSourceType::FromScript);
             guard_params.pos = pos;
             let _ = ai.execute_command(&guard_params);
-        };
+            Some(())
+        });
+        if guarded.flatten().is_none() {
+            return if frames > 0 {
+                Ok(ScriptActionResult::Pending(frames as f32))
+            } else {
+                Ok(ScriptActionResult::Success)
+            };
+        }
 
         if frames > 0 {
             Ok(ScriptActionResult::Pending(frames as f32))
@@ -2140,32 +2110,22 @@ impl ScriptActionDispatcher {
                 Ok(ScriptActionResult::Success)
             };
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        let idled = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let ai_arc = obj.get_ai_update_interface()?;
+            if let Ok(mut ai) = ai_arc.lock() {
+                let idle_params =
+                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                let _ = ai.execute_command(&idle_params);
+            }
+            Some(())
+        });
+        if idled.flatten().is_none() {
             return if frames > 0 {
                 Ok(ScriptActionResult::Pending(frames as f32))
             } else {
                 Ok(ScriptActionResult::Success)
             };
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return if frames > 0 {
-                Ok(ScriptActionResult::Pending(frames as f32))
-            } else {
-                Ok(ScriptActionResult::Success)
-            };
-        };
-        let Some(ai_arc) = obj.get_ai_update_interface() else {
-            return if frames > 0 {
-                Ok(ScriptActionResult::Pending(frames as f32))
-            } else {
-                Ok(ScriptActionResult::Success)
-            };
-        };
-        if let Ok(mut ai) = ai_arc.lock() {
-            let idle_params =
-                AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-            let _ = ai.execute_command(&idle_params);
-        };
+        }
 
         if frames > 0 {
             Ok(ScriptActionResult::Pending(frames as f32))
@@ -2193,15 +2153,11 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        let contain_arc = OBJECT_REGISTRY.with_object(object_id, |obj| obj.get_contain());
+        let Some(contain_arc) = contain_arc else {
             return Ok(ScriptActionResult::Success);
         };
-        let contain_arc = {
-            let Ok(obj) = obj_arc.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            obj.get_contain()
-        };
+        let contain_arc = contain_arc;
         let Some(contain_arc) = contain_arc else {
             return Ok(ScriptActionResult::Success);
         };
@@ -2347,18 +2303,15 @@ impl ScriptActionDispatcher {
         if let Some(name) = unit_name_opt {
             let tracker = get_named_object_tracker();
             if let Ok(Some(old_object_id)) = tracker.get_object_id(name) {
-                if let Some(old_obj) = TheGameLogic::find_object_by_id(old_object_id) {
-                    if old_obj
-                        .read()
-                        .ok()
-                        .is_some_and(|o| !o.is_effectively_dead())
-                    {
+                let alive = OBJECT_REGISTRY
+                    .with_object(old_object_id, |o| !o.is_effectively_dead())
+                    .unwrap_or(false);
+                if alive {
                         log::warn!(
                             "WARNING - Object with name '{}' already exists. Failed Create.",
                             name
                         );
                         return Ok(ScriptActionResult::Success);
-                    }
                 }
             }
         }

@@ -1387,14 +1387,13 @@ impl MissileAIUpdate {
 
 /// Behavior module wrapper so MissileAIUpdate participates in the update scheduler.
 pub struct MissileAIUpdateBehavior {
-    object: Weak<std::sync::RwLock<Object>>,
     module_data: Arc<MissileAIUpdateModuleData>,
     pub(crate) update: MissileAIUpdate,
 }
 
 impl MissileAIUpdateBehavior {
     pub fn new(
-        object: Arc<std::sync::RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
@@ -1404,11 +1403,8 @@ impl MissileAIUpdateBehavior {
         let module_data = Arc::new(data.clone());
         let current_frame = TheGameLogic::get_frame();
         let mut update = MissileAIUpdate::new(module_data.clone(), current_frame);
-        if let Ok(guard) = object.read() {
-            update.object_id = guard.get_id();
-        }
+        update.object_id = object_id;
         Ok(Self {
-            object: Arc::downgrade(&object),
             module_data,
             update,
         })
@@ -1437,19 +1433,19 @@ impl MissileAIUpdateBehavior {
         detonation_weapon: Option<Weak<WeaponTemplate>>,
         exhaust_sys_override: Option<Arc<ParticleSystemTemplate>>,
     ) {
-        let launch_pos = if let Some(projectile_arc) = self.object.upgrade() {
+        let projectile_id = self.update.object_id;
+        let launch_pos = if OBJECT_REGISTRY.with_object(projectile_id, |_| ()).is_some() {
             let _ = WeaponTemplate::position_projectile_for_launch(
-                &projectile_arc,
+                projectile_id,
                 launcher.unwrap_or(INVALID_ID),
                 weapon_slot,
                 specific_barrel_to_use,
             );
-            let launch_pos = projectile_arc
-                .read()
-                .map(|obj| obj.get_position().clone())
-                .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0));
+            let launch_pos = OBJECT_REGISTRY
+                .with_object(projectile_id, |obj| obj.get_position().clone())
+                .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
-            if let Ok(obj_guard) = projectile_arc.read() {
+            let _ = OBJECT_REGISTRY.with_object(projectile_id, |obj_guard| {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Some(victim_id) = victim {
                         if self.module_data.try_to_follow_target {
@@ -1463,19 +1459,16 @@ impl MissileAIUpdateBehavior {
                         ai.ai_move_to_position(&initial_pos, false, CMD_FROM_AI);
                     }
                 }
-            }
+            });
 
-            if let Ok(mut obj_guard) = projectile_arc.write() {
-                let mut initial_vel = self.module_data.initial_velocity;
-                if self.module_data.use_weapon_speed {
-                    if let Some(weapon) = detonation_weapon.as_ref().and_then(|weak| weak.upgrade())
-                    {
-                        initial_vel = weapon.get_projectile_speed();
-                    }
+            let mut initial_vel = self.module_data.initial_velocity;
+            if self.module_data.use_weapon_speed {
+                if let Some(weapon) = detonation_weapon.as_ref().and_then(|weak| weak.upgrade()) {
+                    initial_vel = weapon.get_projectile_speed();
                 }
-                let launch_ai = obj_guard.get_ai_update_interface();
-                drop(obj_guard);
-                if let Some(ai) = launch_ai {
+            }
+            let _ = OBJECT_REGISTRY.with_object(projectile_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Ok(ai_guard) = ai.try_lock() {
                         ai_guard.with_cur_locomotor(&mut |loco| {
                             loco.set_max_speed(initial_vel);
@@ -1483,46 +1476,38 @@ impl MissileAIUpdateBehavior {
                         });
                     }
                 }
-                if let Ok(mut obj_guard) = projectile_arc.write() {
-                    let dx = victim_pos.x - launch_pos.x;
-                    let dy = victim_pos.y - launch_pos.y;
-                    let delta_z = victim_pos.z - launch_pos.z;
-                    let mut xy_dist = (dx * dx + dy * dy).sqrt();
-                    if xy_dist < 1.0 {
-                        xy_dist = 1.0;
-                    }
-                    let z_factor = if delta_z > 0.0 {
-                        delta_z / xy_dist
-                    } else {
-                        0.0
-                    };
-
-                    let mut dir = obj_guard.get_transform_matrix().x_axis.truncate();
-                    if dir.length_squared() < 1e-6 {
-                        dir = Coord3D::new(dx, dy, delta_z);
-                    }
-                    if dir.length_squared() > 1e-6 {
-                        dir = dir.normalize();
-                    } else {
-                        dir = Coord3D::new(1.0, 0.0, 0.0);
-                    }
-                    dir.z += 2.0 * z_factor;
-                    if dir.length_squared() > 1e-6 {
-                        dir = dir.normalize();
-                    }
-
-                    if let Some(physics) = obj_guard.get_physics() {
-                        let force_mag = physics.get_mass() * initial_vel;
-                        let force = dir * force_mag;
-                        physics.apply_motive_force(&force);
-                    }
-
-                    let obj_pos = *obj_guard.get_position();
-                    let transform = crate::common::build_transform_matrix(obj_pos, dir);
-                    obj_guard.set_transform_matrix(&transform);
+            });
+            let _ = OBJECT_REGISTRY.with_object_mut(projectile_id, |obj_guard| {
+                let dx = victim_pos.x - launch_pos.x;
+                let dy = victim_pos.y - launch_pos.y;
+                let delta_z = victim_pos.z - launch_pos.z;
+                let mut xy_dist = (dx * dx + dy * dy).sqrt();
+                if xy_dist < 1.0 {
+                    xy_dist = 1.0;
                 }
-            }
-
+                let z_factor = if delta_z > 0.0 { delta_z / xy_dist } else { 0.0 };
+                let mut dir = obj_guard.get_transform_matrix().x_axis.truncate();
+                if dir.length_squared() < 1e-6 {
+                    dir = Coord3D::new(dx, dy, delta_z);
+                }
+                if dir.length_squared() > 1e-6 {
+                    dir = dir.normalize();
+                } else {
+                    dir = Coord3D::new(1.0, 0.0, 0.0);
+                }
+                dir.z += 2.0 * z_factor;
+                if dir.length_squared() > 1e-6 {
+                    dir = dir.normalize();
+                }
+                if let Some(physics) = obj_guard.get_physics() {
+                    let force_mag = physics.get_mass() * initial_vel;
+                    let force = dir * force_mag;
+                    physics.apply_motive_force(&force);
+                }
+                let obj_pos = *obj_guard.get_position();
+                let transform = crate::common::build_transform_matrix(obj_pos, dir);
+                obj_guard.set_transform_matrix(&transform);
+            });
             launch_pos
         } else {
             Coord3D::new(0.0, 0.0, 0.0)
@@ -1541,15 +1526,12 @@ impl MissileAIUpdateBehavior {
 
 impl UpdateModuleInterface for MissileAIUpdateBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(object) = self.object.upgrade() else {
+        let Some(position) = OBJECT_REGISTRY.with_object(self.update.object_id, |object| {
+            object.get_position().clone()
+        }) else {
             return Ok(UPDATE_SLEEP_NONE);
         };
         let current_frame = TheGameLogic::get_frame();
-        let position = object
-            .read()
-            .map_err(|_| "MissileAIUpdateBehavior object lock poisoned")?
-            .get_position()
-            .clone();
         self.update
             .update(current_frame, position)
             .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
@@ -1567,11 +1549,9 @@ impl ProjectileUpdateInterface for MissileAIUpdateBehavior {
     }
 
     fn projectile_now_jammed(&mut self) {
-        if let Some(object) = self.object.upgrade() {
-            if let Ok(mut guard) = object.write() {
-                guard.set_model_condition_state(MODELCONDITION_JAMMED);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.update.object_id, |guard| {
+            guard.set_model_condition_state(MODELCONDITION_JAMMED);
+        });
         self.update.projectile_now_jammed();
     }
 
@@ -1601,10 +1581,10 @@ impl BehaviorModuleInterface for MissileAIUpdateBehavior {
 pub struct MissileAIUpdateFactory;
 impl MissileAIUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<std::sync::RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(MissileAIUpdateBehavior::new(thing, module_data)?))
+        Ok(Box::new(MissileAIUpdateBehavior::new(object_id, module_data)?))
     }
 }
 

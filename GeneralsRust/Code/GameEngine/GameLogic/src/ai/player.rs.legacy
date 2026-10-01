@@ -505,7 +505,7 @@ impl AIPlayer {
 
     /// Build AI base defense
     pub fn build_ai_base_defense(&mut self, flank: bool) {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -551,7 +551,7 @@ impl AIPlayer {
 
     /// Recruit specific AI team
     pub fn recruit_specific_ai_team(&mut self, team_proto: &TeamPrototype, recruit_radius: f32) {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -663,12 +663,12 @@ impl AIPlayer {
     }
 
     /// Get the backing Player for this AI instance.
-    pub fn get_player(&self) -> Option<Arc<RwLock<Player>>> {
-        self.player.upgrade()
+    pub fn get_player(&self) -> Option<i32> {
+        None
     }
 
     /// Get AI enemy (for skirmish AI)
-    pub fn get_ai_enemy(&self) -> Option<Arc<RwLock<Player>>> {
+    pub fn get_ai_enemy(&self) -> Option<i32> {
         None // Solo AI attacks based on scripting
     }
 
@@ -721,7 +721,7 @@ impl AIPlayer {
 
     /// Check if supply source is safe
     pub fn is_supply_source_safe(&self, min_supplies: i32) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return true;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -776,7 +776,7 @@ impl AIPlayer {
 
     /// Check if location is safe for building
     pub fn is_location_safe(&self, pos: &Coord3D, thing: &dyn ThingTemplate) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return true;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -867,7 +867,7 @@ impl AIPlayer {
     }
 
     pub fn start_training_for_order(&self, order: &mut WorkOrder, busy_ok: bool) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(player_guard) = player_arc.try_read() else {
@@ -879,7 +879,7 @@ impl AIPlayer {
     pub fn queue_units(&mut self) {
         self.queue_supply_truck();
 
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return;
         };
         let Ok(player_guard) = player_arc.try_read() else {
@@ -938,7 +938,7 @@ impl AIPlayer {
         // Validate work orders and update factory assignments
         for team in &mut self.team_build_queue {
             for order in &mut team.work_orders {
-                if let Some(player_arc) = self.player.upgrade() {
+                if let Some(player_arc) = None {
                     if let Ok(player_ref) = player_arc.try_read() {
                         order.validate_factory(&player_ref);
                     }
@@ -964,7 +964,7 @@ impl AIPlayer {
             return;
         }
 
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return;
         };
         let Ok(player_guard) = player_arc.try_read() else {
@@ -1118,7 +1118,7 @@ impl AIPlayer {
 
     /// Process base building logic
     fn process_base_building(&mut self) {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return;
         };
         let Ok(mut player_guard) = player_arc.try_write() else {
@@ -1301,7 +1301,7 @@ impl AIPlayer {
         if self.select_team_to_build() {
             self.ready_to_build_team = false;
             let mut team_frames = (self.team_seconds as u32) * LOGICFRAMES_PER_SECOND;
-            if let Some(player_arc) = self.player.upgrade() {
+            if let Some(player_arc) = None {
                 if let Ok(player_guard) = player_arc.read() {
                     if let Ok(ai_guard) = THE_AI.read() {
                         if let Ok(ai_data) = ai_guard.get_ai_data().read() {
@@ -1503,7 +1503,7 @@ impl AIPlayer {
 
     /// Determine base center position
     fn determine_base_center(&mut self) {
-        if let Some(player_arc) = self.player.upgrade() {
+        if let Some(player_arc) = None {
             if let Ok(player_ref) = player_arc.try_read() {
                 // Find command center or construction dozer as base center
                 let mut center = Coord3D::new(0.0, 0.0, 0.0);
@@ -1548,7 +1548,7 @@ impl AIPlayer {
 
     /// Check if we need a power plant
     fn needs_power_plant(&self) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -1559,7 +1559,7 @@ impl AIPlayer {
 
     /// Check if we need a supply center
     fn needs_supply_center(&self) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -1583,7 +1583,7 @@ impl AIPlayer {
 
     /// Check if we need barracks
     fn needs_barracks(&self) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -1602,7 +1602,7 @@ impl AIPlayer {
 
     /// Check if we need war factory
     fn needs_war_factory(&self) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -1623,7 +1623,7 @@ impl AIPlayer {
 
     /// Check if we need airfield
     fn needs_air_field(&self) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(player_guard) = player_arc.read() else {
@@ -1652,7 +1652,7 @@ impl AIPlayer {
 
     /// Queue a building for construction at a specific location.
     fn queue_building_at(&mut self, building_name: &str, build_pos: Coord3D) {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return;
         };
 
@@ -1701,7 +1701,7 @@ impl AIPlayer {
     }
 
     fn mark_build_list_priority(&mut self, thing_name: &str, location: Option<Coord3D>) -> bool {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return false;
         };
         let Ok(mut player_guard) = player_arc.write() else {
@@ -1737,7 +1737,7 @@ impl AIPlayer {
     }
 
     fn find_dozer(&self, location: &Coord3D) -> Option<ObjectID> {
-        let Some(player_arc) = self.player.upgrade() else {
+        let Some(player_arc) = None else {
             return None;
         };
         let Ok(player_guard) = player_arc.read() else {

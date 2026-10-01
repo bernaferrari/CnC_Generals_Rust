@@ -56,7 +56,7 @@ pub struct AISkirmishPlayer {
     /// Frame to check for enemy
     frame_to_check_enemy: u32,
     /// Current enemy player
-    current_enemy: Option<Weak<RwLock<Player>>>,
+    current_enemy: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -544,13 +544,13 @@ impl AISkirmishPlayer {
     }
 
     /// Get AI enemy for skirmish
-    pub fn get_ai_enemy(&mut self) -> Option<Arc<RwLock<Player>>> {
+    pub fn get_ai_enemy(&mut self) -> Option<i32> {
         let current_frame = TheGameLogic::get_frame();
         if current_frame >= self.frame_to_check_enemy {
             self.frame_to_check_enemy = current_frame + 5 * LOGICFRAMES_PER_SECOND;
             self.acquire_enemy();
         }
-        self.current_enemy.as_ref()?.upgrade()
+        self.current_enemy
     }
 
     /// Compute superweapon target with skirmish-specific logic
@@ -1459,10 +1459,8 @@ impl AISkirmishPlayer {
     /// Return `m_currentEnemy` index if set, else first human. Does **not**
     /// call getAiEnemy / acquireEnemy (those retarget every 5s).
     fn get_my_enemy_player_index(&self) -> i32 {
-        if let Some(enemy) = self.current_enemy.as_ref().and_then(|w| w.upgrade()) {
-            if let Ok(enemy_ref) = enemy.try_read() {
-                return enemy_ref.get_player_index();
-            }
+        if let Some(enemy_index) = self.current_enemy {
+            return enemy_index;
         }
 
         let Ok(player_list) = ThePlayerList().read() else {
@@ -1489,7 +1487,7 @@ impl AISkirmishPlayer {
     /// Only replace `m_currentEnemy` when a better candidate is found — never
     /// clear to null on empty search (C++ keeps the prior pointer).
     fn acquire_enemy(&mut self) {
-        let mut best_enemy: Option<Arc<RwLock<Player>>> = None;
+        let mut best_enemy: Option<i32> = None;
         let mut best_distance_sqr = HUGE_DIST * HUGE_DIST;
 
         let Some(me_player) = self.base.get_player() else {
@@ -1505,18 +1503,13 @@ impl AISkirmishPlayer {
             .unwrap_or_else(|| self.get_enemy_base_center(&me_guard).unwrap_or_default());
 
         // C++: if current enemy exists and is not in bad shape, keep it.
-        if let Some(enemy_weak) = self.current_enemy.as_ref() {
-            if let Some(enemy_arc) = enemy_weak.upgrade() {
-                if let Ok(enemy_guard) = enemy_arc.try_read() {
-                    let in_bad_shape =
-                        !enemy_guard.has_any_units() || !enemy_guard.has_any_build_facility();
-                    if !in_bad_shape {
-                        // Keep Player index cache aligned with m_currentEnemy.
-                        me_guard
-                            .set_current_enemy_player_index(Some(enemy_guard.get_player_index()));
-                        return;
-                    }
-                }
+        if let Some(enemy_index) = self.current_enemy {
+            let in_bad_shape = crate::player::list::with_player(enemy_index, |enemy_guard| {
+                !enemy_guard.has_any_units() || !enemy_guard.has_any_build_facility()
+            });
+            if in_bad_shape == Some(false) {
+                me_guard.set_current_enemy_player_index(Some(enemy_index));
+                return;
             }
         }
 
@@ -1594,41 +1587,26 @@ impl AISkirmishPlayer {
 
             if dist_sqr < best_distance_sqr {
                 best_distance_sqr = dist_sqr;
-                best_enemy = Some(player_arc.clone());
+                best_enemy = Some(player_guard.get_player_index());
             }
         }
 
         // C++: only replace when bestEnemy != NULL && bestEnemy != m_currentEnemy.
         // Empty search leaves the prior enemy intact.
-        let Some(best) = best_enemy else {
+        let Some(best_index) = best_enemy else {
             return;
         };
-        let best_index = best.read().ok().map(|g| g.get_player_index());
-        let same_as_current = self
-            .current_enemy
-            .as_ref()
-            .and_then(|w| w.upgrade())
-            .and_then(|arc| {
-                arc.read()
-                    .ok()
-                    .map(|g| Some(g.get_player_index()) == best_index)
-            })
-            .unwrap_or(false);
-        if same_as_current {
-            if let Some(idx) = best_index {
-                me_guard.set_current_enemy_player_index(Some(idx));
-            }
+        if self.current_enemy == Some(best_index) {
+            me_guard.set_current_enemy_player_index(Some(best_index));
             return;
         }
 
-        self.current_enemy = Some(Arc::downgrade(&best));
-        if let Some(idx) = best_index {
-            me_guard.set_current_enemy_player_index(Some(idx));
-            log::debug!(
-                "AISkirmishPlayer acquiring target enemy player index {}",
-                idx
-            );
-        }
+        self.current_enemy = Some(best_index);
+        me_guard.set_current_enemy_player_index(Some(best_index));
+        log::debug!(
+            "AISkirmishPlayer acquiring target enemy player index {}",
+            best_index
+        );
     }
 
     /// Get enemy base center

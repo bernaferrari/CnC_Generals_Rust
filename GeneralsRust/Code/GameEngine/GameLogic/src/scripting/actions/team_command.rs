@@ -503,7 +503,7 @@ impl ScriptAction for TeamGarrisonBuildingAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(building_arc) = TheGameLogic::find_object_by_id(building_id) else {
+        if crate::object::registry::OBJECT_REGISTRY.with_object(building_id, |_| ()).is_none() {
             log::warn!(
                 "TeamGarrisonBuildingAction: building '{}' (ID {}) not found in registry",
                 building_name,
@@ -527,8 +527,6 @@ impl ScriptAction for TeamGarrisonBuildingAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        let mut building_guard = building_arc.write().ok();
-
         for member_id in members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
@@ -538,13 +536,13 @@ impl ScriptAction for TeamGarrisonBuildingAction {
                         return _ObjFlow::Cont;
                     }
                     
-                    if let Some(building_guard) = building_guard.as_mut() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(building_id, |building_guard| {
                         if let Some(contain) = building_guard.get_contain_mut() {
                             if contain.is_valid_container_for(&unit_guard, true) {
                                 let _ = contain.add_to_contain(&unit_guard);
                             }
                         }
-                    }
+                    });
                     _ObjFlow::Fall
                 });
                 match _flow {
@@ -622,13 +620,9 @@ impl ScriptAction for TeamExitBuildingAction {
         }
 
         for member_id in members {
-            let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Some(container_id) = unit_arc
-                .read()
-                .ok()
-                .and_then(|unit_guard| unit_guard.get_container_id())
+            let Some(container_id) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(member_id, |unit_guard| unit_guard.get_container_id())
+                .flatten()
             else {
                 continue;
             };
@@ -687,7 +681,7 @@ impl ScriptAction for TeamCaptureBuildingAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(building_arc) = TheGameLogic::find_object_by_id(building_id) else {
+        if crate::object::registry::OBJECT_REGISTRY.with_object(building_id, |_| ()).is_none() {
             log::warn!(
                 "TeamCaptureBuildingAction: building '{}' (ID {}) not found in registry",
                 building_name,
@@ -717,14 +711,14 @@ impl ScriptAction for TeamCaptureBuildingAction {
                 {
                     enum _ObjFlow<T> { Cont, Ret(T), Fall }
                     let _flow = OBJECT_REGISTRY.with_object(member_id, |unit_guard| {
-                        let Ok(building_guard) = building_arc.read() else {
-                            return _ObjFlow::Cont;
-                        };
-                        if !TheActionManager::can_capture_building(
-                            &unit_guard,
-                            &building_guard,
-                            CommandSourceType::FromScript,
-                        ) {
+                        let can = crate::object::registry::OBJECT_REGISTRY.with_object(building_id, |building_guard| {
+                            TheActionManager::can_capture_building(
+                                &unit_guard,
+                                building_guard,
+                                CommandSourceType::FromScript,
+                            )
+                        });
+                        if can != Some(true) {
                             return _ObjFlow::Cont;
                         }
                         

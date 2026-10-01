@@ -456,19 +456,9 @@ impl Player {
         None
     }
 
-    /// Prefer [`Self::find_drone_id_by_producer_id`].
-    pub fn find_drone_by_producer_id(
-        &self,
-        producer_id: ObjectID,
-    ) -> Result<Option<Arc<RwLock<Object>>>, String> {
-        // Wave 268: empty dual-world → Ok(None).
-        if dual_world_registry_unavailable() {
-            return Ok(None);
-        }
-
-        Ok(self
-            .find_drone_id_by_producer_id(producer_id)
-            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
+    /// ID of the drone produced by `producer_id`, if one is owned.
+    pub fn find_drone_by_producer_id(&self, producer_id: ObjectID) -> Option<ObjectID> {
+        self.find_drone_id_by_producer_id(producer_id)
     }
 
     /// Remove an object from this player's ownership

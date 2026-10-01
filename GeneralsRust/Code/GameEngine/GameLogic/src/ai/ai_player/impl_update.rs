@@ -6,15 +6,13 @@
 use super::*;
 
 impl AIPlayer {
-    pub(super) fn get_player_arc(&self) -> Option<Arc<RwLock<Player>>> {
-        player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
+    /// Player index when the list still holds this AI's player.
+    pub(super) fn get_player_arc(&self) -> Option<i32> {
+        crate::player::list::with_player(self.player_id as i32, |player| player.get_player_index())
     }
 
-    /// Get the backing Player for this AI instance.
-    pub fn get_player(&self) -> Option<Arc<RwLock<Player>>> {
+    /// Get the backing Player index for this AI instance.
+    pub fn get_player(&self) -> Option<i32> {
         self.get_player_arc()
     }
 

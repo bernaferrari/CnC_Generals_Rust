@@ -143,7 +143,8 @@ pub struct AICommandParms {
     /// Other object parameter id
     pub other_obj: ObjectID,
     /// Target team
-    pub team: Option<Arc<RwLock<Team>>>,
+    /// Registered team id. Unregistered pins stay on Object::team_pin, not here.
+    pub team: Option<crate::team::TeamID>,
     /// Waypoint path
     pub waypoint: Option<Arc<Waypoint>>,
     /// Polygon area

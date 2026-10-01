@@ -291,15 +291,6 @@ impl ScriptAction for NamedMoveToAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
-                "NamedMoveToAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
         let waypoint_ascii = AsciiString::from(waypoint.as_str());
         let destination = get_terrain_logic().read().ok().and_then(|terrain| {
             terrain
@@ -312,7 +303,18 @@ impl ScriptAction for NamedMoveToAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(mut obj_guard) = object_arc.write() {
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |_| ())
+            .is_none()
+        {
+            log::warn!(
+                "NamedMoveToAction: unit '{}' (ID {}) not found in registry",
+                unit_name,
+                object_id
+            );
+            return Ok(ScriptResult::Success(None));
+        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
             obj_guard.leave_group();
             if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                 let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
@@ -323,7 +325,7 @@ impl ScriptAction for NamedMoveToAction {
                     unit_name
                 );
             }
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -423,15 +425,6 @@ impl ScriptAction for NamedFollowWaypointsAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
-                "NamedFollowWaypointsAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
         let waypoint_ascii = AsciiString::from(waypoint_path.as_str());
         let waypoint_id = get_terrain_logic().read().ok().and_then(|terrain| {
             terrain
@@ -447,7 +440,7 @@ impl ScriptAction for NamedFollowWaypointsAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(mut obj_guard) = object_arc.write() {
+        let found = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
             if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                 let mut params = AiCommandParams::new(
                     AiCommandType::FollowWaypointPath,
@@ -461,6 +454,14 @@ impl ScriptAction for NamedFollowWaypointsAction {
                     unit_name
                 );
             }
+        });
+        if found.is_none() {
+            log::warn!(
+                "NamedFollowWaypointsAction: unit '{}' (ID {}) not found in registry",
+                unit_name,
+                object_id
+            );
+            return Ok(ScriptResult::Success(None));
         }
 
         Ok(ScriptResult::Success(None))
@@ -721,52 +722,56 @@ impl ScriptAction for NamedEnterNamedAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(unit_arc) = TheGameLogic::find_object_by_id(unit_id) else {
-            log::warn!(
-                "NamedEnterNamedAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                unit_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-        let Some(building_arc) = TheGameLogic::find_object_by_id(building_id) else {
-            log::warn!(
-                "NamedEnterNamedAction: building '{}' (ID {}) not found in registry",
-                building_name,
-                building_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        let (unit_guard, mut building_guard) = match (unit_arc.read(), building_arc.write()) {
-            (Ok(unit_guard), Ok(building_guard)) => (unit_guard, building_guard),
-            _ => {
+        enum EnterFlow { Missing, NoContain, Invalid, Done }
+        let flow = crate::object::registry::OBJECT_REGISTRY.with_object_mut(building_id, |building_guard| {
+            let Some(contain) = building_guard.get_contain_mut() else {
+                return EnterFlow::NoContain;
+            };
+            let Some(ok) = crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+                if !contain.is_valid_container_for(unit_guard, true) {
+                    return false;
+                }
+                let _ = contain.add_to_contain(unit_guard);
+                true
+            }) else {
+                return EnterFlow::Missing;
+            };
+            if ok { EnterFlow::Done } else { EnterFlow::Invalid }
+        });
+        match flow {
+            None => {
                 log::warn!(
-                    "NamedEnterNamedAction: failed to lock unit/building for '{}'",
+                    "NamedEnterNamedAction: building '{}' (ID {}) not found in registry",
+                    building_name,
+                    building_id
+                );
+                return Ok(ScriptResult::Success(None));
+            }
+            Some(EnterFlow::Missing) => {
+                log::warn!(
+                    "NamedEnterNamedAction: unit '{}' (ID {}) not found in registry",
+                    unit_name,
+                    unit_id
+                );
+                return Ok(ScriptResult::Success(None));
+            }
+            Some(EnterFlow::NoContain) => {
+                log::warn!(
+                    "NamedEnterNamedAction: building '{}' has no contain module",
+                    building_name
+                );
+                return Ok(ScriptResult::Success(None));
+            }
+            Some(EnterFlow::Invalid) => {
+                log::warn!(
+                    "NamedEnterNamedAction: building '{}' cannot contain '{}'",
+                    building_name,
                     unit_name
                 );
                 return Ok(ScriptResult::Success(None));
             }
-        };
-
-        let Some(contain) = building_guard.get_contain_mut() else {
-            log::warn!(
-                "NamedEnterNamedAction: building '{}' has no contain module",
-                building_name
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        if !contain.is_valid_container_for(&unit_guard, true) {
-            log::warn!(
-                "NamedEnterNamedAction: building '{}' cannot contain '{}'",
-                building_name,
-                unit_name
-            );
-            return Ok(ScriptResult::Success(None));
+            Some(EnterFlow::Done) => {}
         }
-
-        let _ = contain.add_to_contain(&unit_guard);
 
         Ok(ScriptResult::Success(None))
     }
@@ -820,19 +825,9 @@ impl ScriptAction for NamedExitAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(unit_arc) = TheGameLogic::find_object_by_id(unit_id) else {
-            log::warn!(
-                "NamedExitAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                unit_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        let Some(container_id) = unit_arc
-            .read()
-            .ok()
-            .and_then(|unit_guard| unit_guard.get_container_id())
+        let Some(container_id) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(unit_id, |unit_guard| unit_guard.get_container_id())
+            .flatten()
         else {
             log::warn!("NamedExitAction: unit '{}' is not contained", unit_name);
             return Ok(ScriptResult::Success(None));
@@ -910,15 +905,6 @@ impl ScriptAction for NamedSetAttitudeAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(unit_arc) = TheGameLogic::find_object_by_id(unit_id) else {
-            log::warn!(
-                "NamedSetAttitudeAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                unit_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
         let attitude_upper = attitude.to_ascii_uppercase();
         let attitude_type = match attitude_upper.as_str() {
             "AGGRESSIVE" => crate::modules::AIAttitudeType::Aggressive,
@@ -929,7 +915,7 @@ impl ScriptAction for NamedSetAttitudeAction {
             _ => crate::modules::AIAttitudeType::Normal,
         };
 
-        if let Ok(mut unit_guard) = unit_arc.write() {
+        let found = crate::object::registry::OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
             if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
                 let _ = ai.set_attitude(attitude_type);
             } else {
@@ -938,6 +924,14 @@ impl ScriptAction for NamedSetAttitudeAction {
                     unit_name
                 );
             }
+        });
+        if found.is_none() {
+            log::warn!(
+                "NamedSetAttitudeAction: unit '{}' (ID {}) not found in registry",
+                unit_name,
+                unit_id
+            );
+            return Ok(ScriptResult::Success(None));
         }
 
         Ok(ScriptResult::Success(None))

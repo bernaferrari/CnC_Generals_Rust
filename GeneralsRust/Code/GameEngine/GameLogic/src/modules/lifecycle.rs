@@ -45,8 +45,8 @@ pub trait UpgradeModuleInterface: Send + Sync {
     fn on_capture(
         &mut self,
         _object: &mut Object,
-        _old_owner: Option<&Arc<RwLock<Player>>>,
-        _new_owner: Option<&Arc<RwLock<Player>>>,
+        _old_owner: Option<PlayerIndex>,
+        _new_owner: Option<PlayerIndex>,
     ) {
     }
 }

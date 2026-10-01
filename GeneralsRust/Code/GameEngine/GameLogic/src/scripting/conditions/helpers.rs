@@ -2150,45 +2150,19 @@ pub(super) fn get_str_param_optional(
     }
 }
 
-/// Helper: get player arc from parameter value
+/// Helper: resolve a player parameter to a player index.
 pub(crate) fn get_player_arc(
     parameters: &HashMap<String, ScriptValue>,
     key: &str,
-) -> GameLogicResult<Option<Arc<RwLock<Player>>>> {
+) -> GameLogicResult<Option<crate::player::PlayerIndex>> {
     let val = parameters
         .get(key)
         .ok_or_else(|| GameLogicError::Configuration(format!("Missing parameter '{}'", key)))?;
     match val {
-        ScriptValue::PlayerId(id) => {
-            let list = player_list();
-            let guard = list.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read player list: {}", e))
-            })?;
-            Ok(guard.get_player(*id as i32).cloned())
-        }
-        ScriptValue::String(name) => {
-            let list = player_list();
-            let guard = list.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read player list: {}", e))
-            })?;
-            for i in 0..guard.get_player_count() {
-                if let Some(player_arc) = guard.get_player(i as i32) {
-                    if let Ok(player) = player_arc.read() {
-                        if player.get_general_name() == name.as_str() {
-                            return Ok(Some(player_arc.clone()));
-                        }
-                    }
-                }
-            }
-            Ok(None)
-        }
-        ScriptValue::Int(id) => {
-            let list = player_list();
-            let guard = list.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to read player list: {}", e))
-            })?;
-            Ok(guard.get_player(*id as i32).cloned())
-        }
+        ScriptValue::PlayerId(id) | ScriptValue::Int(id) => Ok(Some(*id as i32)),
+        ScriptValue::String(name) => Ok(crate::player::list::with_player_named(name, |player| {
+            player.get_player_index()
+        })),
         _ => Err(GameLogicError::Configuration(format!(
             "Expected player id/name for '{}', got {:?}",
             key, val

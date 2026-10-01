@@ -110,20 +110,18 @@ impl Team {
 
     fn for_each_live_member<F>(&self, mut func: F)
     where
-        F: FnMut(Arc<RwLock<crate::object::Object>>),
+        F: FnMut(&crate::object::Object),
     {
-        // Legacy Arc callback. Registry checkout does not hand out Arcs; resolve
-        // through the object id path instead when the registry still exposes get_object.
         self.for_each_live_member_id(|object_id| {
-            if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                func(object_arc);
-            }
+            let _ = OBJECT_REGISTRY.with_object(object_id, |object| {
+                func(object);
+            });
         });
     }
 
     pub fn iterate_objects<F>(&self, mut func: F)
     where
-        F: FnMut(Arc<RwLock<crate::object::Object>>),
+        F: FnMut(&crate::object::Object),
     {
         self.for_each_live_member(func);
     }
@@ -144,24 +142,17 @@ impl Team {
         template: &Arc<dyn ThingTemplate>,
         team_home: &Coord3D,
         max_dist: Real,
-    ) -> Option<Arc<RwLock<crate::object::Object>>> {
+    ) -> Option<ObjectID> {
         // Wave 256: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
         let controller_id = self.controlling_player_id?;
-        let default_team_id = player_list()
-            .read()
-            .ok()
-            .and_then(|players| players.get_player(controller_id as Int).cloned())
-            .and_then(|player_arc| {
-                player_arc
-                    .read()
-                    .ok()
-                    .and_then(|player| player.get_default_team())
-            })
-            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_id()));
+        let default_team_id = crate::player::list::with_player(controller_id as Int, |player| {
+            player.get_default_team_id()
+        })
+        .flatten();
 
         let my_priority = get_team_factory()
             .lock()
@@ -194,38 +185,38 @@ impl Team {
                     {
                         return None;
                     }
-                    let source_team_arc = object_guard.get_team()?;
-                    let Ok(source_team_guard) = source_team_arc.read() else {
-                        return None;
-                    };
-                    if !source_team_guard.is_active() {
-                        return None;
-                    }
-
-                    let source_priority = get_team_factory()
-                        .lock()
-                        .ok()
-                        .and_then(|factory| {
-                            factory
-                                .find_team_prototype(source_team_guard.get_name().as_str())
-                                .map(|prototype| prototype.get_production_priority())
-                        })
-                        .unwrap_or(Int::MAX);
-                    if source_priority >= my_priority {
-                        return None;
-                    }
-
-                    let is_default_team = default_team_id == Some(source_team_guard.get_id());
-                    let mut team_is_recruitable = is_default_team;
-                    if source_team_guard.is_recruitable() {
-                        team_is_recruitable = true;
-                    }
-                    if source_team_guard.is_recruitability_set() {
-                        team_is_recruitable = source_team_guard.is_recruitable();
-                    }
-                    if !team_is_recruitable {
-                        return None;
-                    }
+                    let source_team_id = object_guard.get_team_id()?;
+                    let team_ok = crate::team::with_team(source_team_id, |source_team| {
+                        if !source_team.is_active() {
+                            return None;
+                        }
+                        let source_name = source_team.get_name().to_string();
+                        let source_priority = get_team_factory()
+                            .lock()
+                            .ok()
+                            .and_then(|factory| {
+                                factory
+                                    .find_team_prototype(source_name.as_str())
+                                    .map(|prototype| prototype.get_production_priority())
+                            })
+                            .unwrap_or(Int::MAX);
+                        if source_priority >= my_priority {
+                            return None;
+                        }
+                        let is_default_team = default_team_id == Some(source_team.get_id());
+                        let mut team_is_recruitable = is_default_team;
+                        if source_team.is_recruitable() {
+                            team_is_recruitable = true;
+                        }
+                        if source_team.is_recruitability_set() {
+                            team_is_recruitable = source_team.is_recruitable();
+                        }
+                        if !team_is_recruitable {
+                            return None;
+                        }
+                        Some(is_default_team)
+                    })??;
+                    let is_default_team = team_ok;
 
                     // C++ Team.cpp:2350-2352 — per-unit AI isRecruitable override.
                     if let Some(ai) = object_guard.get_ai_update_interface() {
@@ -265,7 +256,7 @@ impl Team {
             recruit_id = Some(object_id);
         }
 
-        recruit_id.and_then(|id| OBJECT_REGISTRY.get_object(id))
+        recruit_id
     }
 
     /// Count objects with specific kind flags

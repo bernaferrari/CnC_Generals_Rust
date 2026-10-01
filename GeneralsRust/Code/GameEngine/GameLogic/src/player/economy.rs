@@ -54,21 +54,9 @@ impl Player {
             self.enable_radar();
         }
 
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-
-            for obj_id in object_ids {
-                let Some(obj_arc) = manager.get_object(obj_id) else {
-                    continue;
-                };
-                let Ok(obj_instance) = obj_arc.write() else {
-                    continue;
-                };
-                let __base_arc = obj_instance.base();
-                let Ok(mut base_obj) = __base_arc.write() else {
-                    continue;
-                };
+        let object_ids = self.owned_objects.clone();
+        for obj_id in object_ids {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |base_obj| {
                 if base_obj.is_kind_of(KindOf::Powered) {
                     if is_brown_out {
                         base_obj.set_disabled(DisabledType::DisabledUnderpowered);
@@ -76,7 +64,7 @@ impl Player {
                         base_obj.clear_disabled(DisabledType::DisabledUnderpowered);
                     }
                 }
-            }
+            });
         }
 
         Ok(())
@@ -447,30 +435,20 @@ impl Player {
         &mut self.score_keeper
     }
 
-    /// Iterate over the objects owned by this player
-    /// Matches C++ Player::iterateObjects
+    /// Iterate over the objects owned by this player.
+    /// Matches C++ Player::iterateObjects.
     pub fn iterate_objects<F>(&self, mut func: F) -> Result<(), GameError>
     where
-        F: FnMut(Arc<RwLock<Object>>) -> Result<(), GameError>,
+        F: FnMut(&crate::object::Object) -> Result<(), GameError>,
     {
-        // Get all objects owned by this player from the object manager
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-
-            // Iterate through each object and call the function
-            for obj_id in object_ids {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    // Call the function with the object
-                    // Note: We need to get the GameObjectInstance's base Object
-                    if let Ok(obj_instance) = obj_arc.read() {
-                        let base_obj = obj_instance.base();
-                        func(base_obj)?;
-                    }
-                }
+        let ids: Vec<ObjectID> = self.owned_objects.clone();
+        for obj_id in ids {
+            let step =
+                crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj| func(obj));
+            if let Some(result) = step {
+                result?;
             }
         }
-
         Ok(())
     }
 
@@ -479,14 +457,13 @@ impl Player {
     where
         F: FnMut(ObjectID) -> Result<(), GameError>,
     {
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-            for obj_id in object_ids {
-                // Only yield ids that still resolve.
-                if manager.get_object(obj_id).is_some() {
-                    func(obj_id)?;
-                }
+        let object_ids = self.owned_objects.clone();
+        for obj_id in object_ids {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |_| ())
+                .is_some()
+            {
+                func(obj_id)?;
             }
         }
         Ok(())

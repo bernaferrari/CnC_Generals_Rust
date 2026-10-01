@@ -8,9 +8,8 @@ use crate::common::*;
 use crate::damage::{DamageInfo, DamageType};
 use crate::economy::ResourceType;
 use crate::object::Object;
-use crate::team::Team;
+use crate::team::TeamID;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
 
 /// Types of simple objects
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +74,7 @@ pub struct SimpleObject {
     can_be_captured: bool,
     capture_time: Real,
     capture_progress: Real,
-    capturing_team: Option<Arc<RwLock<Team>>>,
+    capturing_team: Option<TeamID>,
 
     /// Bridge properties
     bridge_data: Option<BridgeData>,
@@ -358,7 +357,7 @@ impl SimpleObject {
     /// Start capturing this object (for tech buildings)
     pub fn start_capture(
         &mut self,
-        capturing_team: Arc<RwLock<Team>>,
+        capturing_team: TeamID,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         if !self.can_be_captured {
             return Ok(false);

@@ -1722,11 +1722,7 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
         ParkingPlaceBehavior::kill_all_parked_units(self);
     }
 
-    fn defect_all_parked_units(
-        &mut self,
-        new_team: Arc<RwLock<Team>>,
-        detection_time: UnsignedInt,
-    ) {
+    fn defect_all_parked_units(&mut self, new_team: crate::team::TeamID, detection_time: UnsignedInt) {
         // Wave 310: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -1755,10 +1751,8 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             })
             .and_then(|owner| owner.read().ok().map(|g| g.get_id()));
-            let new_team_player_id = new_team
-                .read()
-                .ok()
-                .and_then(|team| team.get_controlling_player_id());
+            let new_team_player_id =
+                crate::team::with_team(new_team, |team| team.get_controlling_player_id()).flatten();
             let Some(should_release) = crate::object::registry::OBJECT_REGISTRY
                 .with_object_mut(object_id, |guard| {
                     if guard.is_effectively_dead() {
@@ -1786,7 +1780,7 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
                         }
                         Some(false)
                     } else {
-                        guard.defect(Some(new_team.clone()), detection_time);
+                        guard.defect(Some(new_team), detection_time);
                         Some(false)
                     }
                 })

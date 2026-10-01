@@ -621,22 +621,15 @@ impl GameLogic {
         self.find_object_by_id(object_id)
     }
 
-    /// Get player by ID (for command executor)
-    pub fn get_player(&self, player_id: u32) -> Option<Arc<RwLock<Player>>> {
-        if let Ok(player_list_guard) = player_list().read() {
-            for player_arc in player_list_guard.iter() {
-                if let Ok(player) = player_arc.read() {
-                    if player.get_player_index() == player_id as Int {
-                        return Some(Arc::clone(player_arc));
-                    }
-                }
-            }
-        }
-        None
+    /// Get player index by ID (for command executor).
+    pub fn get_player(&self, player_id: u32) -> Option<crate::player::PlayerIndex> {
+        crate::player::list::with_player(player_id as crate::player::PlayerIndex, |player| {
+            player.get_player_index()
+        })
     }
 
-    /// Get mutable player by ID (for command executor)
-    pub fn get_player_mut(&mut self, player_id: u32) -> Option<Arc<RwLock<Player>>> {
+    /// Get player index by ID (for command executor).
+    pub fn get_player_mut(&mut self, player_id: u32) -> Option<crate::player::PlayerIndex> {
         self.get_player(player_id)
     }
 
@@ -687,16 +680,12 @@ impl GameLogic {
         self.all_objects.iter().copied()
     }
 
-    /// Iterate over all players in the game
-    /// Returns iterator yielding Arc<RwLock<Player>> for each player
-    pub fn iter_players(&self) -> Vec<Arc<RwLock<Player>>> {
-        let mut players = Vec::new();
-        if let Ok(player_list_guard) = player_list().read() {
-            for player_arc in player_list_guard.iter() {
-                players.push(Arc::clone(player_arc));
-            }
-        }
-        players
+    /// Indexes of every player in the game.
+    pub fn iter_players(&self) -> Vec<crate::player::PlayerIndex> {
+        player_list()
+            .read()
+            .map(|list| list.player_indices())
+            .unwrap_or_default()
     }
 
     pub fn clear_all_objects(&mut self) {
@@ -1000,59 +989,61 @@ fn apply_challenge_the_player_relationships() {
     let Ok(list) = player_list().read() else {
         return;
     };
-    let Some(local_arc) = list.get_local_player().cloned() else {
+    let local_idx = list.get_local_player_index();
+    if local_idx == crate::player::PLAYER_INDEX_INVALID {
         return;
-    };
-    if let Some(placeholder_arc) = list.find_player_by_name(crate::scripting::core::THE_PLAYER) {
-        let enemies: Vec<Arc<RwLock<Player>>> = {
-            let Ok(placeholder) = placeholder_arc.read() else {
-                return;
-            };
-            list.iter()
-                .filter_map(|player_arc| {
-                    if Arc::ptr_eq(player_arc, &placeholder_arc) {
-                        return None;
-                    }
-                    let other = player_arc.read().ok()?;
-                    (placeholder.get_relationship(&other) == crate::common::Relationship::Enemies)
-                        .then(|| Arc::clone(player_arc))
+    }
+    let indices = list.player_indices();
+    let placeholder = list.find_player_index_by_name(crate::scripting::core::THE_PLAYER);
+    let civilian = list.find_player_index_by_name("PlyrCivilian");
+    let neutral = list.get_neutral_player().map(|p| p.get_player_index());
+    drop(list);
+
+    if let Some(placeholder_idx) = placeholder {
+        let enemy_indices: Vec<crate::player::PlayerIndex> = indices
+            .iter()
+            .copied()
+            .filter(|&idx| idx != placeholder_idx)
+            .filter(|&idx| {
+                crate::player::list::with_player(placeholder_idx, |placeholder| {
+                    crate::player::list::with_player(idx, |other| {
+                        placeholder.get_relationship(other) == crate::common::Relationship::Enemies
+                    })
+                    .unwrap_or(false)
                 })
-                .collect()
-        };
-        for enemy_arc in enemies {
-            if Arc::ptr_eq(&enemy_arc, &local_arc) {
+                .unwrap_or(false)
+            })
+            .collect();
+        for enemy_idx in enemy_indices {
+            if enemy_idx == local_idx {
                 continue;
             }
-            if let (Ok(mut local), Ok(mut enemy)) = (local_arc.write(), enemy_arc.write()) {
-                local.set_player_relationship(&enemy, crate::common::Relationship::Enemies);
-                enemy.set_player_relationship(&local, crate::common::Relationship::Enemies);
-            }
+            let _ = crate::player::list::with_player_mut(local_idx, |local| {
+                local.set_player_relationship_by_index(
+                    enemy_idx,
+                    crate::common::Relationship::Enemies,
+                );
+            });
+            let _ = crate::player::list::with_player_mut(enemy_idx, |enemy| {
+                enemy.set_player_relationship_by_index(
+                    local_idx,
+                    crate::common::Relationship::Enemies,
+                );
+            });
         }
         return;
     }
 
-    let civilian = list.find_player_by_name("PlyrCivilian");
-    let neutral = list.get_neutral_player();
-    let others: Vec<Arc<RwLock<Player>>> = list.iter().cloned().collect();
-    for other_arc in others {
-        let rel = if Arc::ptr_eq(&other_arc, &local_arc) {
+    for other_idx in indices {
+        let rel = if other_idx == local_idx {
             crate::common::Relationship::Allies
-        } else if civilian.as_ref().is_some_and(|c| Arc::ptr_eq(&other_arc, c))
-            || neutral.as_ref().is_some_and(|n| Arc::ptr_eq(&other_arc, n))
-        {
+        } else if civilian == Some(other_idx) || neutral == Some(other_idx) {
             crate::common::Relationship::Neutral
         } else {
             crate::common::Relationship::Enemies
         };
-        if Arc::ptr_eq(&other_arc, &local_arc) {
-            if let Ok(mut local) = local_arc.write() {
-                let index = local.get_player_index();
-                local.set_player_relationship_by_index(index, rel);
-            }
-            continue;
-        }
-        if let (Ok(mut local), Ok(other)) = (local_arc.write(), other_arc.read()) {
-            local.set_player_relationship(&other, rel);
-        }
+        let _ = crate::player::list::with_player_mut(local_idx, |local| {
+            local.set_player_relationship_by_index(other_idx, rel);
+        });
     }
 }

@@ -540,10 +540,7 @@ impl ScriptActionDispatcher {
         let target_id = tracker.get_object_id(&building_name).ok().flatten();
 
         if let Some(tid) = target_id {
-            let Some(building_obj) = TheGameLogic::find_object_by_id(tid) else {
-                return Ok(ScriptActionResult::Success);
-            };
-            let can_garrison = if let Ok(building_guard) = building_obj.read() {
+            let can_garrison = OBJECT_REGISTRY.with_object(tid, |building_guard| {
                 if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
                     false
                 } else if let Some(contain) = building_guard.get_contain() {
@@ -557,9 +554,7 @@ impl ScriptActionDispatcher {
                 } else {
                     false
                 }
-            } else {
-                false
-            };
+            }).unwrap_or(false);
             if !can_garrison {
                 return Ok(ScriptActionResult::Success);
             }
@@ -815,13 +810,9 @@ impl ScriptActionDispatcher {
                     .map(|team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                        continue;
-                    };
-                    let ai_arc = obj_arc
-                        .read()
-                        .ok()
-                        .and_then(|obj| obj.get_ai_update_interface());
+                    let ai_arc = OBJECT_REGISTRY
+                        .with_object(object_id, |obj| obj.get_ai_update_interface())
+                        .flatten();
                     let Some(ai_arc) = ai_arc else {
                         continue;
                     };
@@ -861,14 +852,10 @@ impl ScriptActionDispatcher {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
                     for &member_id in team.get_members() {
-                        let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                            continue;
-                        };
-                        let Ok(obj) = obj_arc.read() else {
-                            continue;
-                        };
-                        let pos = *obj.get_position();
-                        let Some(ai_arc) = obj.get_ai_update_interface() else {
+                        let Some((pos, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                            let ai_arc = obj.get_ai_update_interface()?;
+                            Some((*obj.get_position(), ai_arc))
+                        }).flatten() else {
                             continue;
                         };
                         let mut guard_params = AiCommandParams::new(
@@ -1397,15 +1384,12 @@ impl ScriptActionDispatcher {
                     .map(|team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                        continue;
-                    };
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                         obj_guard.set_script_status(
                             crate::object::ObjectScriptStatusBit::ScriptUnstealthed,
-                            !enabled,
+                            __omp_shell("enabled,")
                         );
-                    };
+                    });
                 }
             }
         }
@@ -1436,13 +1420,10 @@ impl ScriptActionDispatcher {
                     .map(|team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                        continue;
-                    };
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                         obj_guard
                             .set_status(crate::common::ObjectStatusMaskType::REPULSOR, enabled);
-                    };
+                    });
                 }
             }
         }
@@ -1705,17 +1686,11 @@ impl ScriptActionDispatcher {
         };
 
         for &member_id in &members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+            let Some(ai_arc) = OBJECT_REGISTRY
+                .with_object(member_id, |obj| obj.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
-            };
-            let ai_arc = {
-                let Ok(obj) = obj_arc.read() else {
-                    continue;
-                };
-                let Some(ai_arc) = obj.get_ai_update_interface() else {
-                    continue;
-                };
-                ai_arc
             };
             if let Ok(mut ai) = ai_arc.lock() {
                 let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);

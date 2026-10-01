@@ -109,17 +109,13 @@ impl ScriptActionDispatcher {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-
-        let (drawable_arc, flash_color) = if let Ok(object_guard) = object_arc.read() {
+        let Some((drawable_arc, flash_color)) = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
             (
                 object_guard.get_drawable(),
                 color.unwrap_or_else(|| object_guard.get_indicator_color()),
             )
-        } else {
-            (None, Color::white())
+        }) else {
+            return;
         };
 
         let Some(drawable_arc) = drawable_arc else {
@@ -150,15 +146,7 @@ impl ScriptActionDispatcher {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        let drawable_arc = if let Ok(object_guard) = object_arc.read() {
-            object_guard.get_drawable()
-        } else {
-            None
-        };
-        let Some(drawable_arc) = drawable_arc else {
+        let Some(drawable_arc) = OBJECT_REGISTRY.with_object(object_id, |object_guard| object_guard.get_drawable()).flatten() else {
             return;
         };
 
@@ -185,16 +173,12 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(unit_name) else {
             return;
         };
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
         let Some(template_name) = self.resolve_special_power_template_name(power_name) else {
             return;
         };
-
-        if let Ok(object_guard) = object_arc.read() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
             let _ = object_guard.with_special_power_module_mut_by_name(&template_name, func);
-        };
+        });
     }
 
     /// Execute a script action
@@ -1307,18 +1291,15 @@ impl ScriptActionDispatcher {
         let tracker = get_named_object_tracker();
         if let Some(unit_name) = unit_name {
             if let Ok(Some(old_object_id)) = tracker.get_object_id(unit_name) {
-                if let Some(old_obj) = TheGameLogic::find_object_by_id(old_object_id) {
-                    if old_obj
-                        .read()
-                        .ok()
-                        .is_some_and(|o| !o.is_effectively_dead())
-                    {
-                        log::warn!(
-                            "WARNING - Object with name '{}' already exists. Failed Create.",
-                            unit_name
-                        );
-                        return Ok(None);
-                    }
+                let alive = OBJECT_REGISTRY
+                    .with_object(old_object_id, |o| !o.is_effectively_dead())
+                    .unwrap_or(false);
+                if alive {
+                    log::warn!(
+                        "WARNING - Object with name '{}' already exists. Failed Create.",
+                        unit_name
+                    );
+                    return Ok(None);
                 }
             }
         }

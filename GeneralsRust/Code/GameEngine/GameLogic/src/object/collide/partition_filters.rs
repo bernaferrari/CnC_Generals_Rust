@@ -238,11 +238,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnTeam {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
-                if let Some(team) = guard.get_team() {
-                    if let Ok(team_guard) = team.read() {
-                        return team_guard.get_id() == self.team_id;
-                    }
-                }
+                return guard.get_team_id() == Some(self.team_id);
             }
         }
         false
@@ -631,15 +627,15 @@ impl PartitionFilterStealthedAndUndetected {
         Self { obj_id, allow }
     }
 
-    fn source_player(&self) -> Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>> {
+    fn source_player(&self) -> Option<crate::player::PlayerIndex> {
         // Wave 266: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
         crate::object::registry::OBJECT_REGISTRY
-            .get_object(self.obj_id)
-            .and_then(|source| source.read().ok()?.get_controlling_player())
+            .with_object(self.obj_id, |source| source.get_controlling_player())
+            .flatten()
     }
 
     fn disguised_as_enemy_for_source(&self, target: &crate::object::Object) -> Option<bool> {
@@ -659,24 +655,18 @@ impl PartitionFilterStealthedAndUndetected {
         let Some(source_player) = self.source_player() else {
             return None;
         };
-        let Ok(source_player) = source_player.read() else {
-            return None;
-        };
 
-        let other_player = ThePlayerList()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(disguised_player_index).cloned());
-        let Some(other_team) =
-            other_player.and_then(|player| player.read().ok()?.get_default_team())
-        else {
-            return None;
-        };
-        let Ok(other_team) = other_team.read() else {
-            return None;
-        };
+        let other_team = crate::player::with_player(disguised_player_index, |player| {
+            player.get_default_team_id()
+        })
+        .flatten()?;
 
-        Some(source_player.get_relationship_with_team(&other_team) == Relationship::Enemies)
+        crate::player::with_player(source_player, |source| {
+            crate::team::with_team(other_team, |team| {
+                source.get_relationship_with_team(team) == Relationship::Enemies
+            })
+        })
+        .flatten()
     }
 
     fn neutral_container_hides_enemy_stealth_units(&self, target: &crate::object::Object) -> bool {
@@ -691,45 +681,40 @@ impl PartitionFilterStealthedAndUndetected {
             return false;
         }
 
-        let Some(first_member) = contain
-            .get_contained_objects()
-            .first()
-            .and_then(|id| crate::helpers::TheGameLogic::find_object_by_id(*id))
-        else {
+        let Some(first_member) = contain.get_contained_objects().first().copied() else {
             return false;
         };
-        if first_member
-            .read()
-            .ok()
-            .map(|guard| guard.test_status(ObjectStatusTypes::Detected))
-            .unwrap_or(true)
-        {
+        let detected = crate::object::registry::OBJECT_REGISTRY
+            .with_object(first_member, |guard| guard.test_status(ObjectStatusTypes::Detected))
+            .unwrap_or(true);
+        if detected {
             return false;
         }
 
         let Some(source_player) = self.source_player() else {
             return false;
         };
-        let Ok(source_player_guard) = source_player.read() else {
-            return false;
-        };
-        let Some(victim_player) =
-            contain.get_apparent_controlling_player(Some(&source_player_guard))
+        let Some(victim_player) = crate::player::with_player(source_player, |source| {
+            contain.get_apparent_controlling_player(Some(source))
+        })
+        .flatten()
         else {
             return false;
         };
-        let Some(victim_team) = victim_player
-            .read()
-            .ok()
-            .and_then(|player| player.get_default_team())
+        let Some(victim_team) =
+            crate::player::with_player(victim_player, |player| player.get_default_team_id())
+                .flatten()
         else {
-            return false;
-        };
-        let Ok(victim_team) = victim_team.read() else {
             return false;
         };
 
-        source_player_guard.get_relationship_with_team(&victim_team) == Relationship::Enemies
+        crate::player::with_player(source_player, |source| {
+            crate::team::with_team(victim_team, |team| {
+                source.get_relationship_with_team(team) == Relationship::Enemies
+            })
+        })
+        .flatten()
+        .unwrap_or(false)
     }
 }
 
@@ -1012,19 +997,10 @@ impl PartitionFilterRejectBuildings {
                 // Player::getPlayerType() == PLAYER_TYPE_COMPUTER). This replaces the
                 // previous hardcoded `player_id != 0` approximation.
                 if let Some(pid) = guard.get_player_id() {
-                    if let Ok(list) = ThePlayerList().read() {
-                        if let Some(player_arc) = list.get_player(pid.0 as i32) {
-                            if let Ok(player) = player_arc.read() {
-                                player.get_player_type() != crate::player::PlayerType::Human
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
+                    crate::player::with_player(pid.0 as crate::player::PlayerIndex, |player| {
+                        player.get_player_type() != crate::player::PlayerType::Human
+                    })
+                    .unwrap_or(false)
                 } else {
                     false
                 }
@@ -1058,34 +1034,32 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                             return false;
                         };
 
-                        let Ok(my_guard) = my_player.read() else {
-                            return false;
-                        };
                         let other_player = other_guard
                             .get_contain()
                             .and_then(|contain| {
                                 contain.lock().ok().and_then(|guard| {
-                                    guard.get_apparent_controlling_player(Some(&my_guard))
+                                    crate::player::with_player(my_player, |me| {
+                                        guard.get_apparent_controlling_player(Some(me))
+                                    })
+                                    .flatten()
                                 })
                             })
                             .or_else(|| other_guard.get_controlling_player());
 
                         let Some(other_default_team) = other_player.and_then(|player| {
-                            player
-                                .read()
-                                .ok()
-                                .and_then(|guard| guard.get_default_team())
+                            crate::player::with_player(player, |guard| guard.get_default_team_id())
+                                .flatten()
                         }) else {
                             return false;
                         };
 
-                        let rel = other_default_team
-                            .read()
-                            .ok()
-                            .map(|other_team_guard| {
-                                my_guard.get_relationship_with_team(&other_team_guard)
+                        let rel = crate::player::with_player(my_player, |my_guard| {
+                            crate::team::with_team(other_default_team, |other_team| {
+                                my_guard.get_relationship_with_team(other_team)
                             })
-                            .unwrap_or(Relationship::Neutral);
+                        })
+                        .flatten()
+                        .unwrap_or(Relationship::Neutral);
 
                         if rel != Relationship::Enemies {
                             return false;
@@ -1458,23 +1432,14 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliat
 /// Compute the relationship of a player to an object.
 /// Matches C++ Player::getRelationship(other->getTeam()).
 fn compute_player_affiliation(player_id: PlayerId, obj: &crate::object::Object) -> Relationship {
-    let Some(team_arc) = obj.get_team() else {
+    let Some(team_id) = obj.get_team_id() else {
         return Relationship::Neutral;
     };
-    let Ok(team_guard) = team_arc.read() else {
-        return Relationship::Neutral;
-    };
-    let Ok(player_list) = ThePlayerList().read() else {
-        return Relationship::Neutral;
-    };
-    let Some(player_arc) = player_list.get_player(player_id.0.into()) else {
-        return Relationship::Neutral;
-    };
-    let Ok(player_guard) = player_arc.read() else {
-        return Relationship::Neutral;
-    };
-
-    player_guard.get_relationship_with_team(&team_guard)
+    crate::player::with_player(player_id.0 as crate::player::PlayerIndex, |player| {
+        crate::team::with_team(team_id, |team| player.get_relationship_with_team(team))
+    })
+    .flatten()
+    .unwrap_or(Relationship::Neutral)
 }
 
 // ---------------------------------------------------------------------------
@@ -1582,18 +1547,20 @@ impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonableBy
         let can_garrison = obj
             .as_object_handle()
             .and_then(|handle| {
-                let target_guard = handle.read().ok()?;
-                let player_arc = {
-                    let player_list = ThePlayerList().read().ok()?;
-                    player_list.get_player(self.player_id.0.into()).cloned()?
-                };
-                let player_guard = player_arc.read().ok()?;
-                Some(action_manager::TheActionManager::can_player_garrison(
-                    &player_guard,
-                    &target_guard,
-                    self.command_source,
-                ))
+                crate::object::registry::OBJECT_REGISTRY.with_object(handle, |target| {
+                    crate::player::with_player(
+                        self.player_id.0 as crate::player::PlayerIndex,
+                        |player| {
+                            action_manager::TheActionManager::can_player_garrison(
+                                player,
+                                target,
+                                self.command_source,
+                            )
+                        },
+                    )
+                })
             })
+            .flatten()
             .unwrap_or(false);
 
         can_garrison == self.match_flag
@@ -1728,7 +1695,7 @@ mod tests {
     #[derive(Debug)]
     struct TestStealthContain {
         contained: Vec<crate::common::ObjectID>,
-        apparent_player: Arc<RwLock<Player>>,
+        apparent_player: crate::player::PlayerIndex,
         stealth_units: u32,
     }
 
@@ -1767,69 +1734,79 @@ mod tests {
             &self,
             _observing_player: Option<&Player>,
         ) -> Option<PlayerIndex> {
-            Some(Arc::clone(&self.apparent_player))
+            Some(self.apparent_player)
         }
     }
 
-    fn object_with_kind_of(kind_of: &str) -> Arc<std::sync::RwLock<Object>> {
+    fn object_with_kind_of(kind_of: &str) -> crate::common::ObjectID {
         let mut template = DefaultThingTemplate::new("TestStructure".to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
         template.parse_object_fields_from_ini(&fields);
-
-        Object::new(Arc::new(template), ObjectStatusMaskType::none(), None)
-            .expect("test structure object")
+        let id = 880_000 + kind_of.len() as u32;
+        let obj = Object::new_raw(
+            std::sync::Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            None,
+        );
+        OBJECT_REGISTRY.register_object(id, obj);
+        id
     }
 
-    fn structure_object() -> Arc<std::sync::RwLock<Object>> {
+    fn structure_object() -> crate::common::ObjectID {
         object_with_kind_of("STRUCTURE")
     }
 
     fn registered_object_with_kind_of(
         object_id: crate::common::ObjectID,
         kind_of: &str,
-        team: Arc<RwLock<Team>>,
-    ) -> Arc<std::sync::RwLock<Object>> {
+        team: crate::team::TeamID,
+    ) -> crate::common::ObjectID {
         let mut template = DefaultThingTemplate::new(format!("TestObject{object_id}"));
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
         template.parse_object_fields_from_ini(&fields);
-
-        Object::new_with_id(
-            Arc::new(template),
+        let mut obj = Object::new_raw(
+            std::sync::Arc::new(template),
             object_id,
             ObjectStatusMaskType::none(),
-            Some(team),
-        )
-        .expect("registered test object")
+            None,
+        );
+        let _ = obj.set_team_id(Some(team));
+        OBJECT_REGISTRY.register_object(object_id, obj);
+        object_id
     }
 
-    fn attach_garrison_contain(object: &Arc<std::sync::RwLock<Object>>) {
-        let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(
-            GarrisonContain::new(
-                Arc::downgrade(object),
-                &GarrisonContainModuleData::default(),
-            )
-            .expect("garrison contain"),
-        ));
-        object
-            .write()
-            .expect("object write lock")
-            .set_contain(Some(contain));
+    fn attach_garrison_contain(object: crate::common::ObjectID) {
+        let contain: std::sync::Arc<Mutex<dyn ContainModuleInterface>> =
+            std::sync::Arc::new(Mutex::new(
+                GarrisonContain::new(object, &GarrisonContainModuleData::default())
+                    .expect("garrison contain"),
+            ));
+        OBJECT_REGISTRY.with_object_mut(object, |obj| {
+            obj.set_contain(Some(contain));
+        });
     }
 
-    fn reset_player_list_with_players(players: &[Arc<RwLock<Player>>]) {
+    fn reset_player_list_with_players(players: &[Player]) {
         let mut list = ThePlayerList().write().expect("player list write lock");
         list.clear();
         for player in players {
-            list.add_player(Arc::clone(player));
+            list.add_player(player.clone());
         }
     }
 
-    fn team_for_player(name: &str, id: u32, player_id: u32) -> Arc<RwLock<Team>> {
-        let mut team = Team::new(AsciiString::from(name), id);
-        team.set_controlling_player_id(Some(player_id));
-        Arc::new(RwLock::new(team))
+    fn team_for_player(name: &str, id: u32, player_id: u32) -> crate::team::TeamID {
+        let mut factory = crate::team::get_team_factory()
+            .lock()
+            .expect("team factory");
+        let created = factory.create_team(name).unwrap_or(id);
+        drop(factory);
+        crate::team::with_team_mut(created, |team| {
+            team.set_controlling_player_id(Some(player_id));
+        });
+        created
     }
 
     #[test]
@@ -1846,9 +1823,9 @@ mod tests {
     #[test]
     fn squad_filter_uses_squad_membership_not_team_id() {
         let team = team_for_player("SquadTeam", 95, 0);
-        let member = registered_object_with_kind_of(95_001, "INFANTRY", Arc::clone(&team));
+        let member = registered_object_with_kind_of(95_001, "INFANTRY", team);
         let non_member_same_team =
-            registered_object_with_kind_of(95_002, "INFANTRY", Arc::clone(&team));
+            registered_object_with_kind_of(95_002, "INFANTRY", team);
 
         let mut squad = Squad::new();
         squad.add_object_id(95_001);
@@ -1917,9 +1894,9 @@ mod tests {
 
     #[test]
     fn player_affiliation_uses_player_team_relationships() {
-        let player0 = Arc::new(RwLock::new(Player::new(0)));
-        let player1 = Arc::new(RwLock::new(Player::new(1)));
-        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
+        let player0 = Player::new(0);
+        let player1 = Player::new(1);
+        reset_player_list_with_players(&[player0.clone(), player1.clone()]);
 
         player0
             .write()
@@ -1985,8 +1962,8 @@ mod tests {
     fn reject_buildings_only_accepts_enemy_fs_base_defense_for_human_sources() {
         OBJECT_REGISTRY.clear();
 
-        let player0 = Arc::new(RwLock::new(Player::new(0)));
-        let player1 = Arc::new(RwLock::new(Player::new(1)));
+        let player0 = Player::new(0);
+        let player1 = Player::new(1);
         let source_team = team_for_player("SourceTeam", 10, 0);
         let enemy_team = team_for_player("EnemyTeam", 11, 1);
 
@@ -1997,24 +1974,24 @@ mod tests {
         player0
             .write()
             .expect("player0 write lock")
-            .set_default_team(Some(Arc::clone(&source_team)));
+            .set_default_team(Some(source_team));
         player1
             .write()
             .expect("player1 write lock")
-            .set_default_team(Some(Arc::clone(&enemy_team)));
+            .set_default_team(Some(enemy_team));
         player0
             .write()
             .expect("player0 write lock")
             .set_player_relationship_by_index(1, Relationship::Enemies);
-        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
+        reset_player_list_with_players(&[player0.clone(), player1.clone()]);
 
-        let source = registered_object_with_kind_of(91_001, "STRUCTURE", Arc::clone(&source_team));
+        let source = registered_object_with_kind_of(91_001, "STRUCTURE", source_team);
         let generic_defense =
-            registered_object_with_kind_of(91_002, "STRUCTURE|DEFENSE", Arc::clone(&enemy_team));
+            registered_object_with_kind_of(91_002, "STRUCTURE|DEFENSE", enemy_team);
         let fs_base_defense = registered_object_with_kind_of(
             91_003,
             "STRUCTURE|FS_BASE_DEFENSE",
-            Arc::clone(&enemy_team),
+            enemy_team,
         );
 
         let filter =
@@ -2052,28 +2029,28 @@ mod tests {
     fn stealthed_container_hides_enemy_undetected_passengers() {
         OBJECT_REGISTRY.clear();
 
-        let player0 = Arc::new(RwLock::new(Player::new(0)));
-        let player1 = Arc::new(RwLock::new(Player::new(1)));
+        let player0 = Player::new(0);
+        let player1 = Player::new(1);
         let source_team = team_for_player("SourceTeam", 31, 0);
         let enemy_team = team_for_player("EnemyTeam", 32, 1);
         player0
             .write()
             .expect("player0 write lock")
-            .set_default_team(Some(Arc::clone(&source_team)));
+            .set_default_team(Some(source_team));
         player1
             .write()
             .expect("player1 write lock")
-            .set_default_team(Some(Arc::clone(&enemy_team)));
+            .set_default_team(Some(enemy_team));
         player0
             .write()
             .expect("player0 write lock")
             .set_player_relationship_by_index(1, Relationship::Enemies);
-        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
+        reset_player_list_with_players(&[player0.clone(), player1.clone()]);
 
-        let source = registered_object_with_kind_of(93_201, "STRUCTURE", Arc::clone(&source_team));
+        let source = registered_object_with_kind_of(93_201, "STRUCTURE", source_team);
         let container =
-            registered_object_with_kind_of(93_202, "STRUCTURE", Arc::clone(&enemy_team));
-        let passenger = registered_object_with_kind_of(93_203, "INFANTRY", Arc::clone(&enemy_team));
+            registered_object_with_kind_of(93_202, "STRUCTURE", enemy_team);
+        let passenger = registered_object_with_kind_of(93_203, "INFANTRY", enemy_team);
         passenger
             .write()
             .expect("passenger write lock")
@@ -2082,7 +2059,7 @@ mod tests {
         let contain: Arc<Mutex<dyn ContainModuleInterface>> =
             Arc::new(Mutex::new(TestStealthContain {
                 contained: vec![93_203],
-                apparent_player: Arc::clone(&player1),
+                apparent_player: player1.clone(),
                 stealth_units: 1,
             }));
         container
