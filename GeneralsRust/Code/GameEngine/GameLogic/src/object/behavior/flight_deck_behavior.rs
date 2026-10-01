@@ -1841,8 +1841,6 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         };
 
         state.parking_spaces[target_index].object_id = object_id;
-        drop(state);
-
         if self.config.landing_deck_height_offset != 0.0 {
             if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(mut guard) = obj.write() {
@@ -1874,7 +1872,6 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
             }
         }
 
-        drop(state);
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
             if let Ok(mut guard) = obj.write() {
                 guard.clear_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET);
@@ -2295,8 +2292,6 @@ impl Snapshotable for FlightDeckBehavior {
         xfer.xfer_unsigned_int(&mut next_allowed_production_frame)
             .map_err(|e| e.to_string())?;
 
-        drop(state);
-
         let mut designated_target = self.designated_target;
         xfer.xfer_object_id(&mut designated_target)
             .map_err(|e| e.to_string())?;
@@ -2341,7 +2336,6 @@ impl Snapshotable for FlightDeckBehavior {
 
         let mut spaces_count: u8 = self
             .state
-            .read()
             .parking_spaces
             .len()
             .min(u8::MAX as usize) as u8;
@@ -2368,7 +2362,6 @@ impl Snapshotable for FlightDeckBehavior {
 
         let mut runways_count: u8 = self
             .state
-            .read()
             .runways
             .len()
             .min(u8::MAX as usize) as u8;
@@ -2402,7 +2395,6 @@ impl Snapshotable for FlightDeckBehavior {
 
         let mut heal_count: u8 = self
             .state
-            .read()
             .healing_objects
             .len()
             .min(u8::MAX as usize) as u8;

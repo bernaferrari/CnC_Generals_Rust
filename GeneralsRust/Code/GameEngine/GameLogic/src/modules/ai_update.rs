@@ -471,7 +471,6 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         None
     }
 
-
     /// Set goal position on the AI state machine (matches C++ setGoalPosition).
     fn set_goal_position(&mut self, pos: Option<Coord3D>) {
         let _ = pos;
@@ -574,18 +573,19 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         crate::common::INVALID_ID
     }
     fn check_for_crate_to_pickup(&mut self) -> Option<Arc<RwLock<Object>>> {
+        // Consume the marker before attempting object resolution, matching C++.
+        let id = self.check_for_crate_to_pickup_id();
+        if id == crate::common::INVALID_ID {
+            return None;
+        }
+
         // Wave 340: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
-        let id = self.check_for_crate_to_pickup_id();
-        if id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }
+        crate::helpers::TheGameLogic::find_object_by_id(id)
+            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
     /// Get next target based on mood/auto-acquire (matching C++ AIUpdateInterface::getNextMoodTarget)
     fn get_next_mood_target_id(
@@ -957,7 +957,6 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn get_turret_turn_rate(&self, _turret: TurretType) -> f32 {
         0.0
     }
-
 
     /// Get which turret is used for a weapon slot
     /// Matches C++ AIUpdateInterface::GetWhichTurretForWeaponSlot

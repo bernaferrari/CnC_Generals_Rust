@@ -136,13 +136,14 @@ impl Object {
         }
 
         if self.is_undetected_defector() {
-            let current_frame = crate::helpers::TheGameLogic::get_frame();
             let is_dead = self.is_effectively_dead();
             let is_firing = self
                 .get_status_bits()
                 .test(ObjectStatusTypes::IsFiringWeapon);
             let drawable = self.get_drawable();
+            let has_drawable = drawable.is_some();
             let helper_effect = self.defection_helper.as_mut().map(|helper| {
+                let current_frame = crate::helpers::TheGameLogic::get_frame();
                 let mut clear_defector = false;
                 let mut play_tick = false;
                 let mut play_ding = false;
@@ -152,7 +153,7 @@ impl Object {
                     play_ding = helper.is_defector_fx_enabled();
                 } else if is_dead || is_firing {
                     clear_defector = true;
-                } else if helper.is_defector_fx_enabled() {
+                } else if has_drawable && helper.is_defector_fx_enabled() {
                     let (should_flash, _color) = helper.should_flash(current_frame);
                     play_tick = should_flash;
                 }
@@ -160,44 +161,53 @@ impl Object {
                 (clear_defector, play_tick, play_ding)
             });
             if let Some((clear_defector, play_tick, play_ding)) = helper_effect {
-                if play_ding || play_tick {
-                    if let Some(drawable) = &drawable {
-                        if let Ok(mut draw_guard) = drawable.write() {
-                            draw_guard.flash_as_selected();
+                let object_id = self.id;
+                let flash = play_tick || play_ding;
+                let sound = if play_ding {
+                    Some(crate::object::helper::object_defection_helper::DefectionTimerSound::Ding)
+                } else if play_tick {
+                    Some(crate::object::helper::object_defection_helper::DefectionTimerSound::Tick)
+                } else {
+                    None
+                };
+                crate::object::helper::object_defection_helper::dispatch_defection_update_effects(
+                    clear_defector,
+                    has_drawable,
+                    flash,
+                    sound,
+                    || self.friend_set_undetected_defector(false),
+                    || {
+                        if let Some(drawable) = &drawable {
+                            if let Ok(mut draw_guard) = drawable.write() {
+                                draw_guard.flash_as_selected();
+                            }
                         }
-                    }
-                }
-
-                if clear_defector {
-                    self.friend_set_undetected_defector(false);
-                }
-
-                if play_tick || play_ding {
-                    if let Some(audio) = crate::helpers::TheAudio::get() {
-                        if let Some(misc_audio) =
-                            game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                        {
-                            let misc_audio = misc_audio.read();
-                            let sound_name = if play_ding {
-                                misc_audio
-                                    .defector_timer_ding_sound
-                                    .playable_event_name()
-                                    .to_string()
-                            } else {
-                                misc_audio
-                                    .defector_timer_tick_sound
-                                    .playable_event_name()
-                                    .to_string()
-                            };
-                            let mut event =
-                                crate::object::special_power_template::AudioEventRts::new(
-                                    sound_name,
-                                );
-                            event.set_object_id(self.id);
-                            audio.add_audio_event(&event);
+                    },
+                    |sound| {
+                        if let Some(audio) = crate::helpers::TheAudio::get() {
+                            if let Some(misc_audio) =
+                                game_engine::common::ini::ini_misc_audio::get_misc_audio()
+                            {
+                                let misc_audio = misc_audio.read();
+                                let sound_name = match sound {
+                                    crate::object::helper::object_defection_helper::DefectionTimerSound::Ding => {
+                                        misc_audio.defector_timer_ding_sound.playable_event_name()
+                                    }
+                                    crate::object::helper::object_defection_helper::DefectionTimerSound::Tick => {
+                                        misc_audio.defector_timer_tick_sound.playable_event_name()
+                                    }
+                                }
+                                .to_string();
+                                let mut event =
+                                    crate::object::special_power_template::AudioEventRts::new(
+                                        sound_name,
+                                    );
+                                event.set_object_id(object_id);
+                                audio.add_audio_event(&event);
+                            }
                         }
-                    }
-                }
+                    },
+                );
             }
         }
 
@@ -312,8 +322,6 @@ impl Object {
             }
         }
     }
-
-
 
     /// Live update-module proxies registered at object create (C++ behavior modules).
     pub fn update_module_registrations(&self) -> &[UpdateModulePtr] {
@@ -508,8 +516,8 @@ impl Object {
     ) -> Result<(), String> {
         // Trigger force application event
         let force_data = (force_x, force_y, force_z);
-        let serialized =
-            bincode_legacy::serialize(&force_data).map_err(|e| format!("Serialization error: {}", e))?;
+        let serialized = bincode_legacy::serialize(&force_data)
+            .map_err(|e| format!("Serialization error: {}", e))?;
         self.trigger_event("apply_force", &serialized).await
     }
 
@@ -862,12 +870,19 @@ impl Object {
             ai.ai_idle(CommandSourceType::FromAi);
         }
 
-        if let Some(drawable) = &self.drawable {
-            if let Ok(mut draw_guard) = drawable.write() {
-                draw_guard.flash_as_selected();
-            }
-        }
-        self.defect_play_voice_and_timer();
+        let drawable = self.drawable.clone();
+        crate::object::helper::object_defection_helper::dispatch_defection_start_effects(
+            drawable.is_some(),
+            || self.defect_play_voice(),
+            || {
+                if let Some(drawable) = &drawable {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.flash_as_selected();
+                    }
+                }
+            },
+            || self.defect_play_timer_tick(),
+        );
 
         if let Some(contain) = self.get_contain() {
             if let Ok(mut contain_guard) = contain.lock() {

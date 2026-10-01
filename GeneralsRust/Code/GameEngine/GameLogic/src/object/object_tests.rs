@@ -415,8 +415,11 @@ mod tests {
             let mut load = XferLoad::new(cursor, 1);
             restored.xfer(&mut load);
         }
-        assert!(restored.smc_helper.as_ref().unwrap().needs_clearing());
-        assert!(restored.repulsor_helper.as_ref().unwrap().needs_clearing());
+        // C++ SMC/repulsor Xfer stores only the update-module base state; it
+        // does not serialize their transient clear flags. Defection Xfer does
+        // serialize its timer and effect state.
+        assert!(!restored.smc_helper.as_ref().unwrap().needs_clearing());
+        assert!(!restored.repulsor_helper.as_ref().unwrap().needs_clearing());
         assert_eq!(
             restored
                 .defection_helper

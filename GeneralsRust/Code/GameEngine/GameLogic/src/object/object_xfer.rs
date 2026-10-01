@@ -624,12 +624,13 @@ impl Object {
     }
 
     pub(crate) fn xfer_behavior_module_list(&mut self, xfer: &mut dyn Xfer, is_saving: bool) {
+        let object_id = self.id;
         let mut module_count = self.behavior_module_xfer_count();
         let _ = xfer.xfer_unsigned_short(&mut module_count);
 
         if is_saving {
             if let Some(helper) = &mut self.smc_helper {
-                Self::xfer_owned_helper_block(self.id, xfer, HELPER_TAG_SMC, helper);
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SMC, helper);
             }
             if let Some(helper) = &self.status_damage_helper {
                 self.xfer_one_helper_block(xfer, HELPER_TAG_STATUS, helper.as_ref());
@@ -638,10 +639,10 @@ impl Object {
                 self.xfer_one_helper_block(xfer, HELPER_TAG_SUBDUAL, helper.as_ref());
             }
             if let Some(helper) = &mut self.repulsor_helper {
-                Self::xfer_owned_helper_block(self.id, xfer, HELPER_TAG_REPULSOR, helper);
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_REPULSOR, helper);
             }
             if let Some(helper) = &mut self.defection_helper {
-                Self::xfer_owned_helper_block(self.id, xfer, HELPER_TAG_DEFECTION, helper);
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_DEFECTION, helper);
             }
             if let Some(helper) = &self.ws_helper {
                 self.xfer_one_helper_block(xfer, HELPER_TAG_WEAPON_STATUS, helper.as_ref());

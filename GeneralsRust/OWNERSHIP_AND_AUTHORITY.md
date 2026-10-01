@@ -33,6 +33,25 @@ and engine stores remain separate migration boundaries. GPU upload structures
 use compiler-checked Pod/Zeroable derives; this removes handwritten layout
 assertions without changing their C representations.
 
+The current reduction batches remove 33 inner synchronization fields and 20
+mutable-state/configuration `Arc` allocations across the migrated constructors:
+guard records (13 mutex fields to 3), player timers, collision bookkeeping,
+minefields, ten sabotage/conversion definitions, flight-deck state, three Object
+ctor helpers, the AI crate marker, economy event history, and armor/max-health
+upgrade state. These are constructor/field counts, not process-wide live lock
+counts or a measured frame-rate result. Outer shared interfaces remain.
+Frame FX pose publication now acquires one map write lock rather than one per
+object plus a retain lock, and reuses the map allocation. Its global ownership
+remains a migration dependency. The inactive FireWeapon duplicate is excluded
+from production savings.
+
+Handwritten unsafe assertions decreased by 34: 26 GPU Pod/Zeroable assertions
+became checked derives, and eight redundant Send/Sync assertions became
+structural compiler bounds. GPU/FFI boundaries and mutable-global discovery
+remain independently tracked. FlightDeck custom-field roundtrips preserve the
+current Rust format; the missing original AIUpdate base payload is hq-hfbvn,
+so original-save compatibility is not verified.
+
 The table below describes current defaults. Later wave logs record historical
 experiments and feature-gated configurations; descriptions of GameWorld as
 last writer do not override the current all-false default authority policy.
