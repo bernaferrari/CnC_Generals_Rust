@@ -1141,11 +1141,10 @@ impl WeaponTemplate {
         projectile_guard.set_transform_matrix(&world_transform);
         let _ = projectile_guard.set_position(&world_pos);
 
-        if let Some(tracker) = projectile_guard.get_experience_tracker() {
-            if let Ok(mut tracker_guard) = tracker.lock() {
-                tracker_guard.set_experience_sink(launcher_guard.get_id());
-            }
-        }
+        let _ = projectile_guard
+            .with_experience_tracker_mut(|tracker_guard| {
+                tracker_guard.set_experience_sink(launcher_guard.get_id())
+            });
 
         let launcher_phys = launcher_guard.get_physics();
         let projectile_phys = projectile_guard.get_physics();

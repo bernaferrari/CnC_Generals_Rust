@@ -391,26 +391,33 @@ impl ConvertToHijackedVehicleCrateCollide {
         {
             if let Ok(hijacker_guard) = hijacker.read() {
                 let hijacker_name = hijacker_guard.get_name().clone();
-                let hijacker_tracker = hijacker_guard.get_experience_tracker();
+                let hijacker_level = hijacker_guard.get_veterancy_level();
+                let hijacker_has_tracker =
+                    hijacker_guard.with_experience_tracker(|_| ()).is_some();
                 drop(hijacker_guard);
 
                 if !hijacker_name.is_empty() {
                     transfer_object_name(&hijacker_name, other_id).ok();
                 }
 
-                let target_tracker = other.read().ok().and_then(|guard| guard.get_experience_tracker());
-                if let (Some(target_tracker), Some(hijacker_tracker)) =
-                    (target_tracker, hijacker_tracker)
-                {
-                    let target_level = target_tracker.lock().ok().map(|guard| guard.get_veterancy_level());
-                    let hijacker_level = hijacker_tracker.lock().ok().map(|guard| guard.get_veterancy_level());
-                    if let (Some(target_level), Some(hijacker_level)) = (target_level, hijacker_level) {
-                        let highest_level = target_level.max(hijacker_level);
-                        if let Ok(mut hijacker_guard) = hijacker.write() {
-                            hijacker_guard.set_veterancy_level_with_side_effects(highest_level, false);
-                        }
-                        if let Ok(mut target_guard) = other.write() {
-                            target_guard.set_veterancy_level_with_side_effects(highest_level, false);
+                let target_result = other.read().ok().map(|guard| {
+                    (
+                        guard.with_experience_tracker(|_| ()).is_some(),
+                        guard.get_veterancy_level(),
+                    )
+                });
+                if hijacker_has_tracker {
+                    if let Some((target_has_tracker, target_level)) = target_result {
+                        if target_has_tracker {
+                            let highest_level = target_level.max(hijacker_level);
+                            if let Ok(mut hijacker_guard) = hijacker.write() {
+                                hijacker_guard
+                                    .set_veterancy_level_with_side_effects(highest_level, false);
+                            }
+                            if let Ok(mut target_guard) = other.write() {
+                                target_guard
+                                    .set_veterancy_level_with_side_effects(highest_level, false);
+                            }
                         }
                     }
                 }

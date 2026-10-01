@@ -165,7 +165,8 @@ impl UpdateModuleInterface for HijackerUpdate {
             if let Some(target_arc) = TheGameLogic::find_object_by_id(self.target_id) {
                 if let Ok(target_guard) = target_arc.read() {
                     let target_pos = *target_guard.get_position();
-                    let target_tracker = target_guard.get_experience_tracker();
+                    let target_has_tracker =
+                        target_guard.with_experience_tracker(|_| ()).is_some();
                     let target_level = target_guard.get_veterancy_level();
                     self.was_target_airborne = target_guard.is_significantly_above_terrain();
                     self.eject_pos = target_pos;
@@ -181,14 +182,13 @@ impl UpdateModuleInterface for HijackerUpdate {
                         )
                     }) {
                         if let Ok(mut hijacker_guard) = hijacker_arc.write() {
-                            let hijacker_tracker = hijacker_guard.get_experience_tracker();
+                            let hijacker_has_tracker =
+                                hijacker_guard.with_experience_tracker(|_| ()).is_some();
                             let hijacker_level = hijacker_guard.get_veterancy_level();
                             let _ = hijacker_guard.set_position(&target_pos);
                             drop(hijacker_guard);
 
-                            if let (Some(_target_tracker), Some(_hijacker_tracker)) =
-                                (target_tracker, hijacker_tracker)
-                            {
+                            if target_has_tracker && hijacker_has_tracker {
                                 let highest_level = target_level.max(hijacker_level);
                                 // C++ HijackerUpdate.cpp:74-77 sets BOTH trackers to the
                                 // highest level via `setVeterancyLevel(highestLevel)`

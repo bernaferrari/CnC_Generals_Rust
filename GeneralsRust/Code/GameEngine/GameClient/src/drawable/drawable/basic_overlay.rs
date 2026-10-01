@@ -228,7 +228,10 @@ impl BasicDrawable {
             let Ok(obj_guard) = obj_arc.read() else {
                 return;
             };
-            if obj_guard.get_experience_tracker().is_some() {
+            if obj_guard
+                .with_experience_tracker(|_| ())
+                .is_some()
+            {
                 self.overlay_data.veterancy_level = obj_guard.get_veterancy_level() as u8;
             }
         }

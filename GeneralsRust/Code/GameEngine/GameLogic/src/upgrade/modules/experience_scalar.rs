@@ -196,19 +196,18 @@ impl ExperienceScalarUpgrade {
         let data = self.get_experience_scalar_upgrade_module_data();
 
         // Get the experience tracker from the object and add the scalar
-        if let Some(xp_tracker) = object.get_experience_tracker() {
-            if let Ok(mut guard) = xp_tracker.lock() {
-                let current_scalar = guard.get_experience_scalar();
-                let new_scalar = current_scalar + data.add_xp_scalar;
-                guard.set_experience_scalar(new_scalar);
-                log::info!(
-                    "ExperienceScalarUpgrade: Added XP scalar {} (now {}) for object {}",
-                    data.add_xp_scalar,
-                    new_scalar,
-                    self.object_id
-                );
-            }
-        } else {
+        let applied = object.with_experience_tracker_mut(|guard| {
+            let current_scalar = guard.get_experience_scalar();
+            let new_scalar = current_scalar + data.add_xp_scalar;
+            guard.set_experience_scalar(new_scalar);
+            log::info!(
+                "ExperienceScalarUpgrade: Added XP scalar {} (now {}) for object {}",
+                data.add_xp_scalar,
+                new_scalar,
+                self.object_id
+            );
+        });
+        if applied.is_none() {
             log::warn!(
                 "ExperienceScalarUpgrade: Object {} has no experience tracker",
                 self.object_id

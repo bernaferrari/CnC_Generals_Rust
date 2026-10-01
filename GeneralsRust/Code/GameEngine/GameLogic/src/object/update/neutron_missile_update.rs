@@ -543,9 +543,8 @@ impl NeutronMissileUpdate {
                     log::debug!("NeutronMissileUpdate::do_launch set_position failed: {err}");
                 }
 
-                if let Some(tracker) = object.get_experience_tracker() {
-                    tracker.set_experience_sink(self.launcher_id);
-                }
+                let _ = object
+                    .with_experience_tracker_mut(|t| t.set_experience_sink(self.launcher_id));
             }
 
             self.is_launched = true;

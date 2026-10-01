@@ -418,13 +418,10 @@ impl UpgradeEffectApplicator {
 
     /// Apply experience gain scalar bonus.
     fn apply_experience_scalar(object: &mut Object, add_scalar: Real) -> Result<(), String> {
-        if let Some(tracker) = object.get_experience_tracker() {
-            let mut tracker_guard = tracker
-                .lock()
-                .map_err(|_| "Failed to lock experience tracker".to_string())?;
+        let _ = object.with_experience_tracker_mut(|tracker_guard| {
             let current = tracker_guard.get_experience_scalar();
             tracker_guard.set_experience_scalar((current + add_scalar).max(0.0));
-        }
+        });
         Ok(())
     }
 
@@ -527,13 +524,10 @@ impl UpgradeEffectApplicator {
                 futures::executor::block_on(object.set_radar_visibility(false))
             }
             UpgradeEffectType::ExperienceScalar => {
-                if let Some(tracker) = object.get_experience_tracker() {
-                    let mut tracker_guard = tracker
-                        .lock()
-                        .map_err(|_| "Failed to lock experience tracker".to_string())?;
+                let _ = object.with_experience_tracker_mut(|tracker_guard| {
                     let current = tracker_guard.get_experience_scalar();
                     tracker_guard.set_experience_scalar((current - effect.modifier).max(0.0));
-                }
+                });
                 Ok(())
             }
             UpgradeEffectType::CostModifier => {

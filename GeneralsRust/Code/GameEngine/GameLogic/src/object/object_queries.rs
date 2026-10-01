@@ -158,19 +158,21 @@ impl Object {
         }
 
         if let Some(veterancy) = get_int(crate::common::well_known_keys::key_object_veterancy()) {
-            if let Some(tracker) = self.get_experience_tracker() {
-                if let Ok(mut guard) = tracker.lock() {
-                    if guard.is_trainable() {
-                        let level = match veterancy.clamp(0, 3) {
-                            0 => VeterancyLevel::Regular,
-                            1 => VeterancyLevel::Veteran,
-                            2 => VeterancyLevel::Elite,
-                            _ => VeterancyLevel::Heroic,
-                        };
-                        let _ = guard.set_veterancy_level(level);
-                    }
+            let applied = self.with_experience_tracker_mut(|guard| {
+                if guard.is_trainable() {
+                    let level = match veterancy.clamp(0, 3) {
+                        0 => VeterancyLevel::Regular,
+                        1 => VeterancyLevel::Veteran,
+                        2 => VeterancyLevel::Elite,
+                        _ => VeterancyLevel::Heroic,
+                    };
+                    let _ = guard.set_veterancy_level(level);
+                    true
+                } else {
+                    false
                 }
-            }
+            });
+            let _ = applied;
         }
 
         if let Some(attitude_val) =

@@ -425,13 +425,10 @@ impl VeterancyCrateCollide {
         let Ok(other_guard) = other_handle.read() else {
             return false;
         };
-        let Some(tracker) = other_guard.get_experience_tracker() else {
-            return false;
-        };
-        let Ok(tracker_guard) = tracker.lock() else {
-            return false;
-        };
-        if !tracker_guard.is_trainable() || !tracker_guard.can_gain_exp_for_level(levels_to_gain) {
+        let eligible = other_guard.with_experience_tracker(|tracker_guard| {
+            tracker_guard.is_trainable() && tracker_guard.can_gain_exp_for_level(levels_to_gain)
+        });
+        if !eligible.unwrap_or(false) {
             return false;
         }
 
@@ -522,24 +519,24 @@ impl VeterancyCrateCollide {
             let Ok(mut obj_guard) = obj_arc.write() else {
                 continue;
             };
-            let Some(tracker) = obj_guard.get_experience_tracker() else {
-                continue;
-            };
-            let Ok(mut tracker_guard) = tracker.lock() else {
-                continue;
-            };
-            if !tracker_guard.can_gain_exp_for_level(levels_to_gain) {
-                continue;
-            }
-            let old_level = tracker_guard.get_veterancy_level();
-            let gained = tracker_guard.gain_exp_for_level(
-                levels_to_gain,
-                !self.module_data.is_pilot,
-                requirements.as_array(),
-            );
-            let new_level = tracker_guard.get_veterancy_level();
-            drop(tracker_guard);
-            if gained && old_level != new_level {
+            let promoted = obj_guard.with_experience_tracker_mut(|tracker_guard| {
+                if !tracker_guard.can_gain_exp_for_level(levels_to_gain) {
+                    return None;
+                }
+                let old_level = tracker_guard.get_veterancy_level();
+                let gained = tracker_guard.gain_exp_for_level(
+                    levels_to_gain,
+                    !self.module_data.is_pilot,
+                    requirements.as_array(),
+                );
+                let new_level = tracker_guard.get_veterancy_level();
+                if gained && old_level != new_level {
+                    Some((old_level, new_level))
+                } else {
+                    None
+                }
+            });
+            if let Some((old_level, new_level)) = promoted.flatten() {
                 obj_guard.on_veterancy_level_changed(old_level, new_level, true);
             }
         }

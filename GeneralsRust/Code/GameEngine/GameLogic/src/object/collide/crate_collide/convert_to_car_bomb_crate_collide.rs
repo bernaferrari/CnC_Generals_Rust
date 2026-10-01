@@ -412,13 +412,11 @@ impl ConvertToCarBombCrateCollide {
             drop(obj_guard);
 
             if let Ok(mut other_guard) = other.write() {
-                if let Some(exp) = other_guard.get_experience_tracker() {
-                    if let Ok(mut exp_guard) = exp.lock() {
-                        if let Some(old_level) = exp_guard.set_veterancy_level(level) {
-                            drop(exp_guard);
-                            other_guard.on_veterancy_level_changed(old_level, level, true);
-                        }
-                    }
+                if let Some(old_level) = other_guard
+                    .with_experience_tracker_mut(|exp_guard| exp_guard.set_veterancy_level(level))
+                    .flatten()
+                {
+                    other_guard.on_veterancy_level_changed(old_level, level, true);
                 }
             }
         }

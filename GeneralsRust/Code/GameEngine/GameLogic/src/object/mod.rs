@@ -2951,7 +2951,7 @@ pub struct Object {
     group_id: Option<u32>,
 
     // Experience and combat
-    experience_tracker: Option<Arc<Mutex<ExperienceTracker>>>,
+    experience_tracker: Option<Box<ExperienceTracker>>,
     captured: bool,
     veterancy_level: VeterancyLevel,
     experience_points: Real,

@@ -119,19 +119,6 @@ impl BehaviorModuleExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
     }
 }
 
-/// Extension trait for Arc<Mutex<ExperienceTracker>> to provide convenient methods
-pub trait ExperienceTrackerExt {
-    fn set_experience_sink(&self, sink: ObjectID);
-}
-
-impl ExperienceTrackerExt for Arc<Mutex<crate::common::ExperienceTracker>> {
-    fn set_experience_sink(&self, sink: ObjectID) {
-        if let Ok(mut guard) = self.try_lock() {
-            guard.set_experience_sink(sink);
-        }
-    }
-}
-
 /// Extension trait for Arc<Mutex<StealthController>> to provide convenient methods
 pub trait StealthControllerExt {
     fn receive_grant(&self, grant: bool, frames: UnsignedInt, current_frame: UnsignedInt);

@@ -1596,9 +1596,8 @@ impl SpecialAbilityUpdate {
             if let Some((pos, orient, owner_id)) = owner_snapshot {
                 let _ = new_guard.set_position(&pos);
                 let _ = new_guard.set_orientation(orient);
-                if let Some(tracker) = new_guard.get_experience_tracker() {
-                    let _ = tracker.lock().map(|mut t| t.set_experience_sink(owner_id));
-                }
+                let _ = new_guard
+                    .with_experience_tracker_mut(|t| t.set_experience_sink(owner_id));
             }
             if let Some(physics) = new_guard.get_physics() {
                 physics.set_pitch_rate(0.0);

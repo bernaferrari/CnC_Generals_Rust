@@ -738,18 +738,16 @@ impl Snapshot for Object {
 
         // C++ ExperienceTracker::crc: xferInt(xp) + xferUser(level, sizeof(VeterancyLevel)).
         if let Some(tracker) = &self.experience_tracker {
-            if let Ok(guard) = tracker.lock() {
-                let mut xp = guard.get_current_experience();
-                let _ = xfer.xfer_int(&mut xp);
-                let mut level = guard.get_veterancy_level() as i32;
-                // SAFETY: `level` is an initialized stack `i32`; exactly
-                // `size_of::<i32>()` bytes are transferred here.
-                unsafe {
-                    let _ = xfer.xfer_user(
-                        (&mut level as *mut i32).cast::<u8>(),
-                        std::mem::size_of::<i32>(),
-                    );
-                }
+            let mut xp = tracker.get_current_experience();
+            let _ = xfer.xfer_int(&mut xp);
+            let mut level = tracker.get_veterancy_level() as i32;
+            // SAFETY: `level` is an initialized stack `i32`; exactly
+            // `size_of::<i32>()` bytes are transferred here.
+            unsafe {
+                let _ = xfer.xfer_user(
+                    (&mut level as *mut i32).cast::<u8>(),
+                    std::mem::size_of::<i32>(),
+                );
             }
         }
 
@@ -915,20 +913,13 @@ impl Snapshot for Object {
         }
 
         if self.experience_tracker.is_none() {
-            self.experience_tracker = Some(Arc::new(Mutex::new(ExperienceTracker::new(self.id))));
+            self.experience_tracker = Some(Box::new(ExperienceTracker::new(self.id)));
         }
-        if let Some(tracker) = &self.experience_tracker {
-            if let Ok(mut tracker_guard) = tracker.lock() {
-                if let Err(err) = tracker_guard.xfer_state(xfer) {
-                    warn!(
-                        "Object::xfer failed for experience tracker on object {}: {}",
-                        self.id, err
-                    );
-                }
-            } else {
+        if let Some(tracker) = &mut self.experience_tracker {
+            if let Err(err) = tracker.xfer_state(xfer) {
                 warn!(
-                    "Object::xfer could not lock experience tracker for object {}",
-                    self.id
+                    "Object::xfer failed for experience tracker on object {}: {}",
+                    self.id, err
                 );
             }
         }
