@@ -349,19 +349,14 @@ impl TheGlobalData {
             return;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            if let Some(drawable) = obj_guard.get_drawable() {
-                if let Ok(mut draw_guard) = drawable.write() {
-                    draw_guard.set_time_of_day(value);
-                    draw_guard.changed_team(&obj_guard);
+            let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+                if let Some(drawable) = obj_guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.set_time_of_day(value);
+                        draw_guard.changed_team(obj_guard);
+                    }
                 }
-            }
+            });
         }
     }
 }

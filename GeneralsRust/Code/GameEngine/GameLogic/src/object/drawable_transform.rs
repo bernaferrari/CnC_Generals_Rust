@@ -223,12 +223,12 @@ impl Drawable {
         self.object_ref.as_ref().and_then(|weak| weak.upgrade())
     }
 
-    pub(crate) fn bind_object_ref(&mut self, object: &Arc<RwLock<crate::object::Object>>) {
+    pub(crate) fn bind_object_ref(&mut self, object: &Arc<rhai::Locked<crate::object::Object>>) {
         self.object_ref = Some(Arc::downgrade(object));
     }
 
     /// C++ `Drawable::friend_bindToObject` + `GameLogic::bindObjectAndDrawable`.
-    pub fn friend_bind_to_object(&mut self, object: &Arc<RwLock<crate::object::Object>>) {
+    pub fn friend_bind_to_object(&mut self, object: &Arc<rhai::Locked<crate::object::Object>>) {
         let Some(new_object_id) = object.read().ok().map(|guard| guard.get_id()) else {
             return;
         };
@@ -241,7 +241,7 @@ impl Drawable {
     pub(crate) fn friend_bind_to_object_with_id(
         &mut self,
         new_object_id: u32,
-        object: &Arc<RwLock<crate::object::Object>>,
+        object: &Arc<rhai::Locked<crate::object::Object>>,
     ) {
         let previous_object_id = self.object_id;
         if let Some(client) = TheGameClient::get() {

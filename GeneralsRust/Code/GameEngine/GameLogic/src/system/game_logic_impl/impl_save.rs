@@ -226,14 +226,16 @@ impl GameLogic {
         let now = if self.frame == 0 { 1 } else { self.frame };
         let object_ids: Vec<ObjectID> = self.all_objects.clone();
         for obj_id in object_ids {
-            let Some(arc) = self.find_object_by_id(obj_id) else {
+            let Some(modules) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                obj.update_module_registrations()
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            }) else {
                 continue;
             };
-            let Ok(obj) = arc.read() else {
-                continue;
-            };
-            for module in obj.update_module_registrations() {
-                self.register_sleepy_update_module(obj_id, module.clone(), now);
+            for module in modules {
+                self.register_sleepy_update_module(obj_id, module, now);
             }
         }
         self.remake_sleepy_update();

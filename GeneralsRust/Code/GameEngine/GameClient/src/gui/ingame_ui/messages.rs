@@ -364,16 +364,12 @@ impl InGameUI {
         [color.r, color.g, color.b, color.a]
     }
 
-    fn mouseover_tooltip_player_for_object(object: &Object) -> Option<Arc<RwLock<Player>>> {
-        let local_player = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned());
-        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
-
+    fn mouseover_tooltip_player_for_object(object: &Object) -> Option<gamelogic::player::PlayerIndex> {
+        let list = player_list().read().ok()?;
+        let local = list.get_local_player();
         let mut player = object.get_contain().and_then(|contain| {
             contain.lock().ok().and_then(|contain_guard| {
-                contain_guard.get_apparent_controlling_player(local_player_guard.as_deref())
+                contain_guard.get_apparent_controlling_player(local)
             })
         });
 
@@ -382,20 +378,15 @@ impl InGameUI {
         }
 
         if let Some(disguised_index) =
-            Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+            Self::disguise_visible_player_index_for_object(object, local)
         {
-            if let Some(disguised_player) = player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(disguised_index).cloned())
-            {
-                player = Some(disguised_player);
+            if list.get_player(disguised_index).is_some() {
+                player = Some(disguised_index);
             }
         }
 
         player
     }
-
     fn mouseover_tooltip_with_player_suffix(
         tooltip: &str,
         player: &Player,

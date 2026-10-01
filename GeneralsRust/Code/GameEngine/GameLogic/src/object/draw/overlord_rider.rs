@@ -9,43 +9,43 @@
 
 use crate::common::*;
 use crate::drawable::Drawable as DrawableTrait;
-use crate::helpers::{TheGameClient, TheGameLogic};
+use crate::helpers::TheGameClient;
 use crate::object::drawable::{Drawable, DrawableArcExt};
 use crate::object::registry::OBJECT_REGISTRY;
 use std::sync::{Arc, RwLock};
 
-fn find_object(id: ObjectID) -> Option<Arc<RwLock<crate::object::Object>>> {
-    TheGameLogic::find_object_by_id(id).or_else(|| OBJECT_REGISTRY.get_object(id))
-}
-
-/// C++ OverlordContain::friend_getRider returns `m_containList.front()`.
-/// HelixContain::friend_getRider returns `TheGameLogic->findObjectByID(m_portableStructureID)`.
 fn rider_id_of(owner_id: ObjectID) -> Option<ObjectID> {
-    let owner = find_object(owner_id)?;
-    let owner_guard = owner.read().ok()?;
-    let contain = owner_guard.get_contain()?;
-    if let Some(id) = contain.friend_get_rider().filter(|id| *id != INVALID_ID) {
-        return Some(id);
+    let (direct, candidates) = OBJECT_REGISTRY.with_object(owner_id, |owner| {
+        let contain = owner.get_contain()?;
+        if let Some(id) = contain.friend_get_rider().filter(|id| *id != INVALID_ID) {
+            return Some((Some(id), Vec::new()));
+        }
+        Some((
+            None,
+            contain
+                .get_contained_objects()
+                .iter()
+                .copied()
+                .filter(|id| *id != INVALID_ID)
+                .collect::<Vec<_>>(),
+        ))
+    })??;
+    if direct.is_some() {
+        return direct;
     }
-    // C++ Overlord: first contained is the portable-structure rider.
-    contain
-        .get_contained_objects()
-        .iter()
-        .copied()
-        .find(|id| *id != INVALID_ID)
-        .and_then(|id| {
-            let rider = find_object(id)?;
-            let guard = rider.read().ok()?;
-            guard
-                .is_kind_of(crate::common::KindOf::PortableStructure)
-                .then_some(id)
-        })
+    candidates.into_iter().find(|id| {
+        OBJECT_REGISTRY
+            .with_object(*id, |guard| {
+                guard.is_kind_of(crate::common::KindOf::PortableStructure)
+            })
+            .unwrap_or(false)
+    })
 }
 
 fn drawable_of(object_id: ObjectID) -> Option<Arc<RwLock<Drawable>>> {
-    let object = find_object(object_id)?;
-    let guard = object.read().ok()?;
-    guard.get_drawable()
+    OBJECT_REGISTRY
+        .with_object(object_id, |guard| guard.get_drawable())
+        .flatten()
 }
 
 /// After the rider's own `Drawable::draw` commits under the rider object id,

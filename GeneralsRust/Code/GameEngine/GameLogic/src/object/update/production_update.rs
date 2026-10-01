@@ -7,7 +7,7 @@ use crate::player::PlayerArcExt;
 use crate::prelude::*;
 use crate::upgrade::UpgradeStatus as CrateUpgradeStatus;
 use crate::upgrade::template::UpgradeType;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 const DOOR_COUNT_MAX: usize = 4;
 
@@ -184,16 +184,13 @@ impl ProductionUpdate {
 
         // Sanity checks
         if upgrade.get_upgrade_type() == UpgradeType::Player {
-            let can_afford = ctx
-                .upgrade_center
-                .as_ref()
-                .map(|uc| {
-                    uc.can_afford_upgrade(
-                        &player as &dyn std::any::Any,
-                        upgrade as &dyn std::any::Any,
-                    )
+            let can_afford = crate::player::with_player(player, |p| {
+                ctx.upgrade_center.as_ref().map(|uc| {
+                    uc.can_afford_upgrade(p as &dyn std::any::Any, upgrade as &dyn std::any::Any)
                 })
-                .unwrap_or(false);
+            })
+            .flatten()
+            .unwrap_or(false);
             if !can_afford {
                 return false;
             }
@@ -203,19 +200,19 @@ impl ProductionUpdate {
             }
         }
 
-        // Can't queue same upgrade twice
         if self.is_upgrade_in_queue(upgrade) {
             return false;
         }
 
-        // STOP cheaters
         if !object.can_produce_upgrade(upgrade) {
             return false;
         }
 
-        // Can't queue if already in production elsewhere
         if upgrade.get_upgrade_type() == UpgradeType::Player
-            && (player.has_upgrade_complete(upgrade) || player.has_upgrade_in_production(upgrade))
+            && crate::player::with_player(player, |p| {
+                p.has_upgrade_complete(upgrade) || p.has_upgrade_in_production(upgrade)
+            })
+            .unwrap_or(true)
         {
             return false;
         }
@@ -224,25 +221,25 @@ impl ProductionUpdate {
             return false;
         }
 
-        // Take cost
-        let mut player_guard = player.write().unwrap();
-        let cost = upgrade.calc_cost_to_build(&*player_guard).max(0) as u32;
-        let money = player_guard.get_money_mut();
-        if money.withdraw(cost).is_err() {
+        let paid = crate::player::with_player_mut(player, |player_guard| {
+            let cost = upgrade.calc_cost_to_build(&*player_guard).max(0) as u32;
+            player_guard.get_money_mut().withdraw(cost).is_ok()
+        })
+        .unwrap_or(false);
+        if !paid {
             return false;
         }
 
-        // Create production entry
         let mut production = ProductionEntry::new();
         production.production_type = ProductionType::Upgrade;
         production.upgrade_to_research = Some(upgrade.get_id());
         production.production_id = PRODUCTIONID_INVALID;
 
-        // Add to queue
         self.add_to_production_queue(production, ctx);
 
-        // Add upgrade to player
-        player.add_upgrade(upgrade, CrateUpgradeStatus::InProduction, None);
+        let _ = crate::player::with_player_mut(player, |p| {
+            p.add_upgrade(upgrade, CrateUpgradeStatus::InProduction, None);
+        });
 
         true
     }
@@ -258,33 +255,29 @@ impl ProductionUpdate {
 
         // Sanity check
         if upgrade.get_upgrade_type() == UpgradeType::Player
-            && !player.has_upgrade_in_production(upgrade)
+            && !crate::player::with_player(player, |p| p.has_upgrade_in_production(upgrade))
+                .unwrap_or(false)
         {
             return;
         }
 
-        // Find production entry
         let pos = self.production_queue.iter().position(|p| {
             p.production_type == ProductionType::Upgrade
                 && p.upgrade_to_research == Some(upgrade.get_id())
         });
 
         if let Some(idx) = pos {
-            // Refund money
-            let mut player_guard = player.write().unwrap();
-            let cost = upgrade.calc_cost_to_build(&*player_guard).max(0) as u32;
-            let money = player_guard.get_money_mut();
-            if let Err(err) = money.deposit(cost) {
-                log::debug!("ProductionUpdate::cancel_upgrade deposit failed: {err}");
-            }
+            let _ = crate::player::with_player_mut(player, |player_guard| {
+                let cost = upgrade.calc_cost_to_build(&*player_guard).max(0) as u32;
+                if let Err(err) = player_guard.get_money_mut().deposit(cost) {
+                    log::debug!("ProductionUpdate::cancel_upgrade deposit failed: {err}");
+                }
+                if upgrade.get_upgrade_type() == UpgradeType::Player {
+                    player_guard.remove_upgrade(upgrade);
+                }
+            });
 
-            // Remove from queue
             self.remove_from_production_queue(idx, ctx);
-
-            // Remove upgrade status
-            if upgrade.get_upgrade_type() == UpgradeType::Player {
-                player.remove_upgrade(upgrade);
-            }
         }
     }
 
@@ -333,10 +326,12 @@ impl ProductionUpdate {
             return false;
         };
 
-        let mut player_guard = player.write().unwrap();
-        let cost = unit_type.calc_cost_to_build(Some(&*player_guard)).max(0) as u32;
-        let money = player_guard.get_money_mut();
-        if money.withdraw(cost).is_err() {
+        let paid = crate::player::with_player_mut(player, |player_guard| {
+            let cost = unit_type.calc_cost_to_build(Some(&*player_guard)).max(0) as u32;
+            player_guard.get_money_mut().withdraw(cost).is_ok()
+        })
+        .unwrap_or(false);
+        if !paid {
             return false;
         }
 
@@ -389,15 +384,16 @@ impl ProductionUpdate {
                     if let Some(template) = thing_factory.get_template(template_id) {
                         // Refund money
                         if let Some(player) = object.get_controlling_player() {
-                            let mut player_guard = player.write().unwrap();
-                            let cost =
-                                template.calc_cost_to_build(Some(&*player_guard)).max(0) as u32;
-                            let money = player_guard.get_money_mut();
-                            if let Err(err) = money.deposit(cost) {
-                                log::debug!(
-                                    "ProductionUpdate::cancel_unit_create deposit failed: {err}"
-                                );
-                            }
+                            let _ = crate::player::with_player_mut(player, |player_guard| {
+                                let cost = template
+                                    .calc_cost_to_build(Some(&*player_guard))
+                                    .max(0) as u32;
+                                if let Err(err) = player_guard.get_money_mut().deposit(cost) {
+                                    log::debug!(
+                                        "ProductionUpdate::cancel_unit_create deposit failed: {err}"
+                                    );
+                                }
+                            });
                         }
                     }
                 }
@@ -468,7 +464,8 @@ impl ProductionUpdate {
                 if let Some(template_id) = production.object_to_produce {
                     if let Some(thing_factory) = ctx.thing_factory.as_ref() {
                         if let Some(template) = thing_factory.get_template(template_id) {
-                            if !player.allowed_to_build(&template)
+                            if !crate::player::with_player(player, |p| p.allowed_to_build(&template))
+                                .unwrap_or(false)
                                 && !template.is_kind_of(KindOf::Dozer)
                             {
                                 should_cancel = true;
@@ -490,11 +487,10 @@ impl ProductionUpdate {
                     if let Some(template_id) = production.object_to_produce {
                         if let Some(thing_factory) = ctx.thing_factory.as_ref() {
                             if let Some(template) = thing_factory.get_template(template_id) {
-                                if let Ok(player_guard) = player.read() {
-                                    template.calc_time_to_build(Some(&*player_guard))
-                                } else {
-                                    0
-                                }
+                                crate::player::with_player(player, |p| {
+                                    template.calc_time_to_build(Some(p))
+                                })
+                                .unwrap_or(0)
                             } else {
                                 0
                             }
@@ -510,11 +506,8 @@ impl ProductionUpdate {
                             if let Some(upgrade) = upgrade_any
                                 .downcast_ref::<crate::upgrade::template::UpgradeTemplate>(
                             ) {
-                                if let Ok(player_guard) = player.read() {
-                                    upgrade.calc_time_to_build(&*player_guard)
-                                } else {
-                                    0
-                                }
+                                crate::player::with_player(player, |p| upgrade.calc_time_to_build(p))
+                                    .unwrap_or(0)
                             } else {
                                 0
                             }
@@ -635,7 +628,7 @@ impl ProductionUpdate {
             .flatten();
 
         let Some(exit_interface) = exit_interface else {
-            self.create_unit_no_exit(&template, &player, building, idx, ctx);
+            self.create_unit_no_exit(&template, player, building, idx, ctx);
             return;
         };
 
@@ -667,7 +660,7 @@ impl ProductionUpdate {
         if door_ready {
             self.spawn_unit_from_door(
                 &template,
-                &player,
+                player,
                 building,
                 &exit_interface,
                 exit_door.to_modules_exit_door_type(),
@@ -681,18 +674,14 @@ impl ProductionUpdate {
     fn spawn_unit_from_door(
         &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
-        player: &Arc<RwLock<crate::player::Player>>,
+        player: crate::player::PlayerIndex,
         building: crate::common::ObjectID,
         exit_interface: &Arc<std::sync::Mutex<dyn crate::modules::ExitInterface>>,
         door: crate::modules::ExitDoorType,
         idx: usize,
         ctx: &mut UpdateContext<'_>,
     ) {
-        // Get the player's default team for the new unit
-        let team: Option<Arc<RwLock<crate::team::Team>>> = {
-            let player_guard = player.read().ok();
-            player_guard.and_then(|p| p.get_default_team())
-        };
+        let team = crate::player::with_player(player, |p| p.get_default_team_id()).flatten();
 
         // Create the new object via TheObjectFactory
         let new_obj = match crate::system::game_logic::TheObjectFactory::new_object(
@@ -726,9 +715,9 @@ impl ProductionUpdate {
             audio.add_audio_event(&voice);
         }
 
-        if let Ok(mut player_guard) = player.write() {
+        let _ = crate::player::with_player_mut(player, |player_guard| {
             player_guard.on_unit_created_id(producer_id, unit_id);
-        }
+        });
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
             guard.on_build_complete();
         });
@@ -753,17 +742,15 @@ impl ProductionUpdate {
         }
     }
 
-    /// Create a unit when there is no exit interface.
     fn create_unit_no_exit(
         &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
-        player: &Arc<RwLock<crate::player::Player>>,
+        player: crate::player::PlayerIndex,
         building: crate::common::ObjectID,
         idx: usize,
         ctx: &mut UpdateContext<'_>,
     ) {
-        let team: Option<Arc<RwLock<crate::team::Team>>> =
-            player.read().ok().and_then(|p| p.get_default_team());
+        let team = crate::player::with_player(player, |p| p.get_default_team_id()).flatten();
 
         let new_obj = match crate::system::game_logic::TheObjectFactory::new_object(
             Arc::clone(template),
@@ -781,9 +768,9 @@ impl ProductionUpdate {
             guard.set_producer_id(producer_id);
         });
 
-        if let Ok(mut player_guard) = player.write() {
+        let _ = crate::player::with_player_mut(player, |player_guard| {
             player_guard.on_unit_created_id(producer_id, new_obj);
-        }
+        });
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
             guard.on_build_complete();
         });
@@ -842,52 +829,43 @@ impl ProductionUpdate {
 
             upgrade_type = upgrade.get_upgrade_type();
             upgrade_name = upgrade.get_name().clone();
-            upgrade_cost = {
-                let player_guard = player.read().ok();
-                player_guard
-                    .map(|p| upgrade.calc_cost_to_build(&*p).max(0) as u32)
-                    .unwrap_or(0)
-            };
+            upgrade_cost = crate::player::with_player(player, |p| {
+                upgrade.calc_cost_to_build(p).max(0) as u32
+            })
+            .unwrap_or(0);
 
-            // Apply the upgrade based on type (while we still hold the reference)
             match upgrade_type {
                 UpgradeType::Player => {
-                    player.add_upgrade(upgrade, CrateUpgradeStatus::Complete, None);
+                    let _ = crate::player::with_player_mut(player, |p| {
+                        p.add_upgrade(upgrade, CrateUpgradeStatus::Complete, None);
+                    });
                 }
                 UpgradeType::Object => {
-                    // Need &mut Object for give_upgrade — use find_object_mut
                     if let Some(obj_mut) = ctx.game_logic.find_object_mut(self.thing) {
                         obj_mut.give_upgrade(upgrade);
                     }
                 }
             }
 
-            // Record in academy stats
-            if let Ok(mut player_guard) = player.write() {
+            let _ = crate::player::with_player_mut(player, |player_guard| {
                 player_guard
                     .get_academy_stats_mut()
                     .record_upgrade(upgrade, false);
-            }
+            });
         }
-        // Borrow on ctx.upgrade_center is now dropped.
 
-        // Record money spent
-        if let Ok(mut player_guard) = player.write() {
+        let _ = crate::player::with_player_mut(player, |player_guard| {
             player_guard
                 .get_score_keeper_mut()
                 .add_money_spent(upgrade_cost);
-        }
+        });
 
         // Notify script engine of completed upgrade
         let se_ref = crate::scripting::engine::get_script_engine();
         match se_ref.write() {
             Ok(mut se_guard) => {
                 if let Some(se) = se_guard.as_mut() {
-                    let player_index = player
-                        .read()
-                        .ok()
-                        .map(|p| p.get_player_index() as usize)
-                        .unwrap_or(0);
+                    let player_index = player as usize;
                     se.notify_of_completed_upgrade(player_index, upgrade_name.as_str(), self.thing);
                 }
             }

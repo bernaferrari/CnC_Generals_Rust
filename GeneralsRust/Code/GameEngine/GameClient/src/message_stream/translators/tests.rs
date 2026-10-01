@@ -8,7 +8,7 @@ use gamelogic::player::{Player, PlayerType, player_list};
 use gamelogic::system::game_logic::{
     GAME_LAN, GAME_NONE, GAME_REPLAY, GAME_SINGLE_PLAYER, get_game_logic,
 };
-use gamelogic::team::Team;
+use gamelogic::team::TeamID;
 use gamelogic::thing_template::ThingTemplate;
 use gamelogic::weapon::{
     WeaponSetFlags as LogicWeaponSetFlags, WeaponSetType as LogicWeaponSetType, WeaponTemplate,
@@ -73,7 +73,7 @@ impl ThingTemplate for TestThingTemplate {
     }
 }
 
-fn setup_local_player_team() -> Arc<RwLock<Team>> {
+fn setup_local_player_team() -> TeamID {
     crate::message_stream::player_state::set_local_player_id(0);
     {
         let list = player_list();
@@ -82,16 +82,13 @@ fn setup_local_player_team() -> Arc<RwLock<Team>> {
         guard.add_player(Player::new(0));
         guard.set_local_player_index(0);
     }
-
-    let team = Arc::new(RwLock::new(Team::new(AsciiString::from("teamLocal"), 1)));
-    team.write().unwrap().set_controlling_player_id(Some(0));
-    team
+    1
 }
 
 fn register_test_object(
     id: ObjectID,
     kinds: Vec<KindOf>,
-    team: Arc<RwLock<Team>>,
+    team: TeamID,
 ) -> ObjectID {
     register_test_object_with_cost(id, kinds, team, 0)
 }
@@ -99,7 +96,7 @@ fn register_test_object(
 fn register_test_object_with_cost(
     id: ObjectID,
     kinds: Vec<KindOf>,
-    team: Arc<RwLock<Team>>,
+    team: TeamID,
     build_cost: i32,
 ) -> ObjectID {
     register_test_object_with_name_and_cost(id, &format!("Object{id}"), kinds, team, build_cost)
@@ -109,7 +106,7 @@ fn register_test_object_with_name(
     id: ObjectID,
     name: &str,
     kinds: Vec<KindOf>,
-    team: Arc<RwLock<Team>>,
+    team: TeamID,
 ) -> ObjectID {
     register_test_object_with_name_and_cost(id, name, kinds, team, 0)
 }
@@ -118,7 +115,7 @@ fn register_test_object_with_name_and_cost(
     id: ObjectID,
     name: &str,
     kinds: Vec<KindOf>,
-    team: Arc<RwLock<Team>>,
+    team: TeamID,
     build_cost: i32,
 ) -> ObjectID {
     let template: Arc<dyn ThingTemplate> =
@@ -299,11 +296,7 @@ fn command_context_attack_accepts_after_moving_like_cpp() {
 fn command_context_attack_rejects_not_possible_like_cpp() {
     let _guard = test_state_lock();
     let local_team = setup_local_player_team();
-    let other_team = Arc::new(RwLock::new(Team::new(AsciiString::from("teamOther"), 2)));
-    other_team
-        .write()
-        .unwrap()
-        .set_controlling_player_id(Some(1));
+    let other_team: TeamID = 2;
 
     let unarmed = register_test_object(
         78_020,
@@ -374,7 +367,7 @@ fn command_context_repair_rejects_unrepairable_targets_like_cpp() {
     let target = register_test_object(
         78_041,
         vec![KindOf::Selectable, KindOf::Structure],
-        Arc::new(RwLock::new(Team::new(AsciiString::from("teamNeutral"), 3))),
+        3,
     );
 
     let selection = HashSet::from([78_040]);

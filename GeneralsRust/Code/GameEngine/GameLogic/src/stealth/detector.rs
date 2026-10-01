@@ -156,54 +156,36 @@ impl StealthDetectorController {
         let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
         for obj_id in &all_object_ids {
-            let obj_ref = match OBJECT_REGISTRY.get_object(*obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let obj_guard = match obj_ref.read() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if true {
-                let target_id = obj_guard.get_id();
-
-                // Skip self
-                if target_id == self.object_id {
-                    continue;
-                }
-
-                // Check if target is stealthed
+            if *obj_id == self.object_id {
+                continue;
+            }
+            let detected = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
                 if !obj_guard.is_stealthed() {
-                    continue;
+                    return None;
                 }
-
-                // Check if enemy
-                if !self.is_enemy(&*obj_guard) {
-                    continue;
+                if !self.is_enemy(obj_guard) {
+                    return None;
                 }
-
-                // Check range
                 let distance = (*obj_guard.get_position() - detector_pos).length();
                 if distance > detection_range {
-                    continue;
+                    return None;
                 }
-
-                // Check stealth difficulty vs detection capability
-                if self.can_detect_target(&*obj_guard, distance) {
-                    newly_detected.push(target_id);
-
-                    // Mark target as detected
-                    if let Some(stealth_module) = obj_guard.get_stealth_module() {
-                        if let Ok(mut stealth_guard) = stealth_module.lock() {
-                            stealth_guard.mark_as_detected();
-                        }
+                if !self.can_detect_target(obj_guard, distance) {
+                    return None;
+                }
+                if let Some(stealth_module) = obj_guard.get_stealth_module() {
+                    if let Ok(mut stealth_guard) = stealth_module.lock() {
+                        stealth_guard.mark_as_detected();
                     }
-
-                    trace!(
-                        "Detector {} detected stealthed unit {} at range {}",
-                        self.object_id, target_id, distance
-                    );
                 }
+                trace!(
+                    "Detector {} detected stealthed unit {} at range {}",
+                    self.object_id, obj_id, distance
+                );
+                Some(*obj_id)
+            });
+            if let Some(Some(target_id)) = detected {
+                newly_detected.push(target_id);
             }
         }
 

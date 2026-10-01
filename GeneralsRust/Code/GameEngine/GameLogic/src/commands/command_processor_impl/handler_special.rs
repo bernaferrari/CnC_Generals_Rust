@@ -640,18 +640,8 @@ impl DefaultCommandHandler {
             }
         }
 
-        let (player_arc, local_player_arc) = match player_list().read() {
-            Ok(list) => {
-                let player = match list.get_player(context.player_id) {
-                    Some(player) => Arc::clone(player),
-                    None => {
-                        return CommandExecutionResult::Failed(AsciiString::from(
-                            "Player not found for beacon placement",
-                        ))
-                    }
-                };
-                (player, list.get_local_player().cloned())
-            }
+        let local_player_index = match player_list().read() {
+            Ok(list) => list.get_local_player_index(),
             Err(_) => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Player list lock poisoned",
@@ -659,45 +649,46 @@ impl DefaultCommandHandler {
             }
         };
 
-        let (template_name, player_display_name, player_defeated, player_team) = {
-            let guard = match player_arc.read() {
-                Ok(guard) => guard,
-                Err(_) => {
+        let (template_name, player_display_name, player_defeated, player_team) =
+            match crate::player::with_player(context.player_id, |guard| {
+                let template_name = guard
+                    .get_player_template()
+                    .map(|template| template.beacon_name.clone())
+                    .unwrap_or_default();
+                let defeated = guard.is_defeated()
+                    || (!guard.has_any_units()
+                        && !guard.has_any_buildings_counts_for_victory()
+                        && !guard.has_any_objects());
+                (
+                    template_name,
+                    guard.get_player_display_name().clone(),
+                    defeated,
+                    guard.get_default_team_id(),
+                )
+            }) {
+                Some(info) => info,
+                None => {
                     return CommandExecutionResult::Failed(AsciiString::from(
-                        "Player lock poisoned",
+                        "Player not found for beacon placement",
                     ))
                 }
             };
-            let template_name = guard
-                .get_player_template()
-                .map(|template| template.beacon_name.clone())
-                .unwrap_or_default();
-            let defeated = guard.is_defeated()
-                || (!guard.has_any_units()
-                    && !guard.has_any_buildings_counts_for_victory()
-                    && !guard.has_any_objects());
-            (
-                template_name,
-                guard.get_player_display_name().clone(),
-                defeated,
-                guard.get_default_team_id(),
-            )
-        };
+
 
         if player_defeated {
-            self.notify_beacon_failed(context.player_id, &position, local_player_arc.as_ref());
+            self.notify_beacon_failed(context.player_id, &position, local_player_index);
             return CommandExecutionResult::Failed(AsciiString::from("Player is defeated"));
         }
 
         if template_name.is_empty() {
-            self.notify_beacon_failed(context.player_id, &position, local_player_arc.as_ref());
+            self.notify_beacon_failed(context.player_id, &position, local_player_index);
             return CommandExecutionResult::Failed(AsciiString::from("Beacon template missing"));
         }
 
         let template = match TheThingFactory::find_template(&template_name) {
             Some(template) => template,
             None => {
-                self.notify_beacon_failed(context.player_id, &position, local_player_arc.as_ref());
+                self.notify_beacon_failed(context.player_id, &position, local_player_index);
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Beacon template not found",
                 ));
@@ -707,11 +698,7 @@ impl DefaultCommandHandler {
         let max_beacons = with_multiplayer_settings(|settings| settings.max_beacons_per_player);
         let current_count = self.count_player_beacons(context.player_id, &template);
         if current_count >= max_beacons {
-            self.notify_beacon_limit_reached(
-                context.player_id,
-                &position,
-                local_player_arc.as_ref(),
-            );
+            self.notify_beacon_limit_reached(context.player_id, &position, local_player_index);
             return CommandExecutionResult::Failed(AsciiString::from("Too many beacons"));
         }
 
@@ -729,7 +716,7 @@ impl DefaultCommandHandler {
         };
 
         let Some(beacon_object) = new_object else {
-            self.notify_beacon_failed(context.player_id, &position, local_player_arc.as_ref());
+            self.notify_beacon_failed(context.player_id, &position, local_player_index);
             return CommandExecutionResult::Failed(AsciiString::from("Beacon creation failed"));
         };
 
@@ -739,7 +726,7 @@ impl DefaultCommandHandler {
         });
 
         let (local_visibility, local_allies) =
-            self.beacon_visibility_and_allies(&player_arc, local_player_arc.as_ref());
+            self.beacon_visibility_and_allies(context.player_id, local_player_index);
         if local_visibility {
             let mut manager = match get_beacon_manager().lock() {
                 Ok(lock) => lock,
@@ -755,7 +742,7 @@ impl DefaultCommandHandler {
                 context.player_id,
                 &position,
                 &player_display_name,
-                local_player_arc.as_ref(),
+                local_player_index,
             );
             if let Ok(mut radar) = get_radar_system().write() {
                 let radar_pos = RadarCoord3D::new(position.x, position.y, position.z);
@@ -766,10 +753,7 @@ impl DefaultCommandHandler {
             }
             control_bar::mark_ui_dirty();
         } else {
-            let beacon_id = beacon_object
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or_default();
+            let beacon_id = beacon_object;
             self.hide_beacon_for_local(beacon_id);
         }
 
@@ -786,29 +770,8 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::InvalidGameState;
         }
 
-        let (player_arc, _local_player_arc, is_local_player) = match player_list().read() {
-            Ok(list) => {
-                let player = match list.get_player(context.player_id) {
-                    Some(player) => Arc::clone(player),
-                    None => {
-                        return CommandExecutionResult::Failed(AsciiString::from(
-                            "Player not found for beacon removal",
-                        ))
-                    }
-                };
-                let local = list.get_local_player().cloned();
-                let is_local = local
-                    .as_ref()
-                    .and_then(|player| {
-                        player
-                            .read()
-                            .ok()
-                            .map(|guard| guard.get_player_index() as Int)
-                    })
-                    .map(|index| index == context.player_id)
-                    .unwrap_or(false);
-                (player, local, is_local)
-            }
+        let is_local_player = match player_list().read() {
+            Ok(list) => list.get_local_player_index() == context.player_id,
             Err(_) => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Player list lock poisoned",
@@ -816,11 +779,15 @@ impl DefaultCommandHandler {
             }
         };
 
-        let selected_ids = {
-            let Ok(guard) = player_arc.write() else {
-                return CommandExecutionResult::Failed(AsciiString::from("Player lock poisoned"));
-            };
+        let selected_ids = match crate::player::with_player(context.player_id, |guard| {
             guard.get_current_selection_ids()
+        }) {
+            Some(ids) => ids,
+            None => {
+                return CommandExecutionResult::Failed(AsciiString::from(
+                    "Player not found for beacon removal",
+                ))
+            }
         };
 
         let mut removed_entries: Vec<(Int, Coord3D)> = Vec::new();
@@ -975,12 +942,12 @@ impl DefaultCommandHandler {
         &self,
         player_id: Int,
     ) -> Option<Arc<dyn crate::common::ThingTemplate>> {
-        let list = player_list().read().ok()?;
-        let player_arc = list.get_player(player_id)?.clone();
-        let player_guard = player_arc.read().ok()?;
-        let template_name = player_guard
-            .get_player_template()
-            .map(|template| template.beacon_name.clone())?;
+        let template_name = crate::player::with_player(player_id, |player_guard| {
+            player_guard
+                .get_player_template()
+                .map(|template| template.beacon_name.clone())
+        })
+        .flatten()?;
         if template_name.is_empty() {
             return None;
         }
@@ -1018,59 +985,65 @@ impl DefaultCommandHandler {
 
     fn is_beacon_visible_to_local(
         &self,
-        player_arc: &Arc<RwLock<crate::player::Player>>,
-        local_player: Option<&Arc<RwLock<crate::player::Player>>>,
+        player_index: crate::player::PlayerIndex,
+        local_player: crate::player::PlayerIndex,
     ) -> bool {
-        let Some(local_player) = local_player else {
+        if local_player == crate::player::PLAYER_INDEX_INVALID {
             return false;
-        };
-        let Ok(local_guard) = local_player.read() else {
-            return false;
-        };
-        if local_guard.is_player_observer() {
-            return true;
         }
-        let Some(local_team_id) = local_guard.get_default_team_id() else {
-            return false;
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return false;
-        };
-        return crate::team::with_team(local_team_id, |local_team| {
-            matches!(
-                player_guard.get_relationship_with_team(local_team),
-                Relationship::Allies
-            )
+        let Some(local_team_id) = crate::player::with_player(local_player, |local_guard| {
+            if local_guard.is_player_observer() {
+                return Some(None);
+            }
+            local_guard.get_default_team_id().map(Some)
         })
-        .unwrap_or(false);
+        .flatten() else {
+            return false;
+        };
+        let Some(local_team_id) = local_team_id else {
+            return true;
+        };
+        crate::player::with_player(player_index, |player_guard| {
+            crate::team::with_team(local_team_id, |local_team| {
+                matches!(
+                    player_guard.get_relationship_with_team(local_team),
+                    Relationship::Allies
+                )
+            })
+            .unwrap_or(false)
+        })
+        .unwrap_or(false)
     }
 
     fn beacon_visibility_and_allies(
         &self,
-        player_arc: &Arc<RwLock<crate::player::Player>>,
-        local_player: Option<&Arc<RwLock<crate::player::Player>>>,
+        player_index: crate::player::PlayerIndex,
+        local_player: crate::player::PlayerIndex,
     ) -> (bool, bool) {
-        let Some(local_player) = local_player else {
+        if local_player == crate::player::PLAYER_INDEX_INVALID {
             return (false, false);
-        };
-        let Ok(local_guard) = local_player.read() else {
-            return (false, false);
-        };
-        if local_guard.is_player_observer() {
-            return (true, false);
         }
-        let Some(local_team_id) = local_guard.get_default_team_id() else {
-            return (false, false);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return (false, false);
-        };
-        return crate::team::with_team(local_team_id, |local_team| {
-            let relation = player_guard.get_relationship_with_team(local_team);
-            let allies = matches!(relation, Relationship::Allies);
-            (allies, allies)
+        let Some(local_team_id) = crate::player::with_player(local_player, |local_guard| {
+            if local_guard.is_player_observer() {
+                return Some(None);
+            }
+            local_guard.get_default_team_id().map(Some)
         })
-        .unwrap_or((false, false));
+        .flatten() else {
+            return (false, false);
+        };
+        let Some(local_team_id) = local_team_id else {
+            return (true, false);
+        };
+        crate::player::with_player(player_index, |player_guard| {
+            crate::team::with_team(local_team_id, |local_team| {
+                let relation = player_guard.get_relationship_with_team(local_team);
+                let allies = matches!(relation, Relationship::Allies);
+                (allies, allies)
+            })
+            .unwrap_or((false, false))
+        })
+        .unwrap_or((false, false))
     }
 
     fn notify_beacon_placed(
@@ -1078,7 +1051,7 @@ impl DefaultCommandHandler {
         player_id: Int,
         position: &Coord3D,
         player_name: &str,
-        _local_player: Option<&Arc<RwLock<crate::player::Player>>>,
+        _local_player: crate::player::PlayerIndex,
     ) {
         let template = TheGameText::fetch("GUI:BeaconPlaced");
         let message = template.replace("%s", player_name);
@@ -1096,7 +1069,7 @@ impl DefaultCommandHandler {
         &self,
         player_id: Int,
         position: &Coord3D,
-        _local_player: Option<&Arc<RwLock<crate::player::Player>>>,
+        _local_player: crate::player::PlayerIndex,
     ) {
         TheInGameUI::display_message(&TheGameText::fetch("GUI:BeaconPlacementFailed"));
         if let Some(audio) = TheAudio::get() {
@@ -1111,18 +1084,9 @@ impl DefaultCommandHandler {
         &self,
         player_id: Int,
         position: &Coord3D,
-        local_player: Option<&Arc<RwLock<crate::player::Player>>>,
+        local_player: crate::player::PlayerIndex,
     ) {
-        let local_matches = local_player
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_player_index() as Int)
-            })
-            .map(|index| index == player_id)
-            .unwrap_or(false);
-        if !local_matches {
+        if local_player != player_id {
             return;
         }
 

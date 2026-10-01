@@ -839,11 +839,9 @@ impl GameLogic {
                     _ => None,
                 });
                 if let (Some(id), Some(dest)) = (obj_id, dest) {
-                    if let Some(obj_arc) = self.find_object_by_id(id) {
-                        if let Ok(mut obj) = obj_arc.write() {
-                            let _ = obj.set_rally_point(&dest);
-                        }
-                    }
+                    let _ = OBJECT_REGISTRY.with_object_mut(id, |obj| {
+                        let _ = obj.set_rally_point(&dest);
+                    });
                 }
             }
             CommandType::DoWeapon => {
@@ -1051,22 +1049,16 @@ impl GameLogic {
         if !collision_ids.is_empty() {
             let _ = with_collision_system_mut(|system| {
                 for obj_id in collision_ids {
-                    let obj_arc = match self
-                        .find_object_by_id(obj_id)
-                        .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
-                    {
-                        Some(v) => v,
-                        None => continue,
-                    };
-                    let Ok(obj) = obj_arc.read() else {
+                    let Some((id, pos, geom)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                        let pos = *obj.get_position();
+                        let geom = map_collision_geometry(
+                            &obj.get_geometry_info(),
+                            obj.get_template_geometry_type(),
+                        );
+                        (obj.get_id(), pos, geom)
+                    }) else {
                         continue;
                     };
-                    let id = obj.get_id();
-                    let pos = obj.get_position();
-                    let geom = map_collision_geometry(
-                        &obj.get_geometry_info(),
-                        obj.get_template_geometry_type(),
-                    );
                     if system
                         .update_object_position(
                             id,
@@ -1095,20 +1087,9 @@ impl GameLogic {
         // look/unlook driver. Deferred here so no object read guard is held
         // while `handle_partition_cell_maintenance` mutates the object.
         for obj_id in cell_changed {
-            // C++ walks the live object list by pointer — no registry, no
-            // lock (GameLogic.h:386-397). Mirror the collision loop above:
-            // GameLogic-owned lookup first, registry fallback, so a registry
-            // store miss while the GameLogic lock is held does not silently
-            // skip shroud look/unlook maintenance.
-            let Some(obj_arc) = self
-                .find_object_by_id(obj_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
-            else {
-                continue;
-            };
-            if let Ok(mut object_guard) = obj_arc.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| {
                 object_guard.handle_partition_cell_maintenance();
-            }
+            });
         }
 
         // Update physics engine (terrain-aware simulation)

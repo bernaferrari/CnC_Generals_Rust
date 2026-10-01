@@ -569,28 +569,23 @@ impl TerrainLogic {
             return false;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let obj_guard = match obj.read() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if true {
-                if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
-                    continue;
-                }
-                let wall_pos = obj_guard.get_position();
-                let geom = obj_guard.get_template().get_template_geometry_info();
-                let radius = geom.get_bounding_circle_radius();
-                let dx = wall_pos.x - pos.x;
-                let dy = wall_pos.y - pos.y;
-                let dist_sq = dx * dx + dy * dy;
-                let allowed = radius + cell_pad;
-                if dist_sq <= allowed * allowed {
-                    return true;
-                }
+            let on_wall = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
+                        return false;
+                    }
+                    let wall_pos = obj_guard.get_position();
+                    let geom = obj_guard.get_template().get_template_geometry_info();
+                    let radius = geom.get_bounding_circle_radius();
+                    let dx = wall_pos.x - pos.x;
+                    let dy = wall_pos.y - pos.y;
+                    let dist_sq = dx * dx + dy * dy;
+                    let allowed = radius + cell_pad;
+                    dist_sq <= allowed * allowed
+                })
+                .unwrap_or(false);
+            if on_wall {
+                return true;
             }
         }
         false

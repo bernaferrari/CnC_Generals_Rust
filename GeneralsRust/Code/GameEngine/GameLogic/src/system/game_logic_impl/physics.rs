@@ -70,19 +70,18 @@ impl PhysicsWorld {
     pub fn resolve_all(&mut self, game_logic: &mut GameLogic) -> Result<(), GameLogicError> {
         // Process pending damage
         for damage in self.pending_damage.drain(..) {
-            if let Some(obj_ref) = game_logic.find_object_by_id(damage.target_id) {
-                if let Ok(mut obj) = obj_ref.write() {
-                    let mut info = crate::damage::DamageInfo::with_simple(
-                        damage.damage_amount,
-                        damage.attacker_id,
-                        damage.damage_type,
-                        damage.death_type,
-                    );
-                    let _ = obj.attempt_damage(&mut info);
-                    if obj.is_destroyed() {
-                        game_logic.destroy_object(damage.target_id);
-                    }
-                }
+            let destroyed = OBJECT_REGISTRY.with_object_mut(damage.target_id, |obj| {
+                let mut info = crate::damage::DamageInfo::with_simple(
+                    damage.damage_amount,
+                    damage.attacker_id,
+                    damage.damage_type,
+                    damage.death_type,
+                );
+                let _ = obj.attempt_damage(&mut info);
+                obj.is_destroyed()
+            });
+            if destroyed == Some(true) {
+                game_logic.destroy_object(damage.target_id);
             }
         }
 

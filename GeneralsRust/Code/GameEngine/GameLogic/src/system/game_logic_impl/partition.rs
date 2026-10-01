@@ -102,15 +102,13 @@ impl PartitionManager {
         let mut seen = HashSet::with_capacity(object_ids.len());
 
         for obj_id in &object_ids {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
+            let Some((id, x, y, z)) = OBJECT_REGISTRY.with_object(*obj_id, |obj| {
+                let pos = obj.get_position();
+                (obj.get_id(), pos.x, pos.y, pos.z)
+            }) else {
                 continue;
             };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let id = obj.get_id();
-            let pos = obj.get_position();
-            self.add_object(id, (pos.x, pos.y, pos.z));
+            self.add_object(id, (x, y, z));
             seen.insert(id);
         }
 

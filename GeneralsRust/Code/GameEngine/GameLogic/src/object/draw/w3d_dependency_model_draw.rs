@@ -1,17 +1,16 @@
 use super::draw_module::*;
 use super::w3d_model_draw::*;
 use crate::common::*;
-use crate::helpers::TheGameLogic;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-fn find_object(id: ObjectID) -> Option<Arc<RwLock<crate::object::Object>>> {
-    TheGameLogic::find_object_by_id(id).or_else(|| OBJECT_REGISTRY.get_object(id))
+fn with_reg<R>(id: ObjectID, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+    OBJECT_REGISTRY.with_object(id, f)
 }
 
 #[derive(Debug, Clone)]
@@ -124,28 +123,21 @@ impl W3DDependencyModelDraw {
         let Some(owner_id) = self.base.owner_id() else {
             return *transform_mtx;
         };
-        let Some(owner) = find_object(owner_id) else {
+        let Some(container) = with_reg(owner_id, |owner| owner.get_contained_by()).flatten() else {
             return *transform_mtx;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return *transform_mtx;
-        };
-        let Some(container) = owner_guard.get_contained_by() else {
-            return *transform_mtx;
-        };
-        let Some(container_arc) = find_object(container) else {
-            return *transform_mtx;
-        };
-        let Ok(container_guard) = container_arc.read() else {
-            return *transform_mtx;
-        };
-        let Some(contain) = container_guard.get_contain() else {
-            return *transform_mtx;
-        };
-        if contain.is_enclosing_container_for(&owner_guard) {
+        let enclosing_owner = with_reg(container, |container_guard| {
+            container_guard.get_contain().map(|contain| {
+                with_reg(owner_id, |owner| contain.is_enclosing_container_for(owner))
+                    .unwrap_or(false)
+            })
+        })
+        .flatten()
+        .unwrap_or(false);
+        if enclosing_owner {
             return *transform_mtx;
         }
-        let Some(container_drawable) = container_guard.get_drawable() else {
+        let Some(container_drawable) = with_reg(container, |g| g.get_drawable()).flatten() else {
             return *transform_mtx;
         };
         if !self.data.attach_to_drawable_bone_in_container.is_empty() {
@@ -194,29 +186,28 @@ impl DrawModule for W3DDependencyModelDraw {
         let adjusted = self.adjusted_transform(transform_mtx);
         self.base.do_draw_module(&adjusted);
         self.dependency_cleared = false;
-        if let Some(owner) = self.base.owner_id().and_then(find_object) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(container) = owner_guard.get_contained_by() {
-                    if let Some(container_arc) = find_object(container) {
-                        if let Ok(container_guard) = container_arc.read() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if contain.is_enclosing_container_for(&owner_guard) {
-                                    return;
-                                }
-                            }
-                            if let Some(container_drawable) = container_guard.get_drawable() {
-                                if let (Some(my_drawable), Ok(container_drawable_guard)) =
-                                    (owner_guard.get_drawable(), container_drawable.read())
-                                {
-                                    if let Ok(mut my_drawable_guard) = my_drawable.try_write() {
-                                        my_drawable_guard.set_stealth_look(
-                                            container_drawable_guard.get_stealth_look(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
+        let Some(owner_id) = self.base.owner_id() else {
+            return;
+        };
+        let Some(container) = with_reg(owner_id, |owner| owner.get_contained_by()).flatten() else {
+            return;
+        };
+        let contain = with_reg(container, |g| g.get_contain()).flatten();
+        let enclosing = contain
+            .as_ref()
+            .and_then(|contain| {
+                with_reg(owner_id, |owner| contain.is_enclosing_container_for(owner))
+            })
+            .unwrap_or(false);
+        if enclosing {
+            return;
+        }
+        let container_drawable = with_reg(container, |g| g.get_drawable()).flatten();
+        let my_drawable = with_reg(owner_id, |g| g.get_drawable()).flatten();
+        if let (Some(container_drawable), Some(my_drawable)) = (container_drawable, my_drawable) {
+            if let Ok(container_drawable_guard) = container_drawable.read() {
+                if let Ok(mut my_drawable_guard) = my_drawable.try_write() {
+                    my_drawable_guard.set_stealth_look(container_drawable_guard.get_stealth_look());
                 }
             }
         }

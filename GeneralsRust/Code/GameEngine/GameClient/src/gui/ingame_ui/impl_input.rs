@@ -1558,12 +1558,15 @@ impl InGameUI {
                                         boxes, base_value,
                                     ));
                                 }
-                                if let Ok(player_guard) = player.read() {
-                                    display_name = Self::mouseover_tooltip_with_player_suffix(
-                                        &display_name,
-                                        &player_guard,
-                                        Self::mouseover_tooltip_is_multiplayer(),
-                                    );
+                                if let Some(display_name) =
+                                    gamelogic::player::with_player(player, |player_guard| {
+                                        Self::mouseover_tooltip_with_player_suffix(
+                                            &display_name,
+                                            player_guard,
+                                            Self::mouseover_tooltip_is_multiplayer(),
+                                        )
+                                    })
+                                {
                                     with_mouse(|m| {
                                         m.set_cursor_tooltip(
                                             display_name,

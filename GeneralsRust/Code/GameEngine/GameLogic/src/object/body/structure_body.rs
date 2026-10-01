@@ -116,7 +116,7 @@ impl StructureBody {
     }
 
     /// Resolve the owning object handle if available.
-    pub fn owner_handle(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
+    pub fn owner_handle(&self) -> Option<ObjectId> {
         self.active_body.owner_handle()
     }
 

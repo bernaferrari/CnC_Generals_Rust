@@ -955,7 +955,7 @@ impl DozerAIUpdate {
 
         let mut target_display_name: Option<String> = None;
         let mut target_pos: Option<Coord3D> = None;
-        let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
+        let mut controlling_player: Option<crate::player::PlayerIndex> = None;
 
         let mut structure_id = crate::common::INVALID_ID;
 
@@ -996,13 +996,13 @@ impl DozerAIUpdate {
         });
 
         if let Some(player) = controlling_player {
-            if let Ok(mut player_guard) = player.write() {
+            let _ = crate::player::with_player_mut(player, |player_guard| {
                 player_guard.on_structure_construction_complete_id(
                     Some(self.object_id),
                     structure_id,
                     is_rebuild,
                 );
-            }
+            });
         }
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*target, |target_guard| {

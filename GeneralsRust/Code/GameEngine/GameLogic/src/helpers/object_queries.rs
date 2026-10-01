@@ -386,28 +386,23 @@ impl ThePartitionManager {
         }
 
         let radius_sqr = radius * radius;
-        OBJECT_REGISTRY
-            .get_all_objects()
-            .into_iter()
-            .filter_map(|obj_arc| {
-                let obj = obj_arc.read().ok()?;
-                let obj_pos = obj.get_position();
-                let dx = obj_pos.x - pos.x;
-                let dy = obj_pos.y - pos.y;
-                let center_dist = (dx * dx + dy * dy).sqrt();
-                let obj_radius = obj.get_geometry_info().get_bounding_circle_radius();
-                let boundary_dist = if center_dist <= obj_radius {
-                    0.0
-                } else {
-                    center_dist - obj_radius
-                };
-                if boundary_dist * boundary_dist <= radius_sqr {
-                    Some(obj.get_id())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut hits = Vec::new();
+        OBJECT_REGISTRY.with_each(|_id, obj| {
+            let obj_pos = obj.get_position();
+            let dx = obj_pos.x - pos.x;
+            let dy = obj_pos.y - pos.y;
+            let center_dist = (dx * dx + dy * dy).sqrt();
+            let obj_radius = obj.get_geometry_info().get_bounding_circle_radius();
+            let boundary_dist = if center_dist <= obj_radius {
+                0.0
+            } else {
+                center_dist - obj_radius
+            };
+            if boundary_dist * boundary_dist <= radius_sqr {
+                hits.push(obj.get_id());
+            }
+        });
+        hits
     }
 
     /// Get objects in range using boundary-to-boundary distance in 3D.
@@ -425,31 +420,26 @@ impl ThePartitionManager {
         }
 
         let radius_sqr = radius * radius;
-        OBJECT_REGISTRY
-            .get_all_objects()
-            .into_iter()
-            .filter_map(|obj_arc| {
-                let obj = obj_arc.read().ok()?;
-                let obj_pos = obj.get_position();
-                let geom = obj.get_geometry_info();
-                let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
-                let dx = obj_pos.x - pos.x;
-                let dy = obj_pos.y - pos.y;
-                let dz = (obj_pos.z + center_z_delta) - pos.z;
-                let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
-                let obj_radius = geom.get_bounding_sphere_radius();
-                let boundary_dist = if center_dist <= obj_radius {
-                    0.0
-                } else {
-                    center_dist - obj_radius
-                };
-                if boundary_dist * boundary_dist <= radius_sqr {
-                    Some(obj.get_id())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut hits = Vec::new();
+        OBJECT_REGISTRY.with_each(|_id, obj| {
+            let obj_pos = obj.get_position();
+            let geom = obj.get_geometry_info();
+            let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
+            let dx = obj_pos.x - pos.x;
+            let dy = obj_pos.y - pos.y;
+            let dz = (obj_pos.z + center_z_delta) - pos.z;
+            let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            let obj_radius = geom.get_bounding_sphere_radius();
+            let boundary_dist = if center_dist <= obj_radius {
+                0.0
+            } else {
+                center_dist - obj_radius
+            };
+            if boundary_dist * boundary_dist <= radius_sqr {
+                hits.push(obj.get_id());
+            }
+        });
+        hits
     }
 
     /// Get objects in range using boundary-to-boundary distance in 3D from a source object.
@@ -471,32 +461,27 @@ impl ThePartitionManager {
         let source_center_z = (source_geom.bounds.min.z + source_geom.bounds.max.z) * 0.5;
         let source_radius = source_geom.get_bounding_sphere_radius();
 
-        OBJECT_REGISTRY
-            .get_all_objects()
-            .into_iter()
-            .filter_map(|obj_arc| {
-                let obj = obj_arc.read().ok()?;
-                let obj_pos = obj.get_position();
-                let geom = obj.get_geometry_info();
-                let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
-                let dx = obj_pos.x - source_pos.x;
-                let dy = obj_pos.y - source_pos.y;
-                let dz = (obj_pos.z + center_z_delta) - (source_pos.z + source_center_z);
-                let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
-                let obj_radius = geom.get_bounding_sphere_radius();
-                let combined_radius = source_radius + obj_radius;
-                let boundary_dist = if center_dist <= combined_radius {
-                    0.0
-                } else {
-                    center_dist - combined_radius
-                };
-                if boundary_dist * boundary_dist <= radius_sqr {
-                    Some(obj.get_id())
-                } else {
-                    None
-                }
-            })
-            .collect()
+        let mut hits = Vec::new();
+        OBJECT_REGISTRY.with_each(|_id, obj| {
+            let obj_pos = obj.get_position();
+            let geom = obj.get_geometry_info();
+            let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
+            let dx = obj_pos.x - source_pos.x;
+            let dy = obj_pos.y - source_pos.y;
+            let dz = (obj_pos.z + center_z_delta) - (source_pos.z + source_center_z);
+            let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
+            let obj_radius = geom.get_bounding_sphere_radius();
+            let combined_radius = source_radius + obj_radius;
+            let boundary_dist = if center_dist <= combined_radius {
+                0.0
+            } else {
+                center_dist - combined_radius
+            };
+            if boundary_dist * boundary_dist <= radius_sqr {
+                hits.push(obj.get_id());
+            }
+        });
+        hits
     }
     /// Get the closest object in range that satisfies a filter
     /// C++ Reference: PartitionManager::getClosestObject

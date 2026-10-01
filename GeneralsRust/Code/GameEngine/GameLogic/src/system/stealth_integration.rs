@@ -326,21 +326,14 @@ impl StealthRenderingHooks {
             return Ok(Vec::new());
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let object_ref = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(object_guard) = object_ref.read() else {
+            if !OBJECT_REGISTRY.contains(obj_id) {
                 continue;
-            };
-            let object_id = object_guard.get_id();
+            }
             let status = mgr
-                .get_stealth_status(object_id, player_id)
-                // Unregistered objects default to visible in rendering path.
+                .get_stealth_status(obj_id, player_id)
                 .unwrap_or(StealthStatus::Revealed);
-
             if status != StealthStatus::Hidden {
-                visible.push((object_id, status));
+                visible.push((obj_id, status));
             }
         }
 

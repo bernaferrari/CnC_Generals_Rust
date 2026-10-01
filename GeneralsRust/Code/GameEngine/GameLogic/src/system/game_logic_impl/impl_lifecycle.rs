@@ -849,22 +849,20 @@ impl GameLogic {
         player_mask: PlayerMaskType,
         affect_client: bool,
     ) {
-        let Some(obj_ref) = self.find_object_by_id(object_id) else {
+        let Some((allowed, can_add, drawable)) =
+            OBJECT_REGISTRY.with_object(object_id, |obj| {
+                let allowed = obj.is_mass_selectable() || create_new_selection;
+                let can_add = obj.get_ai_update_interface().is_some()
+                    || obj.is_any_kind_of(&[KindOf::Structure, KindOf::AlwaysSelectable]);
+                let drawable = if affect_client {
+                    obj.get_drawable()
+                } else {
+                    None
+                };
+                (allowed, can_add, drawable)
+            })
+        else {
             return;
-        };
-        let (allowed, can_add, drawable) = {
-            let Ok(obj) = obj_ref.read() else {
-                return;
-            };
-            let allowed = obj.is_mass_selectable() || create_new_selection;
-            let can_add = obj.get_ai_update_interface().is_some()
-                || obj.is_any_kind_of(&[KindOf::Structure, KindOf::AlwaysSelectable]);
-            let drawable = if affect_client {
-                obj.get_drawable()
-            } else {
-                None
-            };
-            (allowed, can_add, drawable)
         };
         if !allowed {
             return;
@@ -887,18 +885,14 @@ impl GameLogic {
         player_mask: PlayerMaskType,
         affect_client: bool,
     ) {
-        let Some(obj_ref) = self.find_object_by_id(object_id) else {
-            return;
-        };
-        let drawable = {
-            let Ok(obj) = obj_ref.read() else {
-                return;
-            };
+        let Some(drawable) = OBJECT_REGISTRY.with_object(object_id, |obj| {
             if affect_client {
                 obj.get_drawable()
             } else {
                 None
             }
+        }) else {
+            return;
         };
         crate::helpers::TheGameLogic::apply_deselect_object(
             object_id,
