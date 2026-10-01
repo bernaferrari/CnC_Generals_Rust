@@ -1,7 +1,7 @@
 use once_cell::sync::Lazy;
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::{
     AsciiString, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType,
@@ -91,7 +91,7 @@ impl Snapshotable for StatusBitsUpgradeModuleData {
 
 /// Upgrade module that sets/clears status bits on the owning object.
 pub struct StatusBitsUpgrade {
-    inner: Arc<Mutex<StatusBitsUpgradeInner>>,
+    inner: Arc<StatusBitsUpgradeInner>,
     module_name_key: NameKeyType,
     data: Arc<StatusBitsUpgradeModuleData>,
     object_id: ObjectID,
@@ -111,24 +111,23 @@ type StatusUpgradeRegistry = HashMap<ObjectID, Vec<StatusUpgradeEntry>>;
 static STATUS_UPGRADE_REGISTRY: Lazy<RwLock<StatusUpgradeRegistry>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-type StatusUpgradeModuleHandles = HashMap<ObjectID, Vec<Weak<Mutex<StatusBitsUpgradeInner>>>>;
+type StatusUpgradeModuleHandles = HashMap<ObjectID, Vec<Weak<StatusBitsUpgradeInner>>>;
 
 static STATUS_UPGRADE_MODULES: Lazy<RwLock<StatusUpgradeModuleHandles>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 /// Handle exposed to object runtime for applying or removing status bits upgrades.
 pub(crate) struct StatusBitsUpgradeHandle {
-    inner: Arc<Mutex<StatusBitsUpgradeInner>>,
+    inner: Arc<StatusBitsUpgradeInner>,
 }
 
 impl StatusBitsUpgradeHandle {
-    fn new(inner: Arc<Mutex<StatusBitsUpgradeInner>>) -> Self {
+    fn new(inner: Arc<StatusBitsUpgradeInner>) -> Self {
         Self { inner }
     }
 
     pub fn apply(&self, mask: UpgradeMaskType) -> bool {
-        let guard = self.inner.lock().expect("StatusBitsUpgrade inner poisoned");
-        mark_status_bits_applied(guard.object_id, &guard.data, mask);
+        mark_status_bits_applied(self.inner.object_id, &self.inner.data, mask);
         true
     }
 
@@ -301,10 +300,7 @@ fn mark_status_bits_removed(
     }
 }
 
-fn register_status_bits_upgrade_module(
-    object_id: ObjectID,
-    handle: Weak<Mutex<StatusBitsUpgradeInner>>,
-) {
+fn register_status_bits_upgrade_module(object_id: ObjectID, handle: Weak<StatusBitsUpgradeInner>) {
     if object_id == INVALID_ID {
         return;
     }
@@ -316,7 +312,7 @@ fn register_status_bits_upgrade_module(
 
 fn unregister_status_bits_upgrade_module(
     object_id: ObjectID,
-    handle: Weak<Mutex<StatusBitsUpgradeInner>>,
+    handle: Weak<StatusBitsUpgradeInner>,
 ) {
     if object_id == INVALID_ID {
         return;
@@ -465,11 +461,11 @@ impl StatusBitsUpgrade {
         object_id: ObjectID,
     ) -> Self {
         let data_clone = Arc::clone(&data);
-        let inner = Arc::new(Mutex::new(StatusBitsUpgradeInner::new(
+        let inner = Arc::new(StatusBitsUpgradeInner::new(
             module_name_key,
             data,
             object_id,
-        )));
+        ));
         register_status_bits_upgrade_module(object_id, Arc::downgrade(&inner));
         Self {
             inner,
@@ -478,11 +474,6 @@ impl StatusBitsUpgrade {
             object_id,
             applied: false,
         }
-    }
-
-    fn with_inner<R>(&self, f: impl FnOnce(&mut StatusBitsUpgradeInner) -> R) -> R {
-        let mut guard = self.inner.lock().expect("StatusBitsUpgrade inner poisoned");
-        f(&mut guard)
     }
 }
 
@@ -534,14 +525,12 @@ impl UpgradeModuleInterface for StatusBitsUpgrade {
             return false;
         }
         mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        let applied = self.with_inner(|inner| {
-            if inner.apply_status_bits().is_ok() {
-                mark_status_bits_applied(inner.object_id, &inner.data, upgrade_mask);
-                true
-            } else {
-                false
-            }
-        });
+        let applied = if self.inner.apply_status_bits().is_ok() {
+            mark_status_bits_applied(self.inner.object_id, &self.inner.data, upgrade_mask);
+            true
+        } else {
+            false
+        };
         if applied {
             self.applied = true;
         }
@@ -659,6 +648,44 @@ mod tests {
     }
 
     #[test]
+    fn status_bits_upgrade_handles_keep_immutable_identity_and_unregister_exact_entry() {
+        let _guard = TEST_LOCK
+            .lock()
+            .expect("status bits upgrade test lock poisoned");
+        clear_registry_for_test();
+        clear_module_registry_for_test();
+
+        let object_id: ObjectID = 9010;
+        let first = StatusBitsUpgrade::new(
+            NameKeyType::default(),
+            Arc::new(StatusBitsUpgradeModuleData::default()),
+            object_id,
+        );
+        let second = StatusBitsUpgrade::new(
+            NameKeyType::default(),
+            Arc::new(StatusBitsUpgradeModuleData::default()),
+            object_id,
+        );
+
+        let handles = StatusBitsUpgradeHandle::for_object(object_id);
+        assert_eq!(handles.len(), 2);
+        assert!(Arc::ptr_eq(&handles[0].inner, &first.inner));
+        assert!(Arc::ptr_eq(&handles[1].inner, &second.inner));
+
+        drop(first);
+        let remaining = StatusBitsUpgradeHandle::for_object(object_id);
+        assert_eq!(remaining.len(), 1);
+        assert!(Arc::ptr_eq(&remaining[0].inner, &second.inner));
+
+        drop(second);
+        assert!(StatusBitsUpgradeHandle::for_object(object_id).is_empty());
+        drop(handles);
+        drop(remaining);
+        clear_registry_for_test();
+        clear_module_registry_for_test();
+    }
+
+    #[test]
     fn status_bits_upgrade_applies_masks_to_object() {
         let _guard = TEST_LOCK
             .lock()
@@ -710,18 +737,31 @@ mod tests {
             .expect("set mask parsed");
         data.set_status_to_clear_from_tokens(&["MASKED"])
             .expect("clear mask parsed");
+        data.upgrade_mux_data
+            .activation_upgrade_names
+            .push(AsciiString::from("TestStatusUpgrade"));
         let data_arc = Arc::new(data);
 
-        let upgrade = UpgradeTemplate::new(AsciiString::from("TestStatusUpgrade"));
+        let upgrade = crate::upgrade::center::with_upgrade_center_mut(|center| {
+            center.new_upgrade(AsciiString::from("TestStatusUpgrade"))
+        });
         let upgrade_mask = UpgradeMaskType::from_bits_retain(upgrade.mask().to_bits());
+        assert!(!upgrade_mask.is_empty());
 
-        let mut module = StatusBitsUpgrade::new(NameKeyType::default(), data_arc, object_id);
-        assert!(module.apply_upgrade(upgrade_mask));
+        let _module = StatusBitsUpgrade::new(NameKeyType::default(), data_arc, object_id);
 
         {
             let mut object = object_handle.write().expect("lock object");
-            object.clear_status(ObjectStatusMaskType::STEALTHED);
-            object.set_status(ObjectStatusMaskType::MASKED, true);
+            assert!(
+                !object
+                    .get_status_bits()
+                    .contains(ObjectStatusMaskType::STEALTHED)
+            );
+            assert!(
+                object
+                    .get_status_bits()
+                    .contains(ObjectStatusMaskType::MASKED)
+            );
 
             object.give_upgrade(&upgrade);
 
@@ -737,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn status_bits_upgrade_flags_clear_when_upgrade_removed() {
+    fn status_bits_upgrade_remove_preserves_effect_and_allows_reapplication() {
         let _guard = TEST_LOCK
             .lock()
             .expect("status bits upgrade test lock poisoned");
@@ -747,31 +787,54 @@ mod tests {
         let object_id: ObjectID = 9002;
         let object_handle = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
         OBJECT_REGISTRY.register_object(object_id, &object_handle);
+        object_handle
+            .write()
+            .expect("lock object")
+            .set_status(ObjectStatusMaskType::MASKED, true);
 
         let mut data = StatusBitsUpgradeModuleData::default();
         data.set_status_to_set_from_tokens(&["STEALTHED"]).unwrap();
         data.set_status_to_clear_from_tokens(&["MASKED"]).unwrap();
+        data.upgrade_mux_data
+            .activation_upgrade_names
+            .push(AsciiString::from("TestStatusUpgradeClear"));
         let data_arc = Arc::new(data);
 
-        let upgrade = UpgradeTemplate::new(AsciiString::from("TestStatusUpgradeClear"));
+        let upgrade = crate::upgrade::center::with_upgrade_center_mut(|center| {
+            center.new_upgrade(AsciiString::from("TestStatusUpgradeClear"))
+        });
         let upgrade_mask = UpgradeMaskType::from_bits_retain(upgrade.mask().to_bits());
+        assert!(!upgrade_mask.is_empty());
 
         let mut module = StatusBitsUpgrade::new(NameKeyType::default(), data_arc, object_id);
         assert!(module.apply_upgrade(upgrade_mask));
 
         {
             let mut object = object_handle.write().expect("lock object");
-            object.set_status(ObjectStatusMaskType::MASKED, true);
-            object.give_upgrade(&upgrade);
-            assert!(
-                object
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::STEALTHED)
-            );
-
-            object.remove_upgrade(&upgrade);
             let status = object.get_status_bits();
-            // C++ StatusBitsUpgrade does not revert status bits on remove.
+            assert!(status.contains(ObjectStatusMaskType::STEALTHED));
+            assert!(!status.contains(ObjectStatusMaskType::MASKED));
+
+            // These mutations occur after upgradeImplementation. C++
+            // removeUpgrade only resets the UpgradeMux executed bit; it does
+            // not call StatusBitsUpgrade::upgradeImplementation or undo it.
+            object.set_status(ObjectStatusMaskType::MASKED, true);
+            object.clear_status(ObjectStatusMaskType::STEALTHED);
+        }
+
+        module.remove_upgrade(upgrade_mask);
+        assert!(module.can_upgrade(upgrade_mask));
+        {
+            let object = object_handle.read().expect("lock object");
+            let status = object.get_status_bits();
+            assert!(!status.contains(ObjectStatusMaskType::STEALTHED));
+            assert!(status.contains(ObjectStatusMaskType::MASKED));
+        }
+
+        assert!(module.apply_upgrade(upgrade_mask));
+        {
+            let object = object_handle.read().expect("lock object");
+            let status = object.get_status_bits();
             assert!(status.contains(ObjectStatusMaskType::STEALTHED));
             assert!(!status.contains(ObjectStatusMaskType::MASKED));
         }

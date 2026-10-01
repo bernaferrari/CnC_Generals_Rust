@@ -140958,7 +140958,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "6fd34328d5abe0ab051e0a3147c040d25b03266302578288f6b57a3bdfa67b1c",
+  "input_digest": "9ea8d11bfcea0ddd33890c517a10de2aadc00af2e1a14fad00a967ba50b1b2ee",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -180670,11 +180670,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1399,
+        "end_line": 1400,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs",
-      "sha256": "4716841c346c814e8d3a19c68fac5a70bd34d1b3bdd8bd93ff05b6b5a8d34b23",
+      "sha256": "480836d3099dc632b80a501fea6e60be8fb7809e6962dbaa0fc1a981c13fac48",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180706,11 +180706,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1949,
+        "end_line": 2146,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/rider_change_contain.rs",
-      "sha256": "dd60aadd5bf6b18b02683b8db90fd71515e60c0dcd40b16b98614ae7cce3a30c",
+      "sha256": "c1d070973980386fa808bc9309ed001e8e19d22d4774f5ef6fa253c359a183f8",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -182026,11 +182026,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 300,
+        "end_line": 343,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs",
-      "sha256": "29d92850620b409a366e8efadd80a391fd02fe523a600d5327e0d40cc94a59fb",
+      "sha256": "017f30f41b09781e7c93b8c81fa0a0580a2406fb93a1a4ddf46e5950dbf32a06",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -182074,11 +182074,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 866,
+        "end_line": 929,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs",
-      "sha256": "0f731d378cd6b2893d38d7b18240b121ebb0d4ed8e3a5afb416e4ac19b6964ab",
+      "sha256": "71ad6442451d31166ae782cf8672adff7d2386e2a5f866bc04cc0922315a2812",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

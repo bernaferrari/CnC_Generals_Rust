@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
@@ -67,7 +67,7 @@ impl Snapshotable for PassengersFireUpgradeModuleData {
 
 /// Upgrade module that enables passengers to fire from a container.
 pub struct PassengersFireUpgrade {
-    inner: Arc<Mutex<PassengersFireUpgradeInner>>,
+    inner: Arc<PassengersFireUpgradeInner>,
     module_name_key: NameKeyType,
     data: Arc<PassengersFireUpgradeModuleData>,
     object_id: ObjectID,
@@ -81,27 +81,23 @@ struct PassengersFireUpgradeInner {
     object_id: ObjectID,
 }
 
-type PassengersFireUpgradeHandles = HashMap<ObjectID, Vec<Weak<Mutex<PassengersFireUpgradeInner>>>>;
+type PassengersFireUpgradeHandles = HashMap<ObjectID, Vec<Weak<PassengersFireUpgradeInner>>>;
 
 static PASSENGERS_FIRE_UPGRADE_MODULES: Lazy<RwLock<PassengersFireUpgradeHandles>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 /// Handle exposed to object runtime for applying/removing the upgrade.
 pub(crate) struct PassengersFireUpgradeHandle {
-    inner: Arc<Mutex<PassengersFireUpgradeInner>>,
+    inner: Arc<PassengersFireUpgradeInner>,
 }
 
 impl PassengersFireUpgradeHandle {
-    fn new(inner: Arc<Mutex<PassengersFireUpgradeInner>>) -> Self {
+    fn new(inner: Arc<PassengersFireUpgradeInner>) -> Self {
         Self { inner }
     }
 
     pub fn apply(&self, _mask: UpgradeMaskType) -> bool {
-        let guard = self
-            .inner
-            .lock()
-            .expect("PassengersFireUpgrade inner poisoned");
-        apply_passengers_fire(guard.object_id)
+        apply_passengers_fire(self.inner.object_id)
     }
 
     pub fn remove(&self, _mask: UpgradeMaskType) {
@@ -132,10 +128,7 @@ impl PassengersFireUpgradeHandle {
     }
 }
 
-fn register_passengers_fire_upgrade(
-    object_id: ObjectID,
-    inner: &Arc<Mutex<PassengersFireUpgradeInner>>,
-) {
+fn register_passengers_fire_upgrade(object_id: ObjectID, inner: &Arc<PassengersFireUpgradeInner>) {
     let mut registry = PASSENGERS_FIRE_UPGRADE_MODULES
         .write()
         .expect("passengers fire upgrade registry poisoned");
@@ -147,7 +140,7 @@ fn register_passengers_fire_upgrade(
 
 fn unregister_passengers_fire_upgrade(
     object_id: ObjectID,
-    inner: &Arc<Mutex<PassengersFireUpgradeInner>>,
+    inner: &Arc<PassengersFireUpgradeInner>,
 ) {
     let mut registry = PASSENGERS_FIRE_UPGRADE_MODULES
         .write()
@@ -200,10 +193,10 @@ impl PassengersFireUpgrade {
         data: Arc<PassengersFireUpgradeModuleData>,
         object_id: ObjectID,
     ) -> Self {
-        let inner = Arc::new(Mutex::new(PassengersFireUpgradeInner {
+        let inner = Arc::new(PassengersFireUpgradeInner {
             data: Arc::clone(&data),
             object_id,
-        }));
+        });
         register_passengers_fire_upgrade(object_id, &inner);
         Self {
             inner,
@@ -297,3 +290,53 @@ crate::impl_upgrade_mux_field_parsers!(PassengersFireUpgradeModuleData);
 
 const PASSENGERS_FIRE_UPGRADE_FIELDS: &[FieldParse<PassengersFireUpgradeModuleData>] =
     crate::upgrade_mux_field_table!();
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex as TestMutex;
+
+    static TEST_LOCK: Lazy<TestMutex<()>> = Lazy::new(|| TestMutex::new(()));
+
+    #[test]
+    fn registry_handles_keep_immutable_identity_and_unregister_exact_entry() {
+        let _guard = TEST_LOCK
+            .lock()
+            .expect("passengers fire test lock poisoned");
+        PASSENGERS_FIRE_UPGRADE_MODULES
+            .write()
+            .expect("passengers fire registry poisoned")
+            .clear();
+
+        let object_id: ObjectID = 9011;
+        let first = PassengersFireUpgrade::new(
+            NameKeyType::default(),
+            Arc::new(PassengersFireUpgradeModuleData::default()),
+            object_id,
+        );
+        let second = PassengersFireUpgrade::new(
+            NameKeyType::default(),
+            Arc::new(PassengersFireUpgradeModuleData::default()),
+            object_id,
+        );
+
+        let handles = PassengersFireUpgradeHandle::for_object(object_id);
+        assert_eq!(handles.len(), 2);
+        assert!(Arc::ptr_eq(&handles[0].inner, &first.inner));
+        assert!(Arc::ptr_eq(&handles[1].inner, &second.inner));
+
+        drop(first);
+        let remaining = PassengersFireUpgradeHandle::for_object(object_id);
+        assert_eq!(remaining.len(), 1);
+        assert!(Arc::ptr_eq(&remaining[0].inner, &second.inner));
+
+        drop(second);
+        assert!(PassengersFireUpgradeHandle::for_object(object_id).is_empty());
+        drop(handles);
+        drop(remaining);
+        PASSENGERS_FIRE_UPGRADE_MODULES
+            .write()
+            .expect("passengers fire registry poisoned")
+            .clear();
+    }
+}

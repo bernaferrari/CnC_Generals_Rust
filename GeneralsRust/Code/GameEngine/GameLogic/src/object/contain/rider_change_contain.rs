@@ -19,7 +19,7 @@ use crate::object::contain::TransportContain;
 use crate::object::{Object, ObjectId};
 use crate::upgrade::modules::model_condition::parse_model_condition_flag as parse_model_condition_name;
 use crate::weapon::WeaponSetType;
-use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 277 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -353,7 +353,7 @@ mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
     use crate::messages::{
-        drain_messages, MessageArgument, MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP,
+        MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP, MessageArgument, drain_messages,
     };
     use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
@@ -476,6 +476,31 @@ mod tests {
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
         list.set_local_player_index(0);
+    }
+
+    #[test]
+    fn game_logic_default_template_preserves_trainability_and_thresholds_in_trait_clone() {
+        let mut template = DefaultThingTemplate::new("TrainableTemplateContract".to_string());
+        let mut fields = HashMap::new();
+        fields.insert("IsTrainable".to_string(), "yEs".to_string());
+        fields.insert(
+            "ExperienceRequired".to_string(),
+            "0 100 300 600".to_string(),
+        );
+        template.parse_object_fields_from_ini(&fields);
+
+        let cloned = template.clone();
+        let template_view: &dyn crate::common::ThingTemplate = &cloned;
+        assert!(template_view.is_trainable());
+        assert_eq!(template_view.get_experience_required(0), 0);
+        assert_eq!(template_view.get_experience_required(1), 100);
+        assert_eq!(template_view.get_experience_required(2), 300);
+        assert_eq!(template_view.get_experience_required(3), 600);
+
+        let default_view: &dyn crate::common::ThingTemplate =
+            &DefaultThingTemplate::new("NontrainableTemplateContract".to_string());
+        assert!(!default_view.is_trainable());
+        assert_eq!(default_view.get_experience_required(2), 0);
     }
 
     fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
@@ -1098,10 +1123,12 @@ mod tests {
             .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
         object.write().expect("object write").experience_tracker = Some(Arc::clone(&tracker));
 
-        assert!(!object
-            .write()
-            .expect("object write")
-            .set_experience_and_level_with_side_effects(0, false));
+        assert!(
+            !object
+                .write()
+                .expect("object write")
+                .set_experience_and_level_with_side_effects(0, false)
+        );
         assert_eq!(
             tracker.lock().expect("tracker").get_veterancy_level(),
             crate::common::VeterancyLevel::Veteran,
@@ -1131,15 +1158,22 @@ mod tests {
             Some(Arc::clone(&source_tracker));
         target.write().expect("target write").experience_tracker =
             Some(Arc::clone(&target_tracker));
-        assert!(target
-            .write()
-            .expect("target write")
-            .set_veterancy_level_with_side_effects(crate::common::VeterancyLevel::Veteran, false,));
+        assert!(
+            target
+                .write()
+                .expect("target write")
+                .set_veterancy_level_with_side_effects(
+                    crate::common::VeterancyLevel::Veteran,
+                    false,
+                )
+        );
 
-        assert!(source
-            .write()
-            .expect("source write")
-            .set_experience_and_level_with_side_effects(0, false));
+        assert!(
+            source
+                .write()
+                .expect("source write")
+                .set_experience_and_level_with_side_effects(0, false)
+        );
         assert_eq!(
             target_tracker
                 .lock()
@@ -1165,6 +1199,55 @@ mod tests {
         );
 
         cleanup_objects(&[97024, 97025]);
+    }
+
+    #[test]
+    fn set_experience_and_level_missing_sink_falls_back_to_own_tracker_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let source = owned_trainable_object("ExperienceMissingSinkSource", 97026, 0);
+        let source_tracker = Arc::new(std::sync::Mutex::new(
+            crate::common::ExperienceTracker::new(97026),
+        ));
+        source_tracker
+            .lock()
+            .expect("source tracker")
+            .set_experience_sink(97999);
+        source.write().expect("source write").experience_tracker =
+            Some(Arc::clone(&source_tracker));
+        assert!(
+            source
+                .write()
+                .expect("source write")
+                .set_veterancy_level_with_side_effects(
+                    crate::common::VeterancyLevel::Veteran,
+                    false,
+                )
+        );
+
+        assert!(
+            source
+                .write()
+                .expect("source write")
+                .set_experience_and_level_with_side_effects(0, false)
+        );
+        assert_eq!(
+            source_tracker
+                .lock()
+                .expect("source tracker")
+                .get_veterancy_level(),
+            crate::common::VeterancyLevel::Regular,
+            "CPP falls through to local reset when the sink object no longer exists"
+        );
+        assert!(
+            !source
+                .read()
+                .expect("source read")
+                .test_weapon_set_flag(WeaponSetType::Veteran),
+            "local fallback fires the source Object level-change callback"
+        );
+
+        cleanup_objects(&[97026]);
     }
 }
 
@@ -1886,11 +1969,7 @@ impl ContainModuleInterface for RiderChangeContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.base.get_contain_max();
-        if max < 0 {
-            usize::MAX
-        } else {
-            max as usize
-        }
+        if max < 0 { usize::MAX } else { max as usize }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
