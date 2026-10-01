@@ -5,7 +5,7 @@
 
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// Wave 391: host-only path has no dual-world factory objects.
 #[inline]
@@ -273,7 +273,7 @@ pub struct SabotageInternetCenterCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    pub module_data: Arc<Mutex<SabotageInternetCenterCrateCollideModuleData>>,
+    module_data: SabotageInternetCenterCrateCollideModuleData,
 }
 
 impl SabotageInternetCenterCrateCollide {
@@ -284,7 +284,7 @@ impl SabotageInternetCenterCrateCollide {
     ) -> Self {
         Self {
             base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data: Arc::new(Mutex::new(module_data)),
+            module_data,
         }
     }
 
@@ -356,11 +356,8 @@ impl SabotageInternetCenterCrateCollide {
         }
         drop(object_lock);
 
-        let Ok(module_data) = self.module_data.lock() else {
-            return Ok(false);
-        };
+        let module_data = &self.module_data;
         let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
-        drop(module_data);
 
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());
@@ -546,6 +543,42 @@ impl game_engine::common::system::Snapshotable for SabotageInternetCenterCrateCo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sabotage_configuration_stays_with_its_module_across_xfer() {
+        use game_engine::common::system::Snapshotable;
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let _lock = crate::test_sync::lock();
+        // Identical object identity and base state; authored definitions differ.
+        let first_object = Arc::new(RwLock::new(Object::new_test(77_301, 100.0)));
+        let second_object = Arc::new(RwLock::new(Object::new_test(77_301, 100.0)));
+        let mut first = SabotageInternetCenterCrateCollide::new(
+            &first_object,
+            SabotageInternetCenterCrateCollideModuleData {
+                sabotage_frames: 45,
+                ..Default::default()
+            },
+        );
+        let mut second = SabotageInternetCenterCrateCollide::new(
+            &second_object,
+            SabotageInternetCenterCrateCollideModuleData {
+                sabotage_frames: 150,
+                ..Default::default()
+            },
+        );
+        let mut first_bytes = Vec::new();
+        first.xfer(&mut XferSave::new(Cursor::new(&mut first_bytes), 1)).unwrap();
+        let mut second_bytes = Vec::new();
+        second.xfer(&mut XferSave::new(Cursor::new(&mut second_bytes), 1)).unwrap();
+        // C++ xfer writes only its version and CrateCollide base, never definitions.
+        assert_eq!(first_bytes, second_bytes);
+        second.xfer(&mut XferLoad::new(Cursor::new(first_bytes), 1)).unwrap();
+        assert_eq!(first.module_data.sabotage_frames, 45);
+        assert_eq!(second.module_data.sabotage_frames, 150);
+    }
 
     #[test]
     fn sabotage_duration_parse_from_ini_uses_cpp_duration_frames() {

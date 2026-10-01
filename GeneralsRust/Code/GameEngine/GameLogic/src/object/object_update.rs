@@ -62,9 +62,7 @@ impl Object {
         duration_frames: UnsignedInt,
     ) {
         if self.smc_helper.is_none() {
-            self.smc_helper = Some(Arc::new(Mutex::new(ObjectSMCHelper::new(
-                ObjectSMCHelperModuleData::default(),
-            ))));
+            self.smc_helper = Some(ObjectSMCHelper::new(ObjectSMCHelperModuleData::default()));
         }
 
         self.clear_special_model_condition_states();
@@ -78,10 +76,8 @@ impl Object {
                 frames = 1;
             }
             self.smc_until = current_frame.saturating_add(frames);
-            if let Some(helper) = &self.smc_helper {
-                if let Ok(mut guard) = helper.lock() {
-                    guard.sleep_until(self.smc_until);
-                }
+            if let Some(helper) = &mut self.smc_helper {
+                helper.sleep_until(self.smc_until);
             }
         } else {
             self.special_model_condition_flag = ModelConditionFlags::empty();
@@ -116,14 +112,11 @@ impl Object {
         }
 
         // Clear repulsor status once the helper's wake frame is reached.
-        let helper = self.repulsor_helper.clone();
         let mut should_clear_repulsor = false;
-        if let Some(helper) = &helper {
-            if let Ok(mut guard) = helper.lock() {
-                should_clear_repulsor = guard.should_clear(current_frame);
-                if should_clear_repulsor {
-                    guard.mark_cleared();
-                }
+        if let Some(helper) = &mut self.repulsor_helper {
+            should_clear_repulsor = helper.should_clear(current_frame);
+            if should_clear_repulsor {
+                helper.mark_cleared();
             }
         }
         if should_clear_repulsor {
@@ -143,69 +136,65 @@ impl Object {
         }
 
         if self.is_undetected_defector() {
-            let helper = self.defection_helper.clone();
-            if let Some(helper) = helper {
-                if let Ok(mut guard) = helper.lock() {
-                    let mut clear_defector = false;
-                    let mut play_tick = false;
-                    let mut play_ding = false;
-                    let current_frame = crate::helpers::TheGameLogic::get_frame();
+            let current_frame = crate::helpers::TheGameLogic::get_frame();
+            let is_dead = self.is_effectively_dead();
+            let is_firing = self
+                .get_status_bits()
+                .test(ObjectStatusTypes::IsFiringWeapon);
+            let drawable = self.get_drawable();
+            let helper_effect = self.defection_helper.as_mut().map(|helper| {
+                let mut clear_defector = false;
+                let mut play_tick = false;
+                let mut play_ding = false;
 
-                    if guard.has_timer_expired(current_frame) {
-                        clear_defector = true;
-                        play_ding = guard.is_defector_fx_enabled();
-                        if let Some(drawable) = self.get_drawable() {
-                            if let Ok(mut draw_guard) = drawable.write() {
-                                draw_guard.flash_as_selected();
-                            }
-                        }
-                    } else if self.is_effectively_dead()
-                        || self
-                            .get_status_bits()
-                            .test(ObjectStatusTypes::IsFiringWeapon)
-                    {
-                        clear_defector = true;
-                    } else if guard.is_defector_fx_enabled() {
-                        let (should_flash, _color) = guard.should_flash(current_frame);
-                        if should_flash {
-                            play_tick = true;
-                            if let Some(drawable) = self.get_drawable() {
-                                if let Ok(mut draw_guard) = drawable.write() {
-                                    draw_guard.flash_as_selected();
-                                }
-                            }
+                if helper.has_timer_expired(current_frame) {
+                    clear_defector = true;
+                    play_ding = helper.is_defector_fx_enabled();
+                } else if is_dead || is_firing {
+                    clear_defector = true;
+                } else if helper.is_defector_fx_enabled() {
+                    let (should_flash, _color) = helper.should_flash(current_frame);
+                    play_tick = should_flash;
+                }
+
+                (clear_defector, play_tick, play_ding)
+            });
+            if let Some((clear_defector, play_tick, play_ding)) = helper_effect {
+                if play_ding || play_tick {
+                    if let Some(drawable) = &drawable {
+                        if let Ok(mut draw_guard) = drawable.write() {
+                            draw_guard.flash_as_selected();
                         }
                     }
+                }
 
-                    if clear_defector {
-                        drop(guard);
-                        self.friend_set_undetected_defector(false);
-                    }
+                if clear_defector {
+                    self.friend_set_undetected_defector(false);
+                }
 
-                    if play_tick || play_ding {
-                        if let Some(audio) = crate::helpers::TheAudio::get() {
-                            if let Some(misc_audio) =
-                                game_engine::common::ini::ini_misc_audio::get_misc_audio()
-                            {
-                                let misc_audio = misc_audio.read();
-                                let sound_name = if play_ding {
-                                    misc_audio
-                                        .defector_timer_ding_sound
-                                        .playable_event_name()
-                                        .to_string()
-                                } else {
-                                    misc_audio
-                                        .defector_timer_tick_sound
-                                        .playable_event_name()
-                                        .to_string()
-                                };
-                                let mut event =
-                                    crate::object::special_power_template::AudioEventRts::new(
-                                        sound_name,
-                                    );
-                                event.set_object_id(self.id);
-                                audio.add_audio_event(&event);
-                            }
+                if play_tick || play_ding {
+                    if let Some(audio) = crate::helpers::TheAudio::get() {
+                        if let Some(misc_audio) =
+                            game_engine::common::ini::ini_misc_audio::get_misc_audio()
+                        {
+                            let misc_audio = misc_audio.read();
+                            let sound_name = if play_ding {
+                                misc_audio
+                                    .defector_timer_ding_sound
+                                    .playable_event_name()
+                                    .to_string()
+                            } else {
+                                misc_audio
+                                    .defector_timer_tick_sound
+                                    .playable_event_name()
+                                    .to_string()
+                            };
+                            let mut event =
+                                crate::object::special_power_template::AudioEventRts::new(
+                                    sound_name,
+                                );
+                            event.set_object_id(self.id);
+                            audio.add_audio_event(&event);
                         }
                     }
                 }
@@ -848,16 +837,15 @@ impl Object {
 
         self.friend_set_undetected_defector(defection_type > 0);
         // C++ starts the timer only if m_defectionHelper was already attached.
-        if let Some(helper) = &self.defection_helper {
-            if let Ok(mut helper_guard) = helper.lock() {
-                let current_frame = crate::helpers::TheGameLogic::get_frame();
-                helper_guard.start_defection_timer(
-                    defection_type as UnsignedInt,
-                    true,
-                    current_frame,
-                    self.is_undetected_defector(),
-                );
-            }
+        let is_undetected_defector = self.is_undetected_defector();
+        if let Some(helper) = &mut self.defection_helper {
+            let current_frame = crate::helpers::TheGameLogic::get_frame();
+            helper.start_defection_timer(
+                defection_type as UnsignedInt,
+                true,
+                current_frame,
+                is_undetected_defector,
+            );
         }
 
         if let Err(err) = self.set_team(Some(target_team.clone())) {

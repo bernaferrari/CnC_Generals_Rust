@@ -752,7 +752,7 @@ fn host_damage_log_feeds_shadow_mutation_channel() {
     let queued = apply_logged_damage_channel_parity(&mut logic, &mut shadow, &[(id, 40.0)])
         .expect("channel");
     assert!(queued >= 1, "expected queued mutations");
-    assert!(with_active_shadow(|shadow| shadow.entity_for_host(id).is_some()).unwrap_or(false));
+    assert!(shadow.entity_for_host(id).is_some());
 }
 
 #[test]
@@ -775,7 +775,7 @@ fn host_construction_log_maps_completed_structure_in_shadow() {
     let n = shadow.apply_host_construction_events(&events, &logic);
     assert!(n >= 1, "construction apply mapped {n}");
     assert!(
-        with_active_shadow(|shadow| shadow.entity_for_host(id).is_some()).unwrap_or(false),
+        shadow.entity_for_host(id).is_some(),
         "completed structure must be mapped in shadow"
     );
 }

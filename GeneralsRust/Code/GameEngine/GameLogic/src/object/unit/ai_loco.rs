@@ -1924,9 +1924,6 @@ impl UnitAIUpdate {
     }
     pub(super) fn get_crate_id(&self) -> ObjectID {
         self.crate_created
-            .lock()
-            .map(|id| *id)
-            .unwrap_or(crate::common::INVALID_ID)
     }
     pub(super) fn get_current_victim(&self) -> Option<ObjectID> {
         let unit = get_unit_arc(self.unit_id)?;
@@ -1968,16 +1965,13 @@ impl UnitAIUpdate {
 
         guard.attack_target = victim;
     }
-    pub(super) fn check_for_crate_to_pickup_id(&self) -> ObjectID {
-        let Ok(mut guard) = self.crate_created.lock() else {
-            return INVALID_ID;
-        };
-        if *guard == crate::common::INVALID_ID {
+    pub(super) fn check_for_crate_to_pickup_id(&mut self) -> ObjectID {
+        if self.crate_created == crate::common::INVALID_ID {
             return INVALID_ID;
         }
         // C++ clears m_crateCreated before the lookup, so the processed marker
         // does not yield a crate object from this path.
-        *guard = crate::common::INVALID_ID;
+        self.crate_created = crate::common::INVALID_ID;
         INVALID_ID
     }
     pub(super) fn get_next_mood_target_id(
@@ -2345,9 +2339,7 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn notify_crate(&mut self, crate_id: ObjectID) {
-        if let Ok(mut guard) = self.crate_created.lock() {
-            *guard = crate_id;
-        }
+        self.crate_created = crate_id;
     }
     pub(super) fn notify_victim_is_dead(&mut self) {
         if let Some(jet_ai) = self.jet_ai.as_mut() {

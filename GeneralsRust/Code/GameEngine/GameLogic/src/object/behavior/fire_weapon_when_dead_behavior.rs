@@ -6,7 +6,6 @@
 //! Author: Colin Day, December 2001 (Original C++)
 //! Converted to Rust: 2025
 
-use std::sync::{Arc, RwLock};
 use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
@@ -167,13 +166,13 @@ pub trait DieModuleInterface: Send + Sync {
     fn on_die(&mut self, damage_info: &DamageInfo) -> BehaviorResult<()>;
 }
 
-/// Thread-safe fire weapon when dead behavior implementation
+/// Fire weapon when dead behavior implementation with instance-owned runtime state
 #[derive(Debug)]
 pub struct FireWeaponWhenDeadBehavior {
     /// Configuration data
     config: FireWeaponWhenDeadBehaviorModuleData,
     /// Internal state
-    state: Arc<RwLock<BehaviorState>>,
+    state: BehaviorState,
     /// Object ID this behavior belongs to
     object_id: ObjectId,
 }
@@ -197,15 +196,14 @@ impl FireWeaponWhenDeadBehavior {
 
         Self {
             config,
-            state: Arc::new(RwLock::new(state)),
+            state,
             object_id,
         }
     }
 
     /// Set behavior active state
-    pub fn set_active(&self, active: bool) {
-        let mut state = self.state.write().unwrap();
-        state.is_active = active;
+    pub fn set_active(&mut self, active: bool) {
+        self.state.is_active = active;
     }
 
     /// Check if object is under construction
@@ -324,13 +322,11 @@ impl FireWeaponWhenDeadBehavior {
 
 impl DieModuleInterface for FireWeaponWhenDeadBehavior {
     fn on_die(&mut self, damage_info: &DamageInfo) -> BehaviorResult<()> {
-        let mut state = self.state.write().unwrap();
-
-        if !state.is_active {
+        if !self.state.is_active {
             return Ok(());
         }
 
-        if state.has_fired_death_weapon {
+        if self.state.has_fired_death_weapon {
             return Ok(());
         }
 
@@ -349,7 +345,7 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
         let object_position = self.get_object_position();
         self.fire_death_weapon(object_position)?;
 
-        state.has_fired_death_weapon = true;
+        self.state.has_fired_death_weapon = true;
 
         Ok(())
     }
@@ -357,10 +353,9 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
 
 impl Snapshotable for FireWeaponWhenDeadBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let state = self.state.read().map_err(|e| format!("FireWeaponWhenDeadBehavior::crc lock failed: {e}"))?;
-        let mut is_active = state.is_active;
+        let mut is_active = self.state.is_active;
         xfer.xfer_bool(&mut is_active).map_err(|e| e.to_string())?;
-        let mut has_fired = state.has_fired_death_weapon;
+        let mut has_fired = self.state.has_fired_death_weapon;
         xfer.xfer_bool(&mut has_fired).map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -371,10 +366,9 @@ impl Snapshotable for FireWeaponWhenDeadBehavior {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer version failed: {e}"))?;
 
-        let mut state = self.state.write().map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer lock failed: {e}"))?;
-        xfer.xfer_bool(&mut state.is_active)
+        xfer.xfer_bool(&mut self.state.is_active)
             .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer is_active failed: {e}"))?;
-        xfer.xfer_bool(&mut state.has_fired_death_weapon)
+        xfer.xfer_bool(&mut self.state.has_fired_death_weapon)
             .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer has_fired_death_weapon failed: {e}"))?;
         Ok(())
     }
@@ -387,20 +381,17 @@ impl Snapshotable for FireWeaponWhenDeadBehavior {
 impl FireWeaponWhenDeadBehavior {
     /// Get statistics about the behavior
     pub fn get_statistics(&self) -> BehaviorStatistics {
-        let state = self.state.read().unwrap();
-        
         BehaviorStatistics {
-            is_active: state.is_active,
+            is_active: self.state.is_active,
             has_death_weapon: self.config.death_weapon.is_some(),
-            has_fired_death_weapon: state.has_fired_death_weapon,
+            has_fired_death_weapon: self.state.has_fired_death_weapon,
             death_weapon_template: self.config.death_weapon.clone(),
         }
     }
 
     /// Reset the behavior (for testing or reuse)
-    pub fn reset(&self) {
-        let mut state = self.state.write().unwrap();
-        state.has_fired_death_weapon = false;
+    pub fn reset(&mut self) {
+        self.state.has_fired_death_weapon = false;
     }
 
     /// Get upgrade activation masks
@@ -506,6 +497,8 @@ impl FireWeaponWhenDeadBehaviorBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     fn create_test_behavior() -> FireWeaponWhenDeadBehavior {
         FireWeaponWhenDeadBehaviorBuilder::new()
@@ -532,6 +525,51 @@ mod tests {
         assert!(stats.has_death_weapon);
         assert!(!stats.has_fired_death_weapon);
         assert_eq!(stats.death_weapon_template, Some("test_death_weapon".to_string()));
+    }
+
+    #[test]
+    fn same_object_id_behaviors_keep_independent_owned_state() {
+        let mut active = FireWeaponWhenDeadBehaviorBuilder::new()
+            .initially_active(false)
+            .build(77);
+        let inactive = FireWeaponWhenDeadBehaviorBuilder::new()
+            .initially_active(false)
+            .build(77);
+
+        active.set_active(true);
+
+        assert!(active.get_statistics().is_active);
+        assert!(!inactive.get_statistics().is_active);
+        assert!(!active.get_statistics().has_fired_death_weapon);
+        assert!(!inactive.get_statistics().has_fired_death_weapon);
+    }
+
+    #[test]
+    fn xfer_round_trip_preserves_behavior_state() {
+        let mut saved = FireWeaponWhenDeadBehaviorBuilder::new()
+            .initially_active(true)
+            .build(78);
+        saved.state.has_fired_death_weapon = true;
+        assert!(saved.get_statistics().has_fired_death_weapon);
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).expect("save behavior state");
+        }
+
+        bytes.set_position(0);
+        let mut loaded = FireWeaponWhenDeadBehaviorBuilder::new()
+            .initially_active(false)
+            .build(78);
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).expect("load behavior state");
+        }
+
+        let stats = loaded.get_statistics();
+        assert!(stats.is_active);
+        assert!(stats.has_fired_death_weapon);
     }
 
     #[test]

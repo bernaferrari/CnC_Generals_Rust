@@ -596,10 +596,13 @@ pub struct ImageCollection {
     texture_size: i32,
 }
 
+// The collection inherits thread-safety from its Image values. Keep this
+// assertion in WASM production builds, where Image has its own GPU boundary.
 #[cfg(target_arch = "wasm32")]
-unsafe impl Send for ImageCollection {}
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for ImageCollection {}
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<ImageCollection>();
+};
 
 impl ImageCollection {
     /// Create a new image collection

@@ -79,8 +79,15 @@ static HOST_FX_OBJECT_POSES: std::sync::LazyLock<RwLock<HashMap<ObjectID, HostFx
 /// Stamp a live host object's leftover-space pose for object-form FX.
 pub fn set_host_fx_object_pose(pose: HostFxObjectPose) {
     if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
-        map.insert(pose.id, pose);
+        insert_host_fx_object_pose(&mut map, pose);
     }
+}
+
+fn insert_host_fx_object_pose(
+    poses: &mut std::collections::HashMap<ObjectID, HostFxObjectPose>,
+    pose: HostFxObjectPose,
+) {
+    poses.insert(pose.id, pose);
 }
 
 /// Look up a host object pose published by the live host.
@@ -103,6 +110,76 @@ pub fn retain_host_fx_object_poses(keep: impl Fn(ObjectID) -> bool) {
     if let Ok(mut map) = HOST_FX_OBJECT_POSES.write() {
         map.retain(|&id, _| keep(id));
     }
+}
+
+#[cfg(test)]
+mod host_fx_pose_publication_tests {
+    use super::{
+        HostFxObjectPose, apply_host_fx_pose_frame, insert_host_fx_object_pose,
+    };
+    use crate::common::{Matrix3D, ObjectID};
+    use std::collections::HashMap;
+
+    fn pose(id: ObjectID, x: f32) -> HostFxObjectPose {
+        HostFxObjectPose {
+            id,
+            position: crate::common::Coord3D::new(x, 0.0, 0.0),
+            transform: Matrix3D::default(),
+            player_index: 0,
+            bounding_circle_radius: 0.0,
+            is_shrouded: false,
+        }
+    }
+
+    #[test]
+    fn frame_publication_replaces_live_values_and_drops_absent_ids() {
+        let mut poses = HashMap::new();
+        insert_host_fx_object_pose(&mut poses, pose(91_001, 1.0));
+        insert_host_fx_object_pose(&mut poses, pose(91_002, 2.0));
+
+        apply_host_fx_pose_frame(&mut poses, [pose(91_001, 7.0)]);
+
+        assert_eq!(poses.len(), 1);
+        assert_eq!(poses.get(&91_001).unwrap().position.x, 7.0);
+        assert!(!poses.contains_key(&91_002));
+    }
+
+    #[test]
+    fn event_time_insert_is_visible_until_the_next_frame_retains_ids() {
+        let mut poses = HashMap::new();
+        apply_host_fx_pose_frame(&mut poses, [pose(91_003, 3.0)]);
+
+        // The setter and frame publisher share this insertion helper.
+        insert_host_fx_object_pose(&mut poses, pose(91_004, 4.0));
+        assert_eq!(poses.get(&91_004).unwrap().position.x, 4.0);
+
+        apply_host_fx_pose_frame(&mut poses, [pose(91_003, 5.0)]);
+        assert!(!poses.contains_key(&91_004));
+        assert_eq!(poses.get(&91_003).unwrap().position.x, 5.0);
+    }
+}
+
+/// Publish a complete presentation-frame pose set with one write-lock
+/// transaction. Event-time `set_host_fx_object_pose` inserts remain available
+/// between frame publications; the next frame retains exactly its live IDs,
+/// matching the former upsert-then-retain sequence.
+pub fn replace_host_fx_object_poses_for_frame(
+    poses: impl IntoIterator<Item = HostFxObjectPose>,
+) {
+    if let Ok(mut current) = HOST_FX_OBJECT_POSES.write() {
+        apply_host_fx_pose_frame(&mut current, poses);
+    }
+}
+
+fn apply_host_fx_pose_frame(
+    current: &mut std::collections::HashMap<ObjectID, HostFxObjectPose>,
+    poses: impl IntoIterator<Item = HostFxObjectPose>,
+) {
+    // Every retained ID receives a fresh pose. Rebuild in the existing map to
+    // preserve that result without a temporary pose Vec or live-ID HashSet.
+    // Clear retains allocation capacity; duplicate IDs still use the last pose.
+    current.clear();
+    current.extend(poses.into_iter().map(|pose| (pose.id, pose)));
 }
 
 

@@ -340,6 +340,94 @@ mod tests {
     }
 
     #[test]
+    fn owned_ctor_helper_state_isolated_by_instance_and_round_trips() {
+        use game_engine::system::xfer_load::XferLoad;
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut first = Object::new_test(77, 100.0);
+        let mut second = Object::new_test(77, 100.0);
+        for object in [&mut first, &mut second] {
+            if object.repulsor_helper.is_none() {
+                object.repulsor_helper = Some(
+                    crate::object::helper::ObjectRepulsorHelper::new(
+                        crate::object::helper::ObjectRepulsorHelperModuleData::default(),
+                    ),
+                );
+            }
+            if object.defection_helper.is_none() {
+                object.defection_helper = Some(
+                    crate::object::helper::ObjectDefectionHelper::new(
+                        crate::object::helper::ObjectDefectionHelperModuleData::default(),
+                    ),
+                );
+            }
+        }
+
+        first
+            .smc_helper
+            .as_mut()
+            .expect("SMC ctor helper")
+            .wake_for_clear(456);
+        first.repulsor_helper.as_mut().unwrap().wake_for_clear(321);
+        first
+            .defection_helper
+            .as_mut()
+            .expect("defection ctor helper")
+            .start_defection_timer(88, true, 10, true);
+
+        assert!(first.smc_helper.as_ref().unwrap().needs_clearing());
+        assert!(!second.smc_helper.as_ref().unwrap().needs_clearing());
+        assert!(first.repulsor_helper.as_ref().unwrap().needs_clearing());
+        assert!(!second.repulsor_helper.as_ref().unwrap().needs_clearing());
+        assert_eq!(
+            first
+                .defection_helper
+                .as_ref()
+                .unwrap()
+                .get_defection_detection_end(),
+            98
+        );
+        assert_eq!(
+            second
+                .defection_helper
+                .as_ref()
+                .unwrap()
+                .get_defection_detection_end(),
+            0
+        );
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            first.xfer(&mut save);
+        }
+        let mut restored = Object::new_test(1, 100.0);
+        restored.repulsor_helper = Some(crate::object::helper::ObjectRepulsorHelper::new(
+            crate::object::helper::ObjectRepulsorHelperModuleData::default(),
+        ));
+        restored.defection_helper = Some(crate::object::helper::ObjectDefectionHelper::new(
+            crate::object::helper::ObjectDefectionHelperModuleData::default(),
+        ));
+        {
+            let cursor = Cursor::new(&bytes);
+            let mut load = XferLoad::new(cursor, 1);
+            restored.xfer(&mut load);
+        }
+        assert!(restored.smc_helper.as_ref().unwrap().needs_clearing());
+        assert!(restored.repulsor_helper.as_ref().unwrap().needs_clearing());
+        assert_eq!(
+            restored
+                .defection_helper
+                .as_ref()
+                .unwrap()
+                .get_defection_detection_end(),
+            98
+        );
+    }
+
+    #[test]
     fn destroy_walks_get_behavior_modules() {
         let obj = Object::new_test(99, 100.0);
         let modules = obj.get_behavior_modules();

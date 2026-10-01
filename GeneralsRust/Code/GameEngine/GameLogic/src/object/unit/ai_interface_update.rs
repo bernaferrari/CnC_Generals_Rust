@@ -300,17 +300,11 @@ impl UnitAIUpdate {
             self.set_next_mood_check_time(next_mood_check_time);
         }
 
-        let mut crate_created = self
-            .crate_created
-            .lock()
-            .map(|id| *id)
-            .unwrap_or(INVALID_ID);
+        let mut crate_created = self.crate_created;
         xfer.xfer_object_id(&mut crate_created)
             .map_err(|e| e.to_string())?;
         if is_loading {
-            if let Ok(mut id) = self.crate_created.lock() {
-                *id = crate_created;
-            }
+            self.crate_created = crate_created;
         }
 
         if let Some(jet_ai) = self.jet_ai.as_mut() {

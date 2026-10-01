@@ -2914,10 +2914,10 @@ pub struct Object {
     physics: Option<Arc<Mutex<dyn PhysicsBehavior>>>,
 
     // Helper modules
-    repulsor_helper: Option<Arc<Mutex<ObjectRepulsorHelper>>>,
-    smc_helper: Option<Arc<Mutex<ObjectSMCHelper>>>,
+    repulsor_helper: Option<ObjectRepulsorHelper>,
+    smc_helper: Option<ObjectSMCHelper>,
     ws_helper: Option<Arc<Mutex<ObjectWeaponStatusHelper>>>,
-    defection_helper: Option<Arc<Mutex<ObjectDefectionHelper>>>,
+    defection_helper: Option<ObjectDefectionHelper>,
     status_damage_helper: Option<Arc<Mutex<StatusDamageHelper>>>,
     subdual_damage_helper: Option<Arc<Mutex<SubdualDamageHelper>>>,
     temp_weapon_bonus_helper: Option<Arc<Mutex<TempWeaponBonusHelper>>>,

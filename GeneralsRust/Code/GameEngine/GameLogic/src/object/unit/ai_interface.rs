@@ -700,7 +700,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::set_current_victim(self, victim)
     }
 
-    fn check_for_crate_to_pickup_id(&self) -> ObjectID {
+    fn check_for_crate_to_pickup_id(&mut self) -> ObjectID {
         UnitAIUpdate::check_for_crate_to_pickup_id(self)
     }
 

@@ -232,6 +232,17 @@ impl Drawable {
         let Some(new_object_id) = object.read().ok().map(|guard| guard.get_id()) else {
             return;
         };
+        self.friend_bind_to_object_with_id(new_object_id, object);
+    }
+
+    /// Bind when the caller already owns the Object's write guard and has its
+    /// identity. Object::initObject calls GameLogic::sendObjectCreated(this)
+    /// synchronously; reacquiring the Object lock there deadlocks.
+    pub(crate) fn friend_bind_to_object_with_id(
+        &mut self,
+        new_object_id: u32,
+        object: &Arc<RwLock<crate::object::Object>>,
+    ) {
         let previous_object_id = self.object_id;
         if let Some(client) = TheGameClient::get() {
             // A replacement Drawable for the *same* object must also retire
