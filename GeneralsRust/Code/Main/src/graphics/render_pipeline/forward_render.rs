@@ -808,7 +808,7 @@ impl ForwardPass {
         let direction = Vec3::from_array(direction).normalize_or_zero();
         let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
         light.enabled = true;
-        env.add_light(Arc::new(Mutex::new(light)));
+        env.add_light(light);
 
         #[cfg(feature = "game_client")]
         {
@@ -823,7 +823,7 @@ impl ForwardPass {
                 let intensity = pulse_color.max_element().max(0.01);
                 let mut point = LightClass::point(position, pulse_color, intensity, range);
                 point.enabled = true;
-                env.add_light(Arc::new(Mutex::new(point)));
+                env.add_light(point);
             }
         }
 
@@ -848,10 +848,8 @@ impl ForwardPass {
             .unwrap_or(0.5)
             .clamp(0.0, 1.0);
         env.ambient *= fraction;
-        for light in &env.lights {
-            if let Ok(mut light) = light.lock() {
-                light.color *= fraction;
-            }
+        for light in &mut env.lights {
+            light.color *= fraction;
         }
         Some(env)
     }
@@ -1108,7 +1106,7 @@ impl ForwardPass {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync + 'static,
     {
         self.renderer.enqueue_post_frame_callback(callback);
     }
@@ -1124,7 +1122,7 @@ impl ForwardPass {
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync + 'static,
     {
         self.renderer.enqueue_pre_scene_callback(callback);
     }
@@ -1464,11 +1462,8 @@ mod tests {
             .expect("the same frozen metadata builds the dedicated ghost environment");
 
         assert_eq!(fogged.ambient, ordinary.ambient * 0.25);
-        let ordinary_color = ordinary.lights[0]
-            .lock()
-            .expect("ordinary light lock")
-            .color;
-        let fogged_color = fogged.lights[0].lock().expect("ghost light lock").color;
+        let ordinary_color = ordinary.lights[0].color;
+        let fogged_color = fogged.lights[0].color;
         assert_eq!(fogged_color, ordinary_color * 0.25);
     }
 }

@@ -35,6 +35,7 @@ impl GameStateManager {
         Self {
             save_file_manager: SaveFileManager::new(),
             replay_manager: ReplayManager::new(),
+            campaign_manager: Arc::new(Mutex::new(CampaignManager::new())),
 
             game_logic: None,
             command_system: None,

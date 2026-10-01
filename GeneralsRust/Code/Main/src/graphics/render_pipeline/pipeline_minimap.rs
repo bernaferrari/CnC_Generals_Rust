@@ -902,7 +902,7 @@ impl RenderPipeline {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync + 'static,
     {
         self.forward_pass.enqueue_post_frame_callback(callback);
     }
@@ -918,7 +918,7 @@ impl RenderPipeline {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync + 'static,
     {
         self.forward_pass.enqueue_pre_scene_callback(callback);
     }

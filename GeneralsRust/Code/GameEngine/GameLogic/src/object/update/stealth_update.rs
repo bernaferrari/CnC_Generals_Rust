@@ -564,7 +564,7 @@ impl StealthUpdateController {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(contain_guard) = contain.lock() {
                             if contain_guard.is_passenger_allowed_to_fire(None) {
-                                for contained_id in contain_guard.get_contained_objects() {
+                                for contained_id in contain_guard.get_contained_objects().iter() {
                                     let attacking = OBJECT_REGISTRY
                                         .with_object(*contained_id, |rider_guard| {
                                             rider_guard

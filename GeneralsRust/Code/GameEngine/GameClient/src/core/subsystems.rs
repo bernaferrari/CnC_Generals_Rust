@@ -2499,36 +2499,39 @@ impl InGameUiHooks for InGameUiHandle {
 }
 
 /// Audio subsystem backed by Kira.
+///
+/// Single-owner fields: every access goes through the outer
+/// `Arc<Mutex<AudioSubsystem>>` boundary (fx/button audio hooks and the
+/// subsystem manager), so no inner per-field lock is needed.
 pub struct AudioSubsystem {
-    manager: Mutex<AudioManager<kira::DefaultBackend>>,
-    debug_state: Mutex<AudioDebugState>,
+    #[allow(dead_code)]
+    manager: AudioManager<kira::DefaultBackend>,
+    debug_state: AudioDebugState,
 }
 
 impl AudioSubsystem {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let manager = AudioManager::new(AudioManagerSettings::default())?;
         Ok(Self {
-            manager: Mutex::new(manager),
-            debug_state: Mutex::new(AudioDebugState::new()),
+            manager,
+            debug_state: AudioDebugState::new(),
         })
     }
 
-    pub fn manager(
-        &self,
-    ) -> std::sync::MutexGuard<'_, AudioManager<kira::DefaultBackend>> {
-        self.manager.lock().unwrap_or_else(|e| e.into_inner())
+    pub fn manager(&self) -> &AudioManager<kira::DefaultBackend> {
+        &self.manager
     }
 
     pub fn debug_snapshot(&self) -> AudioDebugSnapshot {
-        let state = self.debug_state.lock().unwrap_or_else(|e| e.into_inner());
+        let state = &self.debug_state;
         AudioDebugSnapshot {
             total_events: state.total_events,
             recent_events: state.recent_events.iter().cloned().collect(),
         }
     }
 
-    fn record_event(&self, event: &str, position: Option<Coord3D>) {
-        let mut state = self.debug_state.lock().unwrap_or_else(|e| e.into_inner());
+    fn record_event(&mut self, event: &str, position: Option<Coord3D>) {
+        let state = &mut self.debug_state;
         state.total_events = state.total_events.saturating_add(1);
         let timestamp_ms = state.start_time.elapsed().as_millis() as u64;
         state.recent_events.push_back(AudioDebugRecord {
@@ -2592,8 +2595,7 @@ impl crate::audio::GameAudio for AudioSubsystem {
             }
         }
 
-        // Hold the manager guard briefly to mirror the C++ audio accessor pattern.
-        let _guard = self.manager();
+        let _ = &self.manager;
         Ok(())
     }
 }
@@ -2851,15 +2853,16 @@ impl SubsystemInterface for VideoPlayerSubsystem {
 
 impl VideoPlayerInterface for VideoPlayerSubsystem {}
 
-pub type MouseHandle = Arc<Mutex<crate::input::Mouse>>;
-
 pub fn create_keyboard() -> crate::input::Keyboard {
     crate::input::Keyboard::new()
 }
 
-pub fn create_mouse() -> MouseHandle {
-    // Share THE_MOUSE so Main OS inject and GameClient::update_input tick the same device.
-    crate::input::mouse::the_mouse().clone()
+/// The mouse is the single shared `THE_MOUSE` instance (rule-d boundary):
+/// Main's OS event intake injects into it and `GameClient::update_input`
+/// ticks it, so access goes through `crate::input::mouse::the_mouse()`
+/// instead of a per-GameClient handle clone.
+pub fn create_mouse() -> &'static Arc<Mutex<crate::input::Mouse>> {
+    crate::input::mouse::the_mouse()
 }
 
 #[cfg(test)]

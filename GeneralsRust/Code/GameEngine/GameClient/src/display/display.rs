@@ -247,7 +247,7 @@ impl Display {
             letterbox_enabled: false,
             letterbox_fade_start_time: None,
             lighting_state: DisplayLightingState::from_current_global_data(),
-            last_movie_frame: Mutex::new(None),
+            last_movie_frame: None,
             pending_screenshot: Mutex::new(None),
         }
     }

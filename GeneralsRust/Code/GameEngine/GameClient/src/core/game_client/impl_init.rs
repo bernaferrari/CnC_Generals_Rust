@@ -371,11 +371,11 @@ impl GameClient {
         keyboard.init()?;
         self.subsystem_manager.input_keyboard = Some(keyboard);
 
-        // Create mouse
+        // Init the shared THE_MOUSE singleton (single instance shared with
+        // Main's OS event intake) and register it with the GUI helper backend.
         let mouse = create_mouse();
         mouse.lock().unwrap_or_else(|e| e.into_inner()).init()?;
-        register_mouse_backend(mouse.clone());
-        self.subsystem_manager.input_mouse = Some(mouse);
+        register_mouse_backend(Arc::clone(mouse));
 
         Ok(())
     }

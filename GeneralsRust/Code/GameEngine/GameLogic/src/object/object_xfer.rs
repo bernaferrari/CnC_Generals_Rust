@@ -487,7 +487,7 @@ impl Object {
     }
 
     fn xfer_one_helper_block<H: EngineSnapshotable>(
-        &self,
+        object_id: ObjectID,
         xfer: &mut dyn Xfer,
         tag: &str,
         helper: &mut H,
@@ -496,7 +496,7 @@ impl Object {
         let _ = xfer.xfer_ascii_string(&mut module_identifier);
         if xfer.begin_block().is_ok() {
             if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                warn!("Object::xfer {} failed for object {}: {}", tag, self.id, err);
+                warn!("Object::xfer {} failed for object {}: {}", tag, object_id, err);
             }
             let _ = xfer.end_block();
         }
@@ -618,10 +618,10 @@ impl Object {
                 Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SMC, helper);
             }
             if let Some(helper) = &mut self.status_damage_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_STATUS, helper.as_mut());
+                Self::xfer_one_helper_block(self.id, xfer, HELPER_TAG_STATUS, helper.as_mut());
             }
             if let Some(helper) = &mut self.subdual_damage_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_SUBDUAL, helper.as_mut());
+                Self::xfer_one_helper_block(self.id, xfer, HELPER_TAG_SUBDUAL, helper.as_mut());
             }
             if let Some(helper) = &mut self.repulsor_helper {
                 Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_REPULSOR, helper);
@@ -630,13 +630,13 @@ impl Object {
                 Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_DEFECTION, helper);
             }
             if let Some(helper) = &mut self.ws_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_WEAPON_STATUS, helper.as_mut());
+                Self::xfer_one_helper_block(self.id, xfer, HELPER_TAG_WEAPON_STATUS, helper.as_mut());
             }
             if let Some(helper) = &mut self.firing_tracker {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_FIRING_TRACKER, helper.as_mut());
+                Self::xfer_one_helper_block(self.id, xfer, HELPER_TAG_FIRING_TRACKER, helper.as_mut());
             }
             if let Some(helper) = &mut self.temp_weapon_bonus_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_TEMP_WEAPON_BONUS, helper.as_mut());
+                Self::xfer_one_helper_block(self.id, xfer, HELPER_TAG_TEMP_WEAPON_BONUS, helper.as_mut());
             }
             let remaining =
                 (module_count as usize).saturating_sub(self.ctor_helper_xfer_tags().len());

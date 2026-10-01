@@ -197,10 +197,10 @@ impl ResourceManager {
 
         {
             let mut state = self.state.lock();
-            if let Some(resource) = state.resources.get(&key) {
+            if let Some(resource) = state.resources.get(&key).cloned() {
                 state.stats.cache_hits += 1;
                 debug!("Resource cache hit: {}", resource_name);
-                return Ok(resource.clone());
+                return Ok(resource);
             }
         }
 

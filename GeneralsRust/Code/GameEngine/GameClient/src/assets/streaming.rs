@@ -954,6 +954,7 @@ impl StreamingManager {
     /// Update prediction model based on usage patterns
     async fn update_prediction_model(analytics: &Arc<RwLock<StreamingAnalytics>>) {
         let mut analytics = analytics.write().unwrap_or_else(|e| e.into_inner());
+        let analytics = &mut *analytics;
         let patterns = &analytics.usage_patterns;
         let model = &mut analytics.prediction_model;
 

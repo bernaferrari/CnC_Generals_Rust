@@ -268,9 +268,13 @@ impl DebugSystem {
         let formatted = format!("[{}] [{}] {}\n", timestamp, level.to_uppercase(), message);
 
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(writer_guard) = state.log_writer.as_mut() {
-            writer_guard.write_all(formatted.as_bytes())?;
-
+        let has_writer = state.log_writer.is_some();
+        if has_writer {
+            if let Some(writer_guard) = state.log_writer.as_mut() {
+                writer_guard.write_all(formatted.as_bytes())?;
+            }
+        }
+        if has_writer {
             // Update stats
             state.stats.log_entries_written += 1;
             state.stats.total_log_size += formatted.len() as u64;
@@ -281,7 +285,9 @@ impl DebugSystem {
                 .log_entries_written
                 .is_multiple_of(self.config.flush_frequency)
             {
-                writer_guard.flush()?;
+                if let Some(writer_guard) = state.log_writer.as_mut() {
+                    writer_guard.flush()?;
+                }
                 state.stats.last_flush_time = SystemTime::now();
             }
         }

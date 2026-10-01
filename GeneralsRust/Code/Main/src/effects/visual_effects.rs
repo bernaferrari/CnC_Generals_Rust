@@ -654,7 +654,7 @@ impl VisualEffectsManager {
             let execute_at = self.current_time + delay_seconds;
 
             if !stage.particle_template.is_empty() {
-                let manager = particle_manager;
+                let manager = &mut *particle_manager;
                 if let Some(system_id) = manager.create_system(&stage.particle_template) {
                     if let Some(system) = manager.get_system_mut(system_id) {
                         system.set_position(explosion.position);

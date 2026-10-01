@@ -726,6 +726,7 @@ pub struct NamedObjectTracker {
 /// transaction boundary.  Keeping the singleton's `Arc` wrapper in place is
 /// important: existing systems retain that wrapper, so swapping the wrapper
 /// itself would leave stale aliases in the active world.
+#[derive(Default)]
 pub(crate) struct NamedObjectTrackerState {
     name_to_id: HashMap<String, u32>,
     id_to_name: HashMap<u32, String>,
@@ -945,6 +946,7 @@ pub struct AreaTracker {
 /// Owned mutable state of [`AreaTracker`] used only by a whole-world
 /// transaction boundary.  It follows the same stable-singleton rule as
 /// [`NamedObjectTrackerState`].
+#[derive(Default)]
 pub(crate) struct AreaTrackerState {
     areas: HashMap<String, TriggerArea>,
     objects_in_areas: HashMap<String, HashSet<u32>>,

@@ -129,6 +129,7 @@ pub enum PlayerStatus {
 /// Replaces the Windows Media Format SDK functionality with cross-platform audio
 pub struct SimplePlayer {
     ref_count: AtomicUsize,
+    status: Arc<Mutex<PlayerStatus>>,
 
     url: Option<PathBuf>,
     format: WaveFormat,

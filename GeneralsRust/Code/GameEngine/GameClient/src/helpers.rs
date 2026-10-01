@@ -964,7 +964,7 @@ thread_local! {
 }
 
 fn with_hint_state<R>(f: impl FnOnce(&mut Vec<HintData>) -> R) -> R {
-    HINT_DATA.with(|state| f(&mut state.lock().unwrap_or_else(|e| e.into_inner)))
+    HINT_DATA.with(|state| f(&mut state.lock().unwrap_or_else(|e| e.into_inner())))
 }
 
 #[derive(Debug, Clone, Copy)]

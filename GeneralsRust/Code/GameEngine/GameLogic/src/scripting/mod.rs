@@ -369,7 +369,7 @@ impl ScriptingEngine {
         rhai_engine.set_max_array_size(1_000);
         rhai_engine.set_max_map_size(1_000);
 
-        let engine = Self {
+        let mut engine = Self {
             rhai_engine,
             scripts: HashMap::new(),
             active_executions: HashMap::new(),

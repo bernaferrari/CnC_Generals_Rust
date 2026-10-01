@@ -158,12 +158,12 @@ impl AssetManager {
         // Check cache first
         {
             let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
-            if let Some(asset) = state.cache.get(&cache_key) {
+            if let Some(asset) = state.cache.get(&cache_key).cloned() {
                 // Update access time
                 // Note: This would require interior mutability in a real implementation
                 state.stats.cache_hits += 1;
                 debug!("Cache hit for asset: {}", name);
-                return Ok(Arc::clone(asset));
+                return Ok(asset);
             }
             state.stats.cache_misses += 1;
         }

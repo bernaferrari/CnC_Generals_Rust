@@ -74,14 +74,14 @@ pub struct WgpuMainRenderer {
     pending_frame: Option<ww3d_engine::RenderFrame>,
     #[cfg(not(target_arch = "wasm32"))]
     pre_scene_callbacks:
-        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send>>,
+        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync>>,
     #[cfg(target_arch = "wasm32")]
     pre_scene_callbacks: std::cell::RefCell<
         Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
     >,
     #[cfg(not(target_arch = "wasm32"))]
     post_frame_callbacks:
-        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send>>,
+        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync>>,
     #[cfg(target_arch = "wasm32")]
     post_frame_callbacks: std::cell::RefCell<
         Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
@@ -642,7 +642,7 @@ impl WgpuMainRenderer {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync + 'static,
     {
         self.post_frame_callbacks.push(Box::new(callback));
     }
@@ -658,7 +658,7 @@ impl WgpuMainRenderer {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + Sync + 'static,
     {
         self.pre_scene_callbacks.push(Box::new(callback));
     }

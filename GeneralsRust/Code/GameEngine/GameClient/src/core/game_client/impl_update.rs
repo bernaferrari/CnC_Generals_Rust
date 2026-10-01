@@ -181,9 +181,11 @@ impl GameClient {
             keyboard.update();
         }
 
-        if let Some(ref mouse) = self.subsystem_manager.input_mouse {
-            mouse.lock().unwrap_or_else(|e| e.into_inner()).update();
-        }
+        // Shared THE_MOUSE singleton (Main OS inject + client tick); rule-d boundary.
+        crate::input::mouse::the_mouse()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .update();
 
         Ok(())
     }

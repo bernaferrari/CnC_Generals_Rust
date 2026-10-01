@@ -411,10 +411,16 @@ impl AudioFileCache {
 impl AudioFileCache {
     /// Get cached file if available
     fn get_cached_file(state: &mut AudioCacheState, file_path: &Path) -> Option<Arc<Vec<u8>>> {
-        if let Some(open_file) = state.cache.get_mut(file_path) {
-            open_file.add_ref();
+        let hit = state
+            .cache
+            .get_mut(file_path)
+            .map(|open_file| {
+                open_file.add_ref();
+                open_file.file_data.clone()
+            });
+        if let Some(file_data) = hit {
             Self::update_access_order(state, file_path);
-            return Some(open_file.file_data.clone());
+            return Some(file_data);
         }
 
         None

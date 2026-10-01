@@ -73,8 +73,7 @@ pub fn calculate_game_engine_ini_crc(load_text: impl Fn(&str) -> Option<String>)
         feed_ini_path(&mut ini, "Data/INI/GameDataDebug.ini", &load_text);
     }
 
-    let crc = ini.take_xfer().and_then(|mutex| {
-        let mut xfer_crc = mutex.into_inner().ok()?;
+    let crc = ini.take_xfer().and_then(|mut xfer_crc| {
         xfer_crc.close().ok()?;
         Some(xfer_crc.get_crc())
     });

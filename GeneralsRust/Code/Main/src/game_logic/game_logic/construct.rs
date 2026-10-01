@@ -17,27 +17,6 @@ impl GameLogic {
         self.mission_scripts.queue_warehouse_set_value(name, cash);
     }
 
-    /// Leftover ScriptingEngine handle. Always None on the live host (hq-8ta4n).
-    pub(super) fn script_engine_handle(&self) -> Option<Arc<ScriptingEngine>> {
-        self.script_engine.as_ref().map(Arc::clone)
-    }
-
-    /// Leftover ScriptingEngine event ingest. No-op on live host (hq-8ta4n).
-    pub(super) fn forward_event_to_scripts(&self, event: &ScriptEvent) {
-        let engine = match self.script_engine_handle() {
-            Some(engine) => engine,
-            None => return,
-        };
-
-        let mission_event = match self.convert_script_event(event) {
-            Some(evt) => evt,
-            None => return,
-        };
-
-        if let Err(err) = engine.fire_event_sync(mission_event) {
-            log::error!("Scripting engine failed to accept event: {}", err);
-        }
-    }
 
     pub fn new() -> Self {
         log::debug!("GameLogic::new() - creating new GameLogic instance");
@@ -671,7 +650,6 @@ impl GameLogic {
             eva_superweapon_science_hidden: HashMap::new(),
             host_beacons: Vec::new(),
             recent_beacons: Vec::new(),
-            script_engine: None,
             script_event_pump_in_flight: Arc::new(AtomicBool::new(false)),
             script_event_pump_busy_frames: 0,
             loaded_script_lists: Vec::new(),

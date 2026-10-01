@@ -7,7 +7,8 @@ pub struct SubsystemManager {
     display: Option<Arc<Mutex<GraphicsDisplay>>>,
     audio: Option<Arc<Mutex<AudioSubsystem>>>,
     input_keyboard: Option<crate::input::Keyboard>,
-    input_mouse: Option<MouseHandle>,
+    // Mouse lives in the shared `THE_MOUSE` singleton (crate::input::mouse),
+    // not a per-GameClient handle: Main's OS intake and the client tick share it.
     terrain_visual: Option<Arc<Mutex<TerrainVisualStub>>>,
     window_manager: Option<WindowManagerSubsystem>,
     font_library: Option<FontLibrarySubsystem>,
@@ -29,7 +30,7 @@ impl SubsystemManager {
             display: None,
             audio: None,
             input_keyboard: None,
-            input_mouse: None,
+
             terrain_visual: None,
             window_manager: None,
             font_library: None,
@@ -57,9 +58,11 @@ impl SubsystemManager {
             keyboard.reset()?;
         }
 
-        if let Some(ref mouse) = self.input_mouse {
-            mouse.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
-        }
+        // Shared THE_MOUSE (Main OS inject + client tick); rule-d boundary.
+        crate::input::mouse::the_mouse()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reset()?;
 
         if let Some(ref terrain) = self.terrain_visual {
             terrain.lock().unwrap_or_else(|e| e.into_inner()).reset()?;

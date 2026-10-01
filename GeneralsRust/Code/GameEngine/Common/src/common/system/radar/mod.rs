@@ -12,6 +12,7 @@
 use crate::common::game_common::ObjectShroudStatus;
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, RwLock};
 
 mod draw_events;
@@ -2604,11 +2605,15 @@ impl Default for RadarSystem {
 static RADAR_SYSTEM: LazyLock<Arc<RwLock<RadarSystem>>> =
     LazyLock::new(|| Arc::new(RwLock::new(RadarSystem::new())));
 
+/// Set on the first `get_radar_system` call, mirroring the old OnceLock
+/// `initialized()` peek so the snapshot block registers exactly once.
+static RADAR_SYSTEM_ACCESSED: AtomicBool = AtomicBool::new(false);
+
 /// Get global radar system
 pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
-    let already_initialized = RADAR_SYSTEM.initialized();
+    let first_access = !RADAR_SYSTEM_ACCESSED.swap(true, Ordering::SeqCst);
     let system = Arc::clone(&RADAR_SYSTEM);
-    if !already_initialized {
+    if first_access {
         snapshot::ensure_the_radar_snapshot_block();
     }
     system

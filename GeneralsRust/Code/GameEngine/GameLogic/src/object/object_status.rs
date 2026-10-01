@@ -271,7 +271,7 @@ impl Object {
         let radar_write = radar.write();
         if let Ok(mut radar_guard) = radar_write {
             radar_guard.remove_object(self.id);
-            radar_guard.add_object(radar_obj);
+            radar_guard.add_object(*radar_obj);
         }
     }
 

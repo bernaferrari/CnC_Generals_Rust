@@ -1154,7 +1154,7 @@ impl AudioLoader {
     pub fn set_master_volume(&mut self, volume: f32) {
         self.config.master_volume = volume.clamp(0.0, 1.0);
         let master = self.config.master_volume;
-        let bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
+        let mut bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
         Self::apply_track_volume(bus.music_track.as_mut(), self.config.music_volume, master);
         Self::apply_track_volume(bus.sfx_track.as_mut(), self.config.sfx_volume, master);
         Self::apply_track_volume(bus.voice_track.as_mut(), self.config.voice_volume, master);
@@ -1173,7 +1173,7 @@ impl AudioLoader {
         }
 
         let master = self.config.master_volume;
-        let bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
+        let mut bus = self.channels.lock().unwrap_or_else(|e| e.into_inner());
         match category {
             AudioAssetType::Music => {
                 Self::apply_track_volume(bus.music_track.as_mut(), self.config.music_volume, master)
