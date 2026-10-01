@@ -237,13 +237,11 @@ impl AIPlayer {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(obj_id, |obj| obj.get_ai_update_interface())
-            .flatten()
-        {
-            // C++ joinTeam uses obj->getTeam(); team handle args are unused.
-            ai.join_team();
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
+            if let Some(ai) = obj.get_ai_update_interface_mut() {
+                ai.join_team();
+            }
+        });
     }
 
     pub(super) fn is_skirmish_ai_player(&self) -> bool {
@@ -303,14 +301,12 @@ impl AIPlayer {
                     let members = crate::team::with_team(team_id, |tg| tg.get_members().to_vec()).unwrap_or_default();
                     let mut idle = false;
                     for mid in members {
-                        let Some(ai) = OBJECT_REGISTRY
-                            .with_object(mid, |og| og.get_ai_update_interface())
-                            .flatten()
-                        else {
-                            continue;
-                        };
-                        let aig = ai;;
-                        if aig.is_idle() {
+                        let idle_member = OBJECT_REGISTRY
+                            .with_object(mid, |og| {
+                                og.get_ai_update_interface().is_some_and(|ai| ai.is_idle())
+                            })
+                            .unwrap_or(false);
+                        if idle_member {
                             idle = true;
                             break;
                         }

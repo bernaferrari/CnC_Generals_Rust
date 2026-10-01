@@ -4,7 +4,7 @@
 #![allow(unused_imports)]
 
 use super::*;
-
+use crate::modules::AIUpdateInterfaceExt;
 impl AIPlayer {
     /// C++ `AIPlayer::queueSupplyTruck` (AIPlayer.cpp).
     ///
@@ -267,12 +267,11 @@ impl AIPlayer {
         drop(pg);
         drop(list);
         for truck_id in redock {
-            if let Some(ai) = OBJECT_REGISTRY
-                .with_object(truck_id, |obj| obj.get_ai_update_interface())
-                .flatten()
-            {
-                ai.ai_dock(center_id, CommandSourceType::FromPlayer);
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(truck_id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
+                    ai.ai_dock(center_id, CommandSourceType::FromPlayer);
+                }
+            });
         }
         cur
     }
@@ -340,12 +339,11 @@ impl AIPlayer {
             if should_reattach {
                 // C++: bump current gatherers and aiDock(center, CMD_FROM_PLAYER).
                 // Issue dock before recount so preferred dock can stick.
-                if let Some(ai) = OBJECT_REGISTRY
-                    .with_object(obj_id, |og| og.get_ai_update_interface())
-                    .flatten()
-                {
-                    ai.ai_dock(center_id, CommandSourceType::FromPlayer);
-                }
+                let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |og| {
+                    if let Some(ai) = og.get_ai_update_interface_mut() {
+                        ai.ai_dock(center_id, CommandSourceType::FromPlayer);
+                    }
+                });
                 self.set_build_list_current_gatherers(
                     center_id,
                     self.recount_and_redock_harvesters(center_id),
@@ -614,19 +612,16 @@ impl AIPlayer {
                     bg.set_builder(None);
                 });
             }
-            if let Some(ai) = OBJECT_REGISTRY
-                .with_object(dozer_id, |dg| dg.get_ai_update_interface())
-                .flatten()
-            {
-                if let ai_g = ai {
+            let _ = OBJECT_REGISTRY.with_object_mut(dozer_id, |dg| {
+                if let Some(ai) = dg.get_ai_update_interface_mut() {
                     let mut params = crate::ai::AiCommandParams::new(
                         crate::ai::AiCommandType::ResumeConstruction,
                         CommandSourceType::FromAi,
                     );
                     params.obj = Some(bldg_id);
-                    let _ = ai_g.execute_command(&params);
+                    let _ = ai.execute_command(&params);
                 }
-            }
+            });
         }
 
         if let Some((name, location, angle)) = to_build {
