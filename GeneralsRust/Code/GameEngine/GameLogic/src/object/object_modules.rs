@@ -415,11 +415,9 @@ impl Object {
     pub(super) fn install_ctor_helpers(&mut self) {
         // Object.cpp:301-305 — always ObjectSMCHelper / ModuleTag_SMCHelper.
         if self.smc_helper.is_none() {
-            self.smc_helper = Some(Arc::new(Mutex::new(
-                crate::object::helper::ObjectSMCHelper::new(
-                    crate::object::helper::ObjectSMCHelperModuleData::new(),
-                ),
-            )));
+            self.smc_helper = Some(crate::object::helper::ObjectSMCHelper::new(
+                crate::object::helper::ObjectSMCHelperModuleData::new(),
+            ));
         }
 
         // Object.cpp:307-335 — InactiveBody cannot take special damage.
@@ -452,20 +450,16 @@ impl Object {
         if self.repulsor_helper.is_none()
             && template_wants_repulsor_helper(self.thing_template.as_ref())
         {
-            self.repulsor_helper = Some(Arc::new(Mutex::new(
-                crate::object::helper::ObjectRepulsorHelper::new(
-                    crate::object::helper::ObjectRepulsorHelperModuleData::new(),
-                ),
-            )));
+            self.repulsor_helper = Some(crate::object::helper::ObjectRepulsorHelper::new(
+                crate::object::helper::ObjectRepulsorHelperModuleData::new(),
+            ));
         }
 
         // Object.cpp:354-362 — shrubbery cannot defect.
         if self.defection_helper.is_none() && !self.thing_template.is_kind_of(KindOf::Shrubbery) {
-            self.defection_helper = Some(Arc::new(Mutex::new(
-                crate::object::helper::ObjectDefectionHelper::new(
-                    crate::object::helper::ObjectDefectionHelperModuleData::new(),
-                ),
-            )));
+            self.defection_helper = Some(crate::object::helper::ObjectDefectionHelper::new(
+                crate::object::helper::ObjectDefectionHelperModuleData::new(),
+            ));
         }
 
         // Object.cpp:364-384 — weapon helpers only if the template can have a weapon.

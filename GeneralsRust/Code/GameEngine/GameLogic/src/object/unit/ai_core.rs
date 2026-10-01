@@ -12,7 +12,7 @@ use super::types::*;
 pub struct UnitAIUpdate {
     /// Owning unit id; resolve via UNIT_REGISTRY for the duration of an op.
     pub(super) unit_id: ObjectID,
-    pub(super) crate_created: Mutex<ObjectID>,
+    pub(super) crate_created: ObjectID,
     pub(super) supply_truck_ai: Option<SupplyTruckAIUpdate>,
     pub(super) chinook_ai: Option<ChinookAIUpdate>,
     pub(super) jet_ai: Option<JetAIUpdate>,
@@ -155,7 +155,7 @@ impl UnitAIUpdate {
 
         Self {
             unit_id,
-            crate_created: Mutex::new(crate::common::INVALID_ID),
+            crate_created: crate::common::INVALID_ID,
             supply_truck_ai,
             chinook_ai,
             jet_ai,

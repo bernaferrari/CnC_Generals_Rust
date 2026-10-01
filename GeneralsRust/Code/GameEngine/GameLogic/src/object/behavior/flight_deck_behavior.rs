@@ -11,7 +11,6 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
-use parking_lot::RwLock as DeckStateLock;
 
 use crate::ai::group::GuardMode;
 use crate::ai::{AiCommandType, CommandSourceType, the_ai};
@@ -508,7 +507,7 @@ impl Default for Runway {
     }
 }
 
-/// Thread-safe flight deck behavior implementation
+/// Flight deck behavior implementation with instance-owned runtime state
 #[derive(Debug)]
 pub struct FlightDeckBehavior {
     /// Configuration data
@@ -516,7 +515,7 @@ pub struct FlightDeckBehavior {
     /// Template for aircraft creation
     thing_template: Option<Arc<dyn ThingTemplate>>,
     /// Internal state
-    state: Arc<DeckStateLock<FlightDeckState>>,
+    state: FlightDeckState,
     /// Cached taxi locations per runway (for returning references)
     taxi_locations_cache: Vec<Vec<Coord3D>>,
     /// Cached creation locations per runway (for returning references)
@@ -612,7 +611,7 @@ impl FlightDeckBehavior {
         Self {
             config,
             thing_template: None,
-            state: Arc::new(DeckStateLock::new(state)),
+            state,
             taxi_locations_cache: vec![Vec::new(); num_cols],
             creation_locations_cache: vec![Vec::new(); num_cols],
             designated_target: INVALID_OBJECT_ID,
@@ -638,35 +637,39 @@ impl FlightDeckBehavior {
 
     /// Update the flight deck behavior (called each frame)
     pub fn update(&mut self, current_frame: u32) -> BehaviorResult<UpdateSleepTime> {
-        let got_info = self.state.read().got_info;
+        let got_info = self.state.got_info;
         if !got_info {
             self.build_info(true)?;
         }
         {
-            let mut state = self.state.write();
-            self.purge_dead(&mut state);
+            let state = &mut self.state;
+            Self::purge_dead(state);
 
             // Update healing
-            self.update_healing(&mut state, current_frame)?;
+            Self::update_healing(state, current_frame, self.object_id, self.config.heal_amount)?;
 
             // Update parking space assignments
-            self.update_parking_assignments(&mut state, current_frame);
+            Self::update_parking_assignments(
+                state,
+                current_frame,
+                self.object_id,
+                self.designated_command,
+                &self.config,
+            );
 
             // Handle replacement production
-            self.update_replacements(&mut state, current_frame);
+            Self::update_replacements(state, current_frame, self.object_id, &self.config);
         }
 
-        let mut state_for_launch = { self.state.read().clone() };
+        let mut state_for_launch = { self.state.clone() };
         self.update_launch_waves(&mut state_for_launch, current_frame);
         {
-            let mut state = self.state.write();
-            *state = state_for_launch;
+            self.state = state_for_launch;
         }
 
-        let state = self.state.read();
         if let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(mut owner_guard) = owner_arc.write() {
-                let has_aircraft = state
+                let has_aircraft = self.state
                     .parking_spaces
                     .iter()
                     .any(|space| space.object_id != INVALID_OBJECT_ID);
@@ -677,7 +680,7 @@ impl FlightDeckBehavior {
         Ok(UPDATE_SLEEP_NONE)
     }
 
-    fn purge_dead(&self, state: &mut FlightDeckState) {
+    fn purge_dead(state: &mut FlightDeckState) {
         for space in state.parking_spaces.iter_mut() {
             if space.object_id == INVALID_OBJECT_ID {
                 continue;
@@ -724,12 +727,12 @@ impl FlightDeckBehavior {
             !dead
         });
         if purged {
-            self.reset_wake_frame(state);
+            Self::reset_wake_frame(state);
         }
     }
 
     fn build_info(&mut self, create_units: Bool) -> BehaviorResult<()> {
-        let mut state = self.state.write();
+        let state = &mut self.state;
         if state.got_info {
             return Ok(());
         }
@@ -878,7 +881,12 @@ impl FlightDeckBehavior {
     }
 
     /// Update healing for parked aircraft
-    fn update_healing(&self, state: &mut FlightDeckState, now: UnsignedInt) -> BehaviorResult<()> {
+    fn update_healing(
+        state: &mut FlightDeckState,
+        now: UnsignedInt,
+        owner_id: ObjectID,
+        heal_amount: Real,
+    ) -> BehaviorResult<()> {
         const HEAL_RATE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 5;
 
         if now < state.next_heal_frame {
@@ -887,7 +895,7 @@ impl FlightDeckBehavior {
 
         state.next_heal_frame = now + HEAL_RATE_FRAMES;
         let amount =
-            HEAL_RATE_FRAMES as f32 * self.config.heal_amount * SECONDS_PER_LOGICFRAME_REAL;
+            HEAL_RATE_FRAMES as f32 * heal_amount * SECONDS_PER_LOGICFRAME_REAL;
 
         state.healing_objects.retain(|info| {
             if info.object_id == INVALID_OBJECT_ID {
@@ -903,13 +911,13 @@ impl FlightDeckBehavior {
                 return false;
             }
             drop(obj_guard);
-            let _ = self.heal_object(info.object_id, amount);
+            let _ = Self::heal_object(owner_id, info.object_id, amount);
             true
         });
         Ok(())
     }
 
-    fn reset_wake_frame(&self, state: &mut FlightDeckState) {
+    fn reset_wake_frame(state: &mut FlightDeckState) {
         const HEAL_RATE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 5;
         if state.healing_objects.is_empty() {
             state.next_heal_frame = NEVER;
@@ -918,8 +926,14 @@ impl FlightDeckBehavior {
         }
     }
 
-    fn update_parking_assignments(&self, state: &mut FlightDeckState, now: UnsignedInt) {
-        if self.config.cleanup_frames == 0 {
+    fn update_parking_assignments(
+        state: &mut FlightDeckState,
+        now: UnsignedInt,
+        owner_id: ObjectID,
+        designated_command: AiCommandType,
+        config: &FlightDeckBehaviorModuleData,
+    ) {
+        if config.cleanup_frames == 0 {
             return;
         }
 
@@ -927,9 +941,9 @@ impl FlightDeckBehavior {
             return;
         }
 
-        state.next_cleanup_frame = now + self.config.cleanup_frames;
+        state.next_cleanup_frame = now + config.cleanup_frames;
 
-        let num_cols = self.config.num_cols.max(0) as usize;
+        let num_cols = config.num_cols.max(0) as usize;
         if num_cols == 0 {
             return;
         }
@@ -944,7 +958,7 @@ impl FlightDeckBehavior {
                 true
             } else if let Some(obj_arc) = TheGameLogic::find_object_by_id(non_idle_id) {
                 if let Ok(obj_guard) = obj_arc.read() {
-                    self.is_able_to_give_up_parking_space(&obj_guard, state)
+                    Self::is_able_to_give_up_parking_space(&obj_guard, state, designated_command)
                 } else {
                     false
                 }
@@ -967,7 +981,7 @@ impl FlightDeckBehavior {
                 if parked_id != INVALID_OBJECT_ID {
                     if let Some(parked_arc) = TheGameLogic::find_object_by_id(parked_id) {
                         if let Ok(mut parked_guard) = parked_arc.write() {
-                            if self.is_able_to_move_forward(&parked_guard) {
+                            if Self::is_able_to_move_forward(&parked_guard) {
                                 state.parking_spaces[index].object_id = parked_id;
                                 state.parking_spaces[temp_index].object_id = non_idle_id;
 
@@ -979,13 +993,13 @@ impl FlightDeckBehavior {
                                     exit_path.push(state.parking_spaces[index].position);
                                     ai.ai_follow_exit_production_path(
                                         &exit_path,
-                                        Some(self.object_id),
+                                        Some(owner_id),
                                         crate::ai::CommandSourceType::FromAi,
                                     );
                                 }
 
                                 complete[runway_index] = true;
-                                state.next_cleanup_frame = now + self.config.human_follow_frames;
+                                state.next_cleanup_frame = now + config.human_follow_frames;
                                 moved = true;
                             }
                         }
@@ -1001,16 +1015,21 @@ impl FlightDeckBehavior {
         }
     }
 
-    fn update_replacements(&self, state: &mut FlightDeckState, now: UnsignedInt) {
+    fn update_replacements(
+        state: &mut FlightDeckState,
+        now: UnsignedInt,
+        owner_id: ObjectID,
+        config: &FlightDeckBehaviorModuleData,
+    ) {
         if state.next_allowed_production_frame <= now {
             state.started_production_frame = NEVER;
         }
 
-        if self.config.thing_template_name.is_empty() {
+        if config.thing_template_name.is_empty() {
             return;
         }
 
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+        let Some(owner_arc) = TheGameLogic::find_object_by_id(owner_id) else {
             return;
         };
         let Ok(owner_guard) = owner_arc.write() else {
@@ -1037,7 +1056,7 @@ impl FlightDeckBehavior {
                         let player_id =
                             owner_guard.get_controlling_player_id().unwrap_or(0) as ObjectID;
                         if prod
-                            .start_production(self.config.thing_template_name.clone(), player_id)
+                            .start_production(config.thing_template_name.clone(), player_id)
                             .is_ok()
                         {
                             queued = true;
@@ -1062,7 +1081,7 @@ impl FlightDeckBehavior {
                                 owner_guard.get_controlling_player_id().unwrap_or(0) as ObjectID;
                             if prod
                                 .start_production(
-                                    self.config.thing_template_name.clone(),
+                                    config.thing_template_name.clone(),
                                     player_id,
                                 )
                                 .is_ok()
@@ -1081,7 +1100,7 @@ impl FlightDeckBehavior {
             if queued {
                 state.started_production_frame = now;
                 state.next_allowed_production_frame =
-                    now + self.config.replacement_frames + self.config.dock_animation_frames;
+                    now + config.replacement_frames + config.dock_animation_frames;
             }
 
             break;
@@ -1124,7 +1143,11 @@ impl FlightDeckBehavior {
             let Ok(jet_guard) = jet_arc.read() else {
                 continue;
             };
-            if self.is_able_to_give_up_parking_space(&jet_guard, state) {
+            if Self::is_able_to_give_up_parking_space(
+                &jet_guard,
+                state,
+                self.designated_command,
+            ) {
                 self.propagate_order_to_specific_plane(&jet_guard);
             }
         }
@@ -1223,7 +1246,11 @@ impl FlightDeckBehavior {
                 continue;
             };
 
-            if !self.is_able_to_give_up_parking_space(&jet_guard, state)
+            if !Self::is_able_to_give_up_parking_space(
+                &jet_guard,
+                state,
+                self.designated_command,
+            )
                 && self.is_in_position_to_takeoff(&jet_guard, state)
                 && self.has_takeoff_orders()
             {
@@ -1277,7 +1304,7 @@ impl FlightDeckBehavior {
     }
 
     /// Heal an object
-    fn heal_object(&self, object_id: ObjectID, amount: f32) -> BehaviorResult<()> {
+    fn heal_object(owner_id: ObjectID, object_id: ObjectID, amount: f32) -> BehaviorResult<()> {
         let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
             return Err(BehaviorError::ObjectNotFound { id: object_id });
         };
@@ -1285,7 +1312,7 @@ impl FlightDeckBehavior {
             return Err(BehaviorError::ObjectNotFound { id: object_id });
         };
 
-        if let Some(source_arc) = TheGameLogic::find_object_by_id(self.object_id) {
+        if let Some(source_arc) = TheGameLogic::find_object_by_id(owner_id) {
             if let Ok(source_guard) = source_arc.read() {
                 let _ = object_guard.attempt_healing(amount, Some(&*source_guard));
                 return Ok(());
@@ -1321,7 +1348,7 @@ impl FlightDeckBehavior {
         }
 
         let (creation_locations, start_orient) = {
-            let state = self.state.read();
+            let state = &self.state;
             let space_index = state
                 .parking_spaces
                 .iter()
@@ -1373,8 +1400,8 @@ impl FlightDeckBehavior {
     }
 
     /// Kill all parked units
-    pub fn kill_all_parked_units(&self) -> BehaviorResult<()> {
-        let mut state = self.state.write();
+    pub fn kill_all_parked_units(&mut self) -> BehaviorResult<()> {
+        let state = &mut self.state;
         for space in &state.parking_spaces {
             if space.object_id != INVALID_OBJECT_ID {
                 let Some(obj_arc) = TheGameLogic::find_object_by_id(space.object_id) else {
@@ -1403,7 +1430,7 @@ impl FlightDeckBehavior {
                 obj_guard.kill(None, None);
             }
         }
-        self.purge_dead(&mut state);
+        Self::purge_dead(state);
         Ok(())
     }
 
@@ -1414,7 +1441,7 @@ impl FlightDeckBehavior {
         detection_time: u32,
     ) -> BehaviorResult<()> {
         let parked_ids: Vec<ObjectID> = {
-            let state = self.state.read();
+            let state = &self.state;
             state
                 .parking_spaces
                 .iter()
@@ -1484,8 +1511,8 @@ impl FlightDeckBehavior {
     }
 
     /// Set healee object
-    pub fn set_healee(&self, healee: ObjectID, add: bool) {
-        let mut state = self.state.write();
+    pub fn set_healee(&mut self, healee: ObjectID, add: bool) {
+        let state = &mut self.state;
         if add {
             if state
                 .healing_objects
@@ -1498,14 +1525,14 @@ impl FlightDeckBehavior {
                 object_id: healee,
                 heal_start_frame: TheGameLogic::get_frame(),
             });
-            self.reset_wake_frame(&mut state);
+            Self::reset_wake_frame(state);
         } else {
             let initial_len = state.healing_objects.len();
             state
                 .healing_objects
                 .retain(|info| info.object_id != healee);
             if state.healing_objects.len() != initial_len {
-                self.reset_wake_frame(&mut state);
+                Self::reset_wake_frame(state);
             }
         }
     }
@@ -1515,7 +1542,7 @@ impl FlightDeckBehavior {
         &mut self,
         object_id: ObjectID,
     ) -> BehaviorResult<(Coord3D, Option<Int>, Option<Int>)> {
-        let mut state = self.state.write();
+        let state = &mut self.state;
 
         let mut runway_index: Option<usize> = None;
         let mut my_index: Option<usize> = None;
@@ -1560,7 +1587,11 @@ impl FlightDeckBehavior {
                     true
                 } else if let Some(jet_arc) = TheGameLogic::find_object_by_id(non_idle_jet_id) {
                     if let Ok(jet_guard) = jet_arc.read() {
-                        self.is_able_to_give_up_parking_space(&jet_guard, &state)
+                        Self::is_able_to_give_up_parking_space(
+                            &jet_guard,
+                            state,
+                            self.designated_command,
+                        )
                     } else {
                         false
                     }
@@ -1635,11 +1666,15 @@ impl FlightDeckBehavior {
             }
         }
 
-        let state = self.state.read();
-        self.propagate_orders_to_planes(&state);
+        let state = &self.state;
+        self.propagate_orders_to_planes(state);
     }
 
-    fn is_able_to_give_up_parking_space(&self, jet: &GameObject, state: &FlightDeckState) -> Bool {
+    fn is_able_to_give_up_parking_space(
+        jet: &GameObject,
+        state: &FlightDeckState,
+        designated_command: AiCommandType,
+    ) -> Bool {
         if jet.is_airborne_target() {
             return true;
         }
@@ -1654,7 +1689,7 @@ impl FlightDeckBehavior {
         if !ai.is_idle() && !ai.is_taxiing_to_parking() {
             let pending = ai.get_pending_command_type();
             if pending == Some(crate::ai::AiCommandType::Enter)
-                || self.designated_command == crate::ai::AiCommandType::Idle
+                || designated_command == crate::ai::AiCommandType::Idle
             {
                 ai.purge_pending_command();
                 return false;
@@ -1696,7 +1731,7 @@ impl FlightDeckBehavior {
         false
     }
 
-    fn is_able_to_move_forward(&self, jet: &GameObject) -> Bool {
+    fn is_able_to_move_forward(jet: &GameObject) -> Bool {
         let Some(ai_arc) = jet.get_ai() else {
             return false;
         };
@@ -1720,7 +1755,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn has_available_space_for(&self, _thing_template: &ObjectTemplate) -> Bool {
-        let state = self.state.read();
+        let state = &self.state;
         if !state.got_info {
             return false;
         }
@@ -1745,7 +1780,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         if object_id == INVALID_OBJECT_ID {
             return false;
         }
-        let state = self.state.read();
+        let state = &self.state;
         if !state.got_info {
             return false;
         }
@@ -1759,7 +1794,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         if object_id == INVALID_OBJECT_ID {
             return -1;
         }
-        let state = self.state.read();
+        let state = &self.state;
         state
             .parking_spaces
             .iter()
@@ -1778,13 +1813,13 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
             return false;
         }
 
-        let got_info = self.state.read().got_info;
+        let got_info = self.state.got_info;
         if !got_info {
             let _ = self.build_info(true);
         }
 
-        let mut state = self.state.write();
-        self.purge_dead(&mut state);
+        let state = &mut self.state;
+        Self::purge_dead(state);
 
         let mut target_index = None;
         for (index, space) in state.parking_spaces.iter().enumerate() {
@@ -1826,12 +1861,12 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn release_space(&mut self, object_id: ObjectID) {
-        let got_info = self.state.read().got_info;
+        let got_info = self.state.got_info;
         if !got_info {
             let _ = self.build_info(true);
         }
-        let mut state = self.state.write();
-        self.purge_dead(&mut state);
+        let state = &mut self.state;
+        Self::purge_dead(state);
         for space in state.parking_spaces.iter_mut() {
             if space.object_id == object_id {
                 space.object_id = INVALID_OBJECT_ID;
@@ -1851,12 +1886,12 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         if object_id == INVALID_OBJECT_ID {
             return false;
         }
-        let got_info = self.state.read().got_info;
+        let got_info = self.state.got_info;
         if !got_info {
             let _ = self.build_info(true);
         }
-        let mut state = self.state.write();
-        self.purge_dead(&mut state);
+        let state = &mut self.state;
+        Self::purge_dead(state);
         let mut runway_index: Option<usize> = None;
 
         if !for_landing {
@@ -1907,7 +1942,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn calc_pp_info(&self, object_id: ObjectID, info: &mut SharedPPInfo) {
-        let state = self.state.read();
+        let state = &self.state;
         if !state.got_info {
             return;
         }
@@ -1955,12 +1990,12 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn release_runway(&mut self, object_id: ObjectID) {
-        let got_info = self.state.read().got_info;
+        let got_info = self.state.got_info;
         if !got_info {
             let _ = self.build_info(true);
         }
-        let mut state = self.state.write();
-        self.purge_dead(&mut state);
+        let state = &mut self.state;
+        Self::purge_dead(state);
 
         for runway in state.runways.iter_mut() {
             if runway.in_use_by_for_takeoff == object_id {
@@ -1977,16 +2012,16 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn get_runway_reservation(
-        &self,
+        &mut self,
         runway_index: Int,
         reservation_type: SharedRunwayReservationType,
     ) -> ObjectID {
-        let got_info = self.state.read().got_info;
+        let got_info = self.state.got_info;
         if !got_info {
             return INVALID_OBJECT_ID;
         }
-        let mut state = self.state.write();
-        self.purge_dead(&mut state);
+        let state = &mut self.state;
+        Self::purge_dead(state);
         if let Some(runway) = state.runways.get(runway_index as usize) {
             match reservation_type {
                 SharedRunwayReservationType::Takeoff => runway.in_use_by_for_takeoff,
@@ -2049,7 +2084,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn get_taxi_locations(&self, id: ObjectID) -> Option<&Vec<Coord3D>> {
-        let state = self.state.read();
+        let state = &self.state;
         let runway_index = state
             .parking_spaces
             .iter()
@@ -2059,7 +2094,7 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
     }
 
     fn get_creation_locations(&self, id: ObjectID) -> Option<&Vec<Coord3D>> {
-        let state = self.state.read();
+        let state = &self.state;
         let runway_index = state
             .parking_spaces
             .iter()
@@ -2144,7 +2179,7 @@ impl DieModuleInterface for FlightDeckBehavior {
 /// Get statistics about the flight deck
 impl FlightDeckBehavior {
     pub fn get_statistics(&self) -> FlightDeckStatistics {
-        let state = self.state.read();
+        let state = &self.state;
 
         let occupied_spaces = state
             .parking_spaces
@@ -2212,7 +2247,7 @@ impl Snapshotable for FlightDeckBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("FlightDeckBehavior version xfer failed: {:?}", e))?;
 
-        let state = self.state.read();
+        let state = &self.state;
 
         let mut spaces_count: u8 = state.parking_spaces.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut spaces_count)
@@ -2274,7 +2309,7 @@ impl Snapshotable for FlightDeckBehavior {
         let mut max_runways: UnsignedInt = MAX_RUNWAYS as UnsignedInt;
         xfer.xfer_unsigned_int(&mut max_runways)
             .map_err(|e| e.to_string())?;
-        let state = self.state.read();
+        let state = &self.state;
         for i in 0..MAX_RUNWAYS {
             let mut next_launch_wave_frame = state.next_launch_wave_frame[i];
             let mut ramp_up_frame = state.ramp_up_frame[i];
@@ -2313,14 +2348,14 @@ impl Snapshotable for FlightDeckBehavior {
         xfer.xfer_unsigned_byte(&mut spaces_count)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Save {
-            let state = self.state.read();
+            let state = &self.state;
             for space in state.parking_spaces.iter().take(spaces_count as usize) {
                 let mut object_id = space.object_id;
                 xfer.xfer_object_id(&mut object_id)
                     .map_err(|e| e.to_string())?;
             }
         } else {
-            let mut state = self.state.write();
+            let state = &mut self.state;
             for index in 0..spaces_count as usize {
                 let mut object_id: ObjectID = INVALID_OBJECT_ID;
                 xfer.xfer_object_id(&mut object_id)
@@ -2340,7 +2375,7 @@ impl Snapshotable for FlightDeckBehavior {
         xfer.xfer_unsigned_byte(&mut runways_count)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Save {
-            let state = self.state.read();
+            let state = &self.state;
             for runway in state.runways.iter().take(runways_count as usize) {
                 let mut takeoff = runway.in_use_by_for_takeoff;
                 let mut landing = runway.in_use_by_for_landing;
@@ -2350,7 +2385,7 @@ impl Snapshotable for FlightDeckBehavior {
                     .map_err(|e| e.to_string())?;
             }
         } else {
-            let mut state = self.state.write();
+            let state = &mut self.state;
             for index in 0..runways_count as usize {
                 let mut takeoff: ObjectID = INVALID_OBJECT_ID;
                 let mut landing: ObjectID = INVALID_OBJECT_ID;
@@ -2374,7 +2409,7 @@ impl Snapshotable for FlightDeckBehavior {
         xfer.xfer_unsigned_byte(&mut heal_count)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Save {
-            let state = self.state.read();
+            let state = &self.state;
             for info in state.healing_objects.iter().take(heal_count as usize) {
                 let mut healed_id = info.object_id;
                 let mut heal_start_frame = info.heal_start_frame;
@@ -2384,7 +2419,7 @@ impl Snapshotable for FlightDeckBehavior {
                     .map_err(|e| e.to_string())?;
             }
         } else {
-            let mut state = self.state.write();
+            let state = &mut self.state;
             state.healing_objects.clear();
             for _ in 0..heal_count {
                 let mut healed_id: ObjectID = INVALID_OBJECT_ID;
@@ -2401,7 +2436,7 @@ impl Snapshotable for FlightDeckBehavior {
         }
 
         {
-            let mut state = self.state.write();
+            let state = &mut self.state;
             xfer.xfer_unsigned_int(&mut state.next_heal_frame)
                 .map_err(|e| e.to_string())?;
             xfer.xfer_unsigned_int(&mut state.next_cleanup_frame)
@@ -2425,7 +2460,7 @@ impl Snapshotable for FlightDeckBehavior {
         let mut max_runways: UnsignedInt = MAX_RUNWAYS as UnsignedInt;
         xfer.xfer_unsigned_int(&mut max_runways)
             .map_err(|e| e.to_string())?;
-        let mut state = self.state.write();
+        let state = &mut self.state;
         for i in 0..MAX_RUNWAYS {
             if (max_runways as usize) <= MAX_RUNWAYS {
                 xfer.xfer_unsigned_int(&mut state.next_launch_wave_frame[i])
@@ -2615,6 +2650,8 @@ mod tests {
     use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
     use std::sync::{Arc, RwLock};
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     static NEXT_TEST_OBJECT_ID: AtomicU32 = AtomicU32::new(10_000);
 
@@ -2668,6 +2705,82 @@ mod tests {
         assert_eq!(stats.runway_count, 2);
         assert_eq!(stats.occupied_spaces, 0);
         assert_eq!(stats.available_spaces, 6);
+    }
+
+    #[test]
+    fn same_object_id_decks_keep_parking_and_healing_state_independent() {
+        let config = FlightDeckBehaviorModuleData {
+            num_rows: 2,
+            num_cols: 1,
+            ..Default::default()
+        };
+        let mut first = FlightDeckBehavior::new(44_444, config.clone());
+        let second = FlightDeckBehavior::new(44_444, config);
+
+        first.set_healee(55_555, true);
+
+        assert_eq!(first.get_statistics().healing_count, 1);
+        assert_eq!(second.get_statistics().healing_count, 0);
+        assert_eq!(first.get_statistics().total_parking_spaces, 2);
+        assert_eq!(second.get_statistics().total_parking_spaces, 2);
+    }
+
+    #[test]
+    fn xfer_round_trip_preserves_flight_deck_instance_state() {
+        let config = FlightDeckBehaviorModuleData {
+            num_rows: 2,
+            num_cols: 1,
+            ..Default::default()
+        };
+        let mut saved = FlightDeckBehavior::new(44_445, config.clone());
+        saved.state.parking_spaces[0].object_id = 88_001;
+        saved.state.runways[0].in_use_by_for_takeoff = 88_001;
+        saved.state.healing_objects.push_back(HealingInfo {
+            object_id: 88_002,
+            heal_start_frame: 321,
+        });
+        saved.state.next_heal_frame = 333;
+        saved.state.next_cleanup_frame = 444;
+        saved.state.started_production_frame = 555;
+        saved.state.next_allowed_production_frame = 666;
+        saved.state.next_launch_wave_frame[0] = 777;
+        saved.state.ramp_up_frame[0] = 888;
+        saved.state.catapult_system_frame[0] = 999;
+        saved.state.lower_ramp_frame[0] = 1_111;
+        saved.state.ramp_up[0] = true;
+        saved.designated_target = 88_003;
+        saved.designated_position = Coord3D::new(12.0, 34.0, 56.0);
+        saved.designated_command = AiCommandType::AttackPosition;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).expect("save flight-deck state");
+        }
+
+        bytes.set_position(0);
+        let mut loaded = FlightDeckBehavior::new(44_445, config);
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).expect("load flight-deck state");
+        }
+
+        assert_eq!(loaded.state.parking_spaces[0].object_id, 88_001);
+        assert_eq!(loaded.state.runways[0].in_use_by_for_takeoff, 88_001);
+        assert_eq!(loaded.state.healing_objects[0].object_id, 88_002);
+        assert_eq!(loaded.state.healing_objects[0].heal_start_frame, 321);
+        assert_eq!(loaded.state.next_heal_frame, 333);
+        assert_eq!(loaded.state.next_cleanup_frame, 444);
+        assert_eq!(loaded.state.started_production_frame, 555);
+        assert_eq!(loaded.state.next_allowed_production_frame, 666);
+        assert_eq!(loaded.state.next_launch_wave_frame[0], 777);
+        assert_eq!(loaded.state.ramp_up_frame[0], 888);
+        assert_eq!(loaded.state.catapult_system_frame[0], 999);
+        assert_eq!(loaded.state.lower_ramp_frame[0], 1_111);
+        assert!(loaded.state.ramp_up[0]);
+        assert_eq!(loaded.designated_target, 88_003);
+        assert_eq!(loaded.designated_command, AiCommandType::AttackPosition);
+        assert_eq!(loaded.designated_position, Coord3D::new(12.0, 34.0, 56.0));
     }
 
     #[test]
@@ -2732,7 +2845,7 @@ mod tests {
 
     #[test]
     fn test_healing() {
-        let flight_deck = create_test_flight_deck();
+        let mut flight_deck = create_test_flight_deck();
 
         flight_deck.set_healee(42, true);
         let stats = flight_deck.get_statistics();

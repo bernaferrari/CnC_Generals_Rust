@@ -5,7 +5,7 @@
 
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 fn resolve_crate_object(
     id: ObjectID,
@@ -261,7 +261,7 @@ pub struct SabotagePowerPlantCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    pub module_data: Arc<Mutex<SabotagePowerPlantCrateCollideModuleData>>,
+    module_data: SabotagePowerPlantCrateCollideModuleData,
 }
 
 impl SabotagePowerPlantCrateCollide {
@@ -272,7 +272,7 @@ impl SabotagePowerPlantCrateCollide {
     ) -> Self {
         Self {
             base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data: Arc::new(Mutex::new(module_data)),
+            module_data,
         }
     }
 
@@ -341,11 +341,8 @@ impl SabotagePowerPlantCrateCollide {
 
         drop(object_lock);
 
-        let Ok(module_data) = self.module_data.lock() else {
-            return Ok(false);
-        };
+        let module_data = &self.module_data;
         let sabotage_frame = TheGameLogic::get_frame() + module_data.power_sabotage_frames;
-        drop(module_data);
 
         let player = other
             .read()

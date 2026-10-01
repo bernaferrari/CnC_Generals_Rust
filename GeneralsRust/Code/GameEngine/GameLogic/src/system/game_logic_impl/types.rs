@@ -57,6 +57,30 @@ pub fn send_object_created(object: &Arc<RwLock<Object>>) {
     bind_object_and_drawable(object_id, draw_id);
 }
 
+/// C++ `GameLogic::sendObjectCreated(this)` from inside Object::initObject.
+/// The factory holds the Object write lock throughout init, so this variant
+/// uses the already-borrowed identity and installs the binding directly.
+pub(crate) fn send_object_created_borrowed(
+    object: &mut Object,
+    object_arc: &Arc<RwLock<Object>>,
+) {
+    if object.get_drawable().is_some() {
+        return;
+    }
+    let Some(client) = TheGameClient::get() else {
+        return;
+    };
+    let object_id = object.get_id();
+    let draw_id = client.create_drawable(object.get_template().as_ref());
+    let Some(drawable) = client.get_drawable_arc(draw_id) else {
+        return;
+    };
+    if let Ok(mut draw) = drawable.write() {
+        draw.friend_bind_to_object_with_id(object_id, object_arc);
+    }
+    object.set_drawable(Some(drawable));
+}
+
 /// C++ `GameLogic::bindObjectAndDrawable`.
 pub fn bind_object_and_drawable(object_id: ObjectID, drawable_id: ObjectID) {
     let Some(client) = TheGameClient::get() else {
@@ -415,4 +439,3 @@ impl Default for GameLogic {
         }
     }
 }
-

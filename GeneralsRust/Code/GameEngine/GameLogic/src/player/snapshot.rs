@@ -51,6 +51,44 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMaskType) -> Result<(
     }
 }
 
+pub(super) fn xfer_special_power_ready_timers(
+    player: &mut Player,
+    xfer: &mut dyn Xfer,
+    version: XferVersion,
+) -> Result<(), String> {
+    if version < 4 {
+        player.special_power_ready_timers.clear();
+        return Ok(());
+    }
+
+    let mut timer_count = player.special_power_ready_timers.len() as u16;
+    xfer.xfer_unsigned_short(&mut timer_count)
+        .map_err(|e| e.to_string())?;
+    if xfer.get_xfer_mode() != XferMode::Load {
+        for timer in &player.special_power_ready_timers {
+            let mut template_id = timer.template_id;
+            let mut ready_frame = timer.ready_frame;
+            xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
+            xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
+        }
+    } else {
+        player.special_power_ready_timers.clear();
+        for _ in 0..timer_count {
+            let mut template_id: UnsignedInt = 0;
+            let mut ready_frame: UnsignedInt = 0;
+            xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
+            xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
+            player
+                .special_power_ready_timers
+                .push(SpecialPowerReadyTimer {
+                    template_id,
+                    ready_frame,
+                });
+        }
+    }
+    Ok(())
+}
+
 /// Save/load support for Player.
 /// Matches C++ Player::xfer (Player.cpp:3975, version 8).
 impl Snapshotable for Player {
@@ -584,33 +622,8 @@ impl Snapshotable for Player {
             }
         }
 
-        // Version 4+: special power ready timer list
-        if version >= 4 {
-            let mut timer_count = self.special_power_ready_timers.len() as u16;
-            xfer.xfer_unsigned_short(&mut timer_count)
-                .map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() != XferMode::Load {
-                for timer in &self.special_power_ready_timers {
-                    let mut template_id = timer.template_id;
-                    let mut ready_frame = timer.ready_frame;
-                    xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
-                    xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
-                }
-            } else {
-                self.special_power_ready_timers.clear();
-                for _ in 0..timer_count {
-                    let mut template_id: UnsignedInt = 0;
-                    let mut ready_frame: UnsignedInt = 0;
-                    xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
-                    xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
-                    self.special_power_ready_timers
-                        .push(SpecialPowerReadyTimer {
-                            template_id,
-                            ready_frame,
-                        });
-                }
-            }
-        }
+        // C++ Player::xfer clears this list for versions before v4.
+        xfer_special_power_ready_timers(self, xfer, version)?;
 
         // Squads
         {

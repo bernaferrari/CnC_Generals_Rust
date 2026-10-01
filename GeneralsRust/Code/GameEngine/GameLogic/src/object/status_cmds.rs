@@ -62,13 +62,11 @@ impl Object {
 
     /// C++ `Object::setStatus` REPULSOR arm (Object.cpp:965-970).
     pub(super) fn wake_repulsor_helper_for_status(&mut self) {
-        let Some(helper) = &self.repulsor_helper else {
+        let Some(helper) = &mut self.repulsor_helper else {
             return;
         };
         let wake_frame =
             crate::helpers::TheGameLogic::get_frame().saturating_add(2 * LOGICFRAMES_PER_SECOND);
-        if let Ok(mut guard) = helper.lock() {
-            guard.wake_for_clear(wake_frame);
-        }
+        helper.wake_for_clear(wake_frame);
     }
 }

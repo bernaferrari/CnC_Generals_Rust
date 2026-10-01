@@ -5,7 +5,7 @@
 //! Author: Graham Smallwood, March 2002 (original C++), converted to Rust
 
 use crate::common::ObjectID;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 fn resolve_crate_object(
     id: ObjectID,
@@ -264,7 +264,7 @@ pub struct ConvertToCarBombCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    pub module_data: Arc<Mutex<ConvertToCarBombCrateCollideModuleData>>,
+    module_data: ConvertToCarBombCrateCollideModuleData,
 }
 
 impl ConvertToCarBombCrateCollide {
@@ -275,7 +275,7 @@ impl ConvertToCarBombCrateCollide {
     ) -> Self {
         Self {
             base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data: Arc::new(Mutex::new(module_data)),
+            module_data,
         }
     }
 
@@ -358,10 +358,8 @@ impl ConvertToCarBombCrateCollide {
         }
 
         // Play conversion FX.
-        if let Ok(module_guard) = self.module_data.lock() {
-            if let Some(fx) = module_guard.fx_list.as_ref() {
-                let _ = fx.do_fx_obj(&other, None);
-            }
+        if let Some(fx) = self.module_data.fx_list.as_ref() {
+            let _ = fx.do_fx_obj(&other, None);
         }
 
         // Transfer ownership to terrorist's team.

@@ -1681,7 +1681,7 @@ impl ParkingPlaceBehaviorInterfaceTrait for ParkingPlaceBehavior {
     }
 
     fn get_runway_reservation(
-        &self,
+        &mut self,
         r: Int,
         reservation_type: BehaviorRunwayReservationType,
     ) -> ObjectID {

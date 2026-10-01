@@ -154,6 +154,18 @@ fn player_xfer_preserves_shared_special_power_timer_order_and_replaces_old_list(
 }
 
 #[test]
+fn legacy_player_xfer_version_clears_owned_special_power_timers() {
+    let mut loaded = Player::new(4);
+    PlayerInterface::express_special_power_ready_frame(&mut loaded, 42, 900);
+    PlayerInterface::express_special_power_ready_frame(&mut loaded, 17, 250);
+
+    let mut xfer = XferLoad::new(Cursor::new(Vec::<u8>::new()), 1);
+    super::snapshot::xfer_special_power_ready_timers(&mut loaded, &mut xfer, 3).unwrap();
+
+    assert!(loaded.special_power_ready_timers.is_empty());
+}
+
+#[test]
 fn score_keeper_tracks_destroyed_objects_by_victim_player() {
     let mut keeper = ScoreKeeper::new_for_player(2);
     keeper.add_unit_built();

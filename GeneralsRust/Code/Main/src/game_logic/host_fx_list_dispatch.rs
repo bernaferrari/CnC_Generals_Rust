@@ -153,20 +153,38 @@ fn publish_host_fx_object_pose(
     bounding_circle_radius: f32,
     is_shrouded: bool,
 ) {
+    gamelogic::helpers::set_host_fx_object_pose(host_fx_object_pose(
+        id,
+        pos,
+        orientation,
+        player_index,
+        bounding_circle_radius,
+        is_shrouded,
+    ));
+}
+
+fn host_fx_object_pose(
+    id: u32,
+    pos: Vec3,
+    orientation: f32,
+    player_index: i32,
+    bounding_circle_radius: f32,
+    is_shrouded: bool,
+) -> gamelogic::helpers::HostFxObjectPose {
     let leftover_pos = host_to_leftover_coord(pos);
     let transform = glam::Mat4::from_translation(glam::Vec3::new(
         leftover_pos.x,
         leftover_pos.y,
         leftover_pos.z,
     )) * glam::Mat4::from_rotation_z(orientation);
-    gamelogic::helpers::set_host_fx_object_pose(gamelogic::helpers::HostFxObjectPose {
+    gamelogic::helpers::HostFxObjectPose {
         id,
         position: leftover_pos,
         transform,
         player_index,
         bounding_circle_radius,
         is_shrouded,
-    });
+    }
 }
 
 fn host_object_is_shrouded_for_local(id: u32) -> bool {
@@ -201,12 +219,10 @@ fn host_object_is_shrouded_for_local(id: u32) -> bool {
 pub fn refresh_host_fx_object_poses_from_presentation(
     frame: &crate::presentation_frame::PresentationFrame,
 ) {
-    let mut seen = std::collections::HashSet::new();
-    for object in &frame.objects {
-        seen.insert(object.id.0);
+    let poses = frame.objects.iter().map(|object| {
         let is_shrouded = (object.drawable_shroud.raw_status as u8)
             >= (crate::presentation_frame::PresentationObjectShroudStatus::Fogged as u8);
-        publish_host_fx_object_pose(
+        host_fx_object_pose(
             object.id.0,
             object.position,
             object.orientation,
@@ -216,9 +232,9 @@ pub fn refresh_host_fx_object_poses_from_presentation(
                 .unwrap_or(-1),
             0.0,
             is_shrouded,
-        );
-    }
-    gamelogic::helpers::retain_host_fx_object_poses(|id| seen.contains(&id));
+        )
+    });
+    gamelogic::helpers::replace_host_fx_object_poses_for_frame(poses);
 }
 
 fn host_object_fx_radius(obj: &crate::game_logic::Object) -> f32 {

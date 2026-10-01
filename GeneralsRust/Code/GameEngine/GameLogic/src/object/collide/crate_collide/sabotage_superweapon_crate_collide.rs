@@ -5,7 +5,7 @@
 
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 fn resolve_crate_object(
     id: ObjectID,
@@ -240,7 +240,7 @@ pub struct SabotageSuperweaponCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    pub module_data: Arc<Mutex<SabotageSuperweaponCrateCollideModuleData>>,
+    module_data: SabotageSuperweaponCrateCollideModuleData,
 }
 
 impl SabotageSuperweaponCrateCollide {
@@ -251,7 +251,7 @@ impl SabotageSuperweaponCrateCollide {
     ) -> Self {
         Self {
             base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data: Arc::new(Mutex::new(module_data)),
+            module_data,
         }
     }
 

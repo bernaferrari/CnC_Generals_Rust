@@ -16,7 +16,7 @@ impl Object {
         }
 
         if let Some(arc) = OBJECT_REGISTRY.get_object(self.id) {
-            crate::system::game_logic::send_object_created(&arc);
+            crate::system::game_logic::send_object_created_borrowed(self, &arc);
         }
 
         self.update_upgrade_modules_from_player();

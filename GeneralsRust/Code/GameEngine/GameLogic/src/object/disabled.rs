@@ -207,11 +207,10 @@ impl Object {
     /// C++ `Object::goInvulnerable` (Object.cpp:6225-6233). `time` is already frames.
     pub fn go_invulnerable(&mut self, time: UnsignedInt) {
         self.friend_set_undetected_defector(time > 0);
-        if let Some(helper) = &self.defection_helper {
-            if let Ok(mut guard) = helper.lock() {
-                let now = crate::helpers::TheGameLogic::get_frame();
-                guard.start_defection_timer(time, false, now, self.is_undetected_defector());
-            }
+        let is_undetected_defector = self.is_undetected_defector();
+        if let Some(helper) = &mut self.defection_helper {
+            let now = crate::helpers::TheGameLogic::get_frame();
+            helper.start_defection_timer(time, false, now, is_undetected_defector);
         }
     }
 }

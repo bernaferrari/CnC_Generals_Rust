@@ -72,7 +72,7 @@ pub trait ParkingPlaceBehaviorInterface: Send + Sync {
     fn calc_pp_info(&self, id: ObjectID, info: &mut PPInfo);
     fn release_runway(&mut self, id: ObjectID);
     fn get_runway_count(&self) -> Int;
-    fn get_runway_reservation(&self, r: Int, reservation_type: RunwayReservationType) -> ObjectID;
+    fn get_runway_reservation(&mut self, r: Int, reservation_type: RunwayReservationType) -> ObjectID;
     fn transfer_runway_reservation_to_next_in_line_for_takeoff(&mut self, id: ObjectID);
     fn get_approach_height(&self) -> Real;
     fn get_landing_deck_height_offset(&self) -> Real;

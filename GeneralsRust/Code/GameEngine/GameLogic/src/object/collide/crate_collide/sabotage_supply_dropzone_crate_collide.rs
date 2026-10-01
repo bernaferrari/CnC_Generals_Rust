@@ -6,7 +6,7 @@
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
 use std::cmp;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 fn resolve_crate_object(
     id: ObjectID,
@@ -263,7 +263,7 @@ pub struct SabotageSupplyDropzoneCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    pub module_data: Arc<Mutex<SabotageSupplyDropzoneCrateCollideModuleData>>,
+    module_data: SabotageSupplyDropzoneCrateCollideModuleData,
 }
 
 impl SabotageSupplyDropzoneCrateCollide {
@@ -274,7 +274,7 @@ impl SabotageSupplyDropzoneCrateCollide {
     ) -> Self {
         Self {
             base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data: Arc::new(Mutex::new(module_data)),
+            module_data,
         }
     }
 
@@ -417,11 +417,8 @@ impl SabotageSupplyDropzoneCrateCollide {
         };
         let available_cash = target_player_guard.get_money().count_money();
         drop(target_player_guard);
-        let Ok(module_data) = self.module_data.lock() else {
-            return Ok(0);
-        };
+        let module_data = &self.module_data;
         let desired_amount = module_data.steal_cash_amount;
-        drop(module_data);
 
         let cash_to_steal = cmp::min(desired_amount, available_cash);
         if cash_to_steal == 0 {

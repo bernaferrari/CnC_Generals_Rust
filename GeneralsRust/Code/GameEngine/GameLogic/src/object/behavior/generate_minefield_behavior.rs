@@ -518,6 +518,18 @@ struct MinefieldState {
     current_mine_template: MineTemplateId,
 }
 
+fn destroy_minefield_mines_before_reset(
+    state: &mut MinefieldState,
+    mut destroy: impl FnMut(ObjectId, &MinefieldState),
+) {
+    let mine_ids = state.mine_list.clone();
+    for mine_id in mine_ids {
+        destroy(mine_id, state);
+    }
+    state.mine_list.clear();
+    state.generated = false;
+}
+
 impl GenerateMinefieldBehavior {
     /// Create a new generate minefield behavior from explicit config (builder/tests).
     pub fn new_from_config(
@@ -582,13 +594,10 @@ impl GenerateMinefieldBehavior {
                     .unwrap_or(false);
 
                 if has_upgrade {
-                    let mine_ids = self.state.mine_list.clone();
-                    self.state.mine_list.clear();
-                    self.state.generated = false;
                     self.state.upgraded = true;
-                    for mine_id in mine_ids {
-                        let _ = self.remove_mine(mine_id);
-                    }
+                    destroy_minefield_mines_before_reset(&mut self.state, |mine_id, _state| {
+                        let _ = Self::remove_mine(mine_id);
+                    });
 
                     self.place_mines()?;
                     return Ok(UpdateSleepTime::None);
@@ -612,14 +621,15 @@ impl GenerateMinefieldBehavior {
 
     /// Get minefield target position
     pub fn get_minefield_target(&self) -> Option<Coord3D> {
+        if let Some(target) = self.state.target {
+            return Some(target);
+        }
+
         // Wave 386: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
-        if let Some(target) = self.state.target {
-            return Some(target);
-        }
         crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
             .and_then(|obj| obj.read().ok().map(|guard| guard.get_position().clone()))
     }
@@ -1164,7 +1174,7 @@ impl GenerateMinefieldBehavior {
             self.state.upgraded = true;
 
             for mine_id in mine_ids {
-                let _ = self.remove_mine(mine_id);
+                let _ = Self::remove_mine(mine_id);
             }
 
             self.place_mines()?;
@@ -1186,7 +1196,7 @@ impl GenerateMinefieldBehavior {
     pub fn clear_mines(&mut self) -> BehaviorResult<()> {
         let mine_ids = self.state.mine_list.clone();
         for mine_id in mine_ids {
-            self.remove_mine(mine_id)?;
+            Self::remove_mine(mine_id)?;
         }
 
         self.state.mine_list.clear();
@@ -1197,7 +1207,7 @@ impl GenerateMinefieldBehavior {
 
     /// Remove a single mine from the game
     /// C++ Reference: GenerateMinefieldBehavior.cpp lines 459-463
-    fn remove_mine(&self, mine_id: ObjectId) -> BehaviorResult<()> {
+    fn remove_mine(mine_id: ObjectId) -> BehaviorResult<()> {
         // Wave 386: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
@@ -1834,6 +1844,29 @@ mod tests {
             second.get_statistics().target_position,
             Some(Coord3D::new(40.0, 50.0, 60.0))
         );
+    }
+
+    #[test]
+    fn upgrade_destroys_tracked_mines_before_clearing_the_field_state() {
+        let mut behavior = GenerateMinefieldBehaviorBuilder::new()
+            .upgradable(true)
+            .build(73);
+        behavior.state.mine_list = vec![11, 4, 29];
+        behavior.state.generated = true;
+        behavior.state.upgraded = true;
+
+        let mut destroyed = Vec::new();
+        destroy_minefield_mines_before_reset(&mut behavior.state, |mine_id, state| {
+            assert_eq!(state.mine_list, vec![11, 4, 29]);
+            assert!(state.generated);
+            assert!(state.upgraded);
+            destroyed.push(mine_id);
+        });
+
+        assert_eq!(destroyed, vec![11, 4, 29]);
+        assert!(behavior.state.mine_list.is_empty());
+        assert!(!behavior.state.generated);
+        assert!(behavior.state.upgraded);
     }
 
     #[test]

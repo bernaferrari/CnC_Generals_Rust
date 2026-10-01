@@ -5,7 +5,7 @@
 
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 fn resolve_crate_object(
     id: ObjectID,
@@ -261,7 +261,7 @@ pub struct SabotageMilitaryFactoryCrateCollide {
     /// Base crate collide functionality
     pub base: LegacyCrateCollide,
     /// Module-specific data
-    pub module_data: Arc<Mutex<SabotageMilitaryFactoryCrateCollideModuleData>>,
+    module_data: SabotageMilitaryFactoryCrateCollideModuleData,
 }
 
 impl SabotageMilitaryFactoryCrateCollide {
@@ -272,7 +272,7 @@ impl SabotageMilitaryFactoryCrateCollide {
     ) -> Self {
         Self {
             base: LegacyCrateCollide::from_object_handle(&object, module_data.base.clone()),
-            module_data: Arc::new(Mutex::new(module_data)),
+            module_data,
         }
     }
 
@@ -343,11 +343,8 @@ impl SabotageMilitaryFactoryCrateCollide {
         }
         drop(object_lock);
 
-        let Ok(module_data) = self.module_data.lock() else {
-            return Ok(false);
-        };
+        let module_data = &self.module_data;
         let disable_frame = TheGameLogic::get_frame() + module_data.sabotage_frames;
-        drop(module_data);
 
         // C++ feedback calls are void side effects; sabotage still completes if they fail.
         let _ = TheRadar::try_infiltration_event(other.clone());

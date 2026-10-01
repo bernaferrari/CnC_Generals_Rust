@@ -684,6 +684,27 @@ mod tests {
         let result = unit_crate.on_collide(Some(&game_obj), &collision_pos, &collision_normal);
         assert!(result.is_ok());
     }
+
+    #[test]
+    fn factory_object_init_finishes_created_notification() {
+        let _lock = crate::test_sync::lock();
+
+        ensure_template_exists("Infantry");
+        setup_player_with_team(2, "FactoryInitTeam");
+
+        // This exercises the real ThingFactory -> ObjectFactory -> initObject
+        // path. initObject sends its creation notification while the factory
+        // still owns the object's write guard.
+        let object = create_object_for_player(
+            "Infantry",
+            2,
+            Coord3D::new(13.0, 17.0, 0.0),
+        );
+        let guard = object.read().expect("factory-created object remains readable");
+        assert_ne!(guard.get_id(), 0);
+        assert_eq!(guard.get_position().x, 13.0);
+        assert_eq!(guard.get_position().y, 17.0);
+    }
 }
 
 impl game_engine::common::system::Snapshotable for UnitCrateCollide {

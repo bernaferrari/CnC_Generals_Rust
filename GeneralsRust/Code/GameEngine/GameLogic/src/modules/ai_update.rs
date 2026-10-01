@@ -570,10 +570,10 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Set current victim target (matching C++ AIUpdateInterface::setCurrentVictim).
     fn set_current_victim(&mut self, _victim: Option<ObjectID>) {}
     /// Check for crate to pick up (matching C++ AIUpdateInterface::checkForCrateToPickup)
-    fn check_for_crate_to_pickup_id(&self) -> ObjectID {
+    fn check_for_crate_to_pickup_id(&mut self) -> ObjectID {
         crate::common::INVALID_ID
     }
-    fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
+    fn check_for_crate_to_pickup(&mut self) -> Option<Arc<RwLock<Object>>> {
         // Wave 340: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1085,4 +1085,3 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// C++ AIUpdateInterface::clearWaypointQueue — drop queued waypoints first.
     fn clear_waypoint_queue(&mut self) {}
 }
-
