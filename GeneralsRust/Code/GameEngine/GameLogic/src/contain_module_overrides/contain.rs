@@ -157,7 +157,7 @@ impl Module for ContainBindingModule {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |guard| {
             // Take/restore so the hook runs without holding a borrow
             // across the callback.
-            let mut contain = guard.contain.take();
+            let mut contain = guard.take_contain();
             if let Some(contain) = contain.as_mut() {
                 if let Err(err) = contain.on_owner_created() {
                     warn!(
@@ -166,7 +166,7 @@ impl Module for ContainBindingModule {
                     );
                 }
             }
-            guard.contain = contain;
+            guard.set_contain(contain);
         });
     }
 

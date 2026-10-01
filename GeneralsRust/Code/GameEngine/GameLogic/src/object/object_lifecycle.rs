@@ -66,7 +66,9 @@ impl Object {
         std::sync::Arc::try_unwrap(handle)
             .map_err(|_| "object still shared after initialization")?
             .into_inner()
-            .map_err(|_| "object lock poisoned after initialization")
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+                e.to_string().into()
+            })
     }
 
     /// Creates a raw Object instance (internal use)
@@ -988,13 +990,12 @@ impl Object {
         let die_modules: Vec<Arc<ModuleEntry>> = self.die_module_handles.clone();
 
         for module_entry in die_modules {
-            module_entry.with_module(|module| {
-                if let Some(die_module) = module_die_kind(module) {
-                    if let Some(damage) = damage_info {
-                        let _ = die_module.into_interface().on_die(damage);
-                    }
-                }
-            });
+            if let Some(damage) = damage_info {
+                // C++ Object::onDie walks m_behaviors with the object in hand;
+                // dispatch_on_die passes this object explicitly so no module
+                // re-enters the registry for its own checked-out id.
+                crate::object::game_module::dispatch_on_die(&module_entry, self, damage);
+            }
         }
     }
 
@@ -1101,17 +1102,18 @@ impl Object {
         // I naturally lose it now, because I'm dead.
         self.on_die_fade_terrain_decal();
 
-        // Objects that were spawned from something need to tell their spawner that they have died
+        // Objects that were spawned from something need to tell their spawner
+        // that they have died (C++ Object::onDie spawner block).
         if self.producer_id != INVALID_ID {
-            if let Some(spawner) = crate::helpers::TheGameLogic::find_object_by_id(self.producer_id)
-            {
-                if let Ok(spawner_guard) = spawner.write() {
-                    let mut spawn_damage = damage_info.clone();
-                    let _ = spawner_guard.with_spawn_behavior_full_interface(|spawn_behavior| {
+            let mut spawn_damage = damage_info.clone();
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.producer_id,
+                |spawner| {
+                    let _ = spawner.with_spawn_behavior_full_interface(|spawn_behavior| {
                         let _ = spawn_behavior.on_spawn_death(self.id, &mut spawn_damage);
                     });
-                }
-            }
+                },
+            );
         }
 
         // Handle partition cell maintenance
@@ -1119,10 +1121,10 @@ impl Object {
 
         // Notify team of object death. The script stays queued for the normal
         // flush so a busy script engine does not drop every pending team script.
-        if let Some(team) = self.get_team() {
-            if let Ok(mut team_guard) = team.write() {
-                team_guard.notify_team_of_object_death();
-            }
+        if let Some(team_id) = self.get_team() {
+            let _ = crate::team::with_team_mut(team_id, |team| {
+                team.notify_team_of_object_death();
+            });
         }
 
         // Play EVA notifications for locally controlled units
@@ -1160,12 +1162,12 @@ impl Object {
         }
 
         if let Some(player) = self.get_controlling_player() {
-            if let Ok(guard) = player.read() {
+            let _ = crate::player::with_player(player, |p| {
                 crate::helpers::TheInGameUI::remove_idle_worker(
                     self,
-                    guard.get_player_index() as Int,
+                    p.get_player_index() as Int,
                 );
-            }
+            });
         }
 
         self.on_die_rebuild_hole_transfer();

@@ -792,11 +792,11 @@ fn fire_weapon_when_dead_behavior_module_factory(
     if !TheGameLogic::find_object_by_id(owner_id) {
         panic!("FireWeaponWhenDeadBehavior requires a valid object");
     }
-    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |obj| {
-        FireWeaponWhenDeadBehaviorFactory::apply_initial_fx(module_data.as_ref(), obj);
-    });
-    let behavior = FireWeaponWhenDeadBehavior::new(owner_id, module_data_arc.clone())
+    let mut behavior = FireWeaponWhenDeadBehavior::new(owner_id, module_data_arc.clone())
         .expect("FireWeaponWhenDeadBehavior failed to initialize");
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |obj| {
+        behavior.give_self_upgrade(obj);
+    });
 
     let module_name = AsciiString::from("FireWeaponWhenDeadBehavior");
     Box::new(FireWeaponWhenDeadBehaviorModule::new(

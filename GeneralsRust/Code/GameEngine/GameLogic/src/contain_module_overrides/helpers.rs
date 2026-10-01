@@ -19,13 +19,13 @@ pub(super) fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coo
 }
 
 /// Wave 449: host-only / missing-owner factory path — fail closed instead of panic.
-struct MissingOwnerModule {
+pub(crate) struct MissingOwnerModule {
     module_name_key: NameKeyType,
     data: Arc<dyn ModuleData>,
 }
 
 impl MissingOwnerModule {
-    fn new(module_name: &str, data: Arc<dyn ModuleData>) -> Self {
+    pub(crate) fn new(module_name: &str, data: Arc<dyn ModuleData>) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             data,
@@ -182,6 +182,45 @@ where
         Err(err) => {
             warn!("{module_name} init failed: {err}; installing no-op module");
             return missing_owner_module(module_name, engine_data);
+        }
+    };
+    Box::new(ActiveBehaviorModule::new(
+        module_name,
+        engine_data,
+        behavior,
+    ))
+}
+
+/// GameModule-producing twin of [`active_behavior_module`]: identical
+/// fail-closed semantics, but the returned module keeps its gamelogic
+/// interface surface (die/upgrade/special-power virtuals) instead of
+/// erasing to `Box<dyn Module>`.
+pub(super) fn active_game_behavior_module<TBehavior, TData>(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+    module_name: &str,
+    create: fn(
+        ObjectID,
+        Arc<dyn LegacyModuleData>,
+    ) -> Result<TBehavior, Box<dyn std::error::Error + Send + Sync>>,
+) -> Box<dyn crate::object::game_module::GameModule>
+where
+    TBehavior: crate::modules::BehaviorModuleInterface + Snapshotable + 'static,
+    TData: ModuleData + LegacyModuleData + Clone + 'static,
+{
+    let data_arc = cloned_module_data::<TData>(module_name, &module_data);
+    let engine_data: Arc<dyn ModuleData> = data_arc.clone();
+    let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
+    let owner_id = resolve_owner_id(&thing);
+    // Wave 449: missing dual-world/host owner → no-op module (no panic).
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        return Box::new(MissingOwnerModule::new(module_name, engine_data));
+    }
+    let behavior = match create(owner_id, legacy_data) {
+        Ok(behavior) => behavior,
+        Err(err) => {
+            warn!("{module_name} init failed: {err}; installing no-op module");
+            return Box::new(MissingOwnerModule::new(module_name, engine_data));
         }
     };
     Box::new(ActiveBehaviorModule::new(
@@ -389,7 +428,7 @@ parsed_create_factories!(
 );
 
 macro_rules! active_behavior_factories {
-    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $behavior_ty:ty, $module_name:literal) => {
+    ($data_factory:ident, $module_factory:ident, $game_factory:ident, $data_ty:ty, $behavior_ty:ty, $module_name:literal) => {
         pub(super) fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
             let mut data = <$data_ty>::default();
             if let Some(ini) = ini {
@@ -410,6 +449,18 @@ macro_rules! active_behavior_factories {
             module_data: Arc<dyn ModuleData>,
         ) -> Box<dyn Module> {
             active_behavior_module::<$behavior_ty, $data_ty>(
+                thing,
+                module_data,
+                $module_name,
+                <$behavior_ty>::new,
+            )
+        }
+        /// GameModule twin: same construction, interface surface preserved.
+        pub(super) fn $game_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn crate::object::game_module::GameModule> {
+            active_game_behavior_module::<$behavior_ty, $data_ty>(
                 thing,
                 module_data,
                 $module_name,

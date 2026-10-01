@@ -1516,10 +1516,9 @@ impl ExitInterface for ObjectExitInterface<'_> {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .is_none()
-            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
-        {
+        // C++ GameLogic::findObjectByID: one roster check. OBJECT_REGISTRY
+        // consults the GameLogic id roster internally on a store miss.
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
         }
 
@@ -1538,9 +1537,7 @@ impl ExitInterface for ObjectExitInterface<'_> {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id).is_none()
-            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
-        {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
         }
 
@@ -1560,10 +1557,7 @@ impl ExitInterface for ObjectExitInterface<'_> {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .is_none()
-            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
-        {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
         }
 
@@ -1627,10 +1621,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .is_none()
-            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
-        {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
         }
 
@@ -1647,9 +1638,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id).is_none()
-            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
-        {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
         }
 
@@ -1667,9 +1656,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id).is_none()
-            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
-        {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
         }
 
@@ -1681,13 +1668,18 @@ impl ExitInterface for ModuleExitInterfaceProxy {
 
 #[cfg(test)]
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+pub mod game_module;
+use game_module::ModuleSlot;
 
 pub struct ModuleEntry {
     name: AsciiString,
     tag: AsciiString,
     interface_mask: ModuleInterfaceType,
     module_data: Arc<dyn ModuleData>,
-    module: Mutex<Box<dyn Module>>,
+    /// C++ stores polymorphic BehaviorModule pointers; the slot keeps the
+    /// gamelogic interface surface for modules gamelogic constructed, and
+    /// only defers to the erased engine form otherwise.
+    module: Mutex<ModuleSlot>,
 }
 
 impl fmt::Debug for ModuleEntry {
@@ -1706,14 +1698,14 @@ impl ModuleEntry {
         tag: AsciiString,
         interface_mask: ModuleInterfaceType,
         module_data: Arc<dyn ModuleData>,
-        module: Box<dyn Module>,
+        slot: ModuleSlot,
     ) -> Self {
         Self {
             name,
             tag,
             interface_mask,
             module_data,
-            module: Mutex::new(module),
+            module: Mutex::new(slot),
         }
     }
 
@@ -1738,7 +1730,7 @@ impl ModuleEntry {
         F: FnOnce(&mut dyn Module) -> R,
     {
         let mut guard = self.module.lock().expect("behavior module lock poisoned");
-        func(guard.as_mut())
+        func((*guard).as_module())
     }
 
     fn try_with_module<F, R>(&self, func: F) -> Option<R>
@@ -1748,7 +1740,7 @@ impl ModuleEntry {
         self.module
             .try_lock()
             .ok()
-            .map(|mut guard| func(guard.as_mut()))
+            .map(|mut guard| func((*guard).as_module()))
     }
 
     /// Mutable module access - same as with_module but explicitly named for clarity

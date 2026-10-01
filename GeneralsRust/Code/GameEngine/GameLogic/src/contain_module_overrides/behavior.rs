@@ -7,6 +7,7 @@ use super::*;
 active_behavior_factories!(
     bunker_buster_behavior_data_factory,
     bunker_buster_behavior_module_factory,
+    bunker_buster_behavior_module_factory_game,
     BunkerBusterBehaviorModuleData,
     BunkerBusterBehavior,
     "BunkerBusterBehavior"
@@ -14,6 +15,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     checkpoint_update_data_factory,
     checkpoint_update_module_factory,
+    checkpoint_update_module_factory_game,
     CheckpointUpdateModuleData,
     CheckpointUpdate,
     "CheckpointUpdate"
@@ -21,6 +23,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     deletion_update_data_factory,
     deletion_update_module_factory,
+    deletion_update_module_factory_game,
     DeletionUpdateModuleData,
     DeletionUpdate,
     "DeletionUpdate"
@@ -28,6 +31,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     dynamic_shroud_clearing_range_update_data_factory,
     dynamic_shroud_clearing_range_update_module_factory,
+    dynamic_shroud_clearing_range_update_module_factory_game,
     DynamicShroudClearingRangeUpdateModuleData,
     DynamicShroudClearingRangeUpdate,
     "DynamicShroudClearingRangeUpdate"
@@ -35,6 +39,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     enemy_near_update_data_factory,
     enemy_near_update_module_factory,
+    enemy_near_update_module_factory_game,
     EnemyNearUpdateModuleData,
     EnemyNearUpdate,
     "EnemyNearUpdate"
@@ -42,6 +47,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     fire_ocl_after_weapon_cooldown_update_data_factory,
     fire_ocl_after_weapon_cooldown_update_module_factory,
+    fire_ocl_after_weapon_cooldown_update_module_factory_game,
     FireOCLAfterWeaponCooldownUpdateModuleData,
     FireOCLAfterWeaponCooldownUpdate,
     "FireOCLAfterWeaponCooldownUpdate"
@@ -49,6 +55,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     fire_weapon_when_damaged_behavior_data_factory,
     fire_weapon_when_damaged_behavior_module_factory,
+    fire_weapon_when_damaged_behavior_module_factory_game,
     FireWeaponWhenDamagedBehaviorModuleData,
     FireWeaponWhenDamagedBehavior,
     "FireWeaponWhenDamagedBehavior"
@@ -56,6 +63,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     fire_weapon_when_dead_behavior_data_factory,
     fire_weapon_when_dead_behavior_module_factory,
+    fire_weapon_when_dead_behavior_module_factory_game,
     FireWeaponWhenDeadBehaviorModuleData,
     FireWeaponWhenDeadBehavior,
     "FireWeaponWhenDeadBehavior"
@@ -63,6 +71,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     fire_weapon_update_data_factory,
     fire_weapon_update_module_factory,
+    fire_weapon_update_module_factory_game,
     FireWeaponUpdateModuleData,
     FireWeaponUpdate,
     "FireWeaponUpdate"
@@ -70,6 +79,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     dynamic_geometry_info_update_data_factory,
     dynamic_geometry_info_update_module_factory,
+    dynamic_geometry_info_update_module_factory_game,
     DynamicGeometryInfoUpdateModuleData,
     DynamicGeometryInfoUpdate,
     "DynamicGeometryInfoUpdate"
@@ -78,6 +88,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     firestorm_dynamic_geometry_info_update_data_factory,
     firestorm_dynamic_geometry_info_update_module_factory,
+    firestorm_dynamic_geometry_info_update_module_factory_game,
     FirestormDynamicGeometryInfoUpdateModuleData,
     FirestormDynamicGeometryInfoUpdate,
     "FirestormDynamicGeometryInfoUpdate"
@@ -85,6 +96,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     float_update_data_factory,
     float_update_module_factory,
+    float_update_module_factory_game,
     FloatUpdateModuleData,
     FloatUpdate,
     "FloatUpdate"
@@ -92,6 +104,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     generate_minefield_behavior_data_factory,
     generate_minefield_behavior_module_factory,
+    generate_minefield_behavior_module_factory_game,
     GenerateMinefieldBehaviorModuleData,
     GenerateMinefieldBehavior,
     "GenerateMinefieldBehavior"
@@ -135,6 +148,7 @@ pub(super) fn minefield_behavior_module_factory(
 active_behavior_factories!(
     height_die_update_data_factory,
     height_die_update_module_factory,
+    height_die_update_module_factory_game,
     HeightDieUpdateModuleData,
     HeightDieUpdate,
     "HeightDieUpdate"
@@ -142,6 +156,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     hijacker_update_data_factory,
     hijacker_update_module_factory,
+    hijacker_update_module_factory_game,
     HijackerUpdateModuleData,
     HijackerUpdate,
     "HijackerUpdate"
@@ -149,6 +164,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     horde_update_data_factory,
     horde_update_module_factory,
+    horde_update_module_factory_game,
     HordeUpdateModuleData,
     HordeUpdate,
     "HordeUpdate"
@@ -156,6 +172,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     neutron_blast_behavior_data_factory,
     neutron_blast_behavior_module_factory,
+    neutron_blast_behavior_module_factory_game,
     NeutronBlastBehaviorModuleData,
     NeutronBlastBehavior,
     "NeutronBlastBehavior"
@@ -163,6 +180,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     leaflet_drop_behavior_data_factory,
     leaflet_drop_behavior_module_factory,
+    leaflet_drop_behavior_module_factory_game,
     LeafletDropBehaviorModuleData,
     LeafletDropBehavior,
     "LeafletDropBehavior"
@@ -210,6 +228,7 @@ pub(super) fn missile_launcher_building_update_module_factory(
 active_behavior_factories!(
     parking_place_behavior_data_factory,
     parking_place_behavior_module_factory,
+    parking_place_behavior_module_factory_game,
     ParkingPlaceBehaviorModuleData,
     ParkingPlaceBehavior,
     "ParkingPlaceBehavior"
@@ -217,6 +236,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     pilot_find_vehicle_update_data_factory,
     pilot_find_vehicle_update_module_factory,
+    pilot_find_vehicle_update_module_factory_game,
     PilotFindVehicleUpdateModuleData,
     PilotFindVehicleUpdate,
     "PilotFindVehicleUpdate"
@@ -224,6 +244,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     power_plant_update_data_factory,
     power_plant_update_module_factory,
+    power_plant_update_module_factory_game,
     PowerPlantUpdateModuleData,
     PowerPlantUpdate,
     "PowerPlantUpdate"
@@ -231,6 +252,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     propaganda_tower_behavior_data_factory,
     propaganda_tower_behavior_module_factory,
+    propaganda_tower_behavior_module_factory_game,
     PropagandaTowerBehaviorModuleData,
     PropagandaTowerBehavior,
     "PropagandaTowerBehavior"
@@ -238,6 +260,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     radar_update_data_factory,
     radar_update_module_factory,
+    radar_update_module_factory_game,
     RadarUpdateModuleData,
     RadarUpdate,
     "RadarUpdate"
@@ -245,6 +268,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     spectre_gunship_deployment_update_data_factory,
     spectre_gunship_deployment_update_module_factory,
+    spectre_gunship_deployment_update_module_factory_game,
     SpectreGunshipDeploymentUpdateModuleData,
     SpectreGunshipDeploymentUpdate,
     "SpectreGunshipDeploymentUpdate"
@@ -252,6 +276,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     spectre_gunship_update_data_factory,
     spectre_gunship_update_module_factory,
+    spectre_gunship_update_module_factory_game,
     SpectreGunshipUpdateModuleData,
     SpectreGunshipUpdate,
     "SpectreGunshipUpdate"
@@ -259,6 +284,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     stealth_detector_update_data_factory,
     stealth_detector_update_module_factory,
+    stealth_detector_update_module_factory_game,
     StealthDetectorUpdateModuleData,
     StealthDetectorUpdate,
     "StealthDetectorUpdate"
@@ -266,6 +292,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     tech_building_behavior_data_factory,
     tech_building_behavior_module_factory,
+    tech_building_behavior_module_factory_game,
     TechBuildingBehaviorModuleData,
     TechBuildingBehavior,
     "TechBuildingBehavior"
@@ -273,6 +300,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     wave_guide_update_data_factory,
     wave_guide_update_module_factory,
+    wave_guide_update_module_factory_game,
     WaveGuideUpdateModuleData,
     WaveGuideUpdate,
     "WaveGuideUpdate"
@@ -280,6 +308,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     weapon_bonus_update_data_factory,
     weapon_bonus_update_module_factory,
+    weapon_bonus_update_module_factory_game,
     WeaponBonusUpdateModuleData,
     WeaponBonusUpdate,
     "WeaponBonusUpdate"
@@ -287,6 +316,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     physics_behavior_data_factory,
     physics_behavior_module_factory,
+    physics_behavior_module_factory_game,
     PhysicsBehaviorModuleData,
     PhysicsBehaviorUpdate,
     "PhysicsBehavior"
@@ -294,6 +324,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     flammable_update_data_factory,
     flammable_update_module_factory,
+    flammable_update_module_factory_game,
     FlammableUpdateModuleData,
     FlammableUpdate,
     "FlammableUpdate"

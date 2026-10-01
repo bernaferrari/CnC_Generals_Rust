@@ -30,6 +30,16 @@ pub trait UpgradeModuleInterface: Send + Sync {
         false
     }
 
+    /// Object-aware apply: callers that already hold the owning `Object` pass
+    /// it here so a module never re-enters the registry for its own id.
+    fn apply_upgrade_with_object(
+        &mut self,
+        _object: &mut Object,
+        upgrade_mask: UpgradeMaskType,
+    ) -> bool {
+        self.apply_upgrade(upgrade_mask)
+    }
+
     fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
         let _ = upgrade_mask;
     }
@@ -73,6 +83,17 @@ pub trait DieModuleInterface: Send + Sync {
         damage: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
+    /// Object-aware onDie: the caller (normally `Object::on_die`) already
+    /// holds the dying object, so modules read applicability and position
+    /// from it instead of a same-id registry checkout that would miss.
+    fn on_die_with_object(
+        &mut self,
+        object: &mut Object,
+        damage: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let _ = object;
+        self.on_die(damage)
+    }
     /// Called when the object is explicitly destroyed (mirrors C++ DestroyModuleInterface bridge)
     fn on_destroy(
         &mut self,

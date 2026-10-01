@@ -13,7 +13,7 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
 use crate::object::Object;
 use crate::object::contain::{ObjectTemplate, TransportContain};
-use crate::player::Player;
+use crate::player::{Player, PlayerIndex};
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
@@ -52,20 +52,14 @@ pub struct RailedTransportContain {
 impl RailedTransportContain {
     /// Create a new RailedTransportContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &RailedTransportContainModuleData,
     ) -> GameResult<Self> {
-        let mut base = TransportContain::new(object.clone(), &module_data.base)?;
+        let mut base = TransportContain::new(object_id, &module_data.base)?;
         // C++ RailedTransportContain::isSpecificRiderFreeToExit: dock closed = in transit.
         base.set_require_open_dock_to_exit(true);
 
-        Ok(Self {
-            base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
-        })
+        Ok(Self { base, object_id })
     }
 
     fn with_owner_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Option<R> {

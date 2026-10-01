@@ -16,8 +16,56 @@ use super::update_modules::*;
 use super::*;
 use game_engine::common::thing::thing_factory::apply_stored_locomotors_to_all_templates;
 
+/// Register every `active_behavior_factories!` module in the gamelogic
+/// GameModule registry so its die/upgrade/special-power interface surface
+/// survives installation; the engine registry erases it to `Box<dyn Module>`.
+fn install_game_module_factories() {
+    use super::behavior;
+    use crate::object::game_module::register_game_module_factory as reg;
+
+    reg("BunkerBusterBehavior", ModuleType::Behavior, behavior::bunker_buster_behavior_module_factory_game);
+    reg("CheckpointUpdate", ModuleType::Behavior, behavior::checkpoint_update_module_factory_game);
+    reg("DeletionUpdate", ModuleType::Behavior, behavior::deletion_update_module_factory_game);
+    reg("DynamicGeometryInfoUpdate", ModuleType::Behavior, behavior::dynamic_geometry_info_update_module_factory_game);
+    reg("DynamicShroudClearingRangeUpdate", ModuleType::Behavior, behavior::dynamic_shroud_clearing_range_update_module_factory_game);
+    reg("EnemyNearUpdate", ModuleType::Behavior, behavior::enemy_near_update_module_factory_game);
+    reg("FireOCLAfterWeaponCooldownUpdate", ModuleType::Behavior, behavior::fire_ocl_after_weapon_cooldown_update_module_factory_game);
+    reg("FireWeaponUpdate", ModuleType::Behavior, behavior::fire_weapon_update_module_factory_game);
+    reg("FireWeaponWhenDamagedBehavior", ModuleType::Behavior, behavior::fire_weapon_when_damaged_behavior_module_factory_game);
+    reg("FireWeaponWhenDeadBehavior", ModuleType::Behavior, behavior::fire_weapon_when_dead_behavior_module_factory_game);
+    reg("FirestormDynamicGeometryInfoUpdate", ModuleType::Behavior, behavior::firestorm_dynamic_geometry_info_update_module_factory_game);
+    reg("FlammableUpdate", ModuleType::Behavior, behavior::flammable_update_module_factory_game);
+    reg("FloatUpdate", ModuleType::Behavior, behavior::float_update_module_factory_game);
+    reg("GenerateMinefieldBehavior", ModuleType::Behavior, behavior::generate_minefield_behavior_module_factory_game);
+    reg("HeightDieUpdate", ModuleType::Behavior, behavior::height_die_update_module_factory_game);
+    reg("HijackerUpdate", ModuleType::Behavior, behavior::hijacker_update_module_factory_game);
+    reg("HordeUpdate", ModuleType::Behavior, behavior::horde_update_module_factory_game);
+    reg("LeafletDropBehavior", ModuleType::Behavior, behavior::leaflet_drop_behavior_module_factory_game);
+    reg("NeutronBlastBehavior", ModuleType::Behavior, behavior::neutron_blast_behavior_module_factory_game);
+    reg("ParkingPlaceBehavior", ModuleType::Behavior, behavior::parking_place_behavior_module_factory_game);
+    reg("PhysicsBehavior", ModuleType::Behavior, behavior::physics_behavior_module_factory_game);
+    reg("PilotFindVehicleUpdate", ModuleType::Behavior, behavior::pilot_find_vehicle_update_module_factory_game);
+    reg("PowerPlantUpdate", ModuleType::Behavior, behavior::power_plant_update_module_factory_game);
+    reg("PropagandaTowerBehavior", ModuleType::Behavior, behavior::propaganda_tower_behavior_module_factory_game);
+    reg("RadarUpdate", ModuleType::Behavior, behavior::radar_update_module_factory_game);
+    reg("SpectreGunshipDeploymentUpdate", ModuleType::Behavior, behavior::spectre_gunship_deployment_update_module_factory_game);
+    reg("SpectreGunshipUpdate", ModuleType::Behavior, behavior::spectre_gunship_update_module_factory_game);
+    reg("StealthDetectorUpdate", ModuleType::Behavior, behavior::stealth_detector_update_module_factory_game);
+    reg("TechBuildingBehavior", ModuleType::Behavior, behavior::tech_building_behavior_module_factory_game);
+    reg("WaveGuideUpdate", ModuleType::Behavior, behavior::wave_guide_update_module_factory_game);
+    reg("WeaponBonusUpdate", ModuleType::Behavior, behavior::weapon_bonus_update_module_factory_game);
+    reg("AnimationSteeringUpdate", ModuleType::Behavior, animation_steering_update_module_factory_game);
+    reg("AssistedTargetingUpdate", ModuleType::Behavior, assisted_targeting_update_module_factory_game);
+    reg("AutoDepositUpdate", ModuleType::Behavior, auto_deposit_update_module_factory_game);
+    reg("AutoFindHealingUpdate", ModuleType::Behavior, auto_find_healing_update_module_factory_game);
+    reg("BaseRegenerateUpdate", ModuleType::Behavior, base_regenerate_update_module_factory_game);
+    reg("SupplyWarehouseCripplingBehavior", ModuleType::Behavior, supply_warehouse_crippling_behavior_module_factory_game);
+}
+
+
 pub(super) fn install_contain_overrides() -> Result<(), String> {
     install_template_locomotor_applier();
+    install_game_module_factories();
 
     register_module_override(
         "InactiveBody",

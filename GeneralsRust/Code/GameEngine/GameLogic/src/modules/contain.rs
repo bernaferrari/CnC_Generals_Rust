@@ -51,6 +51,28 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         false
     }
 
+    /// C++ contains that also implement `ExitInterface` answer these; the
+    /// base virtuals return FALSE / no-op, matching the C++ defaults.
+    fn get_exit_position(&self, _exit_position: &mut crate::common::Coord3D) -> bool {
+        false
+    }
+
+    fn get_natural_rally_point(
+        &self,
+        _rally_point: &mut crate::common::Coord3D,
+        _offset: bool,
+    ) -> bool {
+        false
+    }
+
+    fn exit_object_by_budding(
+        &mut self,
+        _obj_id: ObjectID,
+        _host_id: Option<ObjectID>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let _ = xfer;
         Ok(())

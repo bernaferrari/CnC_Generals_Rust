@@ -245,13 +245,14 @@ impl FireWeaponWhenDeadBehavior {
             .ok_or("Invalid module data for FireWeaponWhenDeadBehavior")?;
 
         let data = specific_data.clone();
-        let mut upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
-        if data.initially_active {
-            upgrade_mux.set_upgrade_executed(true);
-        }
-
+        // Build the mux before `data` moves into the struct.
+        let upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        // C++ ctor runs giveSelfUpgrade() on `this`; the Rust factories own
+        // the object at every construction site (pre-registration Arc or
+        // registry checkout), so they apply it on the object they hold.
+        // Constructors here stay inert.
         Ok(Self {
-            object_id: object_id,
+            object_id,
             module_data: data,
             upgrade_mux,
         })
@@ -259,59 +260,84 @@ impl FireWeaponWhenDeadBehavior {
 }
 
 impl DieModuleInterface for FireWeaponWhenDeadBehavior {
-    /// Called when object dies. Matches C++ lines 60-95
+    /// Called when object dies. Matches C++ lines 60-95.
+    ///
+    /// Prefer [`Self::die_with_object`] from `Object::on_die`. This trait
+    /// method has no object borrow, so a same-id registry checkout can miss
+    /// while the caller already holds that object.
     fn on_die(
         &mut self,
         damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let data = &self.module_data;
+        let Some(fired) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.object_id,
+            |object| Self::die_with_object(self, object, damage_info),
+        ) else {
+            return Ok(());
+        };
+        fired
+    }
 
-        // Check if upgrade is active. Matches C++ lines 65-66
+    /// Object-aware onDie: `Object::on_die` passes the dying object, the way
+    /// C++ `onDie` reads `getObject()` — no same-id registry re-entry.
+    fn on_die_with_object(
+        &mut self,
+        object: &mut crate::object::Object,
+        damage_info: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::die_with_object(self, object, damage_info)
+    }
+}
+
+impl FireWeaponWhenDeadBehavior {
+    /// C++ `FireWeaponWhenDeadBehavior::onDie` using the owner already in hand.
+    pub fn die_with_object(
+        &mut self,
+        object: &mut crate::object::Object,
+        damage_info: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if !self.upgrade_mux.is_already_upgraded() {
             return Ok(());
         }
 
         let (_, conflicting_mask) = self.get_upgrade_activation_masks();
-        let Some((obj_id, obj_position)) =
-            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
-                if !data.die_mux_data.is_die_applicable(obj_read, damage_info) {
-                    return None;
-                }
-                if obj_read.test_status(ObjectStatusTypes::UnderConstruction) {
-                    return None;
-                }
-                if obj_read.completed_upgrades().intersects(conflicting_mask) {
-                    return None;
-                }
-                if let Some(player) = obj_read.get_controlling_player() {
-                    if let Some(true) = crate::player::with_player(player, |player_guard| {
-                        player_guard
-                            .get_completed_upgrade_mask()
-                            .intersects(conflicting_mask)
-                    }) {
-                        return None;
-                    }
-                }
-                Some((obj_read.get_id(), *obj_read.get_position()))
-            })
-            .flatten()
-        else {
+        if !self
+            .module_data
+            .die_mux_data
+            .is_die_applicable(object, damage_info)
+        {
             return Ok(());
-        };
+        }
+        if object.test_status(ObjectStatusTypes::UnderConstruction) {
+            return Ok(());
+        }
+        if object.completed_upgrades().intersects(conflicting_mask) {
+            return Ok(());
+        }
+        if let Some(player) = object.get_controlling_player() {
+            if let Some(true) = crate::player::with_player(player, |player_guard| {
+                player_guard
+                    .get_completed_upgrade_mask()
+                    .intersects(conflicting_mask)
+            }) {
+                return Ok(());
+            }
+        }
 
-
-        if let Some(death_weapon_tmpl) = &data.death_weapon {
+        // C++ FireWeaponWhenDeadBehavior.cpp:93 hands `obj` and
+        // `obj->getPosition()` straight to WeaponStore. The dying object cannot
+        // be re-entered through the registry from here, so the store entry
+        // takes the held source object.
+        if let Some(death_weapon_tmpl) = &self.module_data.death_weapon {
             crate::weapon::with_weapon_store_mut(|store| {
-                store.create_and_fire_temp_weapon(
+                store.create_and_fire_temp_weapon_from_object(
                     death_weapon_tmpl,
-                    obj_id,
-                    None,
-                    Some(&obj_position),
+                    object,
+                    object.get_position(),
                 )
             })
             .ok();
         }
-
         Ok(())
     }
 }
@@ -329,6 +355,17 @@ impl UpgradeModuleInterface for FireWeaponWhenDeadBehavior {
                 self.upgrade_mux.attempt_upgrade(mask, obj_guard)
             })
             .unwrap_or(false)
+    }
+
+    /// Object-aware apply: the caller holds the owning object, so the mux
+    /// upgrades it directly (C++ UpgradeMux::attemptUpgrade on getObject()).
+    fn apply_upgrade_with_object(
+        &mut self,
+        object: &mut crate::object::Object,
+        _upgrade_mask: UpgradeMaskType,
+    ) -> bool {
+        let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
+        self.upgrade_mux.attempt_upgrade(mask, object)
     }
 
     fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
@@ -456,15 +493,14 @@ impl FireWeaponWhenDeadBehaviorFactory {
             module_data,
         )?))
     }
+}
 
-    /// Initial upgrade FX for a not-yet-registered object. The caller holds the Arc.
-    pub fn apply_initial_fx(module_data: &dyn ModuleData, object: &mut crate::object::Object) {
-        let Some(specific) = module_data.as_any().downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>() else {
-            return;
-        };
-        if specific.initially_active {
-            specific.upgrade_mux_data.perform_upgrade_fx(object);
-            specific.upgrade_mux_data.process_upgrade_removal(object);
+impl FireWeaponWhenDeadBehavior {
+    /// C++ `UpgradeMux::giveSelfUpgrade`: FX, removal, empty `upgradeImplementation`, then the executed flag.
+    /// Does nothing unless `StartsActive`, and does not mark the upgrade if it already ran.
+    pub fn give_self_upgrade(&mut self, object: &mut crate::object::Object) {
+        if self.module_data.initially_active && !self.upgrade_mux.is_already_upgraded() {
+            self.upgrade_mux.give_self_upgrade(object);
         }
     }
 }

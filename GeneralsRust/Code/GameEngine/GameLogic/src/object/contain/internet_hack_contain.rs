@@ -13,6 +13,7 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::Object;
 use crate::object::contain::TransportContain;
+use crate::player::PlayerIndex;
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
@@ -53,18 +54,12 @@ pub struct InternetHackContain {
 impl InternetHackContain {
     /// Create a new InternetHackContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &InternetHackContainModuleData,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let base = TransportContain::new(object_id, &module_data.base)?;
 
-        Ok(Self {
-            base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
-        })
+        Ok(Self { base, object_id })
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {

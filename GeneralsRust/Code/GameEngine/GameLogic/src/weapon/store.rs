@@ -383,6 +383,42 @@ impl WeaponStore {
         Ok(())
     }
 
+    /// C++ `WeaponStore::createAndFireTempWeapon(wt, obj, pos)` with the source
+    /// object borrowed by the caller.
+    ///
+    /// The source is commonly mid-`Object::onDie`: it is either owned outright
+    /// or checked out of the object registry, so an id-based re-entry misses.
+    /// Seed the weapon's caller-held fields from the object instead, exactly
+    /// like the held-source fire paths in `object_combat.rs`.
+    pub fn create_and_fire_temp_weapon_from_object(
+        &self,
+        template: &Arc<WeaponTemplate>,
+        source: &crate::object::Object,
+        position: &Coord3D,
+    ) -> GameLogicResult<()> {
+        let source_id = source.get_id();
+        let mut temp_weapon = self.allocate_new_weapon(template, WeaponSlotType::Primary);
+        temp_weapon.set_caller_held_source(source_id, *source.get_position());
+        temp_weapon.set_caller_veterancy(source.get_veterancy_level());
+        temp_weapon.set_caller_team(source.get_team());
+        if let Some(player) = source.get_controlling_player() {
+            temp_weapon.set_caller_player(Some(player));
+            if let Some(mask) = crate::player::with_player(player, |guard| guard.get_player_mask()) {
+                temp_weapon.set_caller_player_mask(mask);
+            }
+        }
+        let result = temp_weapon
+            .load_ammo_now(source_id)
+            .map_err(|e| GameLogicError::ModuleError(e.to_string()))
+            .and_then(|_| {
+                temp_weapon
+                    .fire_weapon_at_position(source_id, position)
+                    .map_err(|err| GameLogicError::ModuleError(err.to_string()))
+            });
+        temp_weapon.clear_caller_held_source();
+        result
+    }
+
     /// Handle projectile detonation
     pub fn handle_projectile_detonation(
         &self,

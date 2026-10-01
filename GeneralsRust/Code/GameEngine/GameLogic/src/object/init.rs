@@ -19,20 +19,22 @@ impl Object {
 
         self.update_upgrade_modules_from_player();
 
-        let should_bonus = crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| {
-                engine
-                    .as_ref()
-                    .map(|e| e.get_objects_should_receive_difficulty_bonus())
-            })
-            .unwrap_or(false);
-        if !self.is_receiving_difficulty_bonus() && should_bonus {
-            self.set_receiving_difficulty_bonus(true);
-        }
-
+        // C++ Object::initObject (Object.cpp:517-529): the difficulty bonus and
+        // battle plans both run only under a controlling player, in this order.
         if let Some(player_index) = self.get_controlling_player() {
+            let should_bonus = crate::scripting::engine::get_script_engine()
+                .read()
+                .ok()
+                .and_then(|engine| {
+                    engine
+                        .as_ref()
+                        .map(|e| e.get_objects_should_receive_difficulty_bonus())
+                })
+                .unwrap_or(false);
+            if !self.is_receiving_difficulty_bonus() && should_bonus {
+                self.set_receiving_difficulty_bonus(true);
+            }
+
             let plans = crate::player::with_player(player_index, |player| {
                 player.get_num_battle_plans_active()
             })
@@ -71,14 +73,22 @@ impl Object {
     }
 
     fn fill_special_power_bits_from_modules(&mut self) {
+        // C++ Object::initObject walks m_behaviors and calls getSpecialPower()
+        // on each (Object.cpp:535-545). The template modules live in
+        // `modules`; the legacy `behaviors` wrappers default get_special_power
+        // to None, so dispatch through the special-power cast ladder instead
+        // of adding per-type arms here.
         let mut bits = SpecialPowerMask::default();
-        for behavior in self.behaviors.iter_mut() {
-            let Some(sp) = behavior.get_special_power() else {
-                continue;
-            };
-            if let Some(template) = sp.get_special_power_template_full() {
-                bits.set_power(template.get_special_power_type(), true);
-            }
+        let modules: Vec<Arc<ModuleEntry>> = self.modules.iter().cloned().collect();
+        for entry in &modules {
+            entry.with_module(|module| {
+                if let Some(sp) = crate::object::special_power_interface_cast::module_special_power_interface(module)
+                {
+                    if let Some(template) = sp.get_special_power_template_full() {
+                        bits.set_power(template.get_special_power_type(), true);
+                    }
+                }
+            });
         }
         self.special_power_bits = bits;
     }

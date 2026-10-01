@@ -324,6 +324,7 @@ pub(super) fn supply_warehouse_dock_update_module_factory(
 active_behavior_factories!(
     supply_warehouse_crippling_behavior_data_factory,
     supply_warehouse_crippling_behavior_module_factory,
+    supply_warehouse_crippling_behavior_module_factory_game,
     SupplyWarehouseCripplingBehaviorModuleData,
     SupplyWarehouseCripplingBehavior,
     "SupplyWarehouseCripplingBehavior"

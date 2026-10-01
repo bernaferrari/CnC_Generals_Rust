@@ -275,7 +275,7 @@ impl UpgradeMux {
 
     /// Give self upgrade
     /// Matches C++ UpgradeMux::giveSelfUpgrade
-    fn give_self_upgrade(&mut self, object: &mut Object) {
+    pub(crate) fn give_self_upgrade(&mut self, object: &mut Object) {
         self.data.perform_upgrade_fx(object);
         self.data.process_upgrade_removal(object);
         // Actual upgrade implementation is handled by subclass

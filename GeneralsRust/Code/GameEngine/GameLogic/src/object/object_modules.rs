@@ -43,6 +43,13 @@ impl Object {
         self.contain = contain;
     }
 
+    /// Take the owned contain module out (restore with `set_contain`); the
+    /// registry-checkout callbacks need ownership to run hooks without
+    /// holding a borrow across re-entrant object access.
+    pub fn take_contain(&mut self) -> Option<Box<dyn ContainModuleInterface>> {
+        self.contain.take()
+    }
+
     /// Mark whether this object is currently transporting occupants (used by containment modules).
     pub fn set_is_transporting(&mut self, transporting: Bool) {
         self.is_transporting = transporting;
@@ -270,7 +277,7 @@ impl Object {
             AsciiString::new(),
             ModuleInterfaceType::UPDATE,
             module_data,
-            module,
+            crate::object::game_module::ModuleSlot::Engine(module),
         ));
         self.modules.push(Arc::clone(&entry));
         self.update_module_handles.push(entry);
@@ -291,7 +298,7 @@ impl Object {
             AsciiString::new(),
             mask,
             module_data,
-            module,
+            crate::object::game_module::ModuleSlot::Engine(module),
         ));
         if (mask.0 & ModuleInterfaceType::DESTROY.0) != 0 {
             self.die_module_handles.push(Arc::clone(&entry));
@@ -809,7 +816,74 @@ impl Object {
                 let module_data = Arc::clone(&entry.data);
                 let module_data_for_entry = Arc::clone(&module_data);
                 let interface_mask = entry.interface_flags();
+                // Object::build has not registered this object yet, so
+                // ModuleFactory::new_module would install a no-op. C++
+                // giveSelfUpgrade runs on `this` in the ctor: do that on the
+                // Arc we already hold, while the behavior is still a local.
+                // The two ModuleData traits force one data downcast here.
+                if module_name.as_str() == "FireWeaponWhenDeadBehavior" {
+                    let Some(typed_data) = module_data.as_ref().downcast_ref::<
+                        crate::object::behavior::fire_weapon_when_dead_behavior::FireWeaponWhenDeadBehaviorModuleData,
+                    >() else {
+                        warn!(
+                            "FireWeaponWhenDeadBehavior data type mismatch for object {}",
+                            object_id
+                        );
+                        continue;
+                    };
+                    let legacy_data: Arc<dyn crate::common::ModuleData> =
+                        Arc::new(typed_data.clone());
+                    match crate::object::behavior::FireWeaponWhenDeadBehavior::new(
+                        object_id,
+                        legacy_data,
+                    ) {
+                        Ok(mut behavior) => {
+                            if let Ok(mut obj) = object.write() {
+                                behavior.give_self_upgrade(&mut obj);
+                            }
+                            let module = Box::new(
+                                crate::object::behavior::fire_weapon_when_dead_behavior::FireWeaponWhenDeadBehaviorModule::new(
+                                    behavior,
+                                    &module_name,
+                                    Arc::new(typed_data.clone()),
+                                ),
+                            );
+                            modules_to_install.push(Arc::new(ModuleEntry::new(
+                                module_name,
+                                entry.module_tag.clone(),
+                                interface_mask,
+                                module_data_for_entry,
+                                crate::object::game_module::ModuleSlot::Game(module),
+                            )));
+                        }
+                        Err(err) => {
+                            warn!(
+                                "Failed to instantiate FireWeaponWhenDeadBehavior for object {}: {}",
+                                object_id, err
+                            );
+                        }
+                    }
+                    continue;
+                }
 
+                // Gamelogic-registered factories keep their interface surface;
+                // consult them before the engine factory erases it.
+                if let Some(game_ctor) = crate::object::game_module::take_game_module_factory(
+                    module_name.as_str(),
+                    ModuleType::Behavior,
+                ) {
+                    modules_to_install.push(Arc::new(ModuleEntry::new(
+                        module_name,
+                        entry.module_tag.clone(),
+                        interface_mask,
+                        module_data_for_entry,
+                        crate::object::game_module::ModuleSlot::Game(game_ctor(
+                            module_handle.clone(),
+                            Arc::clone(&module_data),
+                        )),
+                    )));
+                    continue;
+                }
                 match factory.new_module(
                     module_handle.clone(),
                     &module_name,
@@ -824,7 +898,7 @@ impl Object {
                             entry.module_tag.clone(),
                             interface_mask,
                             module_data_for_entry,
-                            module,
+                            crate::object::game_module::ModuleSlot::Engine(module),
                         )));
                     }
                     Err(err) => {
@@ -1023,19 +1097,6 @@ impl Object {
             obj_guard.apply_team_ai_profile();
         }
 
-        if let Ok(mut obj_guard) = object.write() {
-            if let Some(player_index) = obj_guard.get_controlling_player() {
-                let plans = crate::player::with_player(player_index, |player| {
-                    player.get_num_battle_plans_active()
-                })
-                .unwrap_or(0);
-                if plans > 0 {
-                    crate::player::with_player(player_index, |player| {
-                        player.apply_battle_plan_bonuses_for_object(&mut obj_guard);
-                    });
-                }
-            }
-        }
 
         Ok(())
     }

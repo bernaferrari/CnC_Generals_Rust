@@ -438,14 +438,13 @@ pub use behavior_integration::{
 
 use crate::common::ModuleData;
 use crate::object::Object;
-use rhai::Locked;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Trait for creating behavior modules from module data
 pub trait BehaviorModuleFactory {
     /// Create a new behavior module instance
     fn create_behavior(
-        thing: Arc<Locked<Object>>,
+        thing: Arc<RwLock<Object>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
@@ -453,21 +452,21 @@ pub trait BehaviorModuleFactory {
     >;
 }
 
+/// A registered behavior factory closure.
+pub type BehaviorModuleFactoryFn = Box<
+    dyn Fn(
+            Arc<RwLock<Object>>,
+            Arc<dyn ModuleData>,
+        ) -> Result<
+            Box<dyn crate::modules::BehaviorModuleInterface>,
+            Box<dyn std::error::Error + Send + Sync>,
+        > + Send
+        + Sync,
+>;
+
 /// Registry for behavior module factories
 pub struct BehaviorModuleRegistry {
-    factories: std::collections::HashMap<
-        String,
-        Box<
-            dyn Fn(
-                    Arc<Locked<Object>>,
-                    Arc<dyn ModuleData>,
-                ) -> Result<
-                    Box<dyn crate::modules::BehaviorModuleInterface>,
-                    Box<dyn std::error::Error + Send + Sync>,
-                > + Send
-                + Sync,
-        >,
-    >,
+    factories: std::collections::HashMap<String, BehaviorModuleFactoryFn>,
 }
 
 impl BehaviorModuleRegistry {
@@ -480,7 +479,7 @@ impl BehaviorModuleRegistry {
         // Core behavior factories
         registry.register_factory(
             "SlowDeathBehavior",
-            Box::new(|thing, data| {
+            Box::new(|thing: Arc<RwLock<Object>>, data| {
                 let object_id = thing
                     .read()
                     .ok()
@@ -508,16 +507,17 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "FireWeaponWhenDeadBehavior",
-            Box::new(|thing, data| {
+            Box::new(|thing: Arc<RwLock<Object>>, data: Arc<dyn ModuleData>| {
                 let object_id = thing
                     .read()
                     .ok()
                     .map(|g| g.get_id())
                     .unwrap_or(crate::common::INVALID_ID);
+                let mut behavior = FireWeaponWhenDeadBehavior::new(object_id, data)?;
                 if let Ok(mut obj) = thing.write() {
-                    FireWeaponWhenDeadBehaviorFactory::apply_initial_fx(data.as_ref(), &mut obj);
+                    behavior.give_self_upgrade(&mut obj);
                 }
-                FireWeaponWhenDeadBehaviorFactory::create_behavior(object_id, data)
+                Ok(Box::new(behavior) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
 
@@ -563,7 +563,7 @@ impl BehaviorModuleRegistry {
         #[cfg(feature = "allow_surrender")]
         registry.register_factory(
             "PropagandaCenterBehavior",
-            Box::new(|thing: Arc<Locked<Object>>, data: Arc<dyn ModuleData>| {
+            Box::new(|thing: Arc<RwLock<Object>>, data: Arc<dyn ModuleData>| {
                 let typed = data
                     .as_any()
                     .downcast_ref::<PropagandaCenterBehaviorModuleData>()
@@ -925,19 +925,34 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "HelicopterSlowDeathBehavior",
             Box::new(|thing, data| {
-                HelicopterSlowDeathBehaviorFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                HelicopterSlowDeathBehaviorFactory::create_behavior(object_id, data)
             }),
         );
         registry.register_factory(
             "NeutronMissileSlowDeathUpdate",
             Box::new(|thing, data| {
-                NeutronMissileSlowDeathUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                NeutronMissileSlowDeathUpdateFactory::create_behavior(object_id, data)
             }),
         );
         registry.register_factory(
             "NeutronMissileSlowDeathBehavior",
             Box::new(|thing, data| {
-                NeutronMissileSlowDeathUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                NeutronMissileSlowDeathUpdateFactory::create_behavior(object_id, data)
             }),
         );
         registry.register_factory(
@@ -1011,7 +1026,12 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "FireOCLAfterWeaponCooldownUpdate",
             Box::new(|thing, data| {
-                FireOCLAfterWeaponCooldownUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                FireOCLAfterWeaponCooldownUpdateFactory::create_behavior(object_id, data)
             }),
         );
         registry.register_factory(
@@ -1050,7 +1070,12 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "FireWeaponWhenDamagedBehavior",
             Box::new(|thing, data| {
-                FireWeaponWhenDamagedBehaviorFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                FireWeaponWhenDamagedBehaviorFactory::create_behavior(object_id, data)
             }),
         );
         registry.register_factory(
@@ -1140,7 +1165,12 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "FirestormDynamicGeometryInfoUpdate",
             Box::new(|thing, data| {
-                FirestormDynamicGeometryInfoUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                FirestormDynamicGeometryInfoUpdateFactory::create_behavior(object_id, data)
             }),
         );
 
@@ -1159,14 +1189,24 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "DynamicShroudClearingRangeUpdate",
             Box::new(|thing, data| {
-                DynamicShroudClearingRangeUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                DynamicShroudClearingRangeUpdateFactory::create_behavior(object_id, data)
             }),
         );
 
         registry.register_factory(
             "SmartBombTargetHomingUpdate",
             Box::new(|thing, data| {
-                SmartBombTargetHomingUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                SmartBombTargetHomingUpdateFactory::create_behavior(object_id, data)
             }),
         );
 
@@ -1197,7 +1237,12 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "SpectreGunshipDeploymentUpdate",
             Box::new(|thing, data| {
-                SpectreGunshipDeploymentUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                SpectreGunshipDeploymentUpdateFactory::create_behavior(object_id, data)
             }),
         );
 
@@ -1216,7 +1261,12 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "MissileLauncherBuildingUpdate",
             Box::new(|thing, data| {
-                MissileLauncherBuildingUpdateFactory::create_behavior(thing, data)
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                MissileLauncherBuildingUpdateFactory::create_behavior(object_id, data)
             }),
         );
 
@@ -1247,27 +1297,21 @@ impl BehaviorModuleRegistry {
         registry
     }
 
-    /// Register a new behavior factory
-    pub fn register_factory<F>(&mut self, name: &str, factory: F)
-    where
-        F: Fn(
-                Arc<Locked<Object>>,
-                Arc<dyn ModuleData>,
-            ) -> Result<
-                Box<dyn crate::modules::BehaviorModuleInterface>,
-                Box<dyn std::error::Error + Send + Sync>,
-            > + Send
-            + Sync
-            + 'static,
-    {
-        self.factories.insert(name.to_string(), Box::new(factory));
+    /// Register a new behavior factory.
+    ///
+    /// The concrete alias is deliberate: a generic `F: Fn(..)` bound does not
+    /// propagate the parameter types into the 60+ registration closures, so
+    /// every closure would need manual type annotations. The expected
+    /// signature now flows from this parameter type.
+    pub fn register_factory(&mut self, name: &str, factory: BehaviorModuleFactoryFn) {
+        self.factories.insert(name.to_string(), factory);
     }
 
     /// Create a behavior module by name
     pub fn create_behavior(
         &self,
         name: &str,
-        thing: Arc<Locked<Object>>,
+        thing: Arc<RwLock<Object>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,

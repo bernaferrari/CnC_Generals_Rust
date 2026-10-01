@@ -7,6 +7,7 @@ use super::*;
 active_behavior_factories!(
     animation_steering_update_data_factory,
     animation_steering_update_module_factory,
+    animation_steering_update_module_factory_game,
     AnimationSteeringUpdateModuleData,
     AnimationSteeringUpdate,
     "AnimationSteeringUpdate"
@@ -14,6 +15,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     assisted_targeting_update_data_factory,
     assisted_targeting_update_module_factory,
+    assisted_targeting_update_module_factory_game,
     AssistedTargetingUpdateModuleData,
     AssistedTargetingUpdate,
     "AssistedTargetingUpdate"
@@ -21,6 +23,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     auto_deposit_update_data_factory,
     auto_deposit_update_module_factory,
+    auto_deposit_update_module_factory_game,
     AutoDepositUpdateModuleData,
     AutoDepositUpdate,
     "AutoDepositUpdate"
@@ -28,6 +31,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     auto_find_healing_update_data_factory,
     auto_find_healing_update_module_factory,
+    auto_find_healing_update_module_factory_game,
     AutoFindHealingUpdateModuleData,
     AutoFindHealingUpdate,
     "AutoFindHealingUpdate"
@@ -35,6 +39,7 @@ active_behavior_factories!(
 active_behavior_factories!(
     base_regenerate_update_data_factory,
     base_regenerate_update_module_factory,
+    base_regenerate_update_module_factory_game,
     BaseRegenerateUpdateModuleData,
     BaseRegenerateUpdate,
     "BaseRegenerateUpdate"

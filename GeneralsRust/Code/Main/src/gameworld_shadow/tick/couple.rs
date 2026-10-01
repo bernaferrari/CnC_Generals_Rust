@@ -83,6 +83,10 @@ struct CoupledShadowSlot {
     /// A scoped callback currently owns the sole mutable access.  A nested
     /// callback must fail closed instead of reborrowing the TLS raw pointer.
     borrowed: bool,
+    /// Live `with_coupled_shadow` frames on this stack. Ambient access fails
+    /// closed at 0, so a stale slot can never be dereferenced; restoring the
+    /// previous slot on scope exit is what decrements it.
+    scope_depth: u32,
 }
 
 thread_local! {
@@ -92,26 +96,28 @@ thread_local! {
             generation: 0,
             ptr: std::ptr::null_mut(),
             borrowed: false,
+            scope_depth: 0,
         })
     };
 }
 
-/// Clear the couple slot only when no `with_coupled_shadow` scope is live.
+/// Clear a leftover couple slot.
 ///
-/// A callback must not null the TLS pointer: the next `with_active_shadow`
-/// would miss the shadow, and `CoupledShadowScopeGuard` is what restores the
-/// previous slot on return or unwind.
+/// Bails while a scope frame or ambient borrow is live; those restore
+/// themselves. With no scope on the stack a non-null pointer is stale, and
+/// nulling it is what keeps later ambient access from touching freed memory.
 #[inline]
 pub fn clear_active_shadow_for_coupled_tick() {
     COUPLED_SHADOW.with(|c| {
         let slot = c.get();
-        if slot.borrowed || slot.generation != 0 || !slot.ptr.is_null() {
+        if slot.borrowed || slot.scope_depth > 0 {
             return;
         }
         c.set(CoupledShadowSlot {
             generation: 0,
             ptr: std::ptr::null_mut(),
             borrowed: false,
+            scope_depth: 0,
         });
     });
 }
@@ -136,7 +142,9 @@ impl Drop for CoupledShadowBorrowGuard {
 fn with_coupled_shadow_slot<R>(f: impl FnOnce(&mut GameWorldShadow) -> R) -> Option<R> {
     let (ptr, _borrow_guard) = COUPLED_SHADOW.with(|c| {
         let slot = c.get();
-        if slot.generation == 0 || slot.ptr.is_null() || slot.borrowed {
+        // No live scope frame means any published pointer is stale; fail
+        // closed instead of dereferencing it.
+        if slot.scope_depth == 0 || slot.generation == 0 || slot.ptr.is_null() || slot.borrowed {
             return None;
         }
         c.set(CoupledShadowSlot {
@@ -172,6 +180,8 @@ struct CoupledShadowScopeGuard {
 
 impl Drop for CoupledShadowScopeGuard {
     fn drop(&mut self) {
+        // Restoring `prev` also restores the previous scope_depth; the depth
+        // lives in the slot, so there is no second channel to forget.
         COUPLED_SHADOW.with(|c| c.set(self.prev));
     }
 }
@@ -205,10 +215,13 @@ pub fn with_coupled_shadow<R>(shadow: &mut GameWorldShadow, f: impl FnOnce() -> 
             g.set(next);
             next
         });
+        // scope_depth lives in the slot: publishing depth+1 here and the
+        // scope guard restoring `prev` verbatim is the whole depth protocol.
         c.set(CoupledShadowSlot {
             generation,
             ptr: shadow as *mut GameWorldShadow,
             borrowed: false,
+            scope_depth: prev.scope_depth.saturating_add(1),
         });
         prev
     });
