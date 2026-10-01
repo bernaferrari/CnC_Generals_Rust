@@ -254,6 +254,14 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    /// Per-state save/load. Default is a no-op; states with fields override it.
+    fn xfer_snapshot(
+        &mut self,
+        _xfer: &mut dyn game_engine::common::system::Xfer,
+    ) -> Result<(), String> {
+        Ok(())
+    }
     /// Implements this state's behavior, decides when to change state
     fn update(&mut self) -> StateReturnType;
 

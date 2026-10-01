@@ -310,11 +310,10 @@ impl AIPlayer {
                 if owner_neutral {
                     continue;
                 }
-                let Ok(target_team) = target_team_arc.read() else {
-                    continue;
-                };
-                let enemy = crate::player::with_player(player_index, |player_guard| {
-                    player_guard.get_relationship_with_team(&target_team) == Relationship::Enemies
+                let enemy = crate::team::with_team(target_team_arc, |target_team| {
+                    crate::player::with_player(player_index, |player_guard| {
+                        player_guard.get_relationship_with_team(target_team) == Relationship::Enemies
+                    }).unwrap_or(false)
                 }).unwrap_or(false);
                 if !enemy {
                     continue;
@@ -468,9 +467,9 @@ impl AIPlayer {
                 let is_enemy = obj_guard
                     .get_team()
                     .and_then(|team_arc| {
-                        team_arc.read().ok().map(|team| {
+                        crate::team::with_team(team_arc, |team| {
                             crate::player::with_player(player_index, |player_guard| {
-                                player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                                player_guard.get_relationship_with_team(team) == Relationship::Enemies
                             }).unwrap_or(false)
                         })
                     })
@@ -564,7 +563,7 @@ impl AIPlayer {
                             // Factory if any production interface.
                             let mut is_factory = false;
                             for behavior in obj_g.get_behavior_modules() {
-                                if let Ok(mut bg) = behavior.lock() {
+                                { let bg = behavior;
                                     if bg.get_production_update_interface().is_some() {
                                         is_factory = true;
                                         break;

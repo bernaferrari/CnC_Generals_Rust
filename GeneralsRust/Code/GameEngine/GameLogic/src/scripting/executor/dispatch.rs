@@ -892,16 +892,13 @@ impl ScriptActionDispatcher {
         let Ok(list) = player_list().read() else {
             return;
         };
-        let Some(player_arc) = list.find_player_by_name(&player_name) else {
+        let Some(player) = list.find_player_by_name(&player_name) else {
             log::warn!("Skirmish action: player '{}' not found", player_name);
             return;
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return;
-        };
 
-        let player_id = player_guard.get_player_index() as u32;
-        let _difficulty = player_guard.get_player_difficulty();
+        let player_id = player.get_player_index() as u32;
+        let _difficulty = player.get_player_difficulty();
 
         let _ = with_ai_integration_mut(|manager| {
             manager.with_ai_player_mut(player_id, |ai_player| {
@@ -970,7 +967,7 @@ impl ScriptActionDispatcher {
         &self,
         team_id: crate::team::TeamID,
     ) -> Option<(Coord3D, crate::object::ObjectID)> {
-        let members = crate::team::factory_access::with_team(team_id, |team| {
+        let members = crate::team::with_team(team_id, |team| {
             team.get_members().to_vec()
         })?;
         let mut sum = Coord3D::new(0.0, 0.0, 0.0);
@@ -1130,10 +1127,8 @@ impl ScriptActionDispatcher {
                 );
             }
             "indestructible" => {
-                if let Some(body) = obj.get_body_module() {
-                    if let Ok(mut body_guard) = body.lock() {
-                        let _ = body_guard.set_indestructible(new_val);
-                    }
+                if let Some(body) = obj.get_body_module_mut() {
+                    let _ = body.set_indestructible(new_val);
                 }
             }
             "unsellable" => {
@@ -1145,10 +1140,8 @@ impl ScriptActionDispatcher {
                 }
             }
             "airecruitable" => {
-                if let Some(ai) = obj.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_is_recruitable(new_val);
-                    }
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
+                    ai.set_is_recruitable(new_val);
                 }
             }
             "playertargetable" => {
@@ -1377,7 +1370,7 @@ impl ScriptActionDispatcher {
             }
         };
 
-        let _ = crate::team::factory_access::with_team_mut(team_id, |team| {
+        let _ = crate::team::with_team_mut(team_id, |team| {
             team.add_member(object_id);
         });
 
@@ -1411,7 +1404,7 @@ impl ScriptActionDispatcher {
     ) -> Result<Arc<RwLock<AiGroup>>, ScriptError> {
         // Get team
         let team_id = self.get_team_by_name(team_name)?;
-        let members = crate::team::factory_access::with_team(team_id, |team| {
+        let members = crate::team::with_team(team_id, |team| {
             team.get_members().to_vec()
         })
         .ok_or_else(|| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
@@ -1448,16 +1441,14 @@ impl ScriptActionDispatcher {
 
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_id) = factory.find_team(&team_name) {
-                let members = crate::team::factory_access::with_team(team_id, |team| {
+                let members = crate::team::with_team(team_id, |team| {
                     team.get_members().to_vec()
                 });
                 if let Some(members) = members {
                     for obj_id in members {
-                        let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                            if let Some(ai) = obj.get_ai_update_interface() {
-                                if let Ok(mut ai_write) = ai.lock() {
-                                    let _ = ai_write.execute_command(params);
-                                }
+                        let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |obj| {
+                            if let Some(ai) = obj.get_ai_update_interface_mut() {
+                                let _ = ai.execute_command(params);
                             }
                         });
                     }

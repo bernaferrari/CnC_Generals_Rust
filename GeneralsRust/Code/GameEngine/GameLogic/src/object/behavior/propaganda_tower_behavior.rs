@@ -375,16 +375,13 @@ impl PropagandaTowerBehavior {
             }
 
             if let Some(body) = target.get_body_module() {
-                let amount = if let Ok(body_guard) = body.lock() {
-                    let health_percent = if effect_upgraded {
-                        self.module_data.upgraded_auto_heal_percent_per_second
-                    } else {
-                        self.module_data.auto_heal_percent_per_second
-                    };
-                    (health_percent / LOGICFRAMES_PER_SECOND as f32) * body_guard.get_max_health()
+                let health_percent = if effect_upgraded {
+                    self.module_data.upgraded_auto_heal_percent_per_second
                 } else {
-                    return;
+                    self.module_data.auto_heal_percent_per_second
                 };
+                let amount =
+                    (health_percent / LOGICFRAMES_PER_SECOND as f32) * body.get_max_health();
                 let _ = target.attempt_healing_from_sole_benefactor_id(
                     amount,
                     tower.get_id(),

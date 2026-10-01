@@ -1222,7 +1222,7 @@ pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
     if ids.is_empty() {
         if let Ok(factory) = crate::team::get_team_factory().lock() {
             for team_id in factory.find_team_instances(team_name) {
-                if let Some(members) = crate::team::factory_access::with_team(team_id, |team| {
+                if let Some(members) = crate::team::with_team(team_id, |team| {
                     team.get_members().to_vec()
                 }) {
                     ids.extend(members);

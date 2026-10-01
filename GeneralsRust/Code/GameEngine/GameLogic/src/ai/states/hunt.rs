@@ -101,7 +101,7 @@ impl AIHuntState {
         let mut attack_common_target = false;
         let mut team_victim: Option<ObjectID> = None;
         if let Some(team) = team_arc.as_ref() {
-            if let Ok(team_guard) = team.read() {
+            crate::team::with_team(team, |team_guard| {
                 attack_common_target = team_guard.attack_common_target();
                 if attack_common_target {
                     let team_target = team_guard.get_team_target_object();
@@ -109,7 +109,7 @@ impl AIHuntState {
                         team_victim = Some(team_target);
                     }
                 }
-            }
+            });
         }
 
         let mut victim = if team_victim.is_some() && attack_info.is_none() {
@@ -183,9 +183,9 @@ impl AIHuntState {
             }
 
             if let Some(team) = team_arc.as_ref() {
-                if let Ok(mut team_guard) = team.write() {
+                crate::team::with_team_mut(team, |team_guard| {
                     team_guard.set_team_target_object(victim.unwrap_or(INVALID_ID));
-                }
+                });
             }
         }
 

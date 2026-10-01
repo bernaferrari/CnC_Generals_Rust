@@ -662,26 +662,19 @@ impl ScriptCondition for StructureBuiltCondition {
         if let Ok(manager) = obj_manager.read() {
             let owned_objects = manager.get_objects_owned_by_player(player as u32);
             for obj_id in owned_objects {
-                if let Some(obj_arc) = /*slot*/ OBJECT_REGISTRY.with_object(obj_id) {
-                    let (template_name, base_arc) = match obj_Ok(arc) {
-                        Ok(obj) => (
-                            obj.template.as_ref().map(|t| t.get_name().to_string()),
-                            Some(obj.base()),
-                        ),
-                        Err(_) => (None, None),
-                    };
-                    if let (Some(template_name), Some(base_arc)) = (template_name, base_arc) {
-                        let base = base_arc;
-{
-                            // Check if it's a structure and matches the building type
-                            if template_name.eq_ignore_ascii_case(&building_type) {
-                                use crate::common::KindOf;
-                                if base.is_kind_of(KindOf::Structure) {
-                                    return Ok(true);
-                                }
-                            }
-                        }
-                    }
+                let built = OBJECT_REGISTRY
+                    .with_object(obj_id, |obj| {
+                        let Some(template_name) =
+                            obj.template.as_ref().map(|t| t.get_name().to_string())
+                        else {
+                            return false;
+                        };
+                        template_name.eq_ignore_ascii_case(&building_type)
+                            && obj.base().is_kind_of(crate::common::KindOf::Structure)
+                    })
+                    .unwrap_or(false);
+                if built {
+                    return Ok(true);
                 }
             }
         }
@@ -734,14 +727,13 @@ impl ScriptCondition for UnitTypeCountExceedsCondition {
         if let Ok(manager) = obj_manager.read() {
             let owned_objects = manager.get_objects_owned_by_player(player as u32);
             for obj_id in owned_objects {
-                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                        if let Some(template) = &obj.template {
-                            if template.get_name().eq_ignore_ascii_case(&unit_type) {
-                                actual_count += 1;
-                            }
+                let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                    if let Some(template) = &obj.template {
+                        if template.get_name().eq_ignore_ascii_case(&unit_type) {
+                            actual_count += 1;
                         }
                     }
-                }
+                });
             }
         }
 

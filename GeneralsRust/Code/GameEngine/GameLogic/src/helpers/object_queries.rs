@@ -1148,8 +1148,8 @@ fn teams_are_enemies(local_team: Option<crate::team::TeamID>, obj_team: Option<c
     if local_team == obj_team {
         return false;
     }
-    crate::team::factory_access::with_team(local_team, |team_guard| {
-        crate::team::factory_access::with_team(obj_team, |obj_team_guard| {
+    crate::team::with_team(local_team, |team_guard| {
+        crate::team::with_team(obj_team, |obj_team_guard| {
             team_guard.get_relationship(obj_team_guard) == crate::common::Relationship::Enemies
         })
         .unwrap_or(false)
@@ -1164,8 +1164,8 @@ fn teams_are_allies(local_team: Option<crate::team::TeamID>, obj_team: Option<cr
     if local_team == obj_team {
         return true;
     }
-    crate::team::factory_access::with_team(local_team, |team_guard| {
-        crate::team::factory_access::with_team(obj_team, |obj_team_guard| {
+    crate::team::with_team(local_team, |team_guard| {
+        crate::team::with_team(obj_team, |obj_team_guard| {
             matches!(
                 team_guard.get_relationship(obj_team_guard),
                 crate::common::Relationship::Allies

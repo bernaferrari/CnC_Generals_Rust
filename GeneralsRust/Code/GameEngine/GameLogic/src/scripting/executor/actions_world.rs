@@ -373,19 +373,15 @@ impl ScriptActionDispatcher {
         })?;
 
         if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr.reveal_map_for_player(player.get_player_index() as u32);
-                }
+            if let Some(player) = players.find_player_by_name(&player_name) {
+                let _ = shroud_mgr.reveal_map_for_player(player.get_player_index() as u32);
                 return Ok(ScriptActionResult::Success);
             }
         }
 
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr.reveal_map_for_player(player.get_player_index() as u32);
-                }
+        for player in players.iter() {
+            if player.get_player_type() == PlayerType::Human {
+                let _ = shroud_mgr.reveal_map_for_player(player.get_player_index() as u32);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -407,21 +403,15 @@ impl ScriptActionDispatcher {
         })?;
 
         if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr
-                        .reveal_map_for_player_permanently(player.get_player_index() as u32);
-                }
+            if let Some(player) = players.find_player_by_name(&player_name) {
+                let _ = shroud_mgr.reveal_map_for_player_permanently(player.get_player_index() as u32);
                 return Ok(ScriptActionResult::Success);
             }
         }
 
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr
-                        .reveal_map_for_player_permanently(player.get_player_index() as u32);
-                }
+        for player in players.iter() {
+            if player.get_player_type() == PlayerType::Human {
+                let _ = shroud_mgr.reveal_map_for_player_permanently(player.get_player_index() as u32);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -443,21 +433,15 @@ impl ScriptActionDispatcher {
         })?;
 
         if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr
-                        .undo_reveal_map_for_player_permanently(player.get_player_index() as u32);
-                }
+            if let Some(player) = players.find_player_by_name(&player_name) {
+                let _ = shroud_mgr.undo_reveal_map_for_player_permanently(player.get_player_index() as u32);
                 return Ok(ScriptActionResult::Success);
             }
         }
 
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr
-                        .undo_reveal_map_for_player_permanently(player.get_player_index() as u32);
-                }
+        for player in players.iter() {
+            if player.get_player_type() == PlayerType::Human {
+                let _ = shroud_mgr.undo_reveal_map_for_player_permanently(player.get_player_index() as u32);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -479,19 +463,15 @@ impl ScriptActionDispatcher {
         })?;
 
         if !player_name.is_empty() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    let _ = shroud_mgr.shroud_map_for_player(player.get_player_index() as u32);
-                }
+            if let Some(player) = players.find_player_by_name(&player_name) {
+                let _ = shroud_mgr.shroud_map_for_player(player.get_player_index() as u32);
                 return Ok(ScriptActionResult::Success);
             }
         }
 
-        for player_arc in players.iter() {
-            if let Ok(player) = player_arc.read() {
-                if player.get_player_type() == PlayerType::Human {
-                    let _ = shroud_mgr.shroud_map_for_player(player.get_player_index() as u32);
-                }
+        for player in players.iter() {
+            if player.get_player_type() == PlayerType::Human {
+                let _ = shroud_mgr.shroud_map_for_player(player.get_player_index() as u32);
             }
         }
         Ok(ScriptActionResult::Success)
@@ -542,14 +522,11 @@ impl ScriptActionDispatcher {
         let border_index = self.get_int_param(action, 0)?;
         log::debug!("Switching map border to '{}'", border_index);
 
-        let mut observer_player_index: Option<u32> = None;
-        if let Ok(players) = player_list().read() {
-            if let Some(observer) = players.find_player_by_name("ReplayObserver") {
-                if let Ok(observer_guard) = observer.read() {
-                    observer_player_index = Some(observer_guard.get_player_index() as u32);
-                }
-            }
-        }
+        let observer_player_index = player_list().read().ok().and_then(|players| {
+            players
+                .find_player_by_name("ReplayObserver")
+                .map(|observer| observer.get_player_index() as u32)
+        });
 
         if let Some(observer_index) = observer_player_index {
             if let Ok(mut shroud_mgr) = crate::system::shroud_manager::get_shroud_manager().lock() {
@@ -901,19 +878,16 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let team_arc = get_team_factory()
+        let team_id = get_team_factory()
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name));
-        let Some(team_arc) = team_arc else {
+        let Some(team_id) = team_id else {
             return Ok(ScriptActionResult::Success);
         };
 
-        let member_ids = if let Ok(team_guard) = team_arc.read() {
-            team_guard.get_members().to_vec()
-        } else {
-            Vec::new()
-        };
+        let member_ids = crate::team::with_team(team_id, |team| team.get_members().to_vec())
+            .unwrap_or_default();
 
         let mut best_guess: Option<ObjectID> = None;
         for member_id in member_ids {
@@ -949,8 +923,7 @@ impl ScriptActionDispatcher {
         let local_player_mask = player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_mask()))
+            .and_then(|list| list.get_local_player().map(|player| player.get_player_mask()))
             .unwrap_or(crate::common::PLAYERMASK_ALL);
 
         let selected_pos = OBJECT_REGISTRY
@@ -963,14 +936,12 @@ impl ScriptActionDispatcher {
 
         if !audio_to_play.is_empty() {
             let mut audio_event = crate::common::audio::AudioEventRts::new(audio_to_play.as_str());
-            if let Some(local_player) = player_list()
+            if let Some(index) = player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player().cloned())
+                .and_then(|list| list.get_local_player().map(|player| player.get_player_index() as u32))
             {
-                if let Ok(local_guard) = local_player.read() {
-                    audio_event.set_player_index(local_guard.get_player_index() as u32);
-                }
+                audio_event.set_player_index(index);
             }
             if let Some(audio) = TheAudio::get() {
                 let _ = audio.add_audio_event(&audio_event);
@@ -1144,9 +1115,7 @@ impl ScriptActionDispatcher {
         if let Ok(Some(object_id)) = tracker.get_object_id(&cave_name) {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                     if let Some(contain) = obj_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            contain_guard.try_to_set_cave_index(cave_index);
-                        }
+                        contain.try_to_set_cave_index(cave_index);
                     }
                 });
         }
@@ -1215,13 +1184,9 @@ impl ScriptActionDispatcher {
         );
         super::request_host_set_base_construction_speed(&player_name, delay_seconds);
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_team_delay_seconds(delay_seconds);
-                };
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_team_delay_seconds(delay_seconds);
+        });
 
         Ok(ScriptActionResult::Success)
     }

@@ -174,8 +174,7 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
         let Some(contain) = contain.flatten() else {
             return;
         };
-        use crate::modules::;
-        let _ = contain.on_selling();
+                let _ = contain.on_selling();
     }
 }
 

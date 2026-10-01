@@ -328,9 +328,9 @@ impl AIMoveAndEvacuateState {
         }
 
         if let Some(team) = owner.get_team() {
-            if let Ok(mut team_guard) = team.write() {
+            crate::team::with_team_mut(team, |team_guard| {
                 team_guard.set_active();
-            }
+            });
         }
     }
 }

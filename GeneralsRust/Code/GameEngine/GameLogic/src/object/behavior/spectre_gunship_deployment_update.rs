@@ -223,17 +223,17 @@ impl SpectreGunshipDeploymentUpdate {
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
         let mut func = Some(func);
-        let obj_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        })?;
-        let obj = obj_arc.read().ok()?;
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
         let template = self.module_data.special_power_template.as_ref()?;
-        obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
-            let func = func.take().expect("special power callback already used");
-            func(module)
-        })
+        let name = template.get_name().clone();
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            obj.with_special_power_module_mut_by_name(&name, |module| {
+                let func = func.take().expect("special power callback already used");
+                func(module)
+            })
+        })?
     }
 
     fn compute_creation_point(&self, source: Coord3D, target: Coord3D) -> Coord3D {
@@ -265,25 +265,19 @@ impl UpdateModuleInterface for SpectreGunshipDeploymentUpdate {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        let Some(sleep) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            if obj.test_status(ObjectStatusTypes::Sold)
+                || obj.is_under_construction()
+                || obj.is_effectively_dead()
+            {
+                UpdateSleepTime::Forever
+            } else {
+                UpdateSleepTime::None
+            }
         }) else {
             return Ok(UpdateSleepTime::None);
         };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(UpdateSleepTime::None);
-        };
-
-        if obj.test_status(ObjectStatusTypes::Sold)
-            || obj.is_under_construction()
-            || obj.is_effectively_dead()
-        {
-            return Ok(UpdateSleepTime::Forever);
-        }
-
-        Ok(UpdateSleepTime::None)
+        return Ok(sleep);
     }
 
     fn get_disabled_types_to_process(&self) -> DisabledMaskType {
@@ -301,20 +295,15 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
             return false;
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        let Some(passes) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            does_special_power_update_pass_science_test_for_object(
+                obj,
+                self.get_extra_required_science(),
+            )
         }) else {
             return false;
         };
-        let Ok(obj) = obj_arc.read() else {
-            return false;
-        };
-        does_special_power_update_pass_science_test_for_object(
-            &obj,
-            self.get_extra_required_science(),
-        )
+        passes
     }
 
     fn get_extra_required_science(&self) -> ScienceType {
@@ -353,85 +342,87 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
             self.initial_target_position = *target_pos;
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
+        let owner_id = self.object_id;
+        if owner_id == crate::common::INVALID_ID
+            || crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |_| ())
+                .is_none()
+        {
             return false;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return false;
-        };
+        }
 
-        if TheGameLogic::find_object_by_id(self.gunship_id).is_some() {
+        let target_pos = *target_pos;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.gunship_id, |_| ())
+            .is_some()
+        {
             self.gunship_id = crate::common::INVALID_ID;
         }
 
-        let mut gunship_arc = None;
-        if let (Some(gunship_template), Some(team)) = (
-            TheThingFactory::find_template(self.module_data.gunship_template_name.as_str()),
-            obj.get_team(),
-        ) {
-            if let (Ok(team_guard), Ok(factory)) = (team.read(), TheThingFactory::get()) {
-                if let Ok(new_gunship) = factory.new_object(gunship_template, &*team_guard) {
-                    gunship_arc = Some(new_gunship);
-                }
-            }
-        }
-
-        if let Some(gunship_arc) = gunship_arc.as_ref() {
-            if let Ok(mut gunship) = gunship_arc.write() {
-                gunship.set_producer(Some(&*obj));
-                let source_pos = *obj.get_position();
-                let mut creation_coord = self.compute_creation_point(source_pos, *target_pos);
-                let mut delta = self.initial_target_position - creation_coord;
-                let dist = delta.length();
-                if dist > 0.0 {
-                    delta = delta.normalize() * (dist + self.module_data.gunship_orbit_radius);
-                    creation_coord = self.initial_target_position - delta;
-                }
-                creation_coord.z = gunship
-                    .get_ai_update_interface()
-                    .and_then(|ai| ai.get_preferred_height())
-                    .unwrap_or(0.0);
-                let _ = gunship.set_position(&creation_coord);
-                let orient = (self.initial_target_position.y - creation_coord.y)
-                    .atan2(self.initial_target_position.x - creation_coord.x);
-                let _ = gunship.set_orientation(orient);
-            }
-
-            self.gunship_id = gunship_arc
-                .read()
-                .map(|o| o.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-
-            if let Ok(gunship) = gunship_arc.write() {
-                let _ = gunship.with_special_power_module_mut_by_name(
-                    special_power_template.get_name(),
-                    |sp| {
-                        let loc = self.initial_target_position;
+        let gunship_id = {
+            let template_name = self.module_data.gunship_template_name.clone();
+            let orbit = self.module_data.gunship_orbit_radius;
+            let initial = self.initial_target_position;
+            let (team_id, source_pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |obj| (obj.get_team(), *obj.get_position()))
+                .unwrap_or((None, Coord3D::ZERO));
+            let created = if let (Some(gunship_template), Some(team_id)) = (
+                TheThingFactory::find_template(template_name.as_str()),
+                team_id,
+            ) {
+                TheThingFactory::get().ok().and_then(|factory| {
+                    crate::team::with_team(team_id, |team| {
+                        factory.new_object(gunship_template, team).ok()
+                    })
+                    .flatten()
+                })
+            } else {
+                None
+            };
+            if let Some(gunship_id) = created {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(gunship_id, |gunship| {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj| {
+                        gunship.set_producer(Some(obj));
+                    });
+                    let mut creation_coord = self.compute_creation_point(source_pos, target_pos);
+                    let mut delta = initial - creation_coord;
+                    let dist = delta.length();
+                    if dist > 0.0 {
+                        delta = delta.normalize() * (dist + orbit);
+                        creation_coord = initial - delta;
+                    }
+                    creation_coord.z = gunship
+                        .get_ai_update_interface()
+                        .and_then(|ai| ai.get_preferred_height())
+                        .unwrap_or(0.0);
+                    let _ = gunship.set_position(&creation_coord);
+                    let orient = (initial.y - creation_coord.y)
+                        .atan2(initial.x - creation_coord.x);
+                    let _ = gunship.set_orientation(orient);
+                    let power_name = special_power_template.get_name().clone();
+                    let loc = initial;
+                    let _ = gunship.with_special_power_module_mut_by_name(&power_name, |sp| {
                         sp.mark_special_power_triggered(Some(&loc));
                         sp.do_special_power_at_location(&loc, INVALID_ANGLE, command_options);
-                    },
-                );
-            }
-
-            if let Some(player_arc) = obj.get_controlling_player() {
-                if let Ok(player) = player_arc.read() {
-                    if let Ok(gunship) = gunship_arc.read() {
-                        let _ = TheGameLogic::select_object(
-                            &*gunship,
-                            true,
-                            player.get_player_mask(),
-                            true,
-                        );
+                    });
+                });
+                let player_index = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner_id, |obj| obj.get_controlling_player())
+                    .flatten();
+                if let Some(player_index) = player_index {
+                    let mask = crate::player::with_player(player_index, |player| player.get_player_mask());
+                    if let Some(mask) = mask {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(gunship_id, |gunship| {
+                            TheGameLogic::select_object(gunship, true, mask, true)
+                        });
                     }
                 }
+                Some(gunship_id)
+            } else {
+                None
             }
-        } else {
-            self.gunship_id = crate::common::INVALID_ID;
-        }
+        };
+        self.gunship_id = gunship_id.unwrap_or(crate::common::INVALID_ID);
 
         let location = self.initial_target_position;
         let _ = self.with_special_power_module(|module| {
@@ -504,21 +495,14 @@ impl BehaviorModuleInterface for SpectreGunshipDeploymentUpdate {
             return Ok(());
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
-            return Ok(());
-        };
-        let obj = obj_arc.read().ok();
-        if let Some(obj) = obj {
-            if let Some(template) = &self.module_data.special_power_template {
-                let _ = template;
-            } else {
+        if self.module_data.special_power_template.is_none() {
+            let name = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |obj| obj.get_template().get_name().to_string())
+                .unwrap_or_default();
+            if !name.is_empty() {
                 return Err(format!(
                     "SpectreGunshipDeploymentUpdate missing SpecialPowerTemplate on object {}",
-                    obj.get_template().get_name().as_str()
+                    name
                 )
                 .into());
             }

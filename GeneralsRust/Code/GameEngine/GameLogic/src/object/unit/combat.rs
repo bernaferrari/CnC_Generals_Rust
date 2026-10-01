@@ -75,10 +75,8 @@ impl Unit {
         if self.attack_move_active && self.movement_state == MovementState::Attacking {
             const ATTACK_MOVE_SHOT_GRACE: u32 = 15;
             let current_frame = TheGameLogic::get_frame() as u32;
-            let last_shot = self
-                .base_arc()
-                .read()
-                .map(|guard| guard.get_last_shot_fired_frame())
+            let last_shot = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.base_arc(), |guard| guard.get_last_shot_fired_frame())
                 .unwrap_or(0);
             if current_frame >= self.attack_move_resume_frame
                 && current_frame.saturating_sub(last_shot) > ATTACK_MOVE_SHOT_GRACE
@@ -162,10 +160,8 @@ impl Unit {
         }
 
         if !self.auto_acquire_while_stealthed
-            && self
-                .base_arc()
-                .read()
-                .map(|guard| guard.is_stealthed())
+            && crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.base_arc(), |guard| guard.is_stealthed())
                 .unwrap_or(false)
         {
             return Ok(());
@@ -261,11 +257,8 @@ impl Unit {
         let (target_pos, target_relationship, detected) = crate::object::registry::OBJECT_REGISTRY
             .with_object(target_id, |g| {
                 let pos = Some(*g.get_position());
-                let rel = self
-                    .base_arc()
-                    .read()
-                    .ok()
-                    .map(|me| me.relationship_to(g))
+                let rel = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.base_arc(), |me| me.relationship_to(g))
                     .unwrap_or(Relationship::Neutral);
                 let detected = g.is_detected();
                 (pos, rel, detected)
@@ -344,11 +337,13 @@ impl Unit {
         const TARGET_LOCK_GRACE: u32 = 30;
 
         let current_frame = TheGameLogic::get_frame() as u32;
-        if let Ok(guard) = self.base_arc().read() {
-            let last_shot = guard.get_last_shot_fired_frame();
-            if current_frame.saturating_sub(last_shot) < TARGET_LOCK_GRACE {
-                return false;
-            }
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| {
+                current_frame.saturating_sub(guard.get_last_shot_fired_frame()) < TARGET_LOCK_GRACE
+            })
+            .unwrap_or(false)
+        {
+            return false;
         }
         if current_frame < self.attack_target_lock_until {
             return false;
@@ -357,11 +352,8 @@ impl Unit {
         if let Some(target_id) = self.attack_target {
             if crate::object::registry::OBJECT_REGISTRY
                 .with_object(target_id, |target_guard| {
-                    let is_enemy = self
-                        .base_arc()
-                        .read()
-                        .ok()
-                        .map(|guard| guard.relationship_to(target_guard))
+                    let is_enemy = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.base_arc(), |guard| guard.relationship_to(target_guard))
                         == Some(Relationship::Enemies);
                     if !is_enemy {
                         return false;
@@ -383,12 +375,11 @@ impl Unit {
             return false;
         }
 
-        let offset = self.base_arc().try_read().ok().and_then(|obj| {
-            let ai = obj.get_ai()?;
-            drop(obj);
-            let mut ai_guard = ai.try_lock().ok()?;
-            Some(ai_guard.take_random_mood_offset())
-        });
+        let offset = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.base_arc(), |obj| {
+                obj.get_ai_mut().map(|ai| ai.take_random_mood_offset())
+            })
+            .flatten();
         if offset == Some(true) {
             let half = (interval / 2) as i32;
             let jitter = crate::helpers::get_game_logic_random_value(-half, half);
@@ -409,21 +400,16 @@ impl Unit {
             return None;
         }
         let all_object_ids = crate::object::registry::OBJECT_REGISTRY.get_all_object_ids();
-        let self_id = self
-            .base_arc()
-            .read()
-            .map(|guard| guard.get_id())
+        let self_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| guard.get_id())
             .unwrap_or(0);
         let mut closest: Option<(ObjectID, Real)> = None;
 
         if let Some(current_target) = self.attack_target {
             if let Some(dist_to_self) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(current_target, |target_guard| {
-                    let is_enemy = self
-                        .base_arc()
-                        .read()
-                        .ok()
-                        .map(|guard| guard.relationship_to(target_guard))
+                    let is_enemy = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.base_arc(), |guard| guard.relationship_to(target_guard))
                         == Some(Relationship::Enemies);
                     if !is_enemy {
                         return None;
@@ -463,13 +449,9 @@ impl Unit {
                 return;
             }
 
-            if !matches!(
-                self.base_arc()
-                    .read()
-                    .ok()
-                    .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemies)
-            ) {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.base_arc(), |guard| guard.relationship_to(obj_guard))
+                != Some(Relationship::Enemies) {
                 return;
             }
 
@@ -532,10 +514,8 @@ impl Unit {
             return None;
         }
         let all_object_ids = crate::object::registry::OBJECT_REGISTRY.get_all_object_ids();
-        let self_id = self
-            .base_arc()
-            .read()
-            .map(|guard| guard.get_id())
+        let self_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| guard.get_id())
             .unwrap_or(0);
         let mut closest: Option<(ObjectID, Real)> = None;
 
@@ -553,13 +533,9 @@ impl Unit {
                 return;
             }
 
-            if !matches!(
-                self.base_arc()
-                    .read()
-                    .ok()
-                    .map(|guard| guard.relationship_to(&obj_guard)),
-                Some(Relationship::Enemies)
-            ) {
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.base_arc(), |guard| guard.relationship_to(obj_guard))
+                != Some(Relationship::Enemies) {
                 return;
             }
 
@@ -614,11 +590,8 @@ impl Unit {
         self.can_detect_target_distance(distance)
     }
     pub(super) fn can_detect_target_distance(&self, distance: Real) -> bool {
-        let base_range = self
-            .base_arc()
-            .read()
-            .ok()
-            .map(|guard| guard.get_stealth_detection_range() as Real)
+        let base_range = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| guard.get_stealth_detection_range() as Real)
             .unwrap_or(0.0);
         let detection_range = self.stealth_detection_range.max(base_range);
 
@@ -629,37 +602,28 @@ impl Unit {
         distance <= detection_range
     }
     pub(super) fn is_under_attack(&self) -> bool {
-        let Some(body) = self
-            .base_arc()
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_body_module())
-        else {
-            return false;
-        };
-
-        let Ok(body_guard) = body.lock() else {
-            return false;
-        };
-
-        let Some(last) = body_guard.get_last_damage_info() else {
-            return false;
-        };
-
-        if matches!(
-            last.input.damage_type,
-            DamageType::Healing | DamageType::Penalty
-        ) {
-            return false;
-        }
-
-        let last_frame = body_guard.get_last_damage_timestamp();
-        if last_frame == u32::MAX {
-            return false;
-        }
-
         let current_frame = TheGameLogic::get_frame() as u32;
-        current_frame.saturating_sub(last_frame) <= LOGICFRAMES_PER_SECOND
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| {
+                let Some(body) = guard.get_body_module() else {
+                    return false;
+                };
+                let Some(last) = body.get_last_damage_info() else {
+                    return false;
+                };
+                if matches!(
+                    last.input.damage_type,
+                    DamageType::Healing | DamageType::Penalty
+                ) {
+                    return false;
+                }
+                let last_frame = body.get_last_damage_timestamp();
+                if last_frame == u32::MAX {
+                    return false;
+                }
+                current_frame.saturating_sub(last_frame) <= LOGICFRAMES_PER_SECOND
+            })
+            .unwrap_or(false)
     }
     pub(super) fn is_currently_attacking(&self) -> bool {
         matches!(
@@ -677,10 +641,8 @@ impl Unit {
         }
 
         if !self.auto_acquire_while_stealthed {
-            let stealthed = self
-                .base_arc()
-                .read()
-                .map(|guard| guard.is_stealthed())
+            let stealthed = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.base_arc(), |guard| guard.is_stealthed())
                 .unwrap_or(false);
             if stealthed {
                 return false;

@@ -22,7 +22,7 @@ use crate::helpers::{
 };
 use crate::locomotor::LocomotorSet;
 use crate::modules::{
-    AIUpdateInterfaceExt, BodyModuleGuardExt, ContainModuleInterface, ContainWant, ExitDoorType,
+    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType,
     UpdateSleepTime,
 };
 use crate::object::drawable::{Drawable, DrawableArcExt};

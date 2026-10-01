@@ -116,18 +116,18 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         if self.core.move_as_group {
             if self.core.current_waypoint.is_none() {
                 if let Some(team_arc) = owner_guard.get_team() {
-                    if let Ok(team) = team_arc.read() {
+                    crate::team::with_team(team_arc, |team| {
                         self.core.current_waypoint = team
                             .get_current_waypoint_id()
                             .and_then(resolve_waypoint_by_id);
-                    }
+                    });
                 }
             }
             if let Some(current) = self.core.current_waypoint.as_ref() {
                 if let Some(team) = owner_guard.get_team() {
-                    if let Ok(mut team_guard) = team.write() {
+                    crate::team::with_team_mut(team, |team_guard| {
                         team_guard.set_current_waypoint_id(Some(current.id));
-                    }
+                    });
                 }
             }
             if let Some(group_id) = owner_guard.get_group_id() {
@@ -214,7 +214,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         let stepped = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         if self.core.move_as_group {
             if let Some(team) = owner_guard.get_team() {
-                if let Ok(team_guard) = team.read() {
+                crate::team::with_team(team, |team_guard| {
                     if team_guard.get_current_waypoint_id()
                         != self.core.current_waypoint.as_ref().map(|w| w.id)
                     {
@@ -247,7 +247,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                                 .update_goal_position(&self.core.goal_position, self.core.goal_layer);
                         }
                     }
-                }
+                });
             }
         }
         let frames_blocked = ai.get_num_frames_blocked();
@@ -282,9 +282,9 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         if let Some(current) = next.as_ref() {
             ai.set_current_waypoint_id(current.id);
             if let Some(team) = team {
-                if let Ok(mut team_guard) = team.write() {
+                crate::team::with_team_mut(team, |team_guard| {
                     team_guard.set_current_waypoint_id(Some(current.id));
-                }
+                });
             }
         }
         if next.is_none() {
@@ -424,18 +424,18 @@ impl AIFollowWaypointPathAsTeamState {
         if self.core.move_as_group {
             if self.core.current_waypoint.is_none() {
                 if let Some(team_arc) = owner_guard.get_team() {
-                    if let Ok(team) = team_arc.read() {
+                    crate::team::with_team(team_arc, |team| {
                         self.core.current_waypoint = team
                             .get_current_waypoint_id()
                             .and_then(resolve_waypoint_by_id);
-                    }
+                    });
                 }
             }
             if let Some(current) = self.core.current_waypoint.as_ref() {
                 if let Some(team) = owner_guard.get_team() {
-                    if let Ok(mut team_guard) = team.write() {
+                    crate::team::with_team_mut(team, |team_guard| {
                         team_guard.set_current_waypoint_id(Some(current.id));
-                    }
+                    });
                 }
             }
             if let Some(group_id) = owner_guard.get_group_id() {
@@ -537,7 +537,7 @@ impl AIFollowWaypointPathAsTeamState {
 
         if self.core.move_as_group {
             if let Some(team) = owner_guard.get_team() {
-                if let Ok(team_guard) = team.read() {
+                crate::team::with_team(team, |team_guard| {
                     if team_guard.get_current_waypoint_id()
                         != self.core.current_waypoint.as_ref().map(|w| w.id)
                     {
@@ -564,7 +564,7 @@ impl AIFollowWaypointPathAsTeamState {
                             );
                         }
                     }
-                }
+                });
             }
         }
 
@@ -651,9 +651,9 @@ impl AIFollowWaypointPathAsTeamState {
             if let Some(current) = self.core.current_waypoint.as_ref() {
                 if self.core.move_as_group {
                     if let Some(team) = owner_guard.get_team() {
-                        if let Ok(mut team_guard) = team.write() {
+                        crate::team::with_team_mut(team, |team_guard| {
                             team_guard.set_current_waypoint_id(Some(current.id));
-                        }
+                        });
                     }
                 }
             }

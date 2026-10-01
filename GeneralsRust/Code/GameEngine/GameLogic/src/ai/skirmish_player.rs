@@ -765,7 +765,7 @@ impl AISkirmishPlayer {
                                         {
                                             if let Ok(dg) = dozer_arc.read() {
                                                 if let Some(ai) = dg.get_ai_update_interface() {
-                                                    if let Ok(mut ai_g) = ai.lock() {
+                                                    { let ai_g = ai;
                                                         let mut params =
                                                             crate::ai::AiCommandParams::new(
                                                                 crate::ai::AiCommandType::ResumeConstruction,
@@ -785,7 +785,7 @@ impl AISkirmishPlayer {
                                     {
                                         if let Ok(dg) = builder_arc.read() {
                                             if let Some(ai) = dg.get_ai_update_interface() {
-                                                if let Ok(mut ai_g) = ai.lock() {
+                                                { let ai_g = ai;
                                                     let mut params =
                                                         crate::ai::AiCommandParams::new(
                                                             crate::ai::AiCommandType::ResumeConstruction,
@@ -822,7 +822,7 @@ impl AISkirmishPlayer {
                             }
                             let candidate_id = candidate_guard.get_id();
                             let matched_hole = candidate_guard.get_behavior_modules().iter().any(|behavior| {
-                                behavior.lock().ok().and_then(|mut bg| {
+                                ({ let bg = behavior;  }).and_then(|mut bg| {
                                     bg.get_rebuild_hole_behavior_interface().map(|rhbi| {
                                         rhbi.get_spawner_id() == prior_id
                                     })

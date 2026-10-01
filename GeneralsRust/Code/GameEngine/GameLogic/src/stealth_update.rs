@@ -15,7 +15,7 @@ use crate::modules::{
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
-use crate::player::{PlayerArcExt, player_list};
+use crate::player::{player_list};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -695,8 +695,8 @@ impl StealthController {
                     }
                 }
                 let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
-                    if let Some(physics) = obj.get_physics() {
-                        crate::modules::::reset_dynamic_physics(&physics);
+                    if let Some(physics) = obj.get_physics_mut() {
+                        physics.reset_dynamic_physics();
                     }
                     let _ = obj.set_position(&pos);
                 });

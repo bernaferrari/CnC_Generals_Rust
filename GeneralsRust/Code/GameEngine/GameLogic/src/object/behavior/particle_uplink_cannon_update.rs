@@ -1629,8 +1629,8 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         let mask = crate::object::registry::OBJECT_REGISTRY.with_object(
                             self.object_id,
                             |obj_guard| {
-                                obj_guard.get_controlling_player().and_then(|player| {
-                                    player.read().ok().map(|g| g.get_player_mask().bits())
+                                obj_guard.get_controlling_player().and_then(|index| {
+                                    crate::player::with_player(index, |player| player.get_player_mask().bits())
                                 })
                             },
                         );
@@ -1671,8 +1671,8 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                             .with_object(self.object_id, |obj_guard| {
                                 let mask = obj_guard
                                     .get_controlling_player()
-                                    .and_then(|player| {
-                                        player.read().ok().map(|g| g.get_player_mask())
+                                    .and_then(|index| {
+                                        crate::player::with_player(index, |player| player.get_player_mask())
                                     })
                                     .unwrap_or(PlayerMaskType::none());
                                 (obj_guard.get_id(), mask)
@@ -1710,27 +1710,25 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                             data.damage_pulse_remnant_object_name.as_str(),
                         ) {
                             if self.object_id != crate::common::INVALID_ID {
-                                crate::object::registry::OBJECT_REGISTRY.with_object(
+                                let team_id = crate::object::registry::OBJECT_REGISTRY.with_object(
                                     self.object_id,
-                                    |obj_guard| {
-                                        if let Some(team_arc) = obj_guard.get_team() {
-                                            if let Ok(team) = team_arc.read() {
-                                                if let Ok(factory) = TheThingFactory::get() {
-                                                    if let Ok(remnant) =
-                                                        factory.new_object(template, &*team)
-                                                    {
-                                                        if let Ok(mut remnant_obj) = remnant.write()
-                                                        {
-                                                            let _ = remnant_obj.set_position(
-                                                                &self.current_target_position,
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    },
-                                );
+                                    |obj_guard| obj_guard.get_team(),
+                                ).flatten();
+                                if let Some(team_id) = team_id {
+                                    if let Some(remnant_id) = crate::team::with_team(team_id, |team| {
+                                        TheThingFactory::get()
+                                            .ok()
+                                            .and_then(|factory| factory.new_object(template, team).ok())
+                                    }).flatten() {
+                                        let pos = self.current_target_position;
+                                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                            remnant_id,
+                                            |remnant| {
+                                                let _ = remnant.set_position(&pos);
+                                            },
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -2001,13 +1999,11 @@ mod tests {
     use crate::object::special_power_types::SpecialPowerType;
 
     fn test_object_at(position: Coord3D) -> ObjectID {
-        let object = Arc::new(RwLock::new(Object::new_test(98_001, 100.0)));
+        let mut object = Object::new_test(98_001, 100.0);
         object
-            .write()
-            .unwrap()
             .set_position(&position)
             .expect("test position is valid");
-        object
+        object.get_id()
     }
 
     #[test]
@@ -2016,7 +2012,7 @@ mod tests {
         let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
 
         let behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
+            ParticleUplinkCannonUpdate::new_with_data(object, data).unwrap();
 
         assert!(!behavior.invalid_settings);
         assert_eq!(behavior.connector_node_position, Coord3D::ZERO);
@@ -2028,7 +2024,7 @@ mod tests {
         let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
         let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
         let mut behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
+            ParticleUplinkCannonUpdate::new_with_data(object, data).unwrap();
 
         BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
 
@@ -2051,7 +2047,7 @@ mod tests {
         data.firing_to_idle_sound_name = AsciiString::from("PackLoop");
         data.annihilation_sound_name = AsciiString::from("AnnihilationLoop");
         let mut behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), Arc::new(data)).unwrap();
+            ParticleUplinkCannonUpdate::new_with_data(object, Arc::new(data)).unwrap();
 
         BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
 
@@ -2080,7 +2076,7 @@ mod tests {
         let object = test_object_at(Coord3D::new(0.0, 0.0, 0.0));
         let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
         let mut behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
+            ParticleUplinkCannonUpdate::new_with_data(object, data).unwrap();
         behavior.orbit_to_target_beam_id = 42;
         behavior.laser_status = LaserStatus::Born;
         behavior.ground_to_orbit_beam_id = 7;

@@ -310,26 +310,24 @@ impl UpdateModuleInterface for OverchargeBehavior {
             return Ok(UPDATE_SLEEP_NONE);
         }
 
-        let Some(body) = self.with_object(|obj_read| obj_read.get_body_module()).flatten() else {
+        let drained = self.with_object_mut(|obj| {
+            let body = obj.get_body_module_mut()?;
+            let max_health = body.get_max_health();
+            let drain_amount = (max_health * self.module_data.health_percent_to_drain_per_second)
+                / LOGICFRAMES_PER_SECOND as Real;
+            let mut damage_info = DamageInfo::with_simple(
+                drain_amount,
+                self.object_id,
+                DamageType::Penalty,
+                DeathType::Normal,
+            );
+            damage_info.sync_from_input();
+            let _ = body.attempt_damage(&mut damage_info);
+            Some((body.get_health(), max_health))
+        });
+        let Some((current_health, max_health)) = drained.flatten() else {
             return Ok(UPDATE_SLEEP_NONE);
         };
-
-        let Ok(mut body_guard) = body.lock() else {
-            return Ok(UPDATE_SLEEP_NONE);
-        };
-        let max_health = body_guard.get_max_health();
-        let drain_amount = (max_health * self.module_data.health_percent_to_drain_per_second)
-            / LOGICFRAMES_PER_SECOND as Real;
-        let mut damage_info = DamageInfo::with_simple(
-            drain_amount,
-            self.object_id,
-            DamageType::Penalty,
-            DeathType::Normal,
-        );
-        damage_info.sync_from_input();
-        let _ = body_guard.attempt_damage(&mut damage_info);
-        let current_health = body_guard.get_health();
-        drop(body_guard);
 
         let min_health_threshold =
             max_health * self.module_data.not_allowed_when_health_below_percent;

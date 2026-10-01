@@ -185,9 +185,7 @@ pub(crate) fn find_enemy_in_container(killer: &Object, building: &Object) -> Opt
     let Some(contain) = building.get_contain() else {
         return None;
     };
-    let Ok(contain_guard) = contain.lock() else {
-        return None;
-    };
+    let contain_guard = contain;;
     let contained_ids = contain_guard.get_contained_objects();
     for &id in contained_ids.iter() {
         let Some(is_enemy) = OBJECT_REGISTRY
@@ -246,7 +244,7 @@ pub(crate) fn kill_enemies_in_container(
                 })
                 .flatten()
             {
-                if let Ok(mut contain_guard) = contain.lock() {
+                if let contain_guard = contain {
                     let _ = contain_guard.release_object(enemy_id);
                 }
             }

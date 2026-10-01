@@ -187,14 +187,11 @@ impl UnitAIUpdate {
             }
             crate::ai::AiCommandType::MoveToObject => {
                 if let Some(target_id) = command.obj {
-                    if let Some(target_arc) = get_legacy_object(target_id) {
-                        if let Ok(target_guard) = target_arc.read() {
-                            guard.give_move_order(
-                                *target_guard.get_position(),
-                                Vec::new(),
-                                false,
-                                false,
-                            )?;
+                    if let Some(target_id_found) = get_legacy_object(target_id) {
+                        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(target_id_found, |target_guard| *target_guard.get_position())
+                        {
+                            guard.give_move_order(pos, Vec::new(), false, false)?;
                         }
                     }
                 }
@@ -219,10 +216,12 @@ impl UnitAIUpdate {
                     }
                     self.move_out_of_way_2 = self.move_out_of_way_1;
                     self.move_out_of_way_1 = target_id;
-                    if let Some(target_arc) = get_legacy_object(target_id) {
-                        if let Ok(target_guard) = target_arc.read() {
+                    if let Some(target_id_found) = get_legacy_object(target_id) {
+                        if let Some(other_pos_owned) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(target_id_found, |target_guard| *target_guard.get_position())
+                        {
                             let my_pos = guard.get_position();
-                            let other_pos = target_guard.get_position();
+                            let other_pos = &other_pos_owned;
                             let mut dir =
                                 Coord3D::new(my_pos.x - other_pos.x, my_pos.y - other_pos.y, 0.0);
                             let len = (dir.x * dir.x + dir.y * dir.y).sqrt();
@@ -348,62 +347,62 @@ impl UnitAIUpdate {
                         params.pos = clipped;
                         machine.clear();
                         let _ = machine.ai_do_command(&params);
-                        if let Ok(mut obj_guard) = guard.base_arc().write() {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                             obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                        }
+                            });
                         return Ok(());
                     }
                 }
 
                 guard.process_attack_move_order(clipped, true)?;
-                if let Ok(mut obj_guard) = guard.base_arc().write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                     obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                }
+                    });
             }
             crate::ai::AiCommandType::AttackPosition => {
-                let base_object = guard.base_arc().clone();
+                let base_object = guard.base_arc();
                 let mut local_pos =
                     self.clip_goal_position(&guard, command.pos, command.cmd_source);
                 let mut max_shots = command.int_value;
-                let continue_range = base_object
-                    .read()
-                    .ok()
-                    .and_then(|obj_guard| {
+                let continue_range = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(base_object, |obj_guard| {
                         obj_guard
                             .get_current_weapon()
                             .map(|(weapon, _)| weapon.get_lock_on_range())
                     })
+                    .flatten()
                     .unwrap_or(0.0);
 
                 if continue_range > 0.0 {
-                    if let Ok(mut obj_guard) = base_object.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(base_object, |obj_guard| {
                         obj_guard.set_status(ObjectStatusMaskType::IGNORING_STEALTH, true);
-                    }
+                    });
 
                     let target_id =
                         crate::helpers::ThePartitionManager::get().and_then(|partition| {
-                            let obj_guard = base_object.read().ok()?;
-                            partition.get_closest_object(
-                                &command.pos,
-                                continue_range,
-                                |candidate| {
-                                    matches!(
-                                        ActionManager::get_can_attack_object(
-                                            &*obj_guard,
-                                            candidate,
-                                            command.cmd_source,
-                                            crate::attack::AbleToAttackType::NewTarget
-                                        ),
-                                        CanAttackResult::Possible
-                                            | CanAttackResult::PossibleAfterMoving
-                                    )
-                                },
-                            )
+                            crate::object::registry::OBJECT_REGISTRY.with_object(base_object, |obj_guard| {
+                                partition.get_closest_object(
+                                    &command.pos,
+                                    continue_range,
+                                    |candidate| {
+                                        matches!(
+                                            ActionManager::get_can_attack_object(
+                                                obj_guard,
+                                                candidate,
+                                                command.cmd_source,
+                                                crate::attack::AbleToAttackType::NewTarget
+                                            ),
+                                            CanAttackResult::Possible
+                                                | CanAttackResult::PossibleAfterMoving
+                                        )
+                                    },
+                                )
+                            }).flatten()
                         });
 
-                    if let Ok(mut obj_guard) = base_object.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(base_object, |obj_guard| {
                         obj_guard.set_status(ObjectStatusMaskType::IGNORING_STEALTH, false);
-                    }
+                    });
 
                     if let Some(target_id) = target_id {
                         if let Some(state_machine) = self.ai_state_machine.as_ref() {
@@ -416,9 +415,9 @@ impl UnitAIUpdate {
                                 attack_params.int_value = max_shots;
                                 machine.clear();
                                 let _ = machine.ai_do_command(&attack_params);
-                                if let Ok(mut obj_guard) = guard.base_arc().write() {
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                                     obj_guard.set_current_weapon_max_shot_count(max_shots);
-                                }
+                                    });
                                 if let Some(chinook_ai) = self.chinook_ai.as_ref() {
                                     chinook_ai.private_attack_object(
                                         target_id,
@@ -438,9 +437,9 @@ impl UnitAIUpdate {
                         }
 
                         guard.give_attack_order(target_id, true, false)?;
-                        if let Ok(mut obj_guard) = guard.base_arc().write() {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                             obj_guard.set_current_weapon_max_shot_count(max_shots);
-                        }
+                            });
                         if let Some(chinook_ai) = self.chinook_ai.as_ref() {
                             chinook_ai.private_attack_object(
                                 target_id,
@@ -460,10 +459,8 @@ impl UnitAIUpdate {
                     max_shots = 1;
                 }
 
-                let weapon_is_contact = base_object
-                    .read()
-                    .ok()
-                    .map(|obj_guard| {
+                let weapon_is_contact = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(base_object, |obj_guard| {
                         obj_guard
                             .get_current_weapon()
                             .map(|(weapon, _)| weapon.is_contact_weapon())
@@ -480,10 +477,8 @@ impl UnitAIUpdate {
                             let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                                 if let Some(system) = ai_guard.pathfinding_system() {
                                     if let Ok(mut system_guard) = system.write() {
-                                        let unit_radius = base_object
-                                            .read()
-                                            .ok()
-                                            .map(|obj_guard| {
+                                        let unit_radius = crate::object::registry::OBJECT_REGISTRY
+                                            .with_object(base_object, |obj_guard| {
                                                 obj_guard.get_geometry_info().get_major_radius()
                                             })
                                             .unwrap_or(0.0);
@@ -538,9 +533,9 @@ impl UnitAIUpdate {
                         params.int_value = max_shots;
                         machine.clear();
                         let _ = machine.ai_do_command(&params);
-                        if let Ok(mut obj_guard) = guard.base_arc().write() {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                             obj_guard.set_current_weapon_max_shot_count(max_shots);
-                        }
+                            });
                         if let Some(chinook_ai) = self.chinook_ai.as_ref() {
                             chinook_ai.private_attack_position(
                                 &local_pos,
@@ -560,9 +555,9 @@ impl UnitAIUpdate {
                 }
 
                 guard.process_attack_move_order(local_pos, true)?;
-                if let Ok(mut obj_guard) = guard.base_arc().write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                     obj_guard.set_current_weapon_max_shot_count(max_shots);
-                }
+                    });
                 if let Some(chinook_ai) = self.chinook_ai.as_ref() {
                     chinook_ai.private_attack_position(&local_pos, max_shots, command.cmd_source);
                 }
@@ -574,9 +569,9 @@ impl UnitAIUpdate {
             | crate::ai::AiCommandType::ForceAttackObject => {
                 if let Some(target_id) = command.obj {
                     if self.chinook_ai.is_some() {
-                        let can_attack = guard.base_arc().read().ok().is_some_and(|obj| {
-                            obj.is_kind_of(KindOf::CanAttack)
-                        });
+                        let can_attack = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_kind_of(KindOf::CanAttack))
+                            .unwrap_or(false);
                         if !can_attack {
                             return Ok(());
                         }
@@ -585,9 +580,9 @@ impl UnitAIUpdate {
                         if let Ok(mut machine) = state_machine.lock() {
                             machine.clear();
                             let _ = machine.ai_do_command(command);
-                            if let Ok(mut obj_guard) = guard.base_arc().write() {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                                 obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                            }
+                                });
                             if let Some(chinook_ai) = self.chinook_ai.as_ref() {
                                 if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
                                     chinook_ai.private_force_attack_object(
@@ -630,9 +625,9 @@ impl UnitAIUpdate {
                     }
 
                     guard.give_attack_order(target_id, true, false)?;
-                    if let Ok(mut obj_guard) = guard.base_arc().write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                    }
+                        });
                     if let Some(chinook_ai) = self.chinook_ai.as_ref() {
                         if command.cmd == crate::ai::AiCommandType::ForceAttackObject {
                             chinook_ai.private_force_attack_object(
@@ -670,34 +665,27 @@ impl UnitAIUpdate {
                     if let Ok(mut machine) = state_machine.lock() {
                         machine.clear();
                         let _ = machine.ai_do_command(command);
-                        if let Ok(mut obj_guard) = guard.base_arc().write() {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                             obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                        }
+                            });
                         return Ok(());
                     }
                 }
 
                 if let Some(team_name) = command.team.as_ref() {
-                    if let Ok(mut factory) = crate::team::get_team_factory().lock() {
-                        if let Some(team) = factory.find_team(team_name) {
-                            if let Ok(team_guard) = team.read() {
-                                let target_id = if team_guard.get_team_target_object() != INVALID_ID
-                                {
-                                    team_guard.get_team_target_object()
-                                } else {
-                                    team_guard
-                                        .get_members()
-                                        .first()
-                                        .copied()
-                                        .unwrap_or(INVALID_ID)
-                                };
-                                if target_id != INVALID_ID {
-                                    guard.give_attack_order(target_id, true, false)?;
-                                    if let Ok(mut obj_guard) = guard.base_arc().write() {
-                                        obj_guard
-                                            .set_current_weapon_max_shot_count(command.int_value);
-                                    }
-                                }
+                    if let Some(team_id) = crate::team::get_team_factory().lock().ok().and_then(|mut factory| factory.find_team(team_name)) {
+                        if let Some(target_id) = crate::team::with_team(team_id, |team_guard| {
+                            if team_guard.get_team_target_object() != INVALID_ID {
+                                team_guard.get_team_target_object()
+                            } else {
+                                team_guard.get_members().first().copied().unwrap_or(INVALID_ID)
+                            }
+                        }) {
+                            if target_id != INVALID_ID {
+                                guard.give_attack_order(target_id, true, false)?;
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
+                                    obj_guard.set_current_weapon_max_shot_count(command.int_value);
+                                });
                             }
                         }
                     }
@@ -710,11 +698,8 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        let is_projectile = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_any_kind_of(&[KindOf::Projectile]))
                             .unwrap_or(false);
                         if is_projectile {
                             return Ok(());
@@ -738,11 +723,8 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        let is_projectile = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_any_kind_of(&[KindOf::Projectile]))
                             .unwrap_or(false);
                         if is_projectile {
                             return Ok(());
@@ -754,10 +736,12 @@ impl UnitAIUpdate {
                 }
 
                 if let Some(target_id) = command.obj {
-                    if let Some(target_arc) = get_legacy_object(target_id) {
-                        if let Ok(target_guard) = target_arc.read() {
+                    if let Some(found) = get_legacy_object(target_id) {
+                        if let Some(position) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(found, |target_guard| *target_guard.get_position())
+                        {
                             guard.current_order = Some(UnitOrder::Guard {
-                                position: *target_guard.get_position(),
+                                position,
                                 area_radius: guard.engagement_range,
                             });
                             guard.order_queue.clear();
@@ -772,11 +756,8 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        let is_projectile = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_any_kind_of(&[KindOf::Projectile]))
                             .unwrap_or(false);
                         if is_projectile {
                             return Ok(());
@@ -799,11 +780,8 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        let is_projectile = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_any_kind_of(&[KindOf::Projectile]))
                             .unwrap_or(false);
                         if is_projectile {
                             return Ok(());
@@ -820,9 +798,9 @@ impl UnitAIUpdate {
                         if let Ok(mut machine) = state_machine.lock() {
                             machine.clear();
                             let _ = machine.ai_do_command(command);
-                            if let Ok(mut obj_guard) = guard.base_arc().write() {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                                 obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                            }
+                                });
                             return Ok(());
                         }
                     }
@@ -833,9 +811,9 @@ impl UnitAIUpdate {
                     });
                     guard.order_queue.clear();
                     guard.give_attack_order(target_id, true, false)?;
-                    if let Ok(mut obj_guard) = guard.base_arc().write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                    }
+                        });
                 }
             }
             crate::ai::AiCommandType::Enter => {
@@ -854,27 +832,23 @@ impl UnitAIUpdate {
                     }
                 }
                 if let Some(container_id) = command.obj {
-                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(container_guard) = container.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    if let Some(unit) = get_unit_arc(self.unit_id) {
-                                        if let Ok(unit_guard) = unit.read() {
-                                            let base_arc = unit_guard.base_arc();
-                                            drop(unit_guard);
-                                            let base_lock = base_arc.read();
-                                            if let Ok(base_guard) = base_lock {
-                                                let _ = contain_guard
-                                                    .on_object_wants_to_enter_or_exit(
-                                                        &base_guard,
-                                                        crate::modules::ContainWant::WantsToEnter,
-                                                    );
-                                            }
-                                        }
+                    if TheGameLogic::find_object_by_id(container_id) {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                            if let Some(contain) = container_guard.get_contain_mut() {
+                                if let Some(unit) = get_unit_arc(self.unit_id) {
+                                    if let Ok(unit_guard) = unit.read() {
+                                        let base_id = unit_guard.base_arc();
+                                        drop(unit_guard);
+                                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(base_id, |base_guard| {
+                                            let _ = contain.on_object_wants_to_enter_or_exit(
+                                                base_guard,
+                                                crate::modules::ContainWant::WantsToEnter,
+                                            );
+                                        });
                                     }
                                 }
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -884,19 +858,18 @@ impl UnitAIUpdate {
                         let unit_guard = unit.try_read().ok()?;
                         let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
-                        base_arc.try_read().ok()?.get_contained_by()
+                        crate::object::registry::OBJECT_REGISTRY.with_object(base_arc, |o| o.get_contained_by())?
                     })
                 });
                 let Some(exit_container) = exit_container else {
                     return Ok(());
                 };
-                let Some(container) = TheGameLogic::find_object_by_id(exit_container) else {
+                if !TheGameLogic::find_object_by_id(exit_container) {
                     return Ok(());
-                };
-                if container.try_read().ok().is_some_and(|container| {
-                    container
-                        .is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
-                }) {
+                }
+                if crate::object::registry::OBJECT_REGISTRY.with_object(exit_container, |container| {
+                    container.is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
+                }).unwrap_or(false) {
                     return Ok(());
                 }
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
@@ -914,32 +887,27 @@ impl UnitAIUpdate {
                         let unit_guard = unit.read().ok()?;
                         let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
-                        let base_guard = base_arc.read().ok()?;
-                        base_guard.get_contained_by()
+                        crate::object::registry::OBJECT_REGISTRY.with_object(base_arc, |base_guard| base_guard.get_contained_by())?
                     })
                 });
                 if let Some(container_id) = container_id {
-                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(container_guard) = container.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    if let Some(unit) = get_unit_arc(self.unit_id) {
-                                        if let Ok(unit_guard) = unit.read() {
-                                            let base_arc = unit_guard.base_arc();
-                                            drop(unit_guard);
-                                            let base_lock = base_arc.read();
-                                            if let Ok(base_guard) = base_lock {
-                                                let _ = contain_guard
-                                                    .on_object_wants_to_enter_or_exit(
-                                                        &base_guard,
-                                                        crate::modules::ContainWant::WantsToExit,
-                                                    );
-                                            }
-                                        }
+                    if TheGameLogic::find_object_by_id(container_id) {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                            if let Some(contain) = container_guard.get_contain_mut() {
+                                if let Some(unit) = get_unit_arc(self.unit_id) {
+                                    if let Ok(unit_guard) = unit.read() {
+                                        let base_id = unit_guard.base_arc();
+                                        drop(unit_guard);
+                                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(base_id, |base_guard| {
+                                            let _ = contain.on_object_wants_to_enter_or_exit(
+                                                base_guard,
+                                                crate::modules::ContainWant::WantsToExit,
+                                            );
+                                        });
                                     }
                                 }
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -949,19 +917,18 @@ impl UnitAIUpdate {
                         let unit_guard = unit.try_read().ok()?;
                         let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
-                        base_arc.try_read().ok()?.get_contained_by()
+                        crate::object::registry::OBJECT_REGISTRY.with_object(base_arc, |o| o.get_contained_by())?
                     })
                 });
                 let Some(exit_container) = exit_container else {
                     return Ok(());
                 };
-                let Some(container) = TheGameLogic::find_object_by_id(exit_container) else {
+                if !TheGameLogic::find_object_by_id(exit_container) {
                     return Ok(());
-                };
-                if container.try_read().ok().is_some_and(|container| {
-                    container
-                        .is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
-                }) {
+                }
+                if crate::object::registry::OBJECT_REGISTRY.with_object(exit_container, |container| {
+                    container.is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
+                }).unwrap_or(false) {
                     return Ok(());
                 }
                 if let Some(state_machine) = self.ai_state_machine.as_ref() {
@@ -978,32 +945,27 @@ impl UnitAIUpdate {
                         let unit_guard = unit.read().ok()?;
                         let base_arc = unit_guard.base_arc();
                         drop(unit_guard);
-                        let base_guard = base_arc.read().ok()?;
-                        base_guard.get_contained_by()
+                        crate::object::registry::OBJECT_REGISTRY.with_object(base_arc, |base_guard| base_guard.get_contained_by())?
                     })
                 });
                 if let Some(container_id) = container_id {
-                    if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                        if let Ok(container_guard) = container.write() {
-                            if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    if let Some(unit) = get_unit_arc(self.unit_id) {
-                                        if let Ok(unit_guard) = unit.read() {
-                                            let base_arc = unit_guard.base_arc();
-                                            drop(unit_guard);
-                                            let base_lock = base_arc.read();
-                                            if let Ok(base_guard) = base_lock {
-                                                let _ = contain_guard
-                                                    .on_object_wants_to_enter_or_exit(
-                                                        &base_guard,
-                                                        crate::modules::ContainWant::WantsToExit,
-                                                    );
-                                            }
-                                        }
+                    if TheGameLogic::find_object_by_id(container_id) {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                            if let Some(contain) = container_guard.get_contain_mut() {
+                                if let Some(unit) = get_unit_arc(self.unit_id) {
+                                    if let Ok(unit_guard) = unit.read() {
+                                        let base_id = unit_guard.base_arc();
+                                        drop(unit_guard);
+                                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(base_id, |base_guard| {
+                                            let _ = contain.on_object_wants_to_enter_or_exit(
+                                                base_guard,
+                                                crate::modules::ContainWant::WantsToExit,
+                                            );
+                                        });
                                     }
                                 }
                             }
-                        }
+                        });
                     }
                 }
             }
@@ -1034,15 +996,13 @@ impl UnitAIUpdate {
                     }
                 }
                 if let Some(target_id) = command.obj {
-                    let target_arc = TheGameLogic::find_object_by_id(target_id);
-                    let Some(target_arc) = target_arc else {
+                    if !TheGameLogic::find_object_by_id(target_id) {
                         return Ok(());
-                    };
+                    }
 
-                    let has_dock = target_arc
-                        .read()
-                        .ok()
-                        .and_then(|guard| guard.with_dock_update_interface(|_| true))
+                    let has_dock = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_id, |guard| guard.with_dock_update_interface(|_| true))
+                        .flatten()
                         .unwrap_or(false);
                     if !has_dock {
                         return Ok(());
@@ -1054,10 +1014,10 @@ impl UnitAIUpdate {
 
                     let owner_object = guard.base_arc();
                     let mut dock_machine =
-                        AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
+                        AIDockMachine::new(owner_object).map_err(|err| err.to_string())?;
                     dock_machine
                         .state_machine
-                        .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
+                        .set_goal_object_by_id(Some(target_id));
                     let _ = dock_machine.state_machine.init_default_state();
                     let _ = self.set_can_path_through_units(true);
                     self.dock_machine = Some(dock_machine);
@@ -1077,23 +1037,20 @@ impl UnitAIUpdate {
             }
             crate::ai::AiCommandType::Evacuate | crate::ai::AiCommandType::EvacuateInstantly => {
                 let instantly = command.cmd == crate::ai::AiCommandType::EvacuateInstantly;
-                let subdued = guard.base_arc().try_read().ok().is_some_and(|obj| {
+                let subdued = crate::object::registry::OBJECT_REGISTRY.with_object(guard.base_arc(), |obj| {
                     obj.is_disabled_by_type(crate::common::types::DisabledType::DisabledSubdued)
-                });
+                }).unwrap_or(false);
                 // C++ RailedTransportAIUpdate::privateEvacuate replaces the base
                 // evacuate. It does not check subdued and does not order passengers.
                 if !subdued && self.railed_transport_ai.is_none() {
-                    if let Ok(obj_guard) = guard.base_arc().write() {
-                        if let Some(contain) = obj_guard.get_contain() {
-                            if let Ok(mut contain_guard) = contain.lock() {
-                                if command.int_value != 0 {
-                                    contain_guard.mark_all_passengers_detected();
-                                }
-                                let _ = contain_guard
-                                    .order_all_passengers_to_exit(command.cmd_source, instantly);
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
+                        if let Some(contain) = obj_guard.get_contain_mut() {
+                            if command.int_value != 0 {
+                                contain.mark_all_passengers_detected();
                             }
+                            let _ = contain.order_all_passengers_to_exit(command.cmd_source, instantly);
                         }
-                    }
+                    });
                 }
                 if let Some(mut railed_ai) = self.railed_transport_ai.take() {
                     let _ = railed_ai.handle_evacuate(command.int_value, command.cmd_source, self);
@@ -1113,19 +1070,14 @@ impl UnitAIUpdate {
             }
             crate::ai::AiCommandType::GetHealed => {
                 if let Some(target_id) = command.obj {
-                    let can_heal = guard
-                        .base_arc()
-                        .read()
-                        .ok()
-                        .and_then(|base_guard| {
+                    let can_heal = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(guard.base_arc(), |base_guard| {
                             let target = get_legacy_object(target_id)?;
-                            let target_guard = target.read().ok()?;
-                            Some(TheActionManager::can_get_healed_at(
-                                &*base_guard,
-                                &*target_guard,
-                                command.cmd_source,
-                            ))
+                            crate::object::registry::OBJECT_REGISTRY.with_object(target, |target_guard| {
+                                TheActionManager::can_get_healed_at(base_guard, target_guard, command.cmd_source)
+                            })
                         })
+                        .flatten()
                         .unwrap_or(false);
                     if !can_heal {
                         return Ok(());
@@ -1148,28 +1100,24 @@ impl UnitAIUpdate {
                         }
                     }
                     if let Some(container_id) = enter_params.obj {
-                        if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                            if let Ok(container_guard) = container.write() {
-                                if let Some(contain) = container_guard.get_contain() {
-                                    if let Ok(mut contain_guard) = contain.lock() {
-                                        if let Some(unit) = get_unit_arc(self.unit_id) {
-                                            if let Ok(unit_guard) = unit.read() {
-                                                let base_arc = unit_guard.base_arc();
-                                                drop(unit_guard);
-                                                let base_lock = base_arc.read();
-                                                if let Ok(base_guard) = base_lock {
-                                                    let _ = contain_guard
-                                                        .on_object_wants_to_enter_or_exit(
-                                                        &base_guard,
-                                                        crate::modules::ContainWant::WantsToEnter,
-                                                    );
-                                                }
-                                            }
-                                        }
+                        if TheGameLogic::find_object_by_id(container_id) {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                            if let Some(contain) = container_guard.get_contain_mut() {
+                                if let Some(unit) = get_unit_arc(self.unit_id) {
+                                    if let Ok(unit_guard) = unit.read() {
+                                        let base_id = unit_guard.base_arc();
+                                        drop(unit_guard);
+                                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(base_id, |base_guard| {
+                                            let _ = contain.on_object_wants_to_enter_or_exit(
+                                                base_guard,
+                                                crate::modules::ContainWant::WantsToEnter,
+                                            );
+                                        });
                                     }
                                 }
                             }
-                        }
+                        });
+                    }
                     }
                 }
             }
@@ -1183,19 +1131,14 @@ impl UnitAIUpdate {
                 }
 
                 if let Some(target_id) = command.obj {
-                    let can_repair = guard
-                        .base_arc()
-                        .read()
-                        .ok()
-                        .and_then(|base_guard| {
+                    let can_repair = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(guard.base_arc(), |base_guard| {
                             let target = get_legacy_object(target_id)?;
-                            let target_guard = target.read().ok()?;
-                            Some(TheActionManager::can_get_repaired_at(
-                                &*base_guard,
-                                &*target_guard,
-                                command.cmd_source,
-                            ))
+                            crate::object::registry::OBJECT_REGISTRY.with_object(target, |target_guard| {
+                                TheActionManager::can_get_repaired_at(base_guard, target_guard, command.cmd_source)
+                            })
                         })
+                        .flatten()
                         .unwrap_or(false);
                     if !can_repair {
                         return Ok(());
@@ -1229,15 +1172,13 @@ impl UnitAIUpdate {
                         }
                     }
                     if let Some(target_id) = dock_params.obj {
-                        let target_arc = TheGameLogic::find_object_by_id(target_id);
-                        let Some(target_arc) = target_arc else {
+                        if !TheGameLogic::find_object_by_id(target_id) {
                             return Ok(());
-                        };
+                        }
 
-                        let has_dock = target_arc
-                            .read()
-                            .ok()
-                            .and_then(|guard| guard.with_dock_update_interface(|_| true))
+                        let has_dock = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(target_id, |guard| guard.with_dock_update_interface(|_| true))
+                            .flatten()
                             .unwrap_or(false);
                         if !has_dock {
                             return Ok(());
@@ -1248,11 +1189,11 @@ impl UnitAIUpdate {
                         }
 
                         let owner_object = guard.base_arc();
-                        let mut dock_machine = AIDockMachine::new(owner_object.clone())
+                        let mut dock_machine = AIDockMachine::new(owner_object)
                             .map_err(|err| err.to_string())?;
                         dock_machine
                             .state_machine
-                            .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
+                            .set_goal_object_by_id(Some(target_id));
                         let _ = dock_machine.state_machine.init_default_state();
                         let _ = self.set_can_path_through_units(true);
                         self.dock_machine = Some(dock_machine);
@@ -1327,11 +1268,8 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        let is_projectile = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_any_kind_of(&[KindOf::Projectile]))
                             .unwrap_or(false);
                         if is_projectile {
                             return Ok(());
@@ -1354,11 +1292,8 @@ impl UnitAIUpdate {
                         if !is_mobile {
                             return Ok(());
                         }
-                        let is_projectile = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|obj| obj.is_any_kind_of(&[KindOf::Projectile]))
+                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(guard.base_arc(), |obj| obj.is_any_kind_of(&[KindOf::Projectile]))
                             .unwrap_or(false);
                         if is_projectile {
                             return Ok(());
@@ -1388,9 +1323,9 @@ impl UnitAIUpdate {
                             crate::ai::AiCommandType::AttackFollowWaypointPath
                                 | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
                         ) {
-                            if let Ok(mut obj_guard) = guard.base_arc().write() {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                                 obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                            }
+                                });
                         }
                         return Ok(());
                     }
@@ -1436,9 +1371,9 @@ impl UnitAIUpdate {
                     crate::ai::AiCommandType::AttackFollowWaypointPath
                         | crate::ai::AiCommandType::AttackFollowWaypointPathAsTeam
                 ) {
-                    if let Ok(mut obj_guard) = guard.base_arc().write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                         obj_guard.set_current_weapon_max_shot_count(command.int_value);
-                    }
+                        });
                 }
             }
             _ => {}

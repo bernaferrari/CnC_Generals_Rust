@@ -188,22 +188,22 @@ impl ScriptEngine {
 
         if let Some(tname) = team_name {
             if let Ok(mut factory) = get_team_factory().lock() {
-                if let Some(team_arc) = factory.find_team(tname) {
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Some(player_id) = team_guard.get_controlling_player_id() {
-                            let current_player = crate::player::player_list()
-                                .read()
-                                .ok()
-                                .and_then(|list| list.get_player(player_id as i32).cloned())
-                                .and_then(|p| {
-                                    p.read().ok().and_then(|pg| {
-                                        game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
-                                            pg.get_player_name_key(),
-                                        )
-                                    })
-                                });
-                            self.lock_inner_mut().current_player = current_player;
-                        }
+                if let Some(team_id) = factory.find_team(tname) {
+                    drop(factory);
+                    if let Some(player_id) =
+                        crate::team::with_team(team_id, |team_guard| team_guard.get_controlling_player_id())
+                            .flatten()
+                    {
+                        let current_player = crate::player::with_player(
+                            player_id as crate::player::PlayerIndex,
+                            |pg| {
+                                game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
+                                    pg.get_player_name_key(),
+                                )
+                            },
+                        )
+                        .flatten();
+                        self.lock_inner_mut().current_player = current_player;
                     }
                 }
             }

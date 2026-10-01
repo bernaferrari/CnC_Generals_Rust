@@ -215,7 +215,7 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
         };
         drop(list);
         let Some(relationship) = crate::player::with_player(source_player_index, |source| {
-            crate::team::factory_access::with_team(local_team_id, |local_team| {
+            crate::team::with_team(local_team_id, |local_team| {
                 source.get_relationship_with_team(local_team)
             })
         })

@@ -131,7 +131,7 @@ impl AssistedTargetingUpdate {
         let Ok(factory) = TheThingFactory::get() else {
             return;
         };
-        let Some(laser) = crate::team::factory_access::with_team(team_id, |team_guard| {
+        let Some(laser) = crate::team::with_team(team_id, |team_guard| {
             factory.new_object(Arc::clone(laser_template), team_guard).ok()
         })
         .flatten()

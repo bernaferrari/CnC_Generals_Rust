@@ -399,8 +399,7 @@ impl ScriptActionDispatcher {
                 }
                 candidate
                     .get_contain()
-                    .and_then(|contain| contain.lock().ok().map(|c| c.is_garrisonable()))
-                    .unwrap_or(false)
+                    .is_some_and(|contain| contain.is_garrisonable())
             },
         );
 
@@ -659,12 +658,9 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let team_arc = self.get_team_by_name(&team_name)?;
-        let members = if let Ok(team_guard) = team_arc.read() {
-            team_guard.get_members().to_vec()
-        } else {
-            Vec::new()
-        };
+        let team_id = self.get_team_by_name(&team_name)?;
+        let members = crate::team::with_team(team_id, |team_guard| team_guard.get_members().to_vec())
+            .unwrap_or_default();
         if members.is_empty() {
             return Ok(ScriptActionResult::Success);
         }
@@ -758,16 +754,8 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let controlling_player_arc = team_arc
-            .read()
-            .ok()
-            .and_then(|team| team.get_controlling_player_id())
-            .and_then(|player_id| {
-                player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as i32).cloned())
-            });
+        let controlling_player = crate::team::with_team(team_arc, |team| team.get_controlling_player_id())
+            .flatten();
 
         let target_id = ThePartitionManager::get().and_then(|partition| {
             partition.get_closest_object_2d(&group_center, 1_000_000.0, |candidate| {
@@ -778,20 +766,18 @@ impl ScriptActionDispatcher {
                     return false;
                 }
 
-                let relationship = if let Some(player_arc) = &controlling_player_arc {
-                    if let Ok(player_guard) = player_arc.read() {
-                        if let Some(target_team_arc) = candidate.get_team() {
-                            if let Ok(target_team_guard) = target_team_arc.read() {
-                                player_guard.get_relationship_with_team(&target_team_guard)
-                            } else {
-                                Relationship::Neutral
-                            }
+                let relationship = if let Some(player_id) = controlling_player {
+                    crate::player::with_player(player_id as crate::player::PlayerIndex, |player_guard| {
+                        if let Some(target_team_id) = candidate.get_team() {
+                            crate::team::with_team(target_team_id, |target_team_guard| {
+                                player_guard.get_relationship_with_team(target_team_guard)
+                            })
+                            .unwrap_or(Relationship::Neutral)
                         } else {
                             Relationship::Neutral
                         }
-                    } else {
-                        Relationship::Neutral
-                    }
+                    })
+                    .unwrap_or(Relationship::Neutral)
                 } else {
                     Relationship::Neutral
                 };
@@ -989,12 +975,11 @@ impl ScriptActionDispatcher {
 
         let team_name = self.resolve_team_name_token(&team_name);
         if let Ok(mut factory_guard) = get_team_factory().lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let members = if let Ok(team_guard) = team_arc.read() {
+            if let Some(team_id) = factory_guard.find_team(&team_name) {
+                let members = crate::team::with_team(team_id, |team_guard| {
                     team_guard.get_members().to_vec()
-                } else {
-                    Vec::new()
-                };
+                })
+                .unwrap_or_default();
                 for object_id in members {
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                             self.apply_object_panel_flag_for_single_object(
@@ -1023,10 +1008,8 @@ impl ScriptActionDispatcher {
         }
 
         if let Ok(mut factory_guard) = get_team_factory().lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let members = team_arc
-                    .read()
-                    .map(|team| team.get_members().to_vec())
+            if let Some(team_id) = factory_guard.find_team(&team_name) {
+                let members = crate::team::with_team(team_id, |team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
                     self.mark_object_unmanned(object_id);
@@ -1058,10 +1041,8 @@ impl ScriptActionDispatcher {
 
         let team_name = self.resolve_team_name_token(&team_name);
         if let Ok(mut factory_guard) = get_team_factory().lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let members = team_arc
-                    .read()
-                    .map(|team| team.get_members().to_vec())
+            if let Some(team_id) = factory_guard.find_team(&team_name) {
+                let members = crate::team::with_team(team_id, |team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
                     let _ = self.attach_boobytrap_to_object(&boobytrap_template, object_id);
@@ -1100,27 +1081,22 @@ impl ScriptActionDispatcher {
 
         let team_name = self.resolve_team_name_token(&team_name);
         if let Ok(mut factory_guard) = get_team_factory().lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let members = team_arc
-                    .read()
-                    .map(|team| team.get_members().to_vec())
+            if let Some(team_id) = factory_guard.find_team(&team_name) {
+                let members = crate::team::with_team(team_id, |team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
                     let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
-                        let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                        obj_guard.leave_group();
+                        let Some(ai) = obj_guard.get_ai_update_interface_mut() else {
                             return;
                         };
-                        obj_guard.leave_group();
-                        if let Ok(mut ai_guard) = ai_arc.lock() {
-                            let _ = ai_guard
-                                .choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::FaceObject,
-                                CommandSourceType::FromScript,
-                            );
-                            params.obj = Some(target_id);
-                            let _ = ai_guard.execute_command(&params);
-                        }
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::FaceObject,
+                            CommandSourceType::FromScript,
+                        );
+                        params.obj = Some(target_id);
+                        let _ = ai.execute_command(&params);
                     });
                 }
             }
@@ -1152,27 +1128,22 @@ impl ScriptActionDispatcher {
 
         let team_name = self.resolve_team_name_token(&team_name);
         if let Ok(mut factory_guard) = get_team_factory().lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let members = team_arc
-                    .read()
-                    .map(|team| team.get_members().to_vec())
+            if let Some(team_id) = factory_guard.find_team(&team_name) {
+                let members = crate::team::with_team(team_id, |team| team.get_members().to_vec())
                     .unwrap_or_default();
                 for object_id in members {
                     let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
-                        let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                        obj_guard.leave_group();
+                        let Some(ai) = obj_guard.get_ai_update_interface_mut() else {
                             return;
                         };
-                        obj_guard.leave_group();
-                        if let Ok(mut ai_guard) = ai_arc.lock() {
-                            let _ = ai_guard
-                                .choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::FacePosition,
-                                CommandSourceType::FromScript,
-                            );
-                            params.pos = waypoint_pos;
-                            let _ = ai_guard.execute_command(&params);
-                        }
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::FacePosition,
+                            CommandSourceType::FromScript,
+                        );
+                        params.pos = waypoint_pos;
+                        let _ = ai.execute_command(&params);
                     });
                 }
             }

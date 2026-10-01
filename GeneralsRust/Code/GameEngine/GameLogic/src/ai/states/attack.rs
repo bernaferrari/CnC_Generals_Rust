@@ -971,9 +971,9 @@ pub(crate) fn clear_team_target_object_if_victim(team: &mut Team, victim_id: Obj
 
 fn clear_team_target_if_victim(owner: &Object, victim_id: ObjectID) {
     if let Some(team_arc) = owner.get_team() {
-        if let Ok(mut team_guard) = team_arc.write() {
-            clear_team_target_object_if_victim(&mut team_guard, victim_id);
-        }
+        crate::team::with_team_mut(team_arc, |team_guard| {
+            clear_team_target_object_if_victim(team_guard, victim_id);
+        });
     }
 }
 
@@ -1298,7 +1298,7 @@ impl AIAttackObjectState {
                     let relationship = owner_guard.relationship_to(target_guard);
                     let empty_garrison = !target_guard.test_status(ObjectStatusTypes::CanAttack)
                         && target_guard.get_contain().is_some_and(|contain| {
-                            contain.lock().ok().is_some_and(|contain_guard| {
+                            Ok(contain).ok().is_some_and(|contain_guard| {
                                 contain_guard.is_garrisonable()
                                     && contain_guard.get_contained_count() == 0
                             })

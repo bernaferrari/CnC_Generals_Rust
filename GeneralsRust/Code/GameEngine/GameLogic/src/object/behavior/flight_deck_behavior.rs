@@ -667,15 +667,14 @@ impl FlightDeckBehavior {
             self.state = state_for_launch;
         }
 
-        if let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut owner_guard) = owner_arc.write() {
-                let has_aircraft = self.state
-                    .parking_spaces
-                    .iter()
-                    .any(|space| space.object_id != INVALID_OBJECT_ID);
-                owner_guard.set_status(ObjectStatusMaskType::NO_ATTACK, !has_aircraft);
-            }
-        }
+        let has_aircraft = self
+            .state
+            .parking_spaces
+            .iter()
+            .any(|space| space.object_id != INVALID_OBJECT_ID);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner| {
+            owner.set_status(ObjectStatusMaskType::NO_ATTACK, !has_aircraft);
+        });
 
         Ok(UPDATE_SLEEP_NONE)
     }
@@ -685,8 +684,8 @@ impl FlightDeckBehavior {
             if space.object_id == INVALID_OBJECT_ID {
                 continue;
             }
-            let is_dead = TheGameLogic::find_object_by_id(space.object_id)
-                .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
+            let is_dead = crate::object::registry::OBJECT_REGISTRY
+                .with_object(space.object_id, |guard| guard.is_effectively_dead())
                 .unwrap_or(true);
             if is_dead {
                 space.object_id = INVALID_OBJECT_ID;
@@ -695,16 +694,20 @@ impl FlightDeckBehavior {
 
         for runway in state.runways.iter_mut() {
             if runway.in_use_by_for_takeoff != INVALID_OBJECT_ID {
-                let dead = TheGameLogic::find_object_by_id(runway.in_use_by_for_takeoff)
-                    .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                let dead = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(runway.in_use_by_for_takeoff, |guard| {
+                        guard.is_effectively_dead()
+                    })
                     .unwrap_or(true);
                 if dead {
                     runway.in_use_by_for_takeoff = INVALID_OBJECT_ID;
                 }
             }
             if runway.in_use_by_for_landing != INVALID_OBJECT_ID {
-                let dead = TheGameLogic::find_object_by_id(runway.in_use_by_for_landing)
-                    .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                let dead = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(runway.in_use_by_for_landing, |guard| {
+                        guard.is_effectively_dead()
+                    })
                     .unwrap_or(true);
                 if dead {
                     runway.in_use_by_for_landing = INVALID_OBJECT_ID;
@@ -718,8 +721,8 @@ impl FlightDeckBehavior {
                 purged = true;
                 return false;
             }
-            let dead = TheGameLogic::find_object_by_id(info.object_id)
-                .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
+            let dead = crate::object::registry::OBJECT_REGISTRY
+                .with_object(info.object_id, |guard| guard.is_effectively_dead())
                 .unwrap_or(true);
             if dead {
                 purged = true;
@@ -737,15 +740,15 @@ impl FlightDeckBehavior {
             return Ok(());
         }
 
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
-            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
+        let owner_id = self.object_id;
+        let blocked = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+            owner.test_status(crate::common::ObjectStatusTypes::UnderConstruction)
+                || owner.test_status(crate::common::ObjectStatusTypes::Sold)
+        });
+        let Some(blocked) = blocked else {
+            return Err(BehaviorError::ObjectNotFound { id: owner_id });
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
-        };
-        if owner_guard.test_status(crate::common::ObjectStatusTypes::UnderConstruction)
-            || owner_guard.test_status(crate::common::ObjectStatusTypes::Sold)
-        {
+        if blocked {
             return Ok(());
         }
 
@@ -763,43 +766,59 @@ impl FlightDeckBehavior {
         for row in 0..num_rows {
             for col in 0..num_cols {
                 let runway_info = &self.config.runway_info[col];
-                let bone_name = runway_info.spaces_bone_names.get(row);
+                let bone_name = runway_info.spaces_bone_names.get(row).cloned();
                 let mut prep = Coord3D::origin();
                 let mut orient = 0.0;
                 if let Some(bone_name) = bone_name {
-                    let (found, pos, transform) =
-                        owner_guard.get_single_logical_bone_position(bone_name);
-                    if found {
-                        prep = pos;
-                        let (_, rotation, _) = transform.to_scale_rotation_translation();
-                        orient = rotation.to_euler(EulerRot::XYZ).2;
+                    if let Some((found, pos, transform)) =
+                        crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+                            owner.get_single_logical_bone_position(&bone_name)
+                        })
+                    {
+                        if found {
+                            prep = pos;
+                            let (_, rotation, _) = transform.to_scale_rotation_translation();
+                            orient = rotation.to_euler(EulerRot::XYZ).2;
+                        }
                     }
                 }
 
                 let mut object_id = INVALID_OBJECT_ID;
                 if let (Some(template), true) = (&self.thing_template, create_units) {
-                    if let Some(player_arc) = owner_guard.get_controlling_player() {
-                        if let Ok(player_guard) = player_arc.read() {
-                            if let Some(team_arc) = player_guard.get_default_team() {
-                                if let Ok(team_guard) = team_arc.read() {
-                                    if let Ok(factory) = TheThingFactory::get() {
-                                        if let Ok(jet_arc) =
-                                            factory.new_object(Arc::clone(template), &*team_guard)
-                                        {
-                                            if let Ok(mut jet_guard) = jet_arc.write() {
-                                                jet_guard.set_producer(Some(&owner_guard));
-                                                if self.config.landing_deck_height_offset != 0.0 {
-                                                    jet_guard.set_status(
-                                                        ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
-                                                        true,
-                                                    );
-                                                }
-                                                let _ = jet_guard.set_position(&prep);
-                                                let _ = jet_guard.set_orientation(orient);
-                                                object_id = jet_guard.get_id();
+                    let player_index = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(owner_id, |owner| owner.get_controlling_player())
+                        .flatten();
+                    if let Some(player_index) = player_index {
+                        let team_id = crate::player::with_player(player_index, |player| {
+                            player.get_default_team_id()
+                        })
+                        .flatten();
+                        if let Some(team_id) = team_id {
+                            if let Ok(factory) = TheThingFactory::get() {
+                                let created = crate::team::with_team(team_id, |team| {
+                                    factory.new_object(Arc::clone(template), team)
+                                })
+                                .and_then(|result| result.ok());
+                                if let Some(jet_id) = created {
+                                    let deck_offset = self.config.landing_deck_height_offset != 0.0;
+                                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                        jet_id,
+                                        |jet| {
+                                            let _ = crate::object::registry::OBJECT_REGISTRY
+                                                .with_object(owner_id, |owner| {
+                                                    jet.set_producer(Some(owner));
+                                                });
+                                            if deck_offset {
+                                                jet.set_status(
+                                                    ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
+                                                    true,
+                                                );
                                             }
-                                        }
-                                    }
+                                            let _ = jet.set_position(&prep);
+                                            let _ = jet.set_orientation(orient);
+                                        },
+                                    );
+                                    object_id = jet_id;
                                 }
                             }
                         }
@@ -820,9 +839,9 @@ impl FlightDeckBehavior {
             let mut runway = Runway::default();
 
             let (found_start, start, _) =
-                owner_guard.get_single_logical_bone_position(&runway_info.takeoff_bone_names[0]);
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| owner.get_single_logical_bone_position(&runway_info.takeoff_bone_names[0])).unwrap_or((false, Coord3D::origin(), Matrix3D::IDENTITY));
             let (found_end, end, _) =
-                owner_guard.get_single_logical_bone_position(&runway_info.takeoff_bone_names[1]);
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| owner.get_single_logical_bone_position(&runway_info.takeoff_bone_names[1])).unwrap_or((false, Coord3D::origin(), Matrix3D::IDENTITY));
             if found_start {
                 runway.start = start;
             }
@@ -831,9 +850,9 @@ impl FlightDeckBehavior {
             }
 
             let (found_landing_start, landing_start, _) =
-                owner_guard.get_single_logical_bone_position(&runway_info.landing_bone_names[0]);
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| owner.get_single_logical_bone_position(&runway_info.landing_bone_names[0])).unwrap_or((false, Coord3D::origin(), Matrix3D::IDENTITY));
             let (found_landing_end, landing_end, _) =
-                owner_guard.get_single_logical_bone_position(&runway_info.landing_bone_names[1]);
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| owner.get_single_logical_bone_position(&runway_info.landing_bone_names[1])).unwrap_or((false, Coord3D::origin(), Matrix3D::IDENTITY));
             if found_landing_start {
                 runway.landing_start = landing_start;
             }
@@ -843,7 +862,7 @@ impl FlightDeckBehavior {
 
             runway.taxi_locations.clear();
             for bone in &runway_info.taxi_bone_names {
-                let (found, pos, _) = owner_guard.get_single_logical_bone_position(bone);
+                let (found, pos, _) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| owner.get_single_logical_bone_position(bone)).unwrap_or((false, Coord3D::origin(), Matrix3D::IDENTITY));
                 if found {
                     runway.taxi_locations.push(pos);
                 }
@@ -855,7 +874,7 @@ impl FlightDeckBehavior {
             runway.creation_locations.clear();
             let mut first_creation = true;
             for bone in &runway_info.creation_bone_names {
-                let (found, pos, transform) = owner_guard.get_single_logical_bone_position(bone);
+                let (found, pos, transform) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| owner.get_single_logical_bone_position(bone)).unwrap_or((false, Coord3D::origin(), Matrix3D::IDENTITY));
                 if found {
                     runway.creation_locations.push(pos);
                     if first_creation {
@@ -901,16 +920,12 @@ impl FlightDeckBehavior {
             if info.object_id == INVALID_OBJECT_ID {
                 return false;
             }
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(info.object_id) else {
-                return false;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                return true;
-            };
-            if obj_guard.is_effectively_dead() {
+            let alive = crate::object::registry::OBJECT_REGISTRY
+                .with_object(info.object_id, |obj| !obj.is_effectively_dead())
+                .unwrap_or(false);
+            if !alive {
                 return false;
             }
-            drop(obj_guard);
             let _ = Self::heal_object(owner_id, info.object_id, amount);
             true
         });
@@ -956,14 +971,12 @@ impl FlightDeckBehavior {
 
             let non_idle_can_give_up = if non_idle_id == INVALID_OBJECT_ID {
                 true
-            } else if let Some(obj_arc) = TheGameLogic::find_object_by_id(non_idle_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    Self::is_able_to_give_up_parking_space(&mut obj_guard, state, designated_command)
-                } else {
-                    false
-                }
             } else {
-                true
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(non_idle_id, |obj| {
+                        Self::is_able_to_give_up_parking_space(obj, state, designated_command)
+                    })
+                    .unwrap_or(true)
             };
 
             if !non_idle_can_give_up {
@@ -979,9 +992,8 @@ impl FlightDeckBehavior {
 
                 let parked_id = state.parking_spaces[temp_index].object_id;
                 if parked_id != INVALID_OBJECT_ID {
-                    if let Some(parked_arc) = TheGameLogic::find_object_by_id(parked_id) {
-                        if let Ok(mut parked_guard) = parked_arc.write() {
-                            if Self::is_able_to_move_forward(&parked_guard) {
+                    let moved_here = crate::object::registry::OBJECT_REGISTRY.with_object_mut(parked_id, |parked_guard| {
+                            if Self::is_able_to_move_forward(parked_guard) {
                                 state.parking_spaces[index].object_id = parked_id;
                                 state.parking_spaces[temp_index].object_id = non_idle_id;
 
@@ -1004,9 +1016,12 @@ impl FlightDeckBehavior {
                                 complete[runway_index] = true;
                                 state.next_cleanup_frame = now + config.human_follow_frames;
                                 moved = true;
+                                true
+                            } else {
+                                false
                             }
-                        }
-                    }
+                    });
+                    let _ = moved_here;
                 }
 
                 if moved {
@@ -1032,12 +1047,10 @@ impl FlightDeckBehavior {
             return;
         }
 
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner_arc.write() else {
-            return;
-        };
+        let template_name = config.thing_template_name.clone();
+        let replacement_frames = config.replacement_frames;
+        let dock_animation_frames = config.dock_animation_frames;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
 
         for space in &state.parking_spaces {
             if space.object_id != INVALID_OBJECT_ID {
@@ -1099,18 +1112,19 @@ impl FlightDeckBehavior {
             if queued {
                 state.started_production_frame = now;
                 state.next_allowed_production_frame =
-                    now + config.replacement_frames + config.dock_animation_frames;
+                    now + replacement_frames + dock_animation_frames;
             }
 
             break;
         }
+        });
     }
 
     fn has_takeoff_orders(&mut self) -> Bool {
         let target_alive = if self.designated_target == INVALID_OBJECT_ID {
             true
         } else {
-            TheGameLogic::find_object_by_id(self.designated_target).is_some()
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.designated_target, |_| ()).is_some()
         };
 
         match self.designated_command {
@@ -1136,19 +1150,13 @@ impl FlightDeckBehavior {
             if space.object_id == INVALID_OBJECT_ID {
                 continue;
             }
-            let Some(jet_arc) = TheGameLogic::find_object_by_id(space.object_id) else {
-                continue;
-            };
-            let Ok(mut jet_guard) = jet_arc.write() else {
-                continue;
-            };
-            if Self::is_able_to_give_up_parking_space(
-                &jet_guard,
-                state,
-                self.designated_command,
-            ) {
-                self.propagate_order_to_specific_plane(&mut jet_guard);
-            }
+            let jet_id = space.object_id;
+            let command = self.designated_command;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(jet_id, |jet_guard| {
+                if Self::is_able_to_give_up_parking_space(jet_guard, state, command) {
+                    self.propagate_order_to_specific_plane(jet_guard);
+                }
+            });
         }
     }
 
@@ -1156,8 +1164,12 @@ impl FlightDeckBehavior {
         let Some(ai) = jet.get_ai_mut() else {
             return;
         };
-        let target_arc = if self.designated_target != INVALID_OBJECT_ID {
-            TheGameLogic::find_object_by_id(self.designated_target)
+        let target_id = if self.designated_target != INVALID_OBJECT_ID
+            && crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.designated_target, |_| ())
+                .is_some()
+        {
+            Some(self.designated_target)
         } else {
             None
         };
@@ -1184,13 +1196,13 @@ impl FlightDeckBehavior {
                 let _ = ai.execute_command(&params);
             }
             AiCommandType::ForceAttackObject | AiCommandType::AttackObject => {
-                if let Some(target_arc) = target_arc {
+                if let Some(target_id) = target_id {
                     // C++ AIUpdateInterface::aiForceAttackObject(victim, maxShots, FromPlayer).
                     let mut params = crate::ai::AiCommandParams::new(
                         crate::ai::AiCommandType::ForceAttackObject,
                         CommandSourceType::FromPlayer,
                     );
-                    params.obj = Some(target_arc.read().ok().map(|g| g.get_id()).unwrap_or(0));
+                    params.obj = Some(target_id);
                     params.int_value = NO_MAX_SHOTS_LIMIT;
                     let _ = ai.execute_command(&params);
                 }
@@ -1241,36 +1253,30 @@ impl FlightDeckBehavior {
 
     fn update_launch_waves(&mut self, state: &mut FlightDeckState, now: UnsignedInt) {
         let num_cols = self.config.num_cols.max(0) as usize;
-
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+        let owner_id = self.object_id;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |_| ())
+            .is_none()
+        {
             return;
-        };
-        let Ok(mut owner_guard) = owner_arc.write() else {
-            return;
-        };
+        }
 
         for i in 0..num_cols {
-            let front_space = match state.parking_spaces.get(i) {
-                Some(space) => space,
+            let jet_id = match state.parking_spaces.get(i) {
+                Some(space) => space.object_id,
                 None => continue,
             };
 
-            let jet_id = front_space.object_id;
-            let Some(jet_arc) = TheGameLogic::find_object_by_id(jet_id) else {
-                continue;
-            };
-            let Ok(mut jet_guard) = jet_arc.write() else {
-                continue;
-            };
+            let command = self.designated_command;
+            let ready = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(jet_id, |jet| {
+                    __omp_shell("Self::is_able_to_give_up_parking_space(jet, state, command)")
+                        && self.is_in_position_to_takeoff(jet, state)
+                })
+                .unwrap_or(false)
+                && self.has_takeoff_orders();
 
-            if !Self::is_able_to_give_up_parking_space(
-                &mut jet_guard,
-                state,
-                self.designated_command,
-            )
-                && self.is_in_position_to_takeoff(&jet_guard, state)
-                && self.has_takeoff_orders()
-            {
+            if ready {
                 if state.next_launch_wave_frame[i] <= now {
                     if !state.ramp_up[i] {
                         state.ramp_up[i] = true;
@@ -1278,13 +1284,22 @@ impl FlightDeckBehavior {
                         state.lower_ramp_frame[i] = NEVER;
 
                         if let Some((opening, closing)) = self.door_flags_for_runway(i) {
-                            let _ =
-                                owner_guard.clear_and_set_model_condition_flags(closing, opening);
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                owner_id,
+                                |owner| {
+                                    owner.clear_and_set_model_condition_flags(closing, opening)
+                                },
+                            );
                         }
                     }
 
                     if state.ramp_up[i] && state.ramp_up_frame[i] <= now {
-                        self.propagate_order_to_specific_plane(&mut jet_guard);
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                            jet_id,
+                            |jet| {
+                                self.propagate_order_to_specific_plane(jet);
+                            },
+                        );
                         state.next_launch_wave_frame[i] = now + self.config.launch_wave_frames;
                         state.catapult_system_frame[i] = now + self.config.catapult_fire_frames;
                         state.lower_ramp_frame[i] = now + self.config.lower_ramp_frames;
@@ -1314,7 +1329,10 @@ impl FlightDeckBehavior {
             if state.ramp_up[i] && state.lower_ramp_frame[i] <= now {
                 state.ramp_up[i] = false;
                 if let Some((opening, closing)) = self.door_flags_for_runway(i) {
-                    let _ = owner_guard.clear_and_set_model_condition_flags(opening, closing);
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        owner_id,
+                        |owner| owner.clear_and_set_model_condition_flags(opening, closing),
+                    );
                 }
             }
         }
@@ -1322,35 +1340,28 @@ impl FlightDeckBehavior {
 
     /// Heal an object
     fn heal_object(owner_id: ObjectID, object_id: ObjectID, amount: f32) -> BehaviorResult<()> {
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Err(BehaviorError::ObjectNotFound { id: object_id });
-        };
-        let Ok(mut object_guard) = object_arc.write() else {
-            return Err(BehaviorError::ObjectNotFound { id: object_id });
-        };
-
-        if let Some(source_arc) = TheGameLogic::find_object_by_id(owner_id) {
-            if let Ok(source_guard) = source_arc.read() {
-                let _ = object_guard.attempt_healing(amount, Some(&*source_guard));
-                return Ok(());
+        let healed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            let from_source = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |source| {
+                let _ = object.attempt_healing(amount, Some(source));
+            });
+            if from_source.is_none() {
+                let _ = object.attempt_healing(amount, None);
             }
+        });
+        if healed.is_none() {
+            return Err(BehaviorError::ObjectNotFound { id: object_id });
         }
-        let _ = object_guard.attempt_healing(amount, None);
         Ok(())
     }
 
     /// Process object exit
     fn process_object_exit(&mut self, object_id: ObjectID) -> BehaviorResult<()> {
         let mut pp_info = SharedPPInfo::default();
-        let parking_offset = if let Some(arc) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(guard) = arc.read() {
+        let parking_offset = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |guard| {
                 guard.get_ai().map(|ai| ai.get_parking_offset()).unwrap_or(0.0)
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
+            })
+            .unwrap_or(0.0);
 
         if !self.reserve_space(object_id, parking_offset, &mut pp_info) {
             return Err(BehaviorError::NoAvailableParkingSpace);
@@ -1378,36 +1389,34 @@ impl FlightDeckBehavior {
         let creation_pos = creation_locations[0];
         let heading = start_orient;
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Err(BehaviorError::ObjectNotFound { id: object_id });
-        };
-        let Ok(mut object_guard) = object_arc.write() else {
-            return Err(BehaviorError::ObjectNotFound { id: object_id });
-        };
-
-        let _ = object_guard.set_position(&creation_pos);
-        let _ = object_guard.set_orientation(heading);
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
-            if let Some(pf_arc) = ai_guard.pathfinder() {
-                if let Ok(mut pf) = pf_arc.write() {
-                    pf.add_object_to_map(object_id, &[creation_pos], false);
+        let owner_id = self.object_id;
+        let parking_space = pp_info.parking_space;
+        let placed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+            let _ = object_guard.set_position(&creation_pos);
+            let _ = object_guard.set_orientation(heading);
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
+                if let Some(pf_arc) = ai_guard.pathfinder() {
+                    if let Ok(mut pf) = pf_arc.write() {
+                        pf.add_object_to_map(object_id, &[creation_pos], false);
+                    }
                 }
             }
+            if let Some(ai) = object_guard.get_ai_mut() {
+                let mut exit_path = Vec::with_capacity(1);
+                exit_path.push(parking_space);
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::FollowExitProductionPath,
+                    CommandSourceType::FromAi,
+                );
+                params.coords = exit_path;
+                params.obj = Some(owner_id);
+                let _ = ai.execute_command(&params);
+            }
+        });
+        if placed.is_none() {
+            return Err(BehaviorError::ObjectNotFound { id: object_id });
         }
-
-        if let Some(ai) = object_guard.get_ai_mut() {
-            let mut exit_path = Vec::with_capacity(1);
-            exit_path.push(pp_info.parking_space);
-            // C++ AIUpdateInterface::aiFollowExitProductionPath(path, owner, FromAI).
-            let mut params = crate::ai::AiCommandParams::new(
-                crate::ai::AiCommandType::FollowExitProductionPath,
-                CommandSourceType::FromAi,
-            );
-            params.coords = exit_path;
-            params.obj = Some(self.object_id);
-            let _ = ai.execute_command(&params);
-        }
-
         Ok(())
     }
 
@@ -1416,26 +1425,20 @@ impl FlightDeckBehavior {
         let state = &mut self.state;
         for space in &state.parking_spaces {
             if space.object_id != INVALID_OBJECT_ID {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(space.object_id) else {
-                    continue;
-                };
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    continue;
-                };
-                if obj_guard.is_effectively_dead() {
-                    continue;
-                }
-
-                let takeoff_or_landing = obj_guard
-                    .get_ai()
-                    .map(|ai| ai.is_takeoff_or_landing_in_progress())
-                    .unwrap_or(false);
-
-                if obj_guard.is_above_terrain() && !takeoff_or_landing {
-                    continue;
-                }
-
-                obj_guard.kill(None, None);
+                let id = space.object_id;
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |obj_guard| {
+                    if obj_guard.is_effectively_dead() {
+                        return;
+                    }
+                    let takeoff_or_landing = obj_guard
+                        .get_ai()
+                        .map(|ai| ai.is_takeoff_or_landing_in_progress())
+                        .unwrap_or(false);
+                    if obj_guard.is_above_terrain() && !takeoff_or_landing {
+                        return;
+                    }
+                    obj_guard.kill(None, None);
+                });
             }
         }
         Self::purge_dead(state);
@@ -1482,35 +1485,33 @@ impl FlightDeckBehavior {
         team: Arc<RwLock<SharedTeam>>,
         detection_time: u32,
     ) -> BehaviorResult<()> {
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(());
-        };
-        let Ok(mut obj_guard) = obj_arc.write() else {
-            return Ok(());
-        };
-        if obj_guard.is_effectively_dead() {
-            return Ok(());
-        }
-
-        let takeoff_or_landing = obj_guard
-            .get_ai()
-            .map(|ai| ai.is_takeoff_or_landing_in_progress())
-            .unwrap_or(false);
-
-        if obj_guard.is_above_terrain() && !takeoff_or_landing {
-            let new_team_player_id = team.read().ok().and_then(|t| t.get_controlling_player_id());
-            let obj_player_id = obj_guard.get_controlling_player_id();
-            if new_team_player_id != obj_player_id {
-                if obj_guard.get_producer_id() == self.object_id {
-                    obj_guard.set_producer(None);
-                }
-                drop(obj_guard);
-                self.release_space(object_id);
+        let producer_id = self.object_id;
+        let team_id = team.try_read().ok().map(|t| t.get_id());
+        let new_team_player_id = team_id.and_then(|id| {
+            crate::team::with_team(id, |t| t.get_controlling_player_id()).flatten()
+        });
+        let release = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+            if obj_guard.is_effectively_dead() {
+                return false;
             }
-            return Ok(());
+            let takeoff_or_landing = obj_guard
+                .get_ai()
+                .map(|ai| ai.is_takeoff_or_landing_in_progress())
+                .unwrap_or(false);
+            if obj_guard.is_above_terrain() && !takeoff_or_landing {
+                let obj_player_id = obj_guard.get_controlling_player_id();
+                if new_team_player_id != obj_player_id && obj_guard.get_producer_id() == producer_id {
+                    obj_guard.set_producer(None);
+                    return true;
+                }
+                return false;
+            }
+            obj_guard.defect(Some(team), detection_time);
+            false
+        });
+        if release == Some(true) {
+            self.release_space(object_id);
         }
-
-        obj_guard.defect(Some(team), detection_time);
         Ok(())
     }
 
@@ -1587,20 +1588,15 @@ impl FlightDeckBehavior {
             }
 
             if space.runway_index == runway_index {
+                let command = self.designated_command;
                 let can_take = if non_idle_jet_id == INVALID_OBJECT_ID {
                     true
-                } else if let Some(jet_arc) = TheGameLogic::find_object_by_id(non_idle_jet_id) {
-                    if let Ok(mut jet_guard) = jet_arc.write() {
-                        Self::is_able_to_give_up_parking_space(
-                            &mut jet_guard,
-                            state,
-                            self.designated_command,
-                        )
-                    } else {
-                        false
-                    }
                 } else {
-                    true
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(non_idle_jet_id, |jet| {
+                            Self::is_able_to_give_up_parking_space(jet, state, command)
+                        })
+                        .unwrap_or(true)
                 };
 
                 if can_take {
@@ -1760,8 +1756,8 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
         for space in &state.parking_spaces {
             let mut id = space.object_id;
             if id != INVALID_OBJECT_ID {
-                let dead = TheGameLogic::find_object_by_id(id)
-                    .and_then(|arc| arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                let dead = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |guard| guard.is_effectively_dead())
                     .unwrap_or(true);
                 if dead {
                     id = INVALID_OBJECT_ID;
@@ -1840,11 +1836,9 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
 
         state.parking_spaces[target_index].object_id = object_id;
         if self.config.landing_deck_height_offset != 0.0 {
-            if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard.set_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET, true);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+                guard.set_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET, true);
+            });
         }
 
         self.calc_pp_info(object_id, info);
@@ -1870,11 +1864,9 @@ impl SharedParkingPlaceBehaviorInterface for FlightDeckBehavior {
             }
         }
 
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(mut guard) = obj.write() {
-                guard.clear_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+            guard.clear_status(ObjectStatusMaskType::DECK_HEIGHT_OFFSET);
+        });
     }
 
     fn reserve_runway(&mut self, object_id: ObjectID, for_landing: Bool) -> Bool {
@@ -2559,7 +2551,6 @@ impl FlightDeckBehaviorFactory {
             .ok_or("Invalid module data type for FlightDeckBehavior")?
             .clone();
 
-        let object_id = thing.read().map(|guard| guard.get_object_id()).unwrap_or(0);
         let behavior = FlightDeckBehavior::new(object_id, data);
         Ok(Box::new(behavior))
     }
@@ -2668,7 +2659,7 @@ mod tests {
 
     fn create_test_flight_deck_with_owner() -> (FlightDeckBehavior, ObjectID) {
         let owner_id = next_test_object_id();
-        let owner = register_test_object(owner_id);
+        let _owner = register_test_object(owner_id);
         let config = FlightDeckBehaviorModuleData {
             num_rows: 3,
             num_cols: 2,
@@ -2679,7 +2670,7 @@ mod tests {
         };
 
         let flight_deck = FlightDeckBehavior::new(owner_id, config);
-        (flight_deck, owner)
+        (flight_deck, owner_id)
     }
 
     #[test]
@@ -2784,7 +2775,7 @@ mod tests {
         assert_eq!(stats.available_spaces, 5);
 
         OBJECT_REGISTRY.unregister_object(jet_id);
-        OBJECT_REGISTRY.unregister_object(owner.read().unwrap().get_id());
+        OBJECT_REGISTRY.unregister_object(owner);
     }
 
     #[test]
@@ -2803,7 +2794,7 @@ mod tests {
         assert_eq!(reservation, jet_id);
 
         OBJECT_REGISTRY.unregister_object(jet_id);
-        OBJECT_REGISTRY.unregister_object(owner.read().unwrap().get_id());
+        OBJECT_REGISTRY.unregister_object(owner);
     }
 
     #[test]
@@ -2826,7 +2817,7 @@ mod tests {
         assert_eq!(stats.available_spaces, 6);
 
         OBJECT_REGISTRY.unregister_object(jet_id);
-        OBJECT_REGISTRY.unregister_object(owner.read().unwrap().get_id());
+        OBJECT_REGISTRY.unregister_object(owner);
     }
 
     #[test]

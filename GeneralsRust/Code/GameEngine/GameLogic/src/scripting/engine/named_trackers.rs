@@ -218,7 +218,6 @@ impl ScriptEngine {
         };
         factory
             .find_team(team_name)
-            .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
             .unwrap_or(TEAM_ID_INVALID)
     }
 
@@ -226,12 +225,7 @@ impl ScriptEngine {
         if team_id == TEAM_ID_INVALID {
             return None;
         }
-        let Ok(factory) = TheTeamFactory().lock() else {
-            return None;
-        };
-        factory
-            .find_team_by_id(team_id)
-            .and_then(|team| team.read().ok().map(|guard| guard.get_name().to_string()))
+        crate::team::with_team(team_id, |guard| guard.get_name().to_string())
     }
 
 
@@ -1096,10 +1090,7 @@ impl ScriptEngine {
         let Ok(players) = crate::player::player_list().read() else {
             return;
         };
-        let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
-            return;
-        };
-        let Ok(player) = player_arc.read() else {
+        let Some(player) = players.find_player_by_name(&reveal.player_name) else {
             return;
         };
         let player_mask = player.get_player_mask().bits();
@@ -1139,10 +1130,7 @@ impl ScriptEngine {
         let Ok(players) = crate::player::player_list().read() else {
             return;
         };
-        let Some(player_arc) = players.find_player_by_name(&reveal.player_name) else {
-            return;
-        };
-        let Ok(player) = player_arc.read() else {
+        let Some(player) = players.find_player_by_name(&reveal.player_name) else {
             return;
         };
         let player_mask = player.get_player_mask().bits();
@@ -1454,21 +1442,23 @@ impl ScriptEngine {
             if let Some(team_name_str) = team_name {
                 inner.calling_team = Some(team_name_str.to_string());
                 if let Ok(mut factory) = get_team_factory().lock() {
-                    if let Some(team_arc) = factory.find_team(team_name_str) {
-                        if let Ok(team_guard) = team_arc.read() {
-                            if let Some(player_id) = team_guard.get_controlling_player_id() {
-                                inner.current_player = crate::player::player_list()
-                                    .read()
-                                    .ok()
-                                    .and_then(|list| list.get_player(player_id as i32).cloned())
-                                    .and_then(|p| {
-                                        p.read().ok().and_then(|p| {
-                                            game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
-                                                p.get_player_name_key(),
-                                            )
-                                        })
-                                    });
-                            }
+                    if let Some(team_id) = factory.find_team(team_name_str) {
+                        drop(factory);
+                        if let Some(player_id) =
+                            crate::team::with_team(team_id, |team_guard| {
+                                team_guard.get_controlling_player_id()
+                            })
+                            .flatten()
+                        {
+                            inner.current_player = crate::player::with_player(
+                                player_id as crate::player::PlayerIndex,
+                                |p| {
+                                    game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
+                                        p.get_player_name_key(),
+                                    )
+                                },
+                            )
+                            .flatten();
                         }
                     }
                 }
@@ -1523,21 +1513,22 @@ impl ScriptEngine {
                 inner.current_player = player_name.map(|s| s.to_string());
             } else if let Some(ref tname) = inner.calling_team {
                 if let Ok(mut factory) = get_team_factory().lock() {
-                    if let Some(team_arc) = factory.find_team(tname) {
-                        if let Ok(team_guard) = team_arc.read() {
-                            if let Some(pid) = team_guard.get_controlling_player_id() {
-                                inner.current_player = crate::player::player_list()
-                                    .read()
-                                    .ok()
-                                    .and_then(|list| list.get_player(pid as i32).cloned())
-                                    .and_then(|p| {
-                                        p.read().ok().and_then(|p| {
-                                            game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
-                                                p.get_player_name_key(),
-                                            )
-                                        })
-                                    });
-                            }
+                    if let Some(team_id) = factory.find_team(tname) {
+                        drop(factory);
+                        if let Some(pid) = crate::team::with_team(team_id, |team_guard| {
+                            team_guard.get_controlling_player_id()
+                        })
+                        .flatten()
+                        {
+                            inner.current_player = crate::player::with_player(
+                                pid as crate::player::PlayerIndex,
+                                |p| {
+                                    game_engine::common::name_key_generator::NameKeyGenerator::key_to_name(
+                                        p.get_player_name_key(),
+                                    )
+                                },
+                            )
+                            .flatten();
                         }
                     }
                 }

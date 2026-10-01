@@ -26,8 +26,7 @@ use crate::helpers::{
     TheThingFactory,
 };
 use crate::modules::OCLUpdateInterface;
-use crate::player::ThePlayerList;
-use crate::team::get_team_factory;
+
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -326,56 +325,43 @@ impl OCLUpdate {
         let template = TheThingFactory::find_template(&object_def.object_name)?;
         let factory = TheThingFactory::get().ok()?;
 
-        let mut spawn_team = None;
+        let mut team_id = None;
         if self.data.inherit_team {
-            if let Some(team_id) = self.owner_team_id {
-                spawn_team = get_team_factory()
-                    .lock()
-                    .ok()
-                    .and_then(|factory| factory.find_team_by_id(team_id));
-            }
+            team_id = self.owner_team_id;
         }
-
-        if spawn_team.is_none() && self.data.inherit_player {
+        if team_id.is_none() && self.data.inherit_player {
             if let Some(player_id) = self.owner_player_id {
-                spawn_team = ThePlayerList()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id).cloned())
-                    .and_then(|player| player.read().ok().and_then(|guard| guard.get_default_team()));
+                team_id = crate::player::with_player(player_id, |player| player.get_default_team_id())
+                    .flatten();
             }
         }
 
-        let created = if let Some(team_arc) = spawn_team.as_ref() {
-            let team_guard = team_arc.read().ok()?;
-            factory.new_object(template, &*team_guard).ok()?
+        let created_id = if let Some(team_id) = team_id {
+            crate::team::with_team(team_id, |team| factory.new_object(template.clone(), team).ok())
+                .flatten()?
         } else {
             factory.new_object_optional_team(template, None).ok()?
         };
 
-        if let Ok(mut created_guard) = created.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(created_id, |created| {
             let mut spawn_pos = position;
             if self.data.place_on_ground {
                 if let Some(terrain) = TheTerrainLogic::get() {
                     spawn_pos[2] = terrain.get_ground_height(spawn_pos[0], spawn_pos[1], None);
                 }
             }
-            let _ = created_guard.set_position(&spawn_pos);
-
-            if let Some(team_arc) = spawn_team {
-                let _ = created_guard.set_team(Some(team_arc));
+            let _ = created.set_position(&spawn_pos);
+            if let Some(team_id) = team_id {
+                let _ = created.set_team(Some(team_id));
             }
-
             if let Some(velocity) = self.data.initial_velocity {
-                if let Some(phys) = created_guard.get_physics_mut() {
-                    if let Ok(mut phys_guard) = phys.lock() {
-                        phys_guard.set_velocity(&velocity);
-                    }
+                if let Some(phys) = created.get_physics_mut() {
+                    phys.set_velocity(&velocity);
                 }
             }
-        }
+        });
 
-        Some(created.read().ok()?.get_id())
+        Some(created_id)
     }
 
     /// Update OCL creation

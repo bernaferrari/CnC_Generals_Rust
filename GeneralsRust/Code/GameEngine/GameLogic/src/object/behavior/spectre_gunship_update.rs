@@ -553,17 +553,18 @@ impl SpectreGunshipUpdate {
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
         let mut func = Some(func);
-        let obj_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        })?;
-        let obj = obj_arc.read().ok()?;
-        let template = self.module_data.special_power_template.as_ref()?;
-        obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
-            let func = func.take().expect("special power callback already used");
-            func(module)
-        })
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
+            return None;
+        }
+        let template_name = self.module_data.special_power_template.as_ref()?.get_name().to_string();
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            obj.with_special_power_module_mut_by_name(&template_name, |module| {
+                let func = func.take().expect("special power callback already used");
+                func(module)
+            })
+        })?
     }
 
     fn is_point_off_map(&self, pos: Coord3D) -> bool {
@@ -584,17 +585,16 @@ impl SpectreGunshipUpdate {
             return false;
         }
 
-        let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
+            return false;
+        }
+        let Some(ship_pos) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |gunship| {
+            *gunship.get_position()
         }) else {
             return false;
         };
-        let Ok(gunship) = gunship_arc.read() else {
-            return false;
-        };
-        let ship_pos = *gunship.get_position();
         let delta = ship_pos - target_pos;
         delta.length() > self.module_data.gunship_orbit_radius * 0.75
     }
@@ -618,29 +618,19 @@ impl SpectreGunshipUpdate {
             return false;
         };
 
-        let Some(our_player_arc) = gunship.get_controlling_player() else {
+        let Some(our_index) = gunship.get_controlling_player() else {
             return false;
         };
-        let Ok(our_player) = our_player_arc.read() else {
+        let Some(other_team_id) = crate::player::with_player(disguised_index, |other_player| {
+            other_player.get_default_team_id()
+        }).flatten() else {
             return false;
         };
-
-        let list = ThePlayerList().read().ok();
-        let other_player_arc = list.as_ref().and_then(|l| l.get_player(disguised_index));
-        let Some(other_player_arc) = other_player_arc else {
-            return false;
-        };
-        let Ok(other_player) = other_player_arc.read() else {
-            return false;
-        };
-        let Some(other_team) = other_player.get_default_team() else {
-            return false;
-        };
-        let Ok(other_team_guard) = other_team.read() else {
-            return false;
-        };
-
-        our_player.get_relationship_with_team(&other_team_guard) == Relationship::Enemies
+        crate::team::with_team(other_team_id, |other_team_guard| {
+            crate::player::with_player(our_index, |our_player| {
+                our_player.get_relationship_with_team(other_team_guard) == Relationship::Enemies
+            }).unwrap_or(false)
+        }).unwrap_or(false)
     }
 
     fn find_target_in_radius(
@@ -651,66 +641,47 @@ impl SpectreGunshipUpdate {
     ) -> Option<(ObjectID, Coord3D)> {
         let mut best: Option<(ObjectID, Coord3D, Real)> = None;
         let gunship_off_map = gunship.is_off_map();
-        let controlling_player_index = if let Some(player_arc) = gunship.get_controlling_player() {
-            player_arc
-                .read()
-                .ok()
-                .map(|player| player.get_player_index())
-        } else {
-            None
-        };
+        let controlling_player_index = gunship.get_controlling_player();
         let partition = ThePartitionManager::get()?;
         let radius_sqr = radius * radius;
         for id in partition.get_objects_in_range_boundary_2d(&center, radius) {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_effectively_dead() {
+            if !TheGameLogic::find_object_by_id(id) {
                 continue;
             }
-            if obj.is_off_map() != gunship_off_map {
-                continue;
-            }
-            if obj.is_stealthed() && !obj.is_detected() {
-                if !self.is_disguised_as_enemy(&obj, gunship) {
-                    continue;
+            let candidate = crate::object::registry::OBJECT_REGISTRY.with_object(id, |obj| {
+                if obj.is_effectively_dead() || obj.is_off_map() != gunship_off_map {
+                    return None;
                 }
-            }
-            if gunship.relationship_to(&obj) != Relationship::Enemies {
-                continue;
-            }
-            let can_attack = gunship.get_able_to_attack_specific_object(
-                AbleToAttackType::NewTarget,
-                &obj,
-                CommandSourceType::FromAi,
-            );
-            if !matches!(
-                can_attack,
-                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-            ) {
-                continue;
-            }
-            if let Some(player_index) = controlling_player_index {
-                let shroud = obj.get_shrouded_status(player_index);
-                if shroud != ObjectShroudStatus::Clear {
-                    continue;
+                if obj.is_stealthed() && !obj.is_detected() && !self.is_disguised_as_enemy(obj, gunship) {
+                    return None;
                 }
-            }
-            let pos = *obj.get_position();
-            let target_radius = obj.get_geometry_info().get_bounding_circle_radius();
+                if gunship.relationship_to(obj) != Relationship::Enemies {
+                    return None;
+                }
+                let can_attack = gunship.get_able_to_attack_specific_object(
+                    AbleToAttackType::NewTarget,
+                    obj,
+                    CommandSourceType::FromAi,
+                );
+                if !matches!(can_attack, CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving) {
+                    return None;
+                }
+                if let Some(player_index) = controlling_player_index {
+                    if obj.get_shrouded_status(player_index) != ObjectShroudStatus::Clear {
+                        return None;
+                    }
+                }
+                let pos = *obj.get_position();
+                let target_radius = obj.get_geometry_info().get_bounding_circle_radius();
+                Some((pos, target_radius))
+            });
+            let Some(Some((pos, target_radius))) = candidate else { continue; };
             if !self.is_fair_distance_from_ship(pos) {
                 continue;
             }
             let delta = pos - center;
             let center_dist = delta.length();
-            let boundary_dist = if center_dist <= target_radius {
-                0.0
-            } else {
-                center_dist - target_radius
-            };
+            let boundary_dist = if center_dist <= target_radius { 0.0 } else { center_dist - target_radius };
             let dist = boundary_dist * boundary_dist;
             if dist > radius_sqr {
                 continue;
@@ -751,9 +722,11 @@ impl SpectreGunshipUpdate {
         let mut decal = template.create_radius_decal_with_radius(position, radius);
         if !decal.is_empty() {
             if template.color == 0 {
-                if let (Some(owner), Ok(list)) = (owner_index, ThePlayerList().read()) {
-                    if let Some(player) = list.get_player(owner).and_then(|p| p.read().ok()) {
-                        decal.color = player.get_player_color().to_argb_u32();
+                if let Some(owner) = owner_index {
+                    if let Some(color) = crate::player::with_player(owner, |player| {
+                        player.get_player_color().to_argb_u32()
+                    }) {
+                        decal.color = color;
                     }
                 }
             }
@@ -790,10 +763,10 @@ impl SpectreGunshipUpdate {
         }
 
         if self.gattling_id != crate::common::INVALID_ID {
-            if let Some(gattling_arc) = TheGameLogic::find_object_by_id(self.gattling_id) {
-                if let Ok(mut gattling) = gattling_arc.write() {
+            if TheGameLogic::find_object_by_id(self.gattling_id) {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.gattling_id, |gattling| {
                     gattling.set_disabled(DisabledType::Paralyzed);
-                }
+                });
             }
         }
 
@@ -842,25 +815,16 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
         }
 
         let current_frame = TheGameLogic::get_frame();
-        let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
             if self.status != GunshipStatus::Idle {
                 self.set_status(GunshipStatus::Idle);
                 self.clean_up();
             }
             return Ok(UpdateSleepTime::None);
-        };
-
-        let Ok(mut gunship) = gunship_arc.write() else {
-            if self.status != GunshipStatus::Idle {
-                self.set_status(GunshipStatus::Idle);
-                self.clean_up();
-            }
-            return Ok(UpdateSleepTime::None);
-        };
+        }
+        let updated = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |gunship| {
 
         if gunship.is_effectively_dead() {
             return Ok(UpdateSleepTime::Forever);
@@ -873,19 +837,8 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             decal.update();
         }
 
-        let gattling_ai = if self.gattling_id != crate::common::INVALID_ID {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(self.gattling_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    obj_guard.get_ai_update_interface()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let gattling_present = self.gattling_id != crate::common::INVALID_ID
+            && crate::helpers::TheGameLogic::find_object_by_id(self.gattling_id);
 
         if matches!(
             self.status,
@@ -935,10 +888,10 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                 self.orbit_escape_frame = current_frame + self.module_data.orbit_frames;
 
                 if self.gattling_id != crate::common::INVALID_ID {
-                    if let Some(gattling_arc) = TheGameLogic::find_object_by_id(self.gattling_id) {
-                        if let Ok(mut gattling) = gattling_arc.write() {
+                    if TheGameLogic::find_object_by_id(self.gattling_id) {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.gattling_id, |gattling| {
                             gattling.clear_disabled(DisabledType::Paralyzed);
-                        }
+                        });
                     }
                 }
 
@@ -978,15 +931,12 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     target_id = Some(id);
                     _target_pos = pos;
                 } else if {
-                    if let Some(player_arc) = gunship.get_controlling_player() {
-                        player_arc
-                            .read()
-                            .ok()
-                            .map(|player| player.get_player_type() != PlayerType::Human)
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    }
+                    gunship
+                        .get_controlling_player()
+                        .and_then(|idx| crate::player::with_player(idx, |player| {
+                            player.get_player_type() != PlayerType::Human
+                        }))
+                        .unwrap_or(false)
                 } {
                     if let Some((id, pos)) = self.find_target_in_radius(
                         &gunship,
@@ -999,16 +949,18 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     }
                 }
 
-                if let Some(ai) = gattling_ai.as_ref() {
-                    if let Some(target_id) = target_id {
-                        ai.ai_attack_object_id(target_id, LOTS_OF_SHOTS, CommandSourceType::FromAi);
-                    } else {
-                        ai.ai_attack_position(
-                            &self.gattling_target_position,
-                            LOTS_OF_SHOTS,
-                            CommandSourceType::FromAi,
-                        );
-                    }
+                if gattling_present {
+                    let attack_id = target_id;
+                    let attack_pos = self.gattling_target_position;
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.gattling_id, |gattling| {
+                        if let Some(ai) = gattling.get_ai_update_interface() {
+                            if let Some(target_id) = attack_id {
+                                ai.ai_attack_object_id(target_id, LOTS_OF_SHOTS, CommandSourceType::FromAi);
+                            } else {
+                                ai.ai_attack_position(&attack_pos, LOTS_OF_SHOTS, CommandSourceType::FromAi);
+                            }
+                        }
+                    });
                 }
 
                 if self.ok_to_fire_howitzer_counter > self.module_data.howitzer_follow_lag {
@@ -1043,10 +995,11 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             }
 
             let gattling_firing =
-                if let Some(gattling_arc) = TheGameLogic::find_object_by_id(self.gattling_id) {
-                    gattling_arc
-                        .read()
-                        .map(|gattling| gattling.test_status(ObjectStatusTypes::IsFiringWeapon))
+                if TheGameLogic::find_object_by_id(self.gattling_id) {
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.gattling_id, |gattling| {
+                            gattling.test_status(ObjectStatusTypes::IsFiringWeapon)
+                        })
                         .unwrap_or(false)
                 } else {
                     false
@@ -1107,6 +1060,8 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
         }
 
         Ok(UpdateSleepTime::None)
+        });
+        updated.unwrap_or(Ok(UpdateSleepTime::None))
     }
 
     fn get_disabled_types_to_process(&self) -> DisabledMaskType {
@@ -1124,20 +1079,17 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             return false;
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
             return false;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return false;
-        };
-        does_special_power_update_pass_science_test_for_object(
-            &obj,
-            self.get_extra_required_science(),
-        )
+        }
+        let science = self.get_extra_required_science();
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                does_special_power_update_pass_science_test_for_object(obj, science)
+            })
+            .unwrap_or(false)
     }
 
     fn get_extra_required_science(&self) -> crate::common::science::ScienceType {
@@ -1179,20 +1131,16 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             self.set_status(GunshipStatus::Inserting);
         }
 
-        if let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(mut gunship) = gunship_arc.write() {
+        if self.object_id != crate::common::INVALID_ID
+            && crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |gunship| {
                 if let Some(ai) = gunship.get_ai_update_interface() {
                     ai.choose_locomotor_set(LocomotorSetType::Panic);
                     ai.set_allow_invalid_position(true);
                     ai.set_ultra_accurate(true);
                 }
-
-                let draw = gunship.get_drawable();
-                if let Some(draw) = draw {
+                if let Some(draw) = gunship.get_drawable() {
                     if let Ok(mut draw) = draw.write() {
                         draw.clear_and_set_model_condition_state(
                             MODELCONDITION_DOOR_1_OPENING,
@@ -1200,57 +1148,48 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
                         );
                     }
                 }
-
-                self.friend_enable_afterburners(&mut gunship, true);
+                self.friend_enable_afterburners(gunship, true);
                 self.set_status(GunshipStatus::Inserting);
-
-                if let Some(contain) = gunship.get_contain() {
-                    if self.gattling_id != crate::common::INVALID_ID
-                        && TheGameLogic::find_object_by_id(self.gattling_id).is_some()
-                    {
+                let team_id = gunship.get_team();
+                let gattling_name = self.module_data.gattling_template_name.clone();
+                let existing = self.gattling_id;
+                if let Some(contain) = gunship.get_contain_mut() {
+                    if existing != crate::common::INVALID_ID && TheGameLogic::find_object_by_id(existing) {
                         self.gattling_id = crate::common::INVALID_ID;
                     }
-                    let gattling_template = crate::helpers::TheThingFactory::find_template(
-                        self.module_data.gattling_template_name.as_str(),
-                    );
-                    if let Some(template) = gattling_template {
-                        let team = gunship.get_team();
-                        if let Some(team) = team {
-                            if let Ok(team_guard) = team.read() {
-                                if let Ok(factory) = crate::helpers::TheThingFactory::get() {
-                                    if let Ok(new_gattling) =
-                                        factory.new_object(template, &*team_guard)
-                                    {
-                                        if let Ok(gattling_read) = new_gattling.read() {
-                                            contain.add_to_contain(&gattling_read);
-                                            self.gattling_id = gattling_read.get_id();
-                                        }
-                                        if let Ok(mut gattling) = new_gattling.write() {
-                                            gattling.set_disabled(DisabledType::Paralyzed);
-                                        }
-                                    }
-                                }
+                    if let Some(template) = crate::helpers::TheThingFactory::find_template(gattling_name.as_str()) {
+                        if let Some(team_id) = team_id {
+                            if let Some(new_id) = crate::team::with_team(team_id, |team_guard| {
+                                crate::helpers::TheThingFactory::get().ok().and_then(|factory| {
+                                    factory.new_object(template, team_guard).ok()
+                                })
+                            }).flatten() {
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(new_id, |gattling| {
+                                    contain.add_to_contain(gattling);
+                                });
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_id, |gattling| {
+                                    gattling.set_disabled(DisabledType::Paralyzed);
+                                });
+                                self.gattling_id = new_id;
                             }
                         }
                     }
                 }
-
-                let owner_index = gunship
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+                let owner_index = gunship.get_controlling_player();
+                let pos = *gunship.get_position();
                 self.attack_area_decal = Some(Self::create_decal(
                     &self.module_data.attack_area_decal_template,
-                    *gunship.get_position(),
+                    pos,
                     self.module_data.attack_area_radius,
                     owner_index,
                 ));
                 self.targeting_reticle_decal = Some(Self::create_decal(
                     &self.module_data.targeting_reticle_decal_template,
-                    *gunship.get_position(),
+                    pos,
                     self.module_data.targeting_reticle_radius,
                     owner_index,
                 ));
-            }
+            });
         }
 
         let _ = self.with_special_power_module(|module| {
@@ -1286,40 +1225,39 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
     }
 
     fn set_special_power_overridable_destination(&mut self, location: &Coord3D) {
-        // Wave 325: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
         }
-
-        if let Some(gunship_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(gunship) = gunship_arc.read() {
-                if !gunship.is_disabled() {
-                    self.override_target_destination = *location;
-                    if let Some(controller) = gunship.get_controlling_player() {
-                        if let Ok(player) = controller.read() {
-                            if player.get_player_index()
-                                == ThePlayerList()
-                                    .read()
-                                    .map(|l| l.get_local_player_index())
-                                    .unwrap_or(crate::player::PLAYER_INDEX_INVALID)
-                            {
-                                let mut sound = gunship.get_template().get_voice_attack();
-                                if !sound.event_name.is_empty() {
-                                    sound.set_object_id(gunship.get_id());
-                                    if let Some(audio) = TheAudio::get() {
-                                        audio.add_audio_event(&sound);
-                                    }
-                                }
-                            }
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
+            return;
+        }
+        let loc = *location;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |gunship| {
+            if gunship.is_disabled() {
+                return;
+            }
+            self.override_target_destination = loc;
+            let local = ThePlayerList()
+                .read()
+                .map(|l| l.get_local_player_index())
+                .unwrap_or(crate::player::PLAYER_INDEX_INVALID);
+            if let Some(controller) = gunship.get_controlling_player() {
+                let is_local = crate::player::with_player(controller, |player| {
+                    player.get_player_index() == local
+                }).unwrap_or(false);
+                if is_local {
+                    let mut sound = gunship.get_template().get_voice_attack();
+                    if !sound.event_name.is_empty() {
+                        sound.set_object_id(gunship.get_id());
+                        if let Some(audio) = TheAudio::get() {
+                            audio.add_audio_event(&sound);
                         }
                     }
                 }
             }
-        }
+        });
     }
 
     fn is_power_currently_in_use(&self, _command: Option<&CommandButton>) -> bool {
@@ -1359,31 +1297,25 @@ impl BehaviorModuleInterface for SpectreGunshipUpdate {
             return Ok(());
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
-            return Ok(());
-        };
-        let obj = obj_arc.read().ok();
-        if let Some(obj) = obj {
-            let Some(_template) = &self.module_data.special_power_template else {
-                return Err(format!(
-                    "SpectreGunshipUpdate missing SpecialPowerTemplate on object {}",
-                    obj.get_template().get_name().as_str()
-                )
-                .into());
-            };
-
-            self.satellite_position = *obj.get_position();
-            let template = obj.get_template();
-            self.afterburner_sound = template
-                .get_per_unit_sound("Afterburner")
-                .unwrap_or_default();
-            self.howitzer_fire_sound = template
-                .get_per_unit_sound("HowitzerFire")
-                .unwrap_or_default();
+        if self.object_id != crate::common::INVALID_ID
+            && crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
+            let err = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                if self.module_data.special_power_template.is_none() {
+                    return Some(format!(
+                        "SpectreGunshipUpdate missing SpecialPowerTemplate on object {}",
+                        obj.get_template().get_name().as_str()
+                    ));
+                }
+                self.satellite_position = *obj.get_position();
+                let template = obj.get_template();
+                self.afterburner_sound = template.get_per_unit_sound("Afterburner").unwrap_or_default();
+                self.howitzer_fire_sound = template.get_per_unit_sound("HowitzerFire").unwrap_or_default();
+                None
+            });
+            if let Some(Some(msg)) = err {
+                return Err(msg.into());
+            }
         }
         Ok(())
     }

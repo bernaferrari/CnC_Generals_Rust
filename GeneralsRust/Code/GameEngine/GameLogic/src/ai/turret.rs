@@ -582,7 +582,7 @@ impl TurretAI {
         }
         crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target| {
             if let Some(ai) = target.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
+                { let ai_guard = ai;
                     ai_guard.add_targeter(self.owner_id, false);
                 }
             }
@@ -1575,7 +1575,7 @@ impl TurretAI {
         else {
             return;
         };
-        let mut ai_guard = match ai.lock() {
+        let mut ai_guard = match Ok(ai) {
             Ok(guard) => guard,
             Err(_) => return,
         };
@@ -1864,7 +1864,7 @@ impl TurretStateMachine {
         let shared = Arc::new(TurretSharedState::new(&base, turret_ai.clone()));
 
         if let Some(ai) = turret_ai.as_ref() {
-            if let Ok(mut guard) = ai.lock() {
+            { let guard = ai;
                 guard.set_state_machine(Arc::downgrade(&base));
             }
         }
@@ -2007,7 +2007,7 @@ impl TurretStateMachine {
     /// Update state machine
     pub fn update(&self) -> StateReturnType {
         if let Some(ai) = self.turret_ai.as_ref() {
-            if let Ok(guard) = ai.lock() {
+            { let guard = ai;
                 if !guard.is_turret_enabled() {
                     if let Ok(base) = self.base.lock() {
                         if base.get_current_state_id() != Some(TurretStateType::Recenter.into()) {
@@ -2458,12 +2458,12 @@ impl ClassicState for TurretAIFireWeaponState {
             let _ = OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                 if let Some(victim_id) = victim {
                     if let Some(team_arc) = owner_guard.get_team() {
-                        if let Ok(mut team) = team_arc.write() {
+                        crate::team::with_team_mut(team_arc, |team| {
                             crate::ai::states::seed_team_target_if_attack_common(
                                 &mut team,
                                 victim_id,
                             );
-                        }
+                        });
                     }
                 }
                 owner_guard.set_firing_condition_for_current_weapon();

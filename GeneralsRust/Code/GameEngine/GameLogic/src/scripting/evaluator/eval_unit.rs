@@ -121,12 +121,14 @@ impl ScriptEvaluator {
             return Ok(false);
         }
 
-        for team_arc in teams {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in teams {
+            let Some(members) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.get_members().to_vec()
+            }) else {
                 return Ok(false);
             };
 
-            for &member_id in team_guard.get_members() {
+            for member_id in members {
                 let early = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
                     let has_status = obj_guard.get_status_bits().intersects(status_mask);
                     if entire_team && !has_status {
@@ -175,38 +177,31 @@ impl ScriptEvaluator {
         // C++ goes through ScriptConditions::playerFromParam here.  Besides a
         // literal side name, that accepts the serialized player mask and the
         // legacy <Local Player>/<This Player> tokens used by campaign scripts.
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-            return Ok(false);
-        };
-        let player_index = player_arc
-            .read()
-            .ok()
-            .map(|p| p.get_player_index() as usize);
-        let Some(player_index) = player_index else {
+        let Some(player_index) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
 
         if self
             .with_evaluation_engine_mut(|engine| {
-                engine.is_science_acquired(player_index, science, true)
+                engine.is_science_acquired(player_index as usize, science, true)
             })
             .unwrap_or(false)
         {
             return Ok(true);
         }
 
-        let player_name = player_arc
-            .read()
-            .ok()
-            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| player_param.get_string().to_string());
+        let player_name = crate::player::with_player(player_index, |p| {
+            NameKeyGenerator::key_to_name(p.get_player_name_key())
+        })
+        .flatten()
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| player_param.get_string().to_string());
         if crate::scripting::host_query_player_has_science(&player_name, science_name)
             .unwrap_or(false)
         {
             let _ = self.with_evaluation_engine_mut(|engine| {
-                engine.notify_of_acquired_science(player_index, science);
-                engine.is_science_acquired(player_index, science, true)
+                engine.notify_of_acquired_science(player_index as usize, science);
+                engine.is_science_acquired(player_index as usize, science, true)
             });
             return Ok(true);
         }
@@ -233,9 +228,10 @@ impl ScriptEvaluator {
         let player_name = self
             .resolve_player_from_param(player_param)
             .and_then(|p| {
-                p.read()
-                    .ok()
-                    .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
+                crate::player::with_player(p, |g| {
+                    NameKeyGenerator::key_to_name(g.get_player_name_key())
+                })
+                .flatten()
             })
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| player_param.get_string().to_string());
@@ -247,14 +243,13 @@ impl ScriptEvaluator {
 
         // Match C++ ScriptConditions::playerFromParam rather than treating a
         // legacy player token as a literal display name.
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+        let Some(player_index) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
-
-        Ok(player_guard.get_science_purchase_points() >= points_needed)
+        Ok(crate::player::with_player(player_index, |player_guard| {
+            player_guard.get_science_purchase_points() >= points_needed
+        })
+        .unwrap_or(false))
     }
 
     fn evaluate_player_can_purchase_science_condition(
@@ -285,24 +280,23 @@ impl ScriptEvaluator {
 
         // C++ ScriptConditions::playerFromParam supports both exact player
         // identities and legacy Side tokens/masks for this condition.
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+        let Some(player_index) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
+        if crate::player::with_player(player_index, |player_guard| {
+            player_guard.is_capable_of_purchasing_science(science)
+        })
+        .unwrap_or(false)
         {
-            let Ok(player_guard) = player_arc.read() else {
-                return Ok(false);
-            };
-            if player_guard.is_capable_of_purchasing_science(science) {
-                return Ok(true);
-            }
+            return Ok(true);
         }
 
-        let player_name = player_arc
-            .read()
-            .ok()
-            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| player_param.get_string().to_string());
+        let player_name = crate::player::with_player(player_index, |p| {
+            NameKeyGenerator::key_to_name(p.get_player_name_key())
+        })
+        .flatten()
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| player_param.get_string().to_string());
         if let Some(census) = crate::scripting::host_query_player_census(&player_name) {
             if crate::scripting::host_query_player_has_science(&player_name, science_name)
                 .unwrap_or(false)

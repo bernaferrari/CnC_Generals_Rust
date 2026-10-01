@@ -243,9 +243,7 @@ impl AIPlayer {
                     let Some(ai) = obj.get_ai_update_interface() else {
                         return None;
                     };
-                    let Ok(ai_g) = ai.lock() else {
-                        return None;
-                    };
+                    let ai_g = ai;;
                     let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
                         return None;
                     };
@@ -319,9 +317,7 @@ impl AIPlayer {
                     let Some(ai) = obj.get_ai_update_interface() else {
                         return None;
                     };
-                    let Ok(ai_g) = ai.lock() else {
-                        return None;
-                    };
+                    let ai_g = ai;;
                     let Some(truck) = ai_g.get_supply_truck_ai_interface() else {
                         return None;
                     };
@@ -537,7 +533,7 @@ impl AIPlayer {
                                     }
                                     let mut matched = false;
                                     for behavior in hg.get_behavior_modules() {
-                                        if let Ok(mut bg) = behavior.lock() {
+                                        if let bg = behavior {
                                             if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
                                             {
                                                 if rhbi.get_spawner_id() == prior_id {
@@ -622,7 +618,7 @@ impl AIPlayer {
                 .with_object(dozer_id, |dg| dg.get_ai_update_interface())
                 .flatten()
             {
-                if let Ok(mut ai_g) = ai.lock() {
+                if let ai_g = ai {
                     let mut params = crate::ai::AiCommandParams::new(
                         crate::ai::AiCommandType::ResumeConstruction,
                         CommandSourceType::FromAi,

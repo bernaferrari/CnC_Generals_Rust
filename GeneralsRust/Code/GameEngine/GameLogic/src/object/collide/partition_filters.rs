@@ -80,13 +80,10 @@ impl super::partition_manager::PartitionFilter for PartitionFilterWouldCollide {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         let obj_pos = obj.get_position();
         let obj_orientation = obj.get_orientation();
-        let Some(obj_handle) = obj.as_object_handle() else {
+        let Some(obj_id) = obj.as_object_handle() else {
             return false;
         };
-        let Ok(obj_guard) = obj_handle.read() else {
-            return false;
-        };
-
+        let Some(does_collide) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
         let geom = obj_guard.get_geometry_info();
         let dx = geom.bounds.max.x - geom.bounds.min.x;
         let dy = geom.bounds.max.y - geom.bounds.min.y;
@@ -127,6 +124,11 @@ impl super::partition_manager::PartitionFilter for PartitionFilterWouldCollide {
             super::collision_geometry::collision_test(&this_info, &that_info, None)
         } else {
             false
+        };
+
+        does_collide
+        }) else {
+            return false;
         };
 
         does_collide == self.desired
@@ -200,15 +202,16 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRelationship {
         // Resolve the source object and compute the relationship.
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
-                let Some(other_handle) = obj.as_object_handle() else {
+                let Some(other_id) = obj.as_object_handle() else {
                     return false;
                 };
-                let Ok(other_guard) = other_handle.read() else {
-                    return false;
-                };
-                let rel = src_guard.relationship_to(&other_guard);
-                let bit = 1u32.checked_shl(rel as u32).unwrap_or(0);
-                (self.flags & bit) != 0
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(other_id, |other_guard| {
+                        let rel = src_guard.relationship_to(other_guard);
+                        let bit = 1u32.checked_shl(rel as u32).unwrap_or(0);
+                        (self.flags & bit) != 0
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false)
     }
@@ -236,12 +239,12 @@ impl PartitionFilterAcceptOnTeam {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterAcceptOnTeam {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return guard.get_team_id() == Some(self.team_id);
-            }
-        }
-        false
+        let Some(id) = obj.as_object_handle() else {
+            return false;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| guard.get_team_id() == Some(self.team_id))
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -370,21 +373,22 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToAtta
 
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
-                let Some(other_handle) = obj.as_object_handle() else {
+                let Some(other_id) = obj.as_object_handle() else {
                     return false;
                 };
-                let Ok(other_guard) = other_handle.read() else {
-                    return false;
-                };
-                let result = src_guard.get_able_to_attack_specific_object(
-                    self.attack_type,
-                    &other_guard,
-                    self.command_source,
-                );
-                matches!(
-                    result,
-                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                )
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(other_id, |other_guard| {
+                        let result = src_guard.get_able_to_attack_specific_object(
+                            self.attack_type,
+                            other_guard,
+                            self.command_source,
+                        );
+                        matches!(
+                            result,
+                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                        )
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false)
     }
@@ -423,18 +427,19 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToEnte
 
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
-                let Some(other_handle) = obj.as_object_handle() else {
+                let Some(other_id) = obj.as_object_handle() else {
                     return false;
                 };
-                let Ok(other_guard) = other_handle.read() else {
-                    return false;
-                };
-                action_manager::TheActionManager::can_enter_object(
-                    src_guard,
-                    &other_guard,
-                    self.command_source,
-                    CanEnterType::DontCheckCapacity,
-                )
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(other_id, |other_guard| {
+                        action_manager::TheActionManager::can_enter_object(
+                            src_guard,
+                            other_guard,
+                            self.command_source,
+                            CanEnterType::DontCheckCapacity,
+                        )
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false)
     }
@@ -473,17 +478,18 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPossibleToHija
 
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
-                let Some(other_handle) = obj.as_object_handle() else {
+                let Some(other_id) = obj.as_object_handle() else {
                     return false;
                 };
-                let Ok(other_guard) = other_handle.read() else {
-                    return false;
-                };
-                action_manager::TheActionManager::can_hijack_vehicle(
-                    src_guard,
-                    &other_guard,
-                    self.command_source,
-                )
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(other_id, |other_guard| {
+                        action_manager::TheActionManager::can_hijack_vehicle(
+                            src_guard,
+                            other_guard,
+                            self.command_source,
+                        )
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false)
     }
@@ -510,11 +516,8 @@ impl PartitionFilterLastAttackedBy {
                 let Some(body) = guard.get_body_module() else {
                     return INVALID_ID;
                 };
-                body.lock()
-                    .ok()
-                    .and_then(|body_guard| {
-                        body_guard.get_last_damage_info().map(|info| info.source_id)
-                    })
+                body.get_last_damage_info()
+                    .map(|info| info.source_id)
                     .unwrap_or(INVALID_ID)
             })
             .unwrap_or(INVALID_ID);
@@ -646,7 +649,7 @@ impl PartitionFilterStealthedAndUndetected {
         let disguised_player_index = target
             .get_behavior_modules()
             .into_iter()
-            .filter_map(|module| module.lock().ok()?.get_disguised_player_index())
+            .filter_map(|module| module.get_disguised_player_index())
             .next();
         let Some(disguised_player_index) = disguised_player_index else {
             return None;
@@ -671,9 +674,6 @@ impl PartitionFilterStealthedAndUndetected {
 
     fn neutral_container_hides_enemy_stealth_units(&self, target: &crate::object::Object) -> bool {
         let Some(contain) = target.get_contain() else {
-            return false;
-        };
-        let Ok(contain) = contain.lock() else {
             return false;
         };
         let contain_count = contain.get_contain_count();
@@ -720,8 +720,11 @@ impl PartitionFilterStealthedAndUndetected {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUndetected {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
+        let Some(id) = obj.as_object_handle() else {
+            return !self.allow;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
                 let stealthed = guard.test_status(ObjectStatusTypes::Stealthed);
                 let detected = guard.test_status(ObjectStatusTypes::Detected);
 
@@ -729,7 +732,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUn
                     if !guard.is_kind_of(KindOf::Disguiser) {
                         return self.allow;
                     }
-                    if let Some(disguised_as_enemy) = self.disguised_as_enemy_for_source(&guard) {
+                    if let Some(disguised_as_enemy) = self.disguised_as_enemy_for_source(guard) {
                         return if disguised_as_enemy {
                             !self.allow
                         } else {
@@ -739,12 +742,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterStealthedAndUn
                     return !self.allow;
                 }
 
-                if self.neutral_container_hides_enemy_stealth_units(&guard) {
+                if self.neutral_container_hides_enemy_stealth_units(guard) {
                     return self.allow;
                 }
-            }
-        }
-        !self.allow
+                !self.allow
+            })
+            .unwrap_or(!self.allow)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -774,12 +777,14 @@ impl PartitionFilterAcceptByKindOf {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterAcceptByKindOf {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return guard.is_kind_of_multi(self.must_be_set, self.must_be_clear);
-            }
-        }
-        false
+        let Some(id) = obj.as_object_handle() else {
+            return false;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                guard.is_kind_of_multi(self.must_be_set, self.must_be_clear)
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -809,12 +814,14 @@ impl PartitionFilterRejectByKindOf {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterRejectByKindOf {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return !guard.is_kind_of_multi(self.must_be_set, self.must_be_clear);
-            }
-        }
-        true // If we can't check, don't reject
+        let Some(id) = obj.as_object_handle() else {
+            return true;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                !guard.is_kind_of_multi(self.must_be_set, self.must_be_clear)
+            })
+            .unwrap_or(true)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -927,13 +934,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterSameMapStatus 
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.obj_id, |src_guard| {
                 let src_off_map = src_guard.is_off_map();
-                let Some(other_handle) = obj.as_object_handle() else {
+                let Some(other_id) = obj.as_object_handle() else {
                     return false;
                 };
-                let Ok(other_guard) = other_handle.read() else {
-                    return false;
-                };
-                other_guard.is_off_map() == src_off_map
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(other_id, |other_guard| other_guard.is_off_map() == src_off_map)
+                    .unwrap_or(false)
             })
             .unwrap_or(false)
     }
@@ -959,12 +965,12 @@ impl PartitionFilterOnMap {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterOnMap {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return !guard.is_off_map();
-            }
-        }
-        false
+        let Some(id) = obj.as_object_handle() else {
+            return false;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| !guard.is_off_map())
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1021,8 +1027,10 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
             return false;
         }
 
-        if let Some(other_handle) = obj.as_object_handle() {
-            if let Ok(other_guard) = other_handle.read() {
+        let Some(other_id) = obj.as_object_handle() else {
+            return true;
+        };
+        let decided = crate::object::registry::OBJECT_REGISTRY.with_object(other_id, |other_guard| {
                 // Non-structures always pass
                 if !other_guard.is_kind_of(KindOf::Structure) {
                     return true;
@@ -1037,12 +1045,10 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                         let other_player = other_guard
                             .get_contain()
                             .and_then(|contain| {
-                                contain.lock().ok().and_then(|guard| {
-                                    crate::player::with_player(my_player, |me| {
-                                        guard.get_apparent_controlling_player(Some(me))
-                                    })
-                                    .flatten()
+                                crate::player::with_player(my_player, |me| {
+                                    contain.get_apparent_controlling_player(Some(me))
                                 })
+                                .flatten()
                             })
                             .or_else(|| other_guard.get_controlling_player());
 
@@ -1083,14 +1089,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                         false
                     })
                     .unwrap_or(false);
-                if accept {
-                    return true;
-                }
-
-                return false;
-            }
-        }
-        true
+                accept
+        });
+        decided.unwrap_or(true)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1120,17 +1121,15 @@ impl PartitionFilterInsignificantBuildings {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterInsignificantBuildings {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
+        let Some(id) = obj.as_object_handle() else {
+            return false;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
                 if guard.is_structure() {
                     if guard.is_non_faction_structure() && !self.allow_insignificant {
                         if let Some(contain) = guard.get_contain() {
-                            let Ok(contain_guard) = contain.lock() else {
-                                return false;
-                            };
-                            if !contain_guard.is_garrisonable()
-                                || contain_guard.get_contained_count() == 0
-                            {
+                            if !contain.is_garrisonable() || contain.get_contained_count() == 0 {
                                 return false;
                             }
                         }
@@ -1139,9 +1138,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterInsignificantB
                 } else if self.allow_non_buildings {
                     return true;
                 }
-            }
-        }
-        false
+                false
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1169,13 +1168,14 @@ impl PartitionFilterFreeOfFog {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterFreeOfFog {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                return guard.get_shrouded_status(self.comparison_index)
-                    == ObjectShroudStatus::Clear;
-            }
-        }
-        false
+        let Some(id) = obj.as_object_handle() else {
+            return false;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                guard.get_shrouded_status(self.comparison_index) == ObjectShroudStatus::Clear
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1211,8 +1211,11 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
             return false;
         }
 
-        if let Some(other_handle) = obj.as_object_handle() {
-            if let Ok(other_guard) = other_handle.read() {
+        let Some(other_id) = obj.as_object_handle() else {
+            return false;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |other_guard| {
                 // If flagged as repulsor, always accept
                 if other_guard.test_status(ObjectStatusTypes::Repulsor) {
                     return true;
@@ -1223,9 +1226,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
                     return false;
                 }
 
-                return crate::object::registry::OBJECT_REGISTRY
+                crate::object::registry::OBJECT_REGISTRY
                     .with_object(self.obj_id, |src_guard| {
-                        let rel = src_guard.relationship_to(&other_guard);
+                        let rel = src_guard.relationship_to(other_guard);
                         if rel != Relationship::Enemies {
                             return false;
                         }
@@ -1243,10 +1246,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRepulsor {
                         // Only enemies that can attack
                         other_guard.is_able_to_attack()
                     })
-                    .unwrap_or(false);
-            }
-        }
-        false
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1403,25 +1405,25 @@ impl PartitionFilterPlayerAffiliation {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliation {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        let Some(other_handle) = obj.as_object_handle() else {
+        let Some(other_id) = obj.as_object_handle() else {
             return !self.match_flag;
         };
-        let Ok(other_guard) = other_handle.read() else {
-            return !self.match_flag;
-        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |other_guard| {
+                let rel = compute_player_affiliation(self.player_id, other_guard);
+                let matches = match rel {
+                    Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
+                    Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
+                    Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
+                };
 
-        let rel = compute_player_affiliation(self.player_id, &other_guard);
-        let matches = match rel {
-            Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
-            Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
-            Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
-        };
+                if matches || other_guard.get_player_id() == Some(self.player_id) {
+                    return self.match_flag;
+                }
 
-        if matches || other_guard.get_player_id() == Some(self.player_id) {
-            return self.match_flag;
-        }
-
-        !self.match_flag
+                !self.match_flag
+            })
+            .unwrap_or(!self.match_flag)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1464,13 +1466,15 @@ impl PartitionFilterThing {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterThing {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
+        let Some(id) = obj.as_object_handle() else {
+            return !self.match_flag;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
                 let is_match = guard.get_template_name() == self.template_name;
-                return is_match == self.match_flag;
-            }
-        }
-        !self.match_flag
+                is_match == self.match_flag
+            })
+            .unwrap_or(!self.match_flag)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1498,21 +1502,17 @@ fn object_has_garrisonable_contain(obj: &crate::object::Object) -> bool {
     let Some(contain) = obj.get_contain() else {
         return false;
     };
-    let Ok(contain_guard) = contain.lock() else {
-        return false;
-    };
-    contain_guard.is_garrisonable()
+    contain.is_garrisonable()
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonable {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                let garrisonable = object_has_garrisonable_contain(&guard);
-                return garrisonable == self.match_flag;
-            }
-        }
-        !self.match_flag
+        let Some(id) = obj.as_object_handle() else {
+            return !self.match_flag;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| object_has_garrisonable_contain(guard) == self.match_flag)
+            .unwrap_or(!self.match_flag)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1589,13 +1589,14 @@ impl PartitionFilterUnmannedObject {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterUnmannedObject {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                let unmanned = guard.is_disabled_by_type(DisabledType::DisabledUnmanned);
-                return unmanned == self.match_flag;
-            }
-        }
-        !self.match_flag
+        let Some(id) = obj.as_object_handle() else {
+            return !self.match_flag;
+        };
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                guard.is_disabled_by_type(DisabledType::DisabledUnmanned) == self.match_flag
+            })
+            .unwrap_or(!self.match_flag)
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1639,11 +1640,12 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
             return false;
         }
 
-        let mut valid_target = false;
-
-        if let Some(target_handle) = obj.as_object_handle() {
-            if let Ok(target_guard) = target_handle.read() {
-                valid_target = !target_guard.is_kind_of(KindOf::Inert)
+        let Some(target_id) = obj.as_object_handle() else {
+            return false == self.match_flag;
+        };
+        let valid_target = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target_guard| {
+                let mut valid_target = !target_guard.is_kind_of(KindOf::Inert)
                     && !target_guard.is_kind_of(KindOf::Projectile);
 
                 if valid_target {
@@ -1656,7 +1658,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
                                 {
                                     return command_button.is_valid_to_use_on(
                                         source_guard,
-                                        Some(&target_guard),
+                                        Some(target_guard),
                                         None,
                                         self.command_source,
                                     );
@@ -1666,8 +1668,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
                         })
                         .unwrap_or(false);
                 }
-            }
-        }
+                valid_target
+            })
+            .unwrap_or(false);
 
         valid_target == self.match_flag
     }
@@ -1846,10 +1849,9 @@ mod tests {
         squad.add_object_id(96_001);
         let filter = PartitionFilterAcceptOnSquad::new(Some(squad));
 
-        object
-            .write()
-            .expect("object write lock")
-            .set_effectively_dead(true);
+        OBJECT_REGISTRY.with_object_mut(object, |obj| {
+            obj.set_effectively_dead(true);
+        });
 
         assert!(!filter.allow(&object));
 
@@ -1898,18 +1900,15 @@ mod tests {
         let player1 = Player::new(1);
         reset_player_list_with_players(&[player0.clone(), player1.clone()]);
 
-        player0
-            .write()
-            .expect("player write lock")
-            .set_player_relationship_by_index(1, Relationship::Enemies);
+        crate::player::with_player_mut(0, |player| {
+            player.set_player_relationship_by_index(1, Relationship::Enemies);
+        });
 
         let enemy_team = team_for_player("EnemyTeam", 1, 1);
         let target = structure_object();
-        target
-            .write()
-            .expect("target write lock")
-            .set_team(Some(enemy_team))
-            .expect("set target team");
+        OBJECT_REGISTRY.with_object_mut(target, |obj| {
+            obj.set_team(Some(enemy_team)).expect("set target team");
+        });
 
         let enemy_filter =
             PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_ENEMIES, true);
@@ -1926,31 +1925,27 @@ mod tests {
 
         let team = team_for_player("SourceTeam", 20, 0);
         let source = registered_object_with_kind_of(92_001, "STRUCTURE", team);
-        {
-            let mut source_guard = source.write().expect("source write lock");
+        OBJECT_REGISTRY.with_object_mut(source, |source_guard| {
             source_guard
                 .set_position(&crate::common::Coord3D::new(0.0, 0.0, 0.0))
                 .expect("set source position");
             source_guard
                 .set_orientation(std::f32::consts::FRAC_PI_2)
                 .expect("set source orientation");
-        }
+        });
 
         let ahead = object_with_kind_of("STRUCTURE");
-        ahead
-            .write()
-            .expect("ahead write lock")
-            .set_position(&crate::common::Coord3D::new(0.0, 10.0, 0.0))
-            .expect("set ahead position");
+        OBJECT_REGISTRY.with_object_mut(ahead, |obj| {
+            obj.set_position(&crate::common::Coord3D::new(0.0, 10.0, 0.0))
+                .expect("set ahead position");
+        });
         let behind = object_with_kind_of("STRUCTURE");
-        behind
-            .write()
-            .expect("behind write lock")
-            .set_position(&crate::common::Coord3D::new(0.0, -10.0, 0.0))
-            .expect("set behind position");
+        OBJECT_REGISTRY.with_object_mut(behind, |obj| {
+            obj.set_position(&crate::common::Coord3D::new(0.0, -10.0, 0.0))
+                .expect("set behind position");
+        });
 
-        let filter =
-            PartitionFilterRejectBehind::new(source.read().expect("source read lock").get_id());
+        let filter = PartitionFilterRejectBehind::new(source);
 
         assert!(filter.allow(&ahead));
         assert!(!filter.allow(&behind));
@@ -1967,22 +1962,10 @@ mod tests {
         let source_team = team_for_player("SourceTeam", 10, 0);
         let enemy_team = team_for_player("EnemyTeam", 11, 1);
 
-        player0
-            .write()
-            .expect("player0 write lock")
-            .set_player_type(crate::player::PlayerType::Human, false);
-        player0
-            .write()
-            .expect("player0 write lock")
-            .set_default_team(Some(source_team));
-        player1
-            .write()
-            .expect("player1 write lock")
-            .set_default_team(Some(enemy_team));
-        player0
-            .write()
-            .expect("player0 write lock")
-            .set_player_relationship_by_index(1, Relationship::Enemies);
+        player0.set_player_type(crate::player::PlayerType::Human, false);
+        player0.set_default_team(Some(source_team));
+        player1.set_default_team(Some(enemy_team));
+        player0.set_player_relationship_by_index(1, Relationship::Enemies);
         reset_player_list_with_players(&[player0.clone(), player1.clone()]);
 
         let source = registered_object_with_kind_of(91_001, "STRUCTURE", source_team);
@@ -1995,7 +1978,7 @@ mod tests {
         );
 
         let filter =
-            PartitionFilterRejectBuildings::new(source.read().expect("source read lock").get_id());
+            PartitionFilterRejectBuildings::new(source);
 
         assert!(!filter.allow(&generic_defense));
         assert!(filter.allow(&fs_base_defense));
@@ -2012,13 +1995,14 @@ mod tests {
         let team = team_for_player("SourceTeam", 30, 0);
         let source = registered_object_with_kind_of(93_101, "STRUCTURE", team);
         let target = object_with_kind_of("DISGUISER");
-        target.write().expect("target write lock").set_status(
-            ObjectStatusMaskType::STEALTHED | ObjectStatusMaskType::DISGUISED,
-            true,
-        );
+        OBJECT_REGISTRY.with_object_mut(target, |obj| {
+            obj.set_status(
+                ObjectStatusMaskType::STEALTHED | ObjectStatusMaskType::DISGUISED,
+                true,
+            );
+        });
 
-        let filter =
-            PartitionFilterStealthedAndUndetected::new(source.read().unwrap().get_id(), true);
+        let filter = PartitionFilterStealthedAndUndetected::new(source, true);
 
         assert!(!filter.allow(&target));
 
@@ -2033,44 +2017,31 @@ mod tests {
         let player1 = Player::new(1);
         let source_team = team_for_player("SourceTeam", 31, 0);
         let enemy_team = team_for_player("EnemyTeam", 32, 1);
-        player0
-            .write()
-            .expect("player0 write lock")
-            .set_default_team(Some(source_team));
-        player1
-            .write()
-            .expect("player1 write lock")
-            .set_default_team(Some(enemy_team));
-        player0
-            .write()
-            .expect("player0 write lock")
-            .set_player_relationship_by_index(1, Relationship::Enemies);
+        player0.set_default_team(Some(source_team));
+        player1.set_default_team(Some(enemy_team));
+        player0.set_player_relationship_by_index(1, Relationship::Enemies);
         reset_player_list_with_players(&[player0.clone(), player1.clone()]);
 
         let source = registered_object_with_kind_of(93_201, "STRUCTURE", source_team);
         let container =
             registered_object_with_kind_of(93_202, "STRUCTURE", enemy_team);
         let passenger = registered_object_with_kind_of(93_203, "INFANTRY", enemy_team);
-        passenger
-            .write()
-            .expect("passenger write lock")
-            .set_status(ObjectStatusMaskType::STEALTHED, true);
+        OBJECT_REGISTRY.with_object_mut(passenger, |obj| {
+            obj.set_status(ObjectStatusMaskType::STEALTHED, true);
+        });
 
         let contain: Arc<Mutex<dyn ContainModuleInterface>> =
             Arc::new(Mutex::new(TestStealthContain {
                 contained: vec![93_203],
-                apparent_player: player1.clone(),
+                apparent_player: 1,
                 stealth_units: 1,
             }));
-        container
-            .write()
-            .expect("container write lock")
-            .set_contain(Some(contain));
+        OBJECT_REGISTRY.with_object_mut(container, |obj| {
+            obj.set_contain(Some(contain));
+        });
 
-        let allow_filter =
-            PartitionFilterStealthedAndUndetected::new(source.read().unwrap().get_id(), true);
-        let reject_filter =
-            PartitionFilterStealthedAndUndetected::new(source.read().unwrap().get_id(), false);
+        let allow_filter = PartitionFilterStealthedAndUndetected::new(source, true);
+        let reject_filter = PartitionFilterStealthedAndUndetected::new(source, false);
 
         assert!(allow_filter.allow(&container));
         assert!(!reject_filter.allow(&container));

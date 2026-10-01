@@ -248,7 +248,7 @@ impl ScriptAction for TeamGuardAction {
                 return Ok(ScriptResult::Success(None));
             };
 
-            let members = crate::team::factory_access::with_team(team_id, |team| {
+            let members = crate::team::with_team(team_id, |team| {
                 team.get_members().to_vec()
             })
             .ok_or_else(|| GameLogicError::Threading("Failed to read Team".to_string()))?;
@@ -515,7 +515,7 @@ impl ScriptAction for TeamGarrisonBuildingAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -607,7 +607,7 @@ impl ScriptAction for TeamExitBuildingAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -693,7 +693,7 @@ impl ScriptAction for TeamCaptureBuildingAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -789,7 +789,7 @@ impl ScriptAction for TeamRepairAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -1000,7 +1000,7 @@ impl ScriptAction for TeamSetStateAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let _ = crate::team::factory_access::with_team_mut(team_id, |team_guard| {
+        let _ = crate::team::with_team_mut(team_id, |team_guard| {
             team_guard.set_state(AsciiString::from(state.as_str()));
         });
 
@@ -1064,7 +1064,7 @@ impl ScriptAction for TeamDeleteAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some((team_id, members)) = crate::team::factory_access::with_team(team_id, |team_guard| {
+        let Some((team_id, members)) = crate::team::with_team(team_id, |team_guard| {
             (team_guard.get_id(), team_guard.get_members().to_vec())
         }) else {
             log::warn!("TeamDeleteAction: failed to read team '{}'", resolved_team);
@@ -1134,7 +1134,7 @@ impl ScriptAction for TeamFollowTeamAction {
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_target))
             .and_then(|team_id| {
-                crate::team::factory_access::with_team(team_id, |team| {
+                crate::team::with_team(team_id, |team| {
                     team.get_members().first().copied()
                 })
                 .flatten()
@@ -1217,7 +1217,7 @@ impl ScriptAction for TeamGuardInTunnelAction {
         };
 
         let Some((members, controlling_player_id)) =
-            crate::team::factory_access::with_team(team_id, |team| {
+            crate::team::with_team(team_id, |team| {
                 (
                     team.get_members().to_vec(),
                     team.get_controlling_player_id(),
@@ -1609,7 +1609,7 @@ impl ScriptAction for TeamFollowAction {
                     factory_guard.find_team(&resolve_team_name_token(&target))
                 })
                 .and_then(|team_id| {
-                    crate::team::factory_access::with_team(team_id, |team| {
+                    crate::team::with_team(team_id, |team| {
                         team.get_members().first().copied()
                     })
                     .flatten()

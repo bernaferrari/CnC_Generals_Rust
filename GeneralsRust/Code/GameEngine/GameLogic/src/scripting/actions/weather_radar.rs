@@ -583,7 +583,7 @@ impl ScriptAction for TeamCreateRadarEventAction {
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
             .and_then(|team_id| {
-                crate::team::factory_access::with_team(team_id, |team| team.get_estimate_team_position())
+                crate::team::with_team(team_id, |team| team.get_estimate_team_position())
                     .flatten()
             })
         else {

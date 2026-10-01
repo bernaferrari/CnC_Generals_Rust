@@ -402,30 +402,31 @@ impl UnitAIUpdate {
         let unit_guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let owner_id = unit_guard.get_id();
         let owner_base = unit_guard.base_arc();
-        let Ok(owner_guard) = owner_base.read() else {
-            return Ok(false);
-        };
-        let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-            return Ok(false);
-        };
-
+        drop(unit_guard);
         let victim = if self.requested_victim_id != INVALID_ID {
             get_legacy_object(self.requested_victim_id)
         } else {
             None
         };
-        let target_pos = if let Some(victim) = victim.as_ref() {
-            let victim_guard = victim
-                .read()
-                .map_err(|_| "victim lock poisoned".to_string())?;
-            *victim_guard.get_position()
+        let target_pos = if let Some(victim) = victim {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(victim, |victim_guard| *victim_guard.get_position())
+                .ok_or_else(|| "victim lock poisoned".to_string())?
         } else {
             self.requested_destination
         };
-        let in_range = if victim.is_some() {
-            weapon.is_within_attack_range(owner_id, Some(self.requested_victim_id), None)
-        } else {
-            weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
+        let Some((in_range, owner_pos)) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_base, |owner_guard| {
+            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                return None;
+            };
+            let in_range = if victim.is_some() {
+                weapon.is_within_attack_range(owner_id, Some(self.requested_victim_id), None)
+            } else {
+                weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
+            };
+            Some((in_range, *owner_guard.get_position()))
+        }).flatten() else {
+            return Ok(false);
         };
         if !in_range {
             return Ok(false);
@@ -437,25 +438,26 @@ impl UnitAIUpdate {
                 .ok()
                 .and_then(|ai| ai.pathfinder())
                 .and_then(|pathfinder| {
-                    pathfinder.read().ok().map(|pf| {
-                        if let Some(victim) = victim.as_ref() {
-                            match victim.read() {
-                                Ok(victim_guard) => pf.is_attack_view_blocked_by_obstacle(
-                                    &owner_guard,
+                    pathfinder.read().ok().and_then(|pf| {
+                        crate::object::registry::OBJECT_REGISTRY.with_object(owner_base, |owner_guard| {
+                            if let Some(victim) = victim {
+                                crate::object::registry::OBJECT_REGISTRY.with_object(victim, |victim_guard| {
+                                    pf.is_attack_view_blocked_by_obstacle(
+                                        owner_guard,
+                                        owner_guard.get_position(),
+                                        Some(victim_guard),
+                                        &target_pos,
+                                    )
+                                }).unwrap_or(false)
+                            } else {
+                                pf.is_attack_view_blocked_by_obstacle(
+                                    owner_guard,
                                     owner_guard.get_position(),
-                                    Some(&victim_guard),
+                                    None,
                                     &target_pos,
-                                ),
-                                Err(_) => false,
+                                )
                             }
-                        } else {
-                            pf.is_attack_view_blocked_by_obstacle(
-                                &owner_guard,
-                                owner_guard.get_position(),
-                                None,
-                                &target_pos,
-                            )
-                        }
+                        })
                     })
                 })
                 .unwrap_or(false)
@@ -490,13 +492,11 @@ impl UnitAIUpdate {
         let Some(victim) = get_legacy_object(self.requested_victim_id) else {
             return Ok(());
         };
-        let victim_pos = victim
-            .read()
-            .map_err(|_| "victim lock poisoned".to_string())?
-            .get_position()
-            .to_owned();
+        let victim_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(victim, |g| *g.get_position())
+            .ok_or_else(|| "victim lock poisoned".to_string())?;
         self.requested_destination = victim_pos;
-        let _ = self.ignore_obstacle(victim.read().ok().map(|g| g.get_id()));
+        let _ = self.ignore_obstacle(Some(victim));
         Ok(())
     }
     pub(super) fn do_queued_approach_pathfind_now(
@@ -545,28 +545,21 @@ impl UnitAIUpdate {
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let base_arc = guard.base_arc();
-        let obj_guard = base_arc
-            .read()
-            .map_err(|_| "unit base object lock poisoned".to_string())?;
-        let owner_pos = *obj_guard.get_position();
-        let owner_vision_range = obj_guard.get_vision_range();
-        drop(obj_guard);
         drop(guard);
+        let (owner_pos, owner_vision_range) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(base_arc, |obj_guard| (*obj_guard.get_position(), obj_guard.get_vision_range()))
+            .ok_or_else(|| "unit base object lock poisoned".to_string())?;
 
         let repulsor_pos1 = get_legacy_object(self.repulsor1)
             .and_then(|repulsor| {
-                repulsor
-                    .read()
-                    .ok()
-                    .map(|repulsor_guard| *repulsor_guard.get_position())
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(repulsor, |repulsor_guard| *repulsor_guard.get_position())
             })
             .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
         let repulsor_pos2 = get_legacy_object(self.repulsor2)
             .and_then(|repulsor| {
-                repulsor
-                    .read()
-                    .ok()
-                    .map(|repulsor_guard| *repulsor_guard.get_position())
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(repulsor, |repulsor_guard| *repulsor_guard.get_position())
             })
             .unwrap_or(repulsor_pos1);
         let ai_store = the_ai();let repulsed_distance = ai_store
@@ -653,19 +646,26 @@ impl UnitAIUpdate {
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
         let base_arc = guard.base_arc();
-        let obj_guard = base_arc
-            .read()
-            .map_err(|_| "unit base object lock poisoned".to_string())?;
         let surfaces = guard
             .get_locomotor_surface_mask()
             .unwrap_or(crate::locomotor::SURFACE_GROUND);
+        let (object_id, from, is_crusher, unit_radius) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(base_arc, |obj_guard| {
+                (
+                    obj_guard.get_id(),
+                    *obj_guard.get_position(),
+                    obj_guard.get_crusher_level() > 0,
+                    obj_guard.get_geometry_info().get_major_radius(),
+                )
+            })
+            .ok_or_else(|| "unit base object lock poisoned".to_string())?;
         Ok(crate::ai::pathfind_complete::PathRequest {
-            object_id: obj_guard.get_id(),
-            from: *obj_guard.get_position(),
+            object_id,
+            from,
             to: destination,
             surfaces,
-            is_crusher: obj_guard.get_crusher_level() > 0,
-            unit_radius: obj_guard.get_geometry_info().get_major_radius(),
+            is_crusher,
+            unit_radius,
             allow_partial,
             move_allies: self.can_path_through_units,
             ignore_obstacle_id: if self.ignore_obstacle_id == INVALID_ID {
@@ -702,19 +702,12 @@ impl UnitAIUpdate {
         }
 
         let mut fudge = PATHFIND_CELL_SIZE_F * 0.5;
-        let is_aircraft = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.is_kind_of(KindOf::Aircraft))
-            .unwrap_or(false);
+        let (is_aircraft, above_terrain) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(guard.base_arc(), |obj| {
+                (obj.is_kind_of(KindOf::Aircraft), obj.is_significantly_above_terrain())
+            })
+            .unwrap_or((false, false));
         if is_aircraft {
-            let above_terrain = guard
-                .base_arc()
-                .read()
-                .ok()
-                .map(|obj| obj.is_significantly_above_terrain())
-                .unwrap_or(false);
             if above_terrain {
                 let preferred = guard
                     .locomotor_set
@@ -740,11 +733,8 @@ impl UnitAIUpdate {
         pos
     }
     pub(super) fn compute_pathfind_radius_and_center(unit: &Unit) -> (i32, bool) {
-        let radius = unit
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
+        let radius = crate::object::registry::OBJECT_REGISTRY
+            .with_object(unit.base_arc(), |obj| obj.get_geometry_info().get_bounding_circle_radius())
             .unwrap_or(PATHFIND_CELL_SIZE_F * 0.5);
         let mut diameter = 2.0 * radius;
         if diameter > PATHFIND_CELL_SIZE_F && diameter < 2.0 * PATHFIND_CELL_SIZE_F {
@@ -826,10 +816,8 @@ impl UnitAIUpdate {
         let Some(base) = guard.get_base_object() else {
             return;
         };
-        let owner_id = base
-            .read()
-            .ok()
-            .map(|obj| obj.get_id())
+        let owner_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(base, |obj| obj.get_id())
             .unwrap_or(INVALID_ID);
         let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
         drop(guard);
@@ -932,22 +920,26 @@ impl UnitAIUpdate {
 
         if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(guard) = unit.read() {
-                if let Ok(mut object) = guard.base_arc().write() {
+                let id = guard.base_arc();
+                drop(guard);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |object| {
                     object.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
             }
         }
 
         if let Some((pos, radius, layer, id)) = get_unit_arc(self.unit_id).and_then(|unit| {
             let guard = unit.read().ok()?;
             let base = guard.base_arc();
-            let object = base.read().ok()?;
-            Some((
-                *object.get_position(),
-                object.get_geometry_info().get_bounding_circle_radius(),
-                object.get_layer(),
-                object.get_id(),
-            ))
+            drop(guard);
+            crate::object::registry::OBJECT_REGISTRY.with_object(base, |object| {
+                (
+                    *object.get_position(),
+                    object.get_geometry_info().get_bounding_circle_radius(),
+                    object.get_layer(),
+                    object.get_id(),
+                )
+            })
         }) {
             let mut goal = Coord3D::new(0.0, 0.0, 0.0);
             let found = the_ai().read().ok().and_then(|ai| {

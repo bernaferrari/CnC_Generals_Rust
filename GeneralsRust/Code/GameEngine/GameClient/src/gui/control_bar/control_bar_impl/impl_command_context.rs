@@ -872,7 +872,7 @@ impl ControlBar {
             self.leftover_bind_build_queue_windows(context);
             return Ok(());
         };
-        let mut found_pu = __omp_shell("queued.is_empty();")
+        let mut found_pu = false;
         // Empty queue on a producer with a production module was found_pu true.
         // Preserve empty-module as found by distinguishing via a sentinel: if the
         // object exists we already returned Some. An empty vec means either no

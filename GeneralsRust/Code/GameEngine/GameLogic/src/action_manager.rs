@@ -404,8 +404,8 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
     if my_team == other_team {
         return true;
     }
-    let Some(relationship) = crate::team::factory_access::with_team(my_team, |my_team_guard| {
-        crate::team::factory_access::with_team(other_team, |other_team_guard| {
+    let Some(relationship) = crate::team::with_team(my_team, |my_team_guard| {
+        crate::team::with_team(other_team, |other_team_guard| {
             my_team_guard.get_relationship(other_team_guard)
         })
     })
@@ -1773,7 +1773,7 @@ impl TheActionManager {
         if let Some(player) = obj.get_controlling_player() {
             if let Some(target_team) = target.get_team() {
                 let neutral = crate::player::with_player(player, |player_guard| {
-                    crate::team::factory_access::with_team(target_team, |target_team_guard| {
+                    crate::team::with_team(target_team, |target_team_guard| {
                         player_guard.get_relationship_with_team(target_team_guard)
                             == Relationship::Neutral
                     })
@@ -1819,7 +1819,7 @@ impl TheActionManager {
                 crate::player::with_player(target_player, |guard| guard.get_default_team_id())
                     .flatten()
             {
-                let neutral = crate::team::factory_access::with_team(target_team, |team| {
+                let neutral = crate::team::with_team(target_team, |team| {
                     player.get_relationship_with_team(team) == Relationship::Neutral
                 })
                 .unwrap_or(false);
@@ -2783,7 +2783,7 @@ mod tests {
 
         let enemy_team = Arc::new(RwLock::new(Team::new("EnemyShip".into(), 0x00A0_8917)));
         if let Some(mine_id) = obj.get_team() {
-            let _ = crate::team::factory_access::with_team_mut(mine_id, |mine| {
+            let _ = crate::team::with_team_mut(mine_id, |mine| {
                 mine.set_override_team_relationship(0x00A0_8917, Relationship::Enemies);
             });
         }

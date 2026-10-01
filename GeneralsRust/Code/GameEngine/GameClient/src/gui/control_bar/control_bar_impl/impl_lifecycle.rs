@@ -807,7 +807,7 @@ impl ControlBar {
             if obj.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION) {
                 return 2u8;
             }
-            let has_command_set = __omp_shell("obj.get_command_set_string().is_empty();")
+            let has_command_set = !obj.get_command_set_string().is_empty();
             let has_garrisonable_contain = obj
                 .get_contain()
                 .and_then(|contain| contain.lock().ok().map(|c| c.is_displayed_on_control_bar()))

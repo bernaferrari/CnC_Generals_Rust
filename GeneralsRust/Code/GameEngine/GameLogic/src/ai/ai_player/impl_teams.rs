@@ -323,9 +323,7 @@ impl AIPlayer {
             else {
                 continue;
             };
-            let Ok(body_g) = body.lock() else {
-                continue;
-            };
+            let body_g = body;;
             let Some(info) = body_g.get_last_damage_info() else {
                 continue;
             };

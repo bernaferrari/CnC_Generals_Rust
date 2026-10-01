@@ -109,14 +109,14 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
             return Ok(UpdateSleepTime::Forever);
-        };
-        let Ok(obj) = obj_arc.read() else {
+        }
+        let Some((source_pos, same_map_status)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |obj| (*obj.get_position(), obj.is_off_map()))
+        else {
             return Ok(UpdateSleepTime::None);
         };
 
@@ -124,9 +124,7 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
             return Ok(UpdateSleepTime::from_u32(self.module_data.bonus_delay));
         };
 
-        let candidates =
-            partition.get_objects_in_range(obj.get_position(), self.module_data.bonus_range);
-        let same_map_status = obj.is_off_map();
+        let candidates = partition.get_objects_in_range(&source_pos, self.module_data.bonus_range);
         for id in candidates {
             let required = self.module_data.required_affect_kind_of;
             let forbidden = self.module_data.forbidden_affect_kind_of;
@@ -137,7 +135,13 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
                     return;
                 }
 
-                let relationship = obj.relationship_to(target);
+                let relationship = if id == self.object_id {
+                    crate::common::Relationship::Allies
+                } else {
+                    OBJECT_REGISTRY
+                        .with_object(self.object_id, |obj| obj.relationship_to(target))
+                        .unwrap_or(crate::common::Relationship::Enemies)
+                };
                 if !matches!(relationship, crate::common::Relationship::Allies) {
                     return;
                 }

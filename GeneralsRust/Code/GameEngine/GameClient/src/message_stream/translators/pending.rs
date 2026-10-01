@@ -177,7 +177,7 @@ pub(super) fn pending_fire_weapon_can_target_object(
                 return true;
             }
         }
-        __omp_shell("saw_owned_source")
+        !saw_owned_source
     });
     outcome.unwrap_or(false)
 }
@@ -250,7 +250,7 @@ fn fire_weapon_position_selection(
             return true;
         }
     }
-    __omp_shell("saw_owned_source")
+    !saw_owned_source
 }
 
 fn fire_at_loc(
@@ -303,7 +303,7 @@ pub(super) fn pending_special_power_can_target_object(
                 return true;
             }
         }
-        __omp_shell("saw_owned_source")
+        !saw_owned_source
     });
     outcome.unwrap_or(false)
 }
@@ -383,7 +383,7 @@ fn special_position_selection(
             return true;
         }
     }
-    __omp_shell("saw_owned_source")
+    !saw_owned_source
 }
 
 fn special_at_loc(

@@ -223,16 +223,14 @@ impl AIPlayer {
         };
 
         let mut build_max_health = 0.0;
-        if let Ok(guard) = new_object.read() {
+        crate::object::registry::OBJECT_REGISTRY.with_object(new_object, |guard| {
             if let Some(body) = guard.get_body_module() {
                 build_max_health = body.get_max_health();
             }
-        }
+        });
 
         let bldg_id = {
-            let Ok(mut guard) = new_object.write() else {
-                return Ok(None);
-            };
+            let Some(id) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_object, |guard| {
             let _ = guard.set_position(&pos);
             let _ = guard.set_orientation(angle);
             let _ = OBJECT_REGISTRY.with_object(dozer_id, |dozer_g| {
@@ -248,6 +246,10 @@ impl AIPlayer {
                 true,
             );
             guard.get_id()
+            }) else {
+                return Ok(None);
+            };
+            id
         };
 
         let total_build_frames = crate::player::with_player(self.player_id as i32, |pg| {
@@ -456,9 +458,7 @@ impl AIPlayer {
         });
 
         let bldg_id = {
-            let Ok(mut guard) = new_object.write() else {
-                return Ok(None);
-            };
+            let Some(id) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_object, |guard| {
             let _ = guard.set_position(&pos);
             let _ = guard.set_orientation(angle);
 
@@ -490,6 +490,10 @@ impl AIPlayer {
             // UnderConstruction just cleared → update upgrades (C++).
             guard.update_upgrade_modules_from_player();
             guard.get_id()
+            }) else {
+                return Ok(None);
+            };
+            id
         };
 
         // Stamp build list entry: C++ stamps the BuildListInfo* passed in.

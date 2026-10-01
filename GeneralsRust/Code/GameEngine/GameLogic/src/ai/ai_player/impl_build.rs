@@ -910,6 +910,7 @@ impl AIPlayer {
                     }
                     current = node.get_next_mut();
                 }
+            }
             }).is_none() {
                 return Ok(());
             }

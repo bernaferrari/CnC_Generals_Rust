@@ -219,7 +219,7 @@ impl StateImplementation for AIWanderInPlaceState {
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        let arrived = __omp_shell("ai.is_waiting_for_path()")
+        let arrived = !ai.is_waiting_for_path()
             && ai.get_locomotor_distance_to_goal() <= close_enough;
         if let Some((id, vision)) = repulsed {
             self.timer -= 1;
@@ -1122,7 +1122,7 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
 
         let mut has_safe_path = false;
         if let Some(ai) = ai_iface {
-            if let Ok(mut ai_guard) = ai.lock() {
+            { let ai_guard = ai;
                 let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Panic);
                 has_safe_path = ai_guard.request_safe_path(enemy_id).unwrap_or(false);
             }
@@ -1683,7 +1683,7 @@ impl ClassicState for AIMoveToState {
     fn start_move_sound(&mut self, owner_guard: &Object) {
         let mut use_damaged = false;
         if let Some(body) = owner_guard.get_body_module() {
-            if let Ok(body_guard) = body.lock() {
+            { let body_guard = body;
                 use_damaged = body_guard.get_damage_state() > BodyDamageType::Damaged;
             }
         }
@@ -1971,9 +1971,9 @@ impl StateImplementation for AIMoveAndEvacuateState {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_evacuate = true;
             if let Some(team) = owner_guard.get_team() {
-                if let Ok(mut team_guard) = team.write() {
+                crate::team::with_team_mut(team, |team_guard| {
                     team_guard.set_active();
-                }
+                });
             }
         });
         StateReturnType::Success
@@ -2054,9 +2054,9 @@ impl ClassicState for AIMoveAndEvacuateState {
                 }
                 owner_guard.ai_pending_evacuate = true;
                 if let Some(team) = owner_guard.get_team() {
-                    if let Ok(mut team_guard) = team.write() {
+                    crate::team::with_team_mut(team, |team_guard| {
                         team_guard.set_active();
-                    }
+                    });
                 }
             });;
         }

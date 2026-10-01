@@ -15,7 +15,7 @@ impl PathfindingSystem {
                 let Some(ai) = obj_guard.get_ai_update_interface() else {
                     return false;
                 };
-                ai.lock()
+                Ok(ai)
                     .ok()
                     .map(|ai_guard| ai_guard.is_aircraft_that_adjusts_destination())
                     .unwrap_or(false)
@@ -206,7 +206,7 @@ impl PathfindingSystem {
                         .with_object(id, |obj_g| obj_g.get_ai_update_interface())
                         .flatten()
                     {
-                        if let Ok(mut ai_g) = ai.lock() {
+                        { let ai_g = ai;
                             // C++ ai->doPathfind reads the live ignore id and destination.
                             ai_g.do_pathfind();
                             drop(ai_g);

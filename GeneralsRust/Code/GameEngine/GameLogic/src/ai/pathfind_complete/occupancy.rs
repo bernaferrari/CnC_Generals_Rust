@@ -467,7 +467,7 @@ impl PathfindingSystem {
             .flatten();
         let mut downhill = false;
         if let Some(ai) = ai {
-            if let Ok(ai_g) = ai.lock() {
+            { let ai_g = ai;
                 ai_g.with_cur_locomotor(&mut |loco| {
                     downhill = loco.template.downhill_only;
                 });

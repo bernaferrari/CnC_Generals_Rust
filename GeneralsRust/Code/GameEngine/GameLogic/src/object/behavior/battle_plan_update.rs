@@ -18,7 +18,7 @@ use crate::object::body::body_module::MaxHealthChangeType;
 use crate::object::special_power_template::{
     SpecialPowerTemplate, find_or_create_special_power_template,
 };
-use crate::player::{BattlePlanType, PlayerArcExt};
+use crate::player::{BattlePlanType};
 use crate::waypoint::Waypoint;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::ini::{FieldParse, INI, INIError};

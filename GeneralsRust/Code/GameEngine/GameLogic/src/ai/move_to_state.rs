@@ -127,7 +127,7 @@ impl AIState for AIMoveToState {
             OBJECT_REGISTRY.with_object(context.owner_id, |guard| {
             let damage_state = guard
                 .get_body()
-                .and_then(|body| body.lock().ok().map(|b| b.get_damage_state()))
+                .and_then(|body| Ok(body).ok().map(|b| b.get_damage_state()))
                 .unwrap_or(LogicBodyDamageType::Pristine);
             let condition = match damage_state {
                 LogicBodyDamageType::Pristine => LocoBodyDamageType::Pristine,
@@ -142,19 +142,12 @@ impl AIState for AIMoveToState {
         };
 
         let current_speed = ai_handle.get_speed();
-        let desired_speed = ai_handle
-            .lock()
-            .ok()
-            .map(|guard| guard.get_desired_speed())
-            .unwrap_or(crate::modules::FAST_AS_POSSIBLE);
+        let desired_speed = ai_handle.get_desired_speed();
         let current_frame = TheGameLogic::get_frame();
         let delta_time = SECONDS_PER_LOGICFRAME_REAL;
 
         let Some(mut loco) = ({
-            let Ok(ai_guard) = ai_handle.lock() else {
-                self.path_following = Some(path_state);
-                return StateReturnType::Failed;
-            };
+            let ai_guard = ai_handle;;
             let mut copied = None;
             ai_guard.with_cur_locomotor(&mut |active| copied = Some(active.clone()));
             copied
@@ -176,7 +169,7 @@ impl AIState for AIMoveToState {
             pathfinding,
         );
         let mut slot = Some(loco);
-        if let Ok(ai_guard) = ai_handle.lock() {
+        if let ai_guard = ai_handle {
             ai_guard.with_cur_locomotor(&mut |active| {
                 if let Some(updated) = slot.take() {
                     *active = updated;

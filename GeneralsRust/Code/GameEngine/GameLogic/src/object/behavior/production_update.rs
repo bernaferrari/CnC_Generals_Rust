@@ -161,27 +161,29 @@ impl UpdateModuleInterface for ProductionUpdate {
                             self.object_id,
                             |factory_guard| {
                                 let factory_pos = *factory_guard.get_position();
-                                if let Some(team_arc) = factory_guard.get_team() {
+                                if let Some(team_id) = factory_guard.get_team() {
                                     if let Some(template) = TheThingFactory::find_template(
                                         entry.template_name.as_str(),
                                     ) {
-                                        if let Ok(team_guard) = team_arc.read() {
-                                            if let Ok(factory) = TheThingFactory::get() {
-                                                if let Ok(new_object) =
-                                                    factory.new_object(template, &*team_guard)
-                                                {
-                                                    if let Ok(mut new_guard) = new_object.write() {
-                                                        let spawn_pos = crate::common::Coord3D::new(
-                                                            factory_pos.x + 5.0,
-                                                            factory_pos.y,
-                                                            factory_pos.z,
-                                                        );
-                                                        let _ = new_guard.set_position(&spawn_pos);
-                                                        new_guard
-                                                            .set_producer(Some(factory_guard));
-                                                    }
-                                                }
-                                            }
+                                        let new_id = crate::team::with_team(team_id, |team_guard| {
+                                            let Ok(factory) = TheThingFactory::get() else {
+                                                return None;
+                                            };
+                                            factory.new_object(template, team_guard).ok()
+                                        })
+                                        .flatten();
+                                        if let Some(new_id) = new_id {
+                                            let spawn_pos = crate::common::Coord3D::new(
+                                                factory_pos.x + 5.0,
+                                                factory_pos.y,
+                                                factory_pos.z,
+                                            );
+                                            let producer_id = factory_guard.get_id();
+                                            let _ = crate::object::registry::OBJECT_REGISTRY
+                                                .with_object_mut(new_id, |new_guard| {
+                                                    let _ = new_guard.set_position(&spawn_pos);
+                                                    new_guard.set_producer_id(producer_id);
+                                                });
                                         }
                                     }
                                 }
@@ -189,6 +191,8 @@ impl UpdateModuleInterface for ProductionUpdate {
                         );
                     }
                 }
+                self.is_producing = false;
+                self.sync_actively_constructing_flag();
             }
         }
 
@@ -251,6 +255,8 @@ impl ProductionUpdateInterface for ProductionUpdate {
                 })
                 .unwrap_or(false)
         };
+        if parking_full {
+            return false;
         }
 
         true

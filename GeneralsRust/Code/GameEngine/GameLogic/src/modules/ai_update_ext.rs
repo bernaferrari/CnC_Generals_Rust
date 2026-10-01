@@ -305,7 +305,7 @@ impl AIUpdateInterfaceExt for dyn AIUpdateInterface {
         cmd_source: CommandSourceType,
     ) {
         // C++ Reference: AIUpdateInterface::aiAttackTeam()
-        if let Some(name) = crate::team::factory_access::with_team(team, |t| t.get_name().as_str().to_string()) {
+        if let Some(name) = crate::team::with_team(team, |t| t.get_name().as_str().to_string()) {
             let mut params = crate::ai::AiCommandParams::new(
                 crate::ai::AiCommandType::AttackTeam,
                 cmd_source,

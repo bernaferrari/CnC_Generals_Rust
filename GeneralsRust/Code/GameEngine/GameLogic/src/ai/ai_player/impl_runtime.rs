@@ -107,7 +107,7 @@ impl AIPlayer {
                         if let Some((idle,)) = OBJECT_REGISTRY
                             .with_object(obj_id, |obj| {
                                 obj.get_ai_update_interface()
-                                    .and_then(|ai| ai.lock().ok().map(|ai_g| (ai_g.is_idle(),)))
+                                    .and_then(|ai| Ok(ai).ok().map(|ai_g| (ai_g.is_idle(),)))
                             })
                             .flatten()
                         {
@@ -127,7 +127,7 @@ impl AIPlayer {
                                     let Some(ai) = og.get_ai_update_interface() else {
                                         return false;
                                     };
-                                    ai.lock().ok().map(|ai_g| ai_g.is_idle()).unwrap_or(false)
+                                    Ok(ai).ok().map(|ai_g| ai_g.is_idle()).unwrap_or(false)
                                 })
                                 .unwrap_or(false)
                             {
@@ -309,9 +309,7 @@ impl AIPlayer {
                         else {
                             continue;
                         };
-                        let Ok(aig) = ai.lock() else {
-                            continue;
-                        };
+                        let aig = ai;;
                         if aig.is_idle() {
                             idle = true;
                             break;
@@ -618,7 +616,7 @@ impl AIPlayer {
                     .with_object(dozer_id, |dg| dg.get_ai_update_interface())
                     .flatten()
                 {
-                    if let Ok(mut ai_lock) = ai.lock() {
+                    if let ai_lock = ai {
                         let mut params =
                             AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromAi);
                         params.obj = Some(bridge_id);
@@ -647,9 +645,7 @@ impl AIPlayer {
         };
 
         let any_task_pending = {
-            let Ok(mut ai_g) = ai.lock() else {
-                return Ok(());
-            };
+            let ai_g = ai;;
             ai_g.get_dozer_ai_update_interface_mut()
                 .map(|d| d.is_any_task_pending())
                 .unwrap_or(false)
@@ -712,7 +708,7 @@ impl AIPlayer {
             .with_object(dozer_id, |dg| dg.get_ai_update_interface())
             .flatten()
         {
-            if let Ok(mut ai_lock) = ai.lock() {
+            if let ai_lock = ai {
                 let mut params =
                     AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromAi);
                 params.obj = Some(bridge_id);

@@ -96,7 +96,7 @@ impl DefectorSpecialPower {
             let old_owner = crate::object::registry::OBJECT_REGISTRY
                 .with_object(object_id, |g| g.get_controlling_player())
                 .flatten();
-            let new_owner = crate::team::factory_access::with_team(new_team, |team_guard| {
+            let new_owner = crate::team::with_team(new_team, |team_guard| {
                 team_guard.get_controlling_player_id().unwrap_or(player_id) as crate::player::PlayerIndex
             });
 

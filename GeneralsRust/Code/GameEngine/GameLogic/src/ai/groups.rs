@@ -460,9 +460,7 @@ impl AiUnitGroup {
                 let health = object.get_health();
                 let max_health = object.get_max_health().max(1.0);
                 let health_ratio = (health / max_health).clamp(0.0, 1.0);
-                let speed = object.get_ai_update_interface().and_then(|ai| {
-                    ai.lock().ok().map(|ai_guard| ai_guard.get_speed().max(0.0))
-                });
+                let speed = object.get_ai_update_interface().map(|ai| ai.get_speed().max(0.0));
                 (position, health_ratio, speed)
             }) {
                 unit.last_position = Some(position);

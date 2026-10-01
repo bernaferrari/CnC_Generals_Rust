@@ -31,22 +31,17 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 fn play_behavior_stealth_sound(object_id: ObjectID, stealth_on: bool) {
-    let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-    else {
-        return;
-    };
-    let Ok(obj) = object.read() else {
-        return;
-    };
-    let mut event = if stealth_on {
-        obj.get_template().get_sound_stealth_on()
-    } else {
-        obj.get_template().get_sound_stealth_off()
-    };
-    event.set_object_id(object_id);
-    if let Some(audio) = crate::helpers::TheAudio::get() {
-        audio.add_audio_event(&event);
-    }
+    let _ = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        let mut event = if stealth_on {
+            obj.get_template().get_sound_stealth_on()
+        } else {
+            obj.get_template().get_sound_stealth_off()
+        };
+        event.set_object_id(object_id);
+        if let Some(audio) = crate::helpers::TheAudio::get() {
+            audio.add_audio_event(&event);
+        }
+    });
 }
 
 // ObjectStatusMaskType constants
@@ -267,9 +262,9 @@ impl StealthUpdate {
 
         // C++ StealthUpdate.cpp:132-136 — innate units receive CAN_STEALTH at construction.
         if specific_data.innate_stealth {
-            if let Ok(mut obj) = object.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                 obj.set_status(OBJECT_STATUS_CAN_STEALTH, true);
-            }
+            });
         }
 
         Ok(Self {
@@ -347,19 +342,14 @@ impl StealthUpdate {
         if !self.module_data.use_rider_stealth {
             return self.object_id;
         }
-        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        {
-            if let Ok(obj) = object.read() {
-                if let Some(contain) = obj.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if let Some(&rider_id) = contain_guard.get_contained_objects().first() {
-                            return rider_id;
-                        }
-                    }
-                }
-            }
-        }
-        self.object_id
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                obj.get_contain().and_then(|contain| {
+                    contain.get_contained_objects().first().copied()
+                })
+            })
+            .flatten()
+            .unwrap_or(self.object_id)
     }
 
     fn stealth_delay_for(&self, owner_id: ObjectID) -> UnsignedInt {
@@ -368,9 +358,7 @@ impl StealthUpdate {
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
-                owner
-                    .get_stealth()
-                    .and_then(|handle| handle.lock().ok().map(|guard| guard.get_stealth_delay()))
+                owner.get_stealth().map(|stealth| stealth.get_stealth_delay())
             })
             .flatten()
             .unwrap_or(self.module_data.stealth_delay)
@@ -382,9 +370,7 @@ impl StealthUpdate {
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
-                owner
-                    .get_stealth()
-                    .and_then(|handle| handle.lock().ok().map(|guard| guard.get_stealth_level()))
+                owner.get_stealth().map(|stealth| stealth.get_stealth_level())
             })
             .flatten()
             .unwrap_or(self.module_data.stealth_level)
@@ -396,11 +382,8 @@ impl StealthUpdate {
         }
         OBJECT_REGISTRY
             .with_object(owner_id, |owner| {
-                owner.get_stealth().and_then(|handle| {
-                    handle
-                        .lock()
-                        .ok()
-                        .map(|guard| guard.get_order_idle_enemies_to_attack_me_upon_reveal())
+                owner.get_stealth().map(|stealth| {
+                    stealth.get_order_idle_enemies_to_attack_me_upon_reveal()
                 })
             })
             .flatten()
@@ -408,32 +391,27 @@ impl StealthUpdate {
     }
 
     fn order_idle_enemies_to_attack(&self) {
-        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        else {
-            return;
-        };
-        let Ok(obj) = object.read() else {
-            return;
-        };
-        let self_pos = *obj.get_position();
-        let Some(self_player) = obj.get_controlling_player() else {
+        let Some((self_pos, self_index)) = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            let index = obj.get_controlling_player()?;
+            Some((*obj.get_position(), index))
+        }).flatten() else {
             return;
         };
         let Ok(list) = crate::player::player_list().read() else {
             return;
         };
-        for player in list.iter() {
-            let is_enemy = match (player.read(), self_player.read()) {
-                (Ok(other), Ok(mine)) => {
-                    other.get_relationship(&mine) == crate::common::Relationship::Enemies
-                }
-                _ => false,
+        let Some(mine) = list.get_player(self_index) else {
+            return;
+        };
+        let count = list.get_player_count();
+        for index in 0..count {
+            let Some(other) = list.get_player(index as i32) else {
+                continue;
             };
-            if !is_enemy {
+            if other.get_relationship(mine) != crate::common::Relationship::Enemies {
                 continue;
             }
-            use crate::player::PlayerArcExt;
-            let _ = player.iterate_objects(|enemy| {
+            let _ = other.iterate_objects(|enemy| {
                 if enemy.get_ai().is_some() {
                     let vision = enemy.get_vision_range();
                     let delta = *enemy.get_position() - self_pos;
@@ -469,20 +447,12 @@ impl StealthUpdate {
         if dual_world_registry_unavailable() {
             return false;
         }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                // Check OBJECT_STATUS_IS_FIRING_WEAPON status bit
-                return obj
-                    .get_status_bits()
-                    .intersects(OBJECT_STATUS_IS_FIRING_WEAPON);
-            }
-        }
-        false
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                obj.get_status_bits()
+                    .intersects(OBJECT_STATUS_IS_FIRING_WEAPON)
+            })
+            .unwrap_or(false)
     }
 
     /// Get current velocity magnitude of the unit
@@ -491,23 +461,13 @@ impl StealthUpdate {
         if dual_world_registry_unavailable() {
             return 0.0;
         }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                // Get velocity from physics module (C++ StealthUpdate.cpp:390)
-                if let Some(physics) = obj.get_physics() {
-                    if let Ok(phys_guard) = physics.lock() {
-                        return phys_guard.get_velocity().length();
-                    }
-                }
-                return 0.0;
-            }
-        }
-        0.0
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                obj.get_physics()
+                    .map(|physics| physics.get_velocity().length())
+                    .unwrap_or(0.0)
+            })
+            .unwrap_or(0.0)
     }
 
     /// C++ StealthUpdate.cpp:336-361 — destalth only if that slot shot last/this frame.
@@ -517,19 +477,13 @@ impl StealthUpdate {
         }
         let now = crate::helpers::TheGameLogic::get_frame();
         let last_frame = now.saturating_sub(1);
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                return obj
-                    .get_weapon_in_weapon_slot(slot)
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                obj.get_weapon_in_weapon_slot(slot)
                     .map(|weapon| weapon.get_last_shot_frame() >= last_frame)
-                    .unwrap_or(false);
-            }
-        }
-        false
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     /// Check if unit is firing primary weapon
@@ -553,36 +507,25 @@ impl StealthUpdate {
         if dual_world_registry_unavailable() {
             return false;
         }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                // Get last damage timestamp from body module (C++ StealthUpdate.cpp:299-311)
-                // Check if damage occurred within the last frame or two
-                if let Some(body) = obj.get_body_module() {
-                    if let Ok(body_guard) = body.lock() {
-                        let last_damage_ts = body_guard.get_last_damage_timestamp();
-                        let current_frame = self.last_distance_check_frame;
-                        // Check if damage is recent (within last 2 frames) and not healing
-                        if last_damage_ts != u32::MAX
-                            && last_damage_ts >= current_frame.saturating_sub(2)
-                        {
-                            if let Some(damage_info) = body_guard.get_last_damage_info() {
-                                // Ignore healing damage
-                                return damage_info.input.damage_type
-                                    != crate::damage::DamageType::Healing;
-                            }
-                            return true;
-                        }
+        let current_frame = self.last_distance_check_frame;
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                let Some(body) = obj.get_body_module() else {
+                    return false;
+                };
+                let last_damage_ts = body.get_last_damage_timestamp();
+                if last_damage_ts != u32::MAX
+                    && last_damage_ts >= current_frame.saturating_sub(2)
+                {
+                    if let Some(damage_info) = body.get_last_damage_info() {
+                        return damage_info.input.damage_type
+                            != crate::damage::DamageType::Healing;
                     }
+                    return true;
                 }
-                return false;
-            }
-        }
-        false
+                false
+            })
+            .unwrap_or(false)
     }
 
     /// C++ StealthUpdate.cpp:376-385 — riders attacking only if passengers may fire.
@@ -590,33 +533,28 @@ impl StealthUpdate {
         if dual_world_registry_unavailable() {
             return false;
         }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                if let Some(contain) = obj.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if !contain_guard.is_passenger_allowed_to_fire(None) {
-                            return false;
-                        }
-                        for &rider_id in contain_guard.get_contained_objects().iter() {
-                            if crate::object::registry::OBJECT_REGISTRY
-                                .with_object(rider_id, |rider_guard| {
-                                    rider_guard
-                                        .get_status_bits()
-                                        .contains(ObjectStatusMaskType::IS_ATTACKING)
-                                })
-                                .unwrap_or(false)
-                            {
-                                return true;
-                            }
-                        }
-                    }
+        let rider_ids = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                let contain = obj.get_contain()?;
+                if !contain.is_passenger_allowed_to_fire(None) {
+                    return None;
                 }
-                return false;
+                Some(contain.get_contained_objects().to_vec())
+            })
+            .flatten();
+        let Some(rider_ids) = rider_ids else {
+            return false;
+        };
+        for rider_id in rider_ids {
+            if OBJECT_REGISTRY
+                .with_object(rider_id, |rider_guard| {
+                    rider_guard
+                        .get_status_bits()
+                        .contains(ObjectStatusMaskType::IS_ATTACKING)
+                })
+                .unwrap_or(false)
+            {
+                return true;
             }
         }
         false
@@ -628,20 +566,12 @@ impl StealthUpdate {
         if dual_world_registry_unavailable() {
             return false;
         }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                // Check OBJECT_STATUS_IS_USING_ABILITY status bit
-                return obj
-                    .get_status_bits()
-                    .intersects(OBJECT_STATUS_IS_USING_ABILITY);
-            }
-        }
-        false
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                obj.get_status_bits()
+                    .intersects(OBJECT_STATUS_IS_USING_ABILITY)
+            })
+            .unwrap_or(false)
     }
 
     /// Check if black market is available for the controlling player
@@ -650,62 +580,46 @@ impl StealthUpdate {
         if dual_world_registry_unavailable() {
             return false;
         }
-
-        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
+        let Some(player_index) = OBJECT_REGISTRY.with_object(self.object_id, |owner| {
+            owner.get_controlling_player()
+        }).flatten() else {
             return false;
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return false;
-        };
-        let Some(player_arc) = owner_guard.get_controlling_player() else {
-            return false;
-        };
-
         let mut has_black_market = false;
-        if let Ok(player_guard) = player_arc.read() {
-            let _ = player_guard.iterate_object_ids(|object_id| {
+        let _ = crate::player::with_player(player_index, |player| {
+            let _ = player.iterate_object_ids(|object_id| {
                 if has_black_market {
                     return Ok(());
                 }
-
-                let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(object_id)
-                {
-                    Some(a) => a,
-                    None => return Ok(()),
-                };
-                let Ok(object_guard) = object_arc.read() else {
-                    return Ok(());
-                };
-                if object_guard.is_effectively_dead() {
+                if !crate::helpers::TheGameLogic::find_object_by_id(object_id) {
                     return Ok(());
                 }
-
-                let status = object_guard.get_status_bits();
-                if status.contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
-                    || status.contains(ObjectStatusMaskType::SOLD)
-                {
-                    return Ok(());
-                }
-
-                let template_name = object_guard.get_template_name().to_ascii_lowercase();
-                let matches_template = template_name.contains("blackmarket")
-                    || template_name.contains("black_market")
-                    || template_name.contains("black-market");
-                let matches_kind = object_guard.is_kind_of(KindOf::CashGenerator)
-                    && template_name.contains("market");
-
-                if matches_template || matches_kind {
+                let matched = OBJECT_REGISTRY
+                    .with_object(object_id, |object_guard| {
+                        if object_guard.is_effectively_dead() {
+                            return false;
+                        }
+                        let status = object_guard.get_status_bits();
+                        if status.contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                            || status.contains(ObjectStatusMaskType::SOLD)
+                        {
+                            return false;
+                        }
+                        let template_name = object_guard.get_template_name().to_ascii_lowercase();
+                        let matches_template = template_name.contains("blackmarket")
+                            || template_name.contains("black_market")
+                            || template_name.contains("black-market");
+                        let matches_kind = object_guard.is_kind_of(KindOf::CashGenerator)
+                            && template_name.contains("market");
+                        matches_template || matches_kind
+                    })
+                    .unwrap_or(false);
+                if matched {
                     has_black_market = true;
                 }
-
                 Ok(())
             });
-        }
-
+        });
         has_black_market
     }
 
@@ -739,20 +653,15 @@ impl StealthUpdate {
             return false; // Feature disabled
         }
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                // Check distance to current attack target
-                if let Some(victim_pos) = obj.get_current_victim_pos() {
-                    let self_pos = obj.get_position();
-                    let distance = (victim_pos - *self_pos).length();
-                    return distance < self.module_data.reveal_distance_from_target;
-                }
-            }
-        }
+        let reveal = self.module_data.reveal_distance_from_target;
+        return OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                let victim_pos = obj.get_current_victim_pos()?;
+                let distance = (victim_pos - *obj.get_position()).length();
+                Some(distance < reveal)
+            })
+            .flatten()
+            .unwrap_or(false);
         false
     }
 
@@ -767,164 +676,95 @@ impl StealthUpdate {
             return false;
         }
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
+        let snapshot = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            (obj.get_status_bits(), obj.get_container_id())
+        });
+        let Some((status, container_id)) = snapshot else {
+            return false;
+        };
+        let current_frame = self.last_distance_check_frame;
+        if current_frame < self.detection_expires_frame || current_frame < self.stealth_allowed_frame {
+            return false;
+        }
+        let stealth_owner_id = self.calc_stealth_owner();
+        let owner_can = if stealth_owner_id == self.object_id {
+            status.intersects(OBJECT_STATUS_CAN_STEALTH)
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(obj) = object.read() {
-                // Use last_distance_check_frame as current frame tracker
-                let current_frame = self.last_distance_check_frame;
-
-                // Check if still in detection period
-                if current_frame < self.detection_expires_frame {
-                    return false;
-                }
-
-                // Check if enough time has passed since damage
-                if current_frame < self.stealth_allowed_frame {
-                    return false;
-                }
-
-                let stealth_owner_id = self.calc_stealth_owner();
-                let can_stealth = if stealth_owner_id == self.object_id {
-                    obj.get_status_bits().intersects(OBJECT_STATUS_CAN_STEALTH)
-                } else {
-                    OBJECT_REGISTRY
-                        .with_object(stealth_owner_id, |owner| {
-                            owner
-                                .get_status_bits()
-                                .intersects(OBJECT_STATUS_CAN_STEALTH)
-                        })
-                        .unwrap_or(false)
-                };
-                if !can_stealth {
-                    return false;
-                }
-
-                let level = self.stealth_level_for(stealth_owner_id);
-
-                // Check STEALTH_NOT_WHILE_ATTACKING condition
-                if (level & STEALTH_NOT_WHILE_ATTACKING) != 0 {
-                    if self.is_attacking() {
-                        return false;
-                    }
-                }
-
-                // Check STEALTH_NOT_WHILE_USING_ABILITY condition
-                if (level & STEALTH_NOT_WHILE_USING_ABILITY) != 0 {
-                    if self.is_using_ability() {
-                        return false;
-                    }
-                }
-
-                // Check STEALTH_ONLY_WITH_BLACK_MARKET condition
-                if (level & STEALTH_ONLY_WITH_BLACK_MARKET) != 0 {
-                    if !self.check_black_market_available(-1) {
-                        return false;
-                    }
-                }
-
-                // Check STEALTH_NOT_WHILE_TAKING_DAMAGE condition
-                if (level & STEALTH_NOT_WHILE_TAKING_DAMAGE) != 0 {
-                    if self.is_taking_damage() {
-                        return false;
-                    }
-                }
-
-                // Check required status bits - must have ALL required bits
-                if !self.module_data.required_status.is_empty() {
-                    if (obj.get_status_bits() & self.module_data.required_status)
-                        != self.module_data.required_status
-                    {
-                        return false;
-                    }
-                }
-
-                // Check forbidden status bits - must NOT have ANY forbidden bits
-                if !self.module_data.forbidden_status.is_empty() {
-                    if obj
-                        .get_status_bits()
-                        .intersects(self.module_data.forbidden_status)
-                    {
-                        return false;
-                    }
-                }
-
-                // C++ StealthUpdate.cpp:323-363 — per-slot last-shot, not any-fire collapse.
-                if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
-                    && obj
-                        .get_status_bits()
-                        .contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
-                {
-                    if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) == STEALTH_NOT_WHILE_FIRING_WEAPON
-                    {
-                        return false;
-                    }
-                    if (level & STEALTH_NOT_WHILE_FIRING_PRIMARY) != 0 && self.is_firing_primary() {
-                        return false;
-                    }
-                    if (level & STEALTH_NOT_WHILE_FIRING_SECONDARY) != 0
-                        && self.is_firing_secondary()
-                    {
-                        return false;
-                    }
-                    if (level & STEALTH_NOT_WHILE_FIRING_TERTIARY) != 0 && self.is_firing_tertiary()
-                    {
-                        return false;
-                    }
-                }
-
-                // C++ StealthUpdate.cpp:365-373 — transports destalth occupants.
-                if let Some(container_id) = obj.get_container_id() {
-                    let not_garrisonable = OBJECT_REGISTRY
-                        .with_object(container_id, |container_guard| {
-                            let Some(contain) = container_guard.get_contain() else {
-                                return false;
-                            };
-                            contain
-                                .lock()
-                                .ok()
-                                .map(|contain_guard| !contain_guard.is_garrisonable())
-                                .unwrap_or(false)
-                        })
-                        .unwrap_or(false);
-                    if not_garrisonable {
-                        return false;
-                    }
-                }
-
-                // Check STEALTH_NOT_WHILE_RIDERS_ATTACKING condition
-                if (level & STEALTH_NOT_WHILE_RIDERS_ATTACKING) != 0 {
-                    if self.has_riders_attacking() {
-                        return false;
-                    }
-                }
-
-                // Check STEALTH_NOT_WHILE_MOVING condition
-                if (level & STEALTH_NOT_WHILE_MOVING) != 0 {
-                    if self.get_velocity() > self.module_data.stealth_speed {
-                        return false;
-                    }
-                }
-
-                // Check script unstealthed status bit
-                if obj
-                    .get_status_bits()
-                    .intersects(OBJECT_STATUS_SCRIPT_UNSTEALTHED)
-                {
-                    return false;
-                }
-
-                // CRITICAL: Check distance to hostile targets - breaks stealth if too close
-                if self.check_distance_to_targets() {
-                    trace!("Stealth denied due to proximity to hostile targets");
-                    return false;
-                }
-
-                return true;
+            OBJECT_REGISTRY
+                .with_object(stealth_owner_id, |owner| {
+                    owner.get_status_bits().intersects(OBJECT_STATUS_CAN_STEALTH)
+                })
+                .unwrap_or(false)
+        };
+        if !owner_can {
+            return false;
+        }
+        let level = self.stealth_level_for(stealth_owner_id);
+        if (level & STEALTH_NOT_WHILE_ATTACKING) != 0 && self.is_attacking() {
+            return false;
+        }
+        if (level & STEALTH_NOT_WHILE_USING_ABILITY) != 0 && self.is_using_ability() {
+            return false;
+        }
+        if (level & STEALTH_ONLY_WITH_BLACK_MARKET) != 0 && !self.check_black_market_available(-1) {
+            return false;
+        }
+        if (level & STEALTH_NOT_WHILE_TAKING_DAMAGE) != 0 && self.is_taking_damage() {
+            return false;
+        }
+        if !self.module_data.required_status.is_empty()
+            && (status & self.module_data.required_status) != self.module_data.required_status
+        {
+            return false;
+        }
+        if !self.module_data.forbidden_status.is_empty()
+            && status.intersects(self.module_data.forbidden_status)
+        {
+            return false;
+        }
+        if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) != 0
+            && status.contains(ObjectStatusMaskType::IS_FIRING_WEAPON)
+        {
+            if (level & STEALTH_NOT_WHILE_FIRING_WEAPON) == STEALTH_NOT_WHILE_FIRING_WEAPON {
+                return false;
+            }
+            if (level & STEALTH_NOT_WHILE_FIRING_PRIMARY) != 0 && self.is_firing_primary() {
+                return false;
+            }
+            if (level & STEALTH_NOT_WHILE_FIRING_SECONDARY) != 0 && self.is_firing_secondary() {
+                return false;
+            }
+            if (level & STEALTH_NOT_WHILE_FIRING_TERTIARY) != 0 && self.is_firing_tertiary() {
+                return false;
             }
         }
+        if let Some(container_id) = container_id {
+            let not_garrisonable = OBJECT_REGISTRY
+                .with_object(container_id, |container_guard| {
+                    container_guard
+                        .get_contain()
+                        .map(|contain| !contain.is_garrisonable())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if not_garrisonable {
+                return false;
+            }
+        }
+        if (level & STEALTH_NOT_WHILE_RIDERS_ATTACKING) != 0 && self.has_riders_attacking() {
+            return false;
+        }
+        if (level & STEALTH_NOT_WHILE_MOVING) != 0 && self.get_velocity() > self.module_data.stealth_speed {
+            return false;
+        }
+        if status.intersects(OBJECT_STATUS_SCRIPT_UNSTEALTHED) {
+            return false;
+        }
+        if self.check_distance_to_targets() {
+            trace!("Stealth denied due to proximity to hostile targets");
+            return false;
+        }
+        return true;
 
         false
     }
@@ -936,25 +776,24 @@ impl StealthUpdate {
         }
         self.enabled = active;
         let now = crate::helpers::TheGameLogic::get_frame();
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(mut obj) = object.write() {
-                if active {
-                    obj.set_status(OBJECT_STATUS_CAN_STEALTH, true);
-                    obj.set_status(OBJECT_STATUS_STEALTHED, true);
-                    self.stealth_allowed_frame = now;
-                    self.frames_granted = frames;
-                } else {
-                    obj.set_status(OBJECT_STATUS_CAN_STEALTH, false);
-                    obj.set_status(OBJECT_STATUS_STEALTHED, false);
-                    self.stealth_allowed_frame = NEVER;
-                    self.frames_granted = 0;
-                }
-                return;
+        let applied = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            if active {
+                obj.set_status(OBJECT_STATUS_CAN_STEALTH, true);
+                obj.set_status(OBJECT_STATUS_STEALTHED, true);
+            } else {
+                obj.set_status(OBJECT_STATUS_CAN_STEALTH, false);
+                obj.set_status(OBJECT_STATUS_STEALTHED, false);
             }
+        });
+        if applied.is_some() {
+            if active {
+                self.stealth_allowed_frame = now;
+                self.frames_granted = frames;
+            } else {
+                self.stealth_allowed_frame = NEVER;
+                self.frames_granted = 0;
+            }
+            return;
         }
         if active {
             self.frames_granted = frames;
@@ -990,96 +829,79 @@ impl UpdateModuleInterface for StealthUpdate {
             return UpdateSleepTime::Frames(1);
         }
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(mut obj) = object.write() {
-                // Increment frame counter
-                self.last_distance_check_frame = self.last_distance_check_frame.saturating_add(1);
-
-                // C++ StealthUpdate.cpp:696-714 — temp grant + CMD_FROM_PLAYER strip.
-                if self.frames_granted > 0 {
-                    self.frames_granted = self.frames_granted.saturating_sub(1);
-                    let from_player = obj
-                        .get_ai()
-                        .and_then(|ai| {
-                            ai.try_lock().ok().map(|ai_guard| {
-                                ai_guard.get_last_command_source() == CommandSourceType::FromPlayer
-                            })
-                        })
-                        .unwrap_or(false);
-                    if from_player || self.frames_granted == 0 {
-                        self.enabled = false;
-                        self.frames_granted = 0;
-                        self.stealth_allowed_frame = NEVER;
-                        obj.set_status(OBJECT_STATUS_CAN_STEALTH, false);
-                        obj.set_status(OBJECT_STATUS_STEALTHED, false);
-                    }
-                }
-
-                // Update pulse phase
-                if self.module_data.pulse_frames > 0 {
-                    self.pulse_phase += self.pulse_phase_rate;
-                }
-
-                // Handle disguise transitions
-                if self.disguise_transition_frames > 0 {
-                    self.disguise_transition_frames =
-                        self.disguise_transition_frames.saturating_sub(1);
-
-                    let halfway = if self.transitioning_to_disguise {
-                        self.module_data.disguise_transition_frames / 2
-                    } else {
-                        self.module_data.disguise_reveal_transition_frames / 2
-                    };
-
-                    if !self.disguise_halfpoint_reached
-                        && self.disguise_transition_frames <= halfway
-                    {
-                        self.disguise_halfpoint_reached = true;
-                        // Switch drawables - handled by drawable system based on DISGUISED status bit
-                        // The status bit change triggers visual model swap in renderer
-                    }
-
-                    if self.disguise_transition_frames == 0 {
-                        self.disguised = self.transitioning_to_disguise;
-                    }
-                }
-
-                // Check if can stealth and apply status
-                if self.allowed_to_stealth() {
-                    // Apply stealth to object (C++ StealthUpdate.cpp:727-735)
-                    if !obj.get_status_bits().contains(OBJECT_STATUS_STEALTHED) {
-                        play_behavior_stealth_sound(self.object_id, true);
-                        obj.set_status(OBJECT_STATUS_STEALTHED, true);
-                    }
-                } else {
-                    // Remove stealth status (C++ StealthUpdate.cpp:742-749)
-                    if obj.get_status_bits().contains(OBJECT_STATUS_STEALTHED) {
-                        play_behavior_stealth_sound(self.object_id, true);
-                        obj.set_status(OBJECT_STATUS_STEALTHED, false);
-                    }
-                }
-
-                let now = crate::helpers::TheGameLogic::get_frame();
-                let was_detected = obj.get_status_bits().contains(OBJECT_STATUS_DETECTED);
-                if self.detection_expires_frame > now {
-                    if !was_detected {
-                        play_behavior_stealth_sound(self.object_id, false);
-                    }
-                    obj.set_status(OBJECT_STATUS_DETECTED, true);
-                } else if was_detected {
-                    if obj.is_locally_controlled() {
-                        play_behavior_stealth_sound(self.object_id, true);
-                    }
-                    obj.set_status(OBJECT_STATUS_DETECTED, false);
-                }
-
-                return self.calc_sleep_time();
+        self.last_distance_check_frame = self.last_distance_check_frame.saturating_add(1);
+        let object_id = self.object_id;
+        if self.frames_granted > 0 {
+            self.frames_granted = self.frames_granted.saturating_sub(1);
+            let from_player = OBJECT_REGISTRY
+                .with_object(object_id, |obj| {
+                    obj.get_ai()
+                        .map(|ai| ai.get_last_command_source() == CommandSourceType::FromPlayer)
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if from_player || self.frames_granted == 0 {
+                self.enabled = false;
+                self.frames_granted = 0;
+                self.stealth_allowed_frame = NEVER;
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                    obj.set_status(OBJECT_STATUS_CAN_STEALTH, false);
+                    obj.set_status(OBJECT_STATUS_STEALTHED, false);
+                });
             }
         }
+        if self.module_data.pulse_frames > 0 {
+            self.pulse_phase += self.pulse_phase_rate;
+        }
+        if self.disguise_transition_frames > 0 {
+            self.disguise_transition_frames = self.disguise_transition_frames.saturating_sub(1);
+            let halfway = if self.transitioning_to_disguise {
+                self.module_data.disguise_transition_frames / 2
+            } else {
+                self.module_data.disguise_reveal_transition_frames / 2
+            };
+            if !self.disguise_halfpoint_reached && self.disguise_transition_frames <= halfway {
+                self.disguise_halfpoint_reached = true;
+            }
+            if self.disguise_transition_frames == 0 {
+                self.disguised = self.transitioning_to_disguise;
+            }
+        }
+        let can_stealth = self.allowed_to_stealth();
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let detecting = self.detection_expires_frame > now;
+        let transition = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            let was_stealthed = obj.get_status_bits().contains(OBJECT_STATUS_STEALTHED);
+            let was_detected = obj.get_status_bits().contains(OBJECT_STATUS_DETECTED);
+            let local = obj.is_locally_controlled();
+            if can_stealth {
+                if !was_stealthed {
+                    obj.set_status(OBJECT_STATUS_STEALTHED, true);
+                }
+            } else if was_stealthed {
+                obj.set_status(OBJECT_STATUS_STEALTHED, false);
+            }
+            if detecting {
+                obj.set_status(OBJECT_STATUS_DETECTED, true);
+            } else if was_detected {
+                obj.set_status(OBJECT_STATUS_DETECTED, false);
+            }
+            (was_stealthed, was_detected, local)
+        });
+        let Some((was_stealthed, was_detected, local)) = transition else {
+            return UPDATE_SLEEP_FOREVER;
+        };
+        if can_stealth && !was_stealthed {
+            play_behavior_stealth_sound(object_id, true);
+        } else if !can_stealth && was_stealthed {
+            play_behavior_stealth_sound(object_id, true);
+        }
+        if detecting && !was_detected {
+            play_behavior_stealth_sound(object_id, false);
+        } else if !detecting && was_detected && local {
+            play_behavior_stealth_sound(object_id, true);
+        }
+        return self.calc_sleep_time();
 
         UPDATE_SLEEP_FOREVER
     }

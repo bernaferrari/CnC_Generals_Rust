@@ -23,7 +23,7 @@ impl ScriptEvaluator {
                     .ok()
                     .and_then(|list| list.get_local_player().and_then(|p| p.get_default_team_id()))
                     .and_then(|team_id| {
-                        crate::team::factory_access::with_team(team_id, |t| t.get_name().to_string())
+                        crate::team::with_team(team_id, |t| t.get_name().to_string())
                     })
                     .unwrap_or_else(|| raw.to_string())
             }

@@ -187,6 +187,7 @@ impl UpdateModuleInterface for PowerPlantUpdate {
         self.extended = true;
         UPDATE_SLEEP_FOREVER
 }
+}
 
 impl BehaviorModuleInterface for PowerPlantUpdate {
     fn get_module_name(&self) -> &'static str {

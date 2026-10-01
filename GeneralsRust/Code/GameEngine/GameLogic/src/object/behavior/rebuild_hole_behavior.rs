@@ -7,7 +7,7 @@
 //! attacker transfer, and cleanup.
 
 use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
@@ -236,9 +236,7 @@ impl RebuildHoleBehavior {
         for &object_id in game_logic.get_all_object_ids() {
             let _ = OBJECT_REGISTRY.with_object(object_id, |guard| {
                 if let Some(ai) = guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        ai_guard.transfer_attack(from_id, to_id);
-                    }
+                    ai.transfer_attack(from_id, to_id);
                 }
             });
         }
@@ -293,164 +291,131 @@ impl RebuildHoleBehavior {
             Err(_) => return,
         };
 
-        let worker_result = if let Some(team_arc) = hole_team.clone() {
-            if let Ok(team_guard) = team_arc.read() {
-                factory.new_object(worker_template, &*team_guard)
-            } else {
-                factory.new_object_optional_team(worker_template, None)
-            }
+        let worker_result = if let Some(team_id) = hole_team {
+            crate::team::with_team(team_id, |team| factory.new_object(worker_template, team))
+                .unwrap_or_else(|| factory.new_object_optional_team(worker_template, None))
         } else {
             factory.new_object_optional_team(worker_template, None)
         };
 
-        let worker_arc = match worker_result {
-            Ok(worker) => worker,
-            Err(_) => return,
+        let Ok(worker_id) = worker_result else {
+            return;
         };
-
-        let worker_id = worker_arc
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
         self.worker_id = worker_id;
 
-        if let Ok(mut worker_guard) = worker_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(worker_id, |worker_guard| {
             let _ = worker_guard.set_position(&hole_pos);
             worker_guard.set_status(
                 ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
                 true,
             );
-        }
+        });
 
-        let mut reconstructing_arc = reconstructing;
+        let mut reconstructing_id = reconstructing.filter(|id| {
+            *id != INVALID_ID && TheGameLogic::find_object_by_id(*id)
+        });
 
-        if let Some(existing) = reconstructing_arc.as_ref() {
-            if let Ok(worker_guard) = worker_arc.write() {
+        if let Some(existing) = reconstructing_id {
+            let _ = OBJECT_REGISTRY.with_object_mut(worker_id, |worker_guard| {
                 if let Some(ai) = worker_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::ResumeConstruction,
-                            CommandSourceType::FromAi,
-                        );
-                        params.obj = Some(
-                            existing
-                                .read()
-                                .ok()
-                                .map(|g| g.get_id())
-                                .unwrap_or(INVALID_ID),
-                        );
-                        let _ = ai_guard.execute_command(&params);
-                    }
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::ResumeConstruction,
+                        CommandSourceType::FromAi,
+                    );
+                    params.obj = Some(existing);
+                    let _ = ai.execute_command(&params);
                 }
-            }
+            });
         } else {
             let Some(rebuild_template) = self.rebuild_template.clone() else {
                 return;
             };
 
-            let new_building = if let Some(team_arc) = hole_team.clone() {
-                if let Ok(team_guard) = team_arc.read() {
-                    factory.new_object(rebuild_template.clone(), &*team_guard)
-                } else {
+            let new_building = if let Some(team_id) = hole_team {
+                crate::team::with_team(team_id, |team| {
+                    factory.new_object(rebuild_template.clone(), team)
+                })
+                .unwrap_or_else(|| {
                     factory.new_object_optional_team(rebuild_template.clone(), None)
-                }
+                })
             } else {
                 factory.new_object_optional_team(rebuild_template.clone(), None)
             };
 
-            let Ok(new_building_arc) = new_building else {
+            let Ok(new_id) = new_building else {
                 return;
             };
 
-            let mut build_max_health = 0.0;
-            if let Ok(guard) = new_building_arc.read() {
-                if let Some(body) = guard.get_body_module() {
-                    build_max_health = body.get_max_health();
-                }
-            }
+            let build_max_health = OBJECT_REGISTRY
+                .with_object(new_id, |guard| {
+                    guard
+                        .get_body_module()
+                        .map(|body| body.get_max_health())
+                        .unwrap_or(0.0)
+                })
+                .unwrap_or(0.0);
 
-            if let Ok(mut guard) = new_building_arc.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(new_id, |guard| {
                 let _ = guard.set_position(&hole_pos);
                 if let Err(err) = guard.set_orientation(hole_orient) {
                     log::debug!("RebuildHoleBehavior::set_orientation failed: {err}");
                 }
                 guard.set_producer_id(hole_id);
-                if let Ok(worker_guard) = worker_arc.read() {
-                    guard.set_builder(Some(&*worker_guard));
-                } else {
+                if OBJECT_REGISTRY
+                    .with_object(worker_id, |worker_guard| {
+                        guard.set_builder(Some(worker_guard));
+                    })
+                    .is_none()
+                {
                     guard.set_builder(None);
                 }
                 guard.set_construction_percent(0.0);
                 if build_max_health > 0.0 {
                     let _ = guard.set_health(1.0);
                 }
-            }
+            });
 
-            if let Ok(worker_guard) = worker_arc.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(worker_id, |worker_guard| {
                 if let Some(ai) = worker_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        let total_build_frames = {
-                            let player_opt = hole_player_id.and_then(|id| {
-                                let player_list = crate::player::player_list();
-                                let list = player_list.read().ok()?;
-                                list.get_player(id as i32).cloned()
-                            });
-                            if let Some(player) = player_opt {
-                                if let Ok(player_guard) = player.read() {
-                                    rebuild_template
-                                        .calc_time_to_build(Some(&*player_guard))
-                                        .max(1) as u32
-                                } else {
-                                    rebuild_template.calc_time_to_build(None).max(1) as u32
-                                }
-                            } else {
-                                rebuild_template.calc_time_to_build(None).max(1) as u32
-                            }
-                        };
+                    let total_build_frames = hole_player_id
+                        .and_then(|id| {
+                            crate::player::with_player(id as i32, |player| {
+                                rebuild_template.calc_time_to_build(Some(player)).max(1) as u32
+                            })
+                        })
+                        .unwrap_or_else(|| {
+                            rebuild_template.calc_time_to_build(None).max(1) as u32
+                        });
 
-                        let new_id = new_building_arc
-                            .read()
-                            .ok()
-                            .map(|g| g.get_id())
-                            .unwrap_or(INVALID_ID);
-                        if let Some(worker_ai) = ai_guard.get_worker_ai_update_interface_mut() {
-                            worker_ai.set_build_task(
-                                new_id,
-                                total_build_frames,
-                                build_max_health,
-                                true,
-                            );
-                        } else if let Some(dozer_ai) = ai_guard.get_dozer_ai_update_interface_mut()
-                        {
-                            dozer_ai.set_build_task(
-                                new_id,
-                                total_build_frames,
-                                build_max_health,
-                                true,
-                            );
-                        }
+                    if let Some(worker_ai) = ai.get_worker_ai_update_interface_mut() {
+                        worker_ai.set_build_task(
+                            new_id,
+                            total_build_frames,
+                            build_max_health,
+                            true,
+                        );
+                    } else if let Some(dozer_ai) = ai.get_dozer_ai_update_interface_mut() {
+                        dozer_ai.set_build_task(
+                            new_id,
+                            total_build_frames,
+                            build_max_health,
+                            true,
+                        );
                     }
                 }
-            }
+            });
 
-            reconstructing_arc = Some(new_building_arc);
+            reconstructing_id = Some(new_id);
         }
 
-        let Some(reconstructing_arc) = reconstructing_arc else {
+        let Some(recon_id) = reconstructing_id else {
             return;
         };
-
-        let recon_id = reconstructing_arc
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(INVALID_ID);
         self.reconstructing_id = recon_id;
 
-        if let Ok(mut guard) = reconstructing_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(recon_id, |guard| {
             guard.set_producer_id(hole_id);
-        }
+        });
 
         let _ = self.with_object_mut(|hole_guard| {
             hole_guard.mask_object(true);
@@ -458,9 +423,9 @@ impl RebuildHoleBehavior {
 
         self.transfer_attackers(self.object_id, recon_id);
 
-        if let Ok(rebuild_guard) = reconstructing_arc.read() {
-            self.transfer_bombs(&*rebuild_guard);
-        };
+        let _ = OBJECT_REGISTRY.with_object(recon_id, |rebuild_guard| {
+            self.transfer_bombs(rebuild_guard);
+        });
     }
 
     fn handle_healing(&self) {
@@ -507,10 +472,10 @@ impl RebuildHoleBehavior {
         if self.worker_id == INVALID_ID {
             return;
         }
-        if let Some(worker) = TheGameLogic::find_object_by_id(self.worker_id) {
-            if let Ok(worker_guard) = worker.read() {
-                let _ = TheGameLogic::destroy_object(&*worker_guard);
-            }
+        if TheGameLogic::find_object_by_id(self.worker_id) {
+            let _ = OBJECT_REGISTRY.with_object(self.worker_id, |worker_guard| {
+                let _ = TheGameLogic::destroy_object(worker_guard);
+            });
             self.worker_id = INVALID_ID;
         }
     }
@@ -527,24 +492,24 @@ impl UpdateModuleInterface for RebuildHoleBehavior {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        let mut worker_arc = None;
+        let mut worker_present = false;
         if self.worker_id != INVALID_ID {
-            worker_arc = TheGameLogic::find_object_by_id(self.worker_id);
-            if worker_arc.is_none() {
+            worker_present = TheGameLogic::find_object_by_id(self.worker_id);
+            if !worker_present {
                 let _ = self.new_worker_respawn_process(None);
             }
         }
 
-        let mut reconstructing_arc = None;
+        let mut reconstructing_id = None;
         if self.reconstructing_id != INVALID_ID {
-            reconstructing_arc = TheGameLogic::find_object_by_id(self.reconstructing_id);
-            if reconstructing_arc.is_none() {
-                if let Some(worker_arc_ref) = worker_arc.as_ref() {
-                    if let Ok(worker_guard) = worker_arc_ref.read() {
-                        let _ = self.new_worker_respawn_process(Some(&*worker_guard));
-                    } else {
-                        let _ = self.new_worker_respawn_process(None);
-                    }
+            if TheGameLogic::find_object_by_id(self.reconstructing_id) {
+                reconstructing_id = Some(self.reconstructing_id);
+            } else {
+                if worker_present {
+                    let worker_id = self.worker_id;
+                    let _ = OBJECT_REGISTRY.with_object(worker_id, |worker_guard| {
+                        let _ = self.new_worker_respawn_process(Some(worker_guard));
+                    });
                 } else {
                     let _ = self.new_worker_respawn_process(None);
                 }
@@ -552,20 +517,18 @@ impl UpdateModuleInterface for RebuildHoleBehavior {
             }
         }
 
-        if worker_arc.is_none() && self.worker_wait_counter > 0 {
+        if !worker_present && self.worker_wait_counter > 0 {
             self.worker_wait_counter = self.worker_wait_counter.saturating_sub(1);
             if self.worker_wait_counter == 0 {
-                self.spawn_worker_and_construct(reconstructing_arc.clone());
+                self.spawn_worker_and_construct(reconstructing_id);
             }
         }
 
         self.handle_healing();
 
-        if let Some(reconstructing_arc) = reconstructing_arc.as_ref() {
-            let done = reconstructing_arc
-                .read()
-                .ok()
-                .map(|reconstructing_guard| {
+        if let Some(recon_id) = reconstructing_id {
+            let done = OBJECT_REGISTRY
+                .with_object(recon_id, |reconstructing_guard| {
                     !reconstructing_guard
                         .get_status_bits()
                         .test(ObjectStatusTypes::UnderConstruction)
@@ -599,10 +562,10 @@ impl BehaviorModuleInterface for RebuildHoleBehavior {
         }
 
         if self.worker_id != INVALID_ID {
-            if let Some(worker) = TheGameLogic::find_object_by_id(self.worker_id) {
-                if let Ok(worker_guard) = worker.read() {
-                    let _ = TheGameLogic::destroy_object(&*worker_guard);
-                }
+            if TheGameLogic::find_object_by_id(self.worker_id) {
+                let _ = OBJECT_REGISTRY.with_object(self.worker_id, |worker_guard| {
+                    let _ = TheGameLogic::destroy_object(worker_guard);
+                });
             }
             self.worker_id = INVALID_ID;
         }
@@ -631,12 +594,11 @@ impl RebuildHoleBehaviorInterface for RebuildHoleBehavior {
         self.rebuild_template = Some(rebuild_template);
         self.spawner_object_id = spawner_id;
 
-        if let Some(worker_arc) = TheGameLogic::find_object_by_id(self.worker_id) {
-            if let Ok(worker_guard) = worker_arc.read() {
-                let _ = self.new_worker_respawn_process(Some(&*worker_guard));
-            } else {
-                let _ = self.new_worker_respawn_process(None);
-            }
+        if TheGameLogic::find_object_by_id(self.worker_id) {
+            let worker_id = self.worker_id;
+            let _ = OBJECT_REGISTRY.with_object(worker_id, |worker_guard| {
+                let _ = self.new_worker_respawn_process(Some(worker_guard));
+            });
         } else {
             let _ = self.new_worker_respawn_process(None);
         }

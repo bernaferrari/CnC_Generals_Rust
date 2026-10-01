@@ -149,15 +149,15 @@ impl TunnelContain {
         else {
             return Err("Tunnel owner has no player".into());
         };
-        let Ok(mut player_guard) = player.try_write() else {
-            return Err("Tunnel player lock busy".into());
-        };
-        player_guard.init_tunnel_tracker();
-        let Some(tunnel_system) = player_guard.get_tunnel_system_mut() else {
-            return Err("Tunnel player has no tunnel system".into());
-        };
-        tunnel_system.add_to_contain_list(obj_id)?;
-        drop(player_guard);
+        crate::player::with_player_mut(player, |player_guard| {
+            player_guard.init_tunnel_tracker();
+            let Some(tunnel_system) = player_guard.get_tunnel_system_mut() else {
+                return Err("Tunnel player has no tunnel system".into());
+            };
+            tunnel_system.add_to_contain_list(obj_id)?;
+            Ok(())
+        })
+        .ok_or_else(|| "Tunnel player lock busy")??;
         self.contained_object_ids.push(obj_id);
 
         Ok(())
@@ -235,9 +235,11 @@ impl TunnelContain {
                 let player = crate::object::registry::OBJECT_REGISTRY
                     .with_object(owner_id, |owner| owner.get_controlling_player())
                     .flatten()?;
-                let mut player = player.try_write().ok()?;
-                let tunnel = player.get_tunnel_system_mut()?;
-                tunnel.remove_from_contain(obj_id, false).ok()
+                crate::player::with_player_mut(player, |player| {
+                    let tunnel = player.get_tunnel_system_mut()?;
+                    tunnel.remove_from_contain(obj_id, false).ok()
+                })
+                .flatten()
             });
             if removed.is_none() {
                 return Err(err);
@@ -251,9 +253,11 @@ impl TunnelContain {
                     let player = crate::object::registry::OBJECT_REGISTRY
                         .with_object(owner_id, |owner| owner.get_controlling_player())
                         .flatten()?;
-                    let mut player = player.try_write().ok()?;
-                    let tunnel = player.get_tunnel_system_mut()?;
-                    tunnel.add_to_contain_list(obj_id).ok()
+                    crate::player::with_player_mut(player, |player| {
+                        let tunnel = player.get_tunnel_system_mut()?;
+                        tunnel.add_to_contain_list(obj_id).ok()
+                    })
+                    .flatten()
                 });
                 log::warn!(
                     "TunnelContain::add_to_contain kept {} listed; rider lock busy",
@@ -298,36 +302,31 @@ impl TunnelContain {
             self.on_removing(obj_id)?;
             return Ok(());
         };
-        if player.try_read().is_err() {
-            return Err("Tunnel player lock busy".into());
-        }
-        let in_container = {
-            let Ok(player_guard) = player.try_read() else {
-                return Err("Tunnel player lock busy".into());
-            };
+        let in_container = crate::player::with_player(player, |player_guard| {
             player_guard
                 .get_tunnel_system()
                 .map(|tunnel| tunnel.is_in_container(obj_id))
                 .unwrap_or(false)
-        };
+        })
+        .ok_or_else(|| "Tunnel player lock busy")?;
         if !in_container {
             self.on_removing(obj_id)?;
             return Ok(());
         }
-        let Ok(mut player_write) = player.try_write() else {
-            return Err("Tunnel player lock busy".into());
-        };
-        if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-            tunnel_system.remove_from_contain(obj_id, expose_stealth_units)?;
-        }
-        drop(player_write);
+        crate::player::with_player_mut(player, |player_write| {
+            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                tunnel_system.remove_from_contain(obj_id, expose_stealth_units)?;
+            }
+            Ok(())
+        })
+        .ok_or_else(|| "Tunnel player lock busy")??;
         self.contained_object_ids.retain(|id| *id != obj_id);
         if let Err(err) = self.on_removing(obj_id) {
-            if let Ok(mut player_write) = player.try_write() {
+            let _ = crate::player::with_player_mut(player, |player_write| {
                 if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
                     let _ = tunnel_system.add_to_contain_list(obj_id);
                 }
-            }
+            });
             if !self.contained_object_ids.contains(&obj_id) {
                 self.contained_object_ids.push(obj_id);
             }
@@ -350,23 +349,13 @@ impl TunnelContain {
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         {
-            let player_read = controlling_player
-                .read()
-                .map_err(|_| "Player lock poisoned")?;
-            drop(player_read);
-            // Iterate from beginning after each loop to handle cascade deletions
-            // (Matches C++ Patch 1.01 fix - November 6, 2003, lines 103-111)
             loop {
-                let next_id = {
-                    self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
-                        .and_then(|player| {
-                            player.read().ok().and_then(|player_read| {
-                                player_read.get_tunnel_system().and_then(|tunnel_system| {
-                                    tunnel_system.get_contained_item_ids().first().copied()
-                                })
-                            })
-                        })
-                };
+                let next_id = crate::player::with_player(controlling_player, |player_read| {
+                    player_read.get_tunnel_system().and_then(|tunnel_system| {
+                        tunnel_system.get_contained_item_ids().first().copied()
+                    })
+                })
+                .ok_or_else(|| "Player lock poisoned")?;
                 let Some(obj_id) = next_id else {
                     break;
                 };
@@ -403,15 +392,14 @@ impl TunnelContain {
                 }
             };
         if let Some(controlling_player) = controlling_player {
-            let Ok(player_read) = controlling_player.try_read() else {
-                return Err("Tunnel player lock busy".into());
-            };
-            let object_ids: Vec<_> = if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                tunnel_system.get_contained_item_ids().to_vec()
-            } else {
-                Vec::new()
-            };
-            drop(player_read);
+            let object_ids = crate::player::with_player(controlling_player, |player_read| {
+                if let Some(tunnel_system) = player_read.get_tunnel_system() {
+                    tunnel_system.get_contained_item_ids().to_vec()
+                } else {
+                    Vec::new()
+                }
+            })
+            .ok_or_else(|| "Tunnel player lock busy")?;
             for object_id in object_ids {
                 if let Err(err) = self.remove_from_contain(object_id, true) {
                     log::warn!(
@@ -473,11 +461,11 @@ impl TunnelContain {
             return Err(err);
         }
         if let Some(controlling_player) = player {
-            if let Ok(mut player_write) = controlling_player.try_write() {
+            let _ = crate::player::with_player_mut(controlling_player, |player_write| {
                 player_write
                     .get_academy_stats_mut()
                     .record_unit_entered_tunnel_network();
-            }
+            });
         }
         if crate::object::registry::OBJECT_REGISTRY
             .with_object_mut(obj_id, |obj_guard| {
@@ -578,27 +566,25 @@ impl TunnelContain {
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         {
-            let player_read = controlling_player
-                .read()
-                .map_err(|_| "Player lock poisoned")?;
-
-            // If this is the last tunnel, kick everyone out (matches C++ lines 222-225)
-            if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                if tunnel_system.get_tunnel_count() == 1 {
-                    drop(player_read);
-                    self.remove_all_contained(false)?;
-                }
+            let last_tunnel = crate::player::with_player(controlling_player, |player_read| {
+                player_read
+                    .get_tunnel_system()
+                    .map(|tunnel_system| tunnel_system.get_tunnel_count() == 1)
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "Player lock poisoned")?;
+            if last_tunnel {
+                self.remove_all_contained(false)?;
             }
-
-            // Unregister after the kick out to prevent cave-in kill (matches C++ lines 227-233)
             if self.is_currently_registered {
                 let owner_id = self.owner_object_id()?;
-                let mut player_write = controlling_player
-                    .write()
-                    .map_err(|_| "Player lock poisoned")?;
-                if let Some(tunnel_system_mut) = player_write.get_tunnel_system_mut() {
-                    tunnel_system_mut.on_tunnel_destroyed_id(owner_id)?;
-                }
+                crate::player::with_player_mut(controlling_player, |player_write| {
+                    if let Some(tunnel_system_mut) = player_write.get_tunnel_system_mut() {
+                        tunnel_system_mut.on_tunnel_destroyed_id(owner_id)?;
+                    }
+                    Ok(())
+                })
+                .ok_or_else(|| "Player lock poisoned")??;
                 self.is_currently_registered = false;
             }
         }
@@ -613,16 +599,16 @@ impl TunnelContain {
         }
 
         loop {
-            let next_id = {
-                self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
-                    .and_then(|player| {
-                        player.read().ok().and_then(|player_read| {
-                            player_read.get_tunnel_system().and_then(|tunnel_system| {
-                                tunnel_system.get_contained_item_ids().first().copied()
-                            })
+            let next_id = self
+                .with_owner_object(|owner_read| owner_read.get_controlling_player())?
+                .and_then(|player| {
+                    crate::player::with_player(player, |player_read| {
+                        player_read.get_tunnel_system().and_then(|tunnel_system| {
+                            tunnel_system.get_contained_item_ids().first().copied()
                         })
                     })
-            };
+                    .flatten()
+                });
             let Some(obj_id) = next_id else {
                 break;
             };
@@ -640,15 +626,16 @@ impl TunnelContain {
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         {
-            let mut player_write = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            player_write.init_tunnel_tracker();
-            let owner_id = self.owner_object_id()?;
-            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.on_tunnel_created_id(owner_id)?;
-                self.is_currently_registered = true;
-            }
+            crate::player::with_player_mut(controlling_player, |player_write| {
+                player_write.init_tunnel_tracker();
+                let owner_id = self.owner_object_id()?;
+                if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                    tunnel_system.on_tunnel_created_id(owner_id)?;
+                    self.is_currently_registered = true;
+                }
+                Ok(())
+            })
+            .ok_or_else(|| "Player lock poisoned")??;
         }
 
         Ok(())
@@ -685,14 +672,15 @@ impl TunnelContain {
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         };
         if let Some(controlling_player) = controlling_player {
-            let mut player_write = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            let owner_id = self.owner_object_id()?;
-            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.on_tunnel_destroyed_id(owner_id)?;
-                self.is_currently_registered = false;
-            }
+            crate::player::with_player_mut(controlling_player, |player_write| {
+                let owner_id = self.owner_object_id()?;
+                if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                    tunnel_system.on_tunnel_destroyed_id(owner_id)?;
+                    self.is_currently_registered = false;
+                }
+                Ok(())
+            })
+            .ok_or_else(|| "Player lock poisoned")??;
         }
 
         Ok(())
@@ -708,14 +696,15 @@ impl TunnelContain {
         if let Some(controlling_player) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())?
         {
-            let mut player_write = controlling_player
-                .write()
-                .map_err(|_| "Player lock poisoned")?;
-            let owner_id = self.owner_object_id()?;
-            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                tunnel_system.on_tunnel_destroyed_id(owner_id)?;
-                self.is_currently_registered = false;
-            }
+            crate::player::with_player_mut(controlling_player, |player_write| {
+                let owner_id = self.owner_object_id()?;
+                if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                    tunnel_system.on_tunnel_destroyed_id(owner_id)?;
+                    self.is_currently_registered = false;
+                }
+                Ok(())
+            })
+            .ok_or_else(|| "Player lock poisoned")??;
         }
 
         Ok(())
@@ -775,11 +764,7 @@ impl TunnelContain {
                 }
             };
         if let Some(controlling_player) = controlling_player {
-            {
-                let Ok(mut player_write) = controlling_player.try_write() else {
-                    log::warn!("TunnelContain::update player lock busy");
-                    return Ok(UpdateSleepTime::None);
-                };
+            let healed = crate::player::with_player_mut(controlling_player, |player_write| {
                 if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
                     if let Err(err) =
                         tunnel_system.heal_objects(self.module_data.frames_for_full_heal)
@@ -787,6 +772,10 @@ impl TunnelContain {
                         log::warn!("TunnelContain::update heal failed: {}", err);
                     }
                 }
+            });
+            if healed.is_none() {
+                log::warn!("TunnelContain::update player lock busy");
+                return Ok(UpdateSleepTime::None);
             }
 
             let nemesis_id =
@@ -835,15 +824,16 @@ impl TunnelContain {
                 let updated = crate::object::registry::OBJECT_REGISTRY.with_object(
                     nemesis_id,
                     |attacker_guard| {
-                        let Ok(mut player_write) = controlling_player.try_write() else {
+                        let Some(()) = crate::player::with_player_mut(controlling_player, |player_write| {
+                            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                                if let Err(err) = tunnel_system.update_nemesis(Some(attacker_guard)) {
+                                    log::warn!("TunnelContain::update nemesis failed: {}", err);
+                                }
+                            }
+                        }) else {
                             log::warn!("TunnelContain::update nemesis player lock busy");
                             return false;
                         };
-                        if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
-                            if let Err(err) = tunnel_system.update_nemesis(Some(attacker_guard)) {
-                                log::warn!("TunnelContain::update nemesis failed: {}", err);
-                            }
-                        }
                         true
                     },
                 );
@@ -905,11 +895,12 @@ impl TunnelContain {
             .ok()
             .flatten()
             .and_then(|player| {
-                player.read().ok().and_then(|player_read| {
+                crate::player::with_player(player, |player_read| {
                     player_read
                         .get_tunnel_system()
                         .map(|tunnel| tunnel.get_contained_item_ids().to_vec())
                 })
+                .flatten()
             })
             .unwrap_or_default()
     }
@@ -1102,15 +1093,15 @@ impl ContainModuleInterface for TunnelContain {
         else {
             return false;
         };
-        let Ok(player_read) = player.try_read() else {
-            return false;
-        };
-        let Some(tunnel_system) = player_read.get_tunnel_system() else {
-            return false;
-        };
-        tunnel_system
-            .is_valid_container_for(obj, check_capacity)
-            .unwrap_or(false)
+        return crate::player::with_player(player, |player_read| {
+            let Some(tunnel_system) = player_read.get_tunnel_system() else {
+                return false;
+            };
+            tunnel_system
+                .is_valid_container_for(obj, check_capacity)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
     }
 
     fn add_to_contain(
@@ -1195,12 +1186,12 @@ impl ContainerInterface for TunnelContain {
         if let Ok(Some(controlling_player)) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())
         {
-            if let Ok(player_read) = controlling_player.read() {
-                if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                    return tunnel_system
-                        .is_valid_container_for(obj, true)
-                        .unwrap_or(false);
-                }
+            if let Some(valid) = crate::player::with_player(controlling_player, |player_read| {
+                player_read.get_tunnel_system().and_then(|tunnel_system| {
+                    tunnel_system.is_valid_container_for(obj, true).ok()
+                })
+            }) {
+                return valid.unwrap_or(false);
             }
         }
         false
@@ -1218,13 +1209,15 @@ impl ContainerInterface for TunnelContain {
         if let Ok(Some(controlling_player)) =
             self.with_owner_object(|owner_read| owner_read.get_controlling_player())
         {
-            if let Ok(player_read) = controlling_player.read() {
-                if let Some(tunnel_system) = player_read.get_tunnel_system() {
+            if let Some(usage) = crate::player::with_player(controlling_player, |player_read| {
+                player_read.get_tunnel_system().map(|tunnel_system| {
                     let current = tunnel_system.get_contain_count().unwrap_or(0);
                     let max = tunnel_system.get_contain_max().unwrap_or(-1);
                     let max_u32 = if max < 0 { u32::MAX } else { max as u32 };
-                    return (current, max_u32);
-                }
+                    (current, max_u32)
+                })
+            }) {
+                return usage.unwrap_or((0, 0));
             }
         }
         (0, 0)
@@ -1246,7 +1239,6 @@ mod tests {
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
-    use crate::team::Team;
 
     fn reset_players() {
         let mut list = ThePlayerList().write().expect("player list write");
@@ -1261,21 +1253,23 @@ mod tests {
     }
 
     fn owned_object(name: &str, id: ObjectID, player_index: u32) -> ObjectID {
-        let team = Arc::new(RwLock::new(Team::new(
-            format!("{name}Team").into(),
-            id + 10_000,
-        )));
-        team.write()
-            .expect("team write")
-            .set_controlling_player_id(Some(player_index));
+        let team_id = id + 10_000;
+        let proto = crate::team::TeamPrototype::new(format!("{name}Team").into());
+        crate::team::get_team_factory()
+            .lock()
+            .expect("team factory")
+            .create_team_on_prototype_with_id(&proto, team_id);
+        crate::team::with_team_mut(team_id, |team| {
+            team.set_controlling_player_id(Some(player_index));
+        })
+        .expect("team write");
         let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
-        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team_id))
             .expect("owned test object")
     }
 
     fn tunnel_for(owner: &ObjectID) -> TunnelContain {
-        TunnelContain::new(Arc::downgrade(owner), &TunnelContainModuleData::default())
-            .expect("tunnel contain")
+        TunnelContain::new(*owner, &TunnelContainModuleData::default()).expect("tunnel contain")
     }
 
     #[test]
@@ -1291,16 +1285,17 @@ mod tests {
             "TunnelContain is bunker-buster bustable in C++"
         );
         assert_eq!(
-            OBJECT_REGISTRY
-                .with_object(owner, |owner| owner.get_controlling_player())
-                .flatten()
-                .expect("owner read")
-                .expect("player")
-                .read()
+            {
+                let player = OBJECT_REGISTRY
+                    .with_object(owner, |owner| owner.get_controlling_player())
+                    .flatten()
+                    .expect("owner read")
+                    .expect("player");
+                crate::player::with_player(player, |player| {
+                    player.get_tunnel_system().expect("tracker").get_tunnel_count()
+                })
                 .expect("player read")
-                .get_tunnel_system()
-                .expect("tracker")
-                .get_tunnel_count(),
+            },
             1
         );
 
@@ -1430,16 +1425,17 @@ mod tests {
         let damage = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Exploded);
         ContainModuleInterface::on_die(&mut tunnel, Some(&damage)).expect("die");
         assert_eq!(
-            OBJECT_REGISTRY
-                .with_object(owner, |owner| owner.get_controlling_player())
-                .flatten()
-                .expect("owner read")
-                .expect("player")
-                .read()
+            {
+                let player = OBJECT_REGISTRY
+                    .with_object(owner, |owner| owner.get_controlling_player())
+                    .flatten()
+                    .expect("owner read")
+                    .expect("player");
+                crate::player::with_player(player, |player| {
+                    player.get_tunnel_system().expect("tracker").get_tunnel_count()
+                })
                 .expect("player read")
-                .get_tunnel_system()
-                .expect("tracker")
-                .get_tunnel_count(),
+            },
             0
         );
 
@@ -1457,16 +1453,17 @@ mod tests {
 
         ContainModuleInterface::on_delete(&mut tunnel).expect("delete");
         assert_eq!(
-            OBJECT_REGISTRY
-                .with_object(owner, |owner| owner.get_controlling_player())
-                .flatten()
-                .expect("owner read")
-                .expect("player")
-                .read()
+            {
+                let player = OBJECT_REGISTRY
+                    .with_object(owner, |owner| owner.get_controlling_player())
+                    .flatten()
+                    .expect("owner read")
+                    .expect("player");
+                crate::player::with_player(player, |player| {
+                    player.get_tunnel_system().expect("tracker").get_tunnel_count()
+                })
                 .expect("player read")
-                .get_tunnel_system()
-                .expect("tracker")
-                .get_tunnel_count(),
+            },
             0
         );
 

@@ -1095,16 +1095,12 @@ impl UpdateModuleInterface for SlavedUpdate {
             return UpdateSleepTime::None;
         }
 
-        let Some(me_arc) = self.object_arc() else {
+        let Some(me_id) = self.object_arc() else {
             return UpdateSleepTime::None;
         };
-        let my_ai = {
-            let Ok(me) = me_arc.read() else {
-                return UpdateSleepTime::None;
-            };
-            me.get_ai_update_interface()
-        };
-        let Some(my_ai) = my_ai else {
+        let reg = &crate::object::registry::OBJECT_REGISTRY;
+        let my_ai = reg.with_object(me_id, |me| me.get_ai_update_interface());
+        let Some(Some(my_ai)) = my_ai else {
             return UpdateSleepTime::None;
         };
         let mut has_loco = false;
@@ -1112,110 +1108,96 @@ impl UpdateModuleInterface for SlavedUpdate {
         if !has_loco {
             return UpdateSleepTime::None;
         }
-        let Some(master_arc) = self.master_arc() else {
+        let Some(master_id) = self.master_arc() else {
             self.stop_slaved_effects();
-            if let Ok(mut me_write) = me_arc.write() {
-                me_write.set_disabled(DisabledType::Unmanned);
-            }
-            if let Some(ai) = me_arc
-                .read()
-                .ok()
-                .and_then(|me| me.get_ai_update_interface())
-            {
+            reg.with_object_mut(me_id, |me| {
+                me.set_disabled(DisabledType::Unmanned);
+            });
+            if let Some(Some(ai)) = reg.with_object(me_id, |me| me.get_ai_update_interface()) {
                 ai.ai_idle(CommandSourceType::FromAi);
             }
             return UpdateSleepTime::None;
         };
 
-        let (
-            target_id,
-            health_percentage,
-            master_position,
-            my_ai_idle,
-            master_layer,
-            master_team,
-            my_team,
-        ) = {
-            let Ok(me) = me_arc.read() else {
-                return UpdateSleepTime::None;
-            };
-            let Ok(master) = master_arc.read() else {
-                return UpdateSleepTime::None;
-            };
-
-            if master.is_effectively_dead() || master.is_disabled_by_type(DisabledType::Unmanned) {
-                drop(master);
-                drop(me);
-                self.stop_slaved_effects();
-                if let Ok(mut me_write) = me_arc.write() {
-                    me_write.set_disabled(DisabledType::Unmanned);
-                }
-                if let Some(ai) = me_arc
-                    .read()
-                    .ok()
-                    .and_then(|me| me.get_ai_update_interface())
-                {
-                    ai.ai_idle(CommandSourceType::FromAi);
-                }
-                return UpdateSleepTime::None;
+        let dead_or_unmanned = reg
+            .with_object(master_id, |master| {
+                master.is_effectively_dead() || master.is_disabled_by_type(DisabledType::Unmanned)
+            })
+            .unwrap_or(true);
+        if dead_or_unmanned {
+            self.stop_slaved_effects();
+            reg.with_object_mut(me_id, |me| {
+                me.set_disabled(DisabledType::Unmanned);
+            });
+            if let Some(Some(ai)) = reg.with_object(me_id, |me| me.get_ai_update_interface()) {
+                ai.ai_idle(CommandSourceType::FromAi);
             }
+            return UpdateSleepTime::None;
+        }
 
-            let target_id = master
-                .get_ai_update_interface()
-                .and_then(|ai| ai.get_current_victim());
+        let Some((target_id, health_percentage, master_position, master_layer, master_team)) =
+            reg.with_object(master_id, |master| {
+                let target_id = master
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.get_current_victim());
 
-            let mut health_percentage = 100;
-            if self.module_data.repair_rate_per_second > 0.0 {
-                if let Some(body) = master.get_body_module() {
-                    let health = body.get_health();
-                    let max_health = body.get_max_health();
-                    health_percentage = ((health / max_health) * 100.0) as Int;
+                let mut health_percentage = 100;
+                if self.module_data.repair_rate_per_second > 0.0 {
+                    if let Some(body) = master.get_body_module() {
+                        let health = body.get_health();
+                        let max_health = body.get_max_health();
+                        health_percentage = ((health / max_health) * 100.0) as Int;
+                    }
                 }
-            }
-
-            let my_ai_idle = me
-                .get_ai_update_interface()
-                .map(|ai| ai.is_idle())
-                .unwrap_or(false);
-
-            (
-                target_id,
-                health_percentage,
-                *master.get_position(),
-                my_ai_idle,
-                master.get_layer(),
-                master.get_team(),
-                me.get_team(),
-            )
+                (
+                    target_id,
+                    health_percentage,
+                    *master.get_position(),
+                    master.get_layer(),
+                    master.get_team(),
+                )
+            })
+        else {
+            return UpdateSleepTime::None;
         };
 
-        let should_defect = if let (Some(master_team), Some(my_team)) = (&master_team, &my_team) {
-            match (master_team.read(), my_team.read()) {
-                (Ok(master_team_ref), Ok(my_team_ref)) => {
-                    master_team_ref.get_relationship(&*my_team_ref) != Relationship::Allies
-                }
-                _ => false,
-            }
+        let my_ai_idle = reg
+            .with_object(me_id, |me| {
+                me.get_ai_update_interface()
+                    .map(|ai| ai.is_idle())
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+        let my_team = reg.with_object(me_id, |me| me.get_team()).flatten();
+
+        let should_defect = if let (Some(master_team), Some(my_team)) = (master_team, my_team) {
+            crate::team::with_team(master_team, |master_team_ref| {
+                crate::team::with_team(my_team, |my_team_ref| {
+                    master_team_ref.get_relationship(my_team_ref) != Relationship::Allies
+                })
+                .unwrap_or(false)
+            })
+            .unwrap_or(false)
         } else {
             false
         };
         if should_defect {
-            if let Some(master_team) = master_team.clone() {
-                if let Ok(mut me_write) = me_arc.write() {
-                    me_write.defect(Some(master_team), 0);
-                }
+            if let Some(master_team) = master_team {
+                reg.with_object_mut(me_id, |me| {
+                    me.defect(Some(master_team), 0);
+                });
             }
         }
 
         if self.module_data.stay_on_same_layer_as_master {
-            if let Ok(mut me_write) = me_arc.write() {
-                me_write.set_layer(master_layer);
-            }
+            reg.with_object_mut(me_id, |me| {
+                me.set_layer(master_layer);
+            });
         }
 
-        if let Ok(mut master_write) = master_arc.write() {
-            master_write.clear_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
-        }
+        reg.with_object_mut(master_id, |master| {
+            master.clear_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
+        });
 
         if health_percentage <= self.module_data.repair_when_health_below_percentage {
             self.do_repair_logic();
@@ -1231,15 +1213,14 @@ impl UpdateModuleInterface for SlavedUpdate {
         }
 
         if self.module_data.scout_range > 0 {
-            let master_ai = master_arc
-                .read()
-                .ok()
-                .and_then(|master| master.get_ai_update_interface());
-            let master_dest = master_ai.and_then(|master_ai| master_ai.get_path_last_node());
+            let master_dest = reg
+                .with_object(master_id, |master| master.get_ai_update_interface())
+                .flatten()
+                .and_then(|master_ai| master_ai.get_path_last_node());
             if let Some(master_dest) = master_dest {
-                let dist_sqr = master_arc.read().ok().map(|master| {
+                let dist_sqr = reg.with_object(master_id, |master| {
                     ThePartitionManager::get_distance_squared_to_pos(
-                        &*master,
+                        master,
                         &master_dest,
                         FROM_BOUNDING_SPHERE_2D,
                     )
@@ -1268,9 +1249,9 @@ impl UpdateModuleInterface for SlavedUpdate {
 
         if self.module_data.guard_max_range > 0 {
             let pin_dist = if my_ai_idle {
-                me_arc.read().ok().map(|me| {
+                reg.with_object(me_id, |me| {
                     ThePartitionManager::get_distance_squared_to_pos(
-                        &*me,
+                        me,
                         &pinned_position,
                         FROM_CENTER_3D,
                     )
@@ -1281,14 +1262,12 @@ impl UpdateModuleInterface for SlavedUpdate {
             let stray_dist = if pin_dist.is_some_and(|dist| dist > CLOSE_ENOUGH_SQR) {
                 None
             } else {
-                match (me_arc.read(), master_arc.read()) {
-                    (Ok(me), Ok(master)) => Some(ThePartitionManager::get_distance_squared(
-                        &*me,
-                        &*master,
-                        FROM_CENTER_3D,
-                    )),
-                    _ => None,
-                }
+                reg.with_object(me_id, |me| {
+                    reg.with_object(master_id, |master| {
+                        ThePartitionManager::get_distance_squared(me, master, FROM_CENTER_3D)
+                    })
+                })
+                .flatten()
             };
             if pin_dist.is_some_and(|dist| dist > CLOSE_ENOUGH_SQR) {
                 self.end_repair();

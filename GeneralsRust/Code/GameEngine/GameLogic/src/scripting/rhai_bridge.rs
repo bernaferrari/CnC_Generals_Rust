@@ -234,87 +234,37 @@ impl RhaiScriptExecutor {
 
         engine.register_fn("player_money", |player: i64| -> i64 {
             log::debug!("Rhai: player_money({})", player);
-            // Query player money through player system
-            let player_list_lock = player_list();
-            if let Ok(list) = player_list_lock.read() {
-                if let Some(player_arc) = list.get_player(player as i32) {
-                    if let Ok(player_guard) = player_arc.read() {
-                        return player_guard.get_money().get_money() as i64;
-                    }
-                }
-            }
-            0
+            crate::player::with_player(player as i32, |p| p.get_money().get_money() as i64).unwrap_or(0)
         });
         engine.register_fn("get_player_money", |player: i64| -> i64 {
             log::debug!("Rhai: get_player_money({})", player);
-            let player_list_lock = player_list();
-            if let Ok(list) = player_list_lock.read() {
-                if let Some(player_arc) = list.get_player(player as i32) {
-                    if let Ok(player_guard) = player_arc.read() {
-                        return player_guard.get_money().get_money() as i64;
-                    }
-                }
-            }
-            0
+            crate::player::with_player(player as i32, |p| p.get_money().get_money() as i64).unwrap_or(0)
         });
 
         engine.register_fn("player_alive", |player: i64| -> bool {
             log::debug!("Rhai: player_alive({})", player);
-            // Check if player is alive
-            let player_list_lock = player_list();
-            if let Ok(list) = player_list_lock.read() {
-                if let Some(player_arc) = list.get_player(player as i32) {
-                    if let Ok(player_guard) = player_arc.read() {
-                        return !player_guard.is_defeated();
-                    }
-                }
-            }
-            false
+            crate::player::with_player(player as i32, |p| !p.is_defeated()).unwrap_or(false)
         });
 
         engine.register_fn("player_defeated", |player: i64| -> bool {
             log::debug!("Rhai: player_defeated({})", player);
-            // Check if player is defeated
-            let player_list_lock = player_list();
-            if let Ok(list) = player_list_lock.read() {
-                if let Some(player_arc) = list.get_player(player as i32) {
-                    if let Ok(player_guard) = player_arc.read() {
-                        return player_guard.is_defeated();
-                    }
-                }
-            }
-            true
+            crate::player::with_player(player as i32, |p| p.is_defeated()).unwrap_or(true)
         });
 
         engine.register_fn(
             "player_has_building",
             |player: i64, building_type: &str| -> bool {
                 log::debug!("Rhai: player_has_building({}, {})", player, building_type);
-                // Check if player has specific building type
                 use crate::common::KindOf;
-                let obj_manager = get_object_manager();
-                if let Ok(manager) = obj_manager.read() {
-                    let owned_objects = manager.get_objects_owned_by_player(player as u32);
-                    for obj_id in owned_objects {
-                        if let Some(obj_arc) = manager.get_object(obj_id) {
-                            let (template_name, base_arc) = match obj_arc.read() {
-                                Ok(obj) => (
-                                    obj.template.as_ref().map(|t| t.get_name().to_string()),
-                                    Some(obj.base()),
-                                ),
-                                Err(_) => (None, None),
-                            };
-                            if let (Some(template_name), Some(base_arc)) = (template_name, base_arc)
-                            {
-                                if let Ok(base) = base_arc.read() {
-                                    if template_name.eq_ignore_ascii_case(building_type) {
-                                        if base.is_kind_of(KindOf::Structure) {
-                                            return true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                let Some(owned) = crate::player::with_player(player as i32, |p| p.get_object_ids().to_vec()) else {
+                    return false;
+                };
+                for obj_id in owned {
+                    if OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                        obj.template.as_ref().is_some_and(|t| t.get_name().eq_ignore_ascii_case(building_type))
+                            && obj.is_kind_of(KindOf::Structure)
+                    }) == Some(true) {
+                        return true;
                     }
                 }
                 false
@@ -323,21 +273,15 @@ impl RhaiScriptExecutor {
 
         engine.register_fn("player_unit_count", |player: i64, unit_type: &str| -> i64 {
             log::debug!("Rhai: player_unit_count({}, {})", player, unit_type);
-            // Count units of specific type owned by player
-            let obj_manager = get_object_manager();
+            let Some(owned) = crate::player::with_player(player as i32, |p| p.get_object_ids().to_vec()) else {
+                return 0;
+            };
             let mut count = 0i64;
-            if let Ok(manager) = obj_manager.read() {
-                let owned_objects = manager.get_objects_owned_by_player(player as u32);
-                for obj_id in owned_objects {
-                    if let Some(obj_arc) = manager.get_object(obj_id) {
-                        if let Ok(obj) = obj_arc.read() {
-                            if let Some(template) = &obj.template {
-                                if template.get_name().eq_ignore_ascii_case(unit_type) {
-                                    count += 1;
-                                }
-                            }
-                        }
-                    }
+            for obj_id in owned {
+                if OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                    obj.template.as_ref().is_some_and(|t| t.get_name().eq_ignore_ascii_case(unit_type))
+                }) == Some(true) {
+                    count += 1;
                 }
             }
             count
@@ -353,57 +297,24 @@ impl RhaiScriptExecutor {
                 return false;
             }
 
-            let player_list_lock = player_list();
-            let player_arc = player_list_lock
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(player as i32).cloned());
-            let Some(player_arc) = player_arc else {
-                return false;
-            };
-
-            player_arc
-                .read()
-                .ok()
-                .map(|p| p.has_science(science))
-                .unwrap_or(false)
+            crate::player::with_player(player as i32, |p| p.has_science(science)).unwrap_or(false)
         });
 
         engine.register_fn("player_power", |player: i64| -> i64 {
             log::debug!("Rhai: player_power({})", player);
-            let player_list_lock = player_list();
-            let player_arc = player_list_lock
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(player as i32).cloned());
-            let Some(player_arc) = player_arc else {
-                return 0;
-            };
-            let Ok(player_guard) = player_arc.read() else {
-                return 0;
-            };
-
-            let energy = player_guard.get_energy();
-            let available = energy.production() - energy.consumption();
-            available as i64
+            crate::player::with_player(player as i32, |p| {
+                let energy = p.get_energy();
+                (energy.production() - energy.consumption()) as i64
+            })
+            .unwrap_or(0)
         });
         engine.register_fn("get_player_power", |player: i64| -> i64 {
             log::debug!("Rhai: get_player_power({})", player);
-            let player_list_lock = player_list();
-            let player_arc = player_list_lock
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(player as i32).cloned());
-            let Some(player_arc) = player_arc else {
-                return 0;
-            };
-            let Ok(player_guard) = player_arc.read() else {
-                return 0;
-            };
-
-            let energy = player_guard.get_energy();
-            let available = energy.production() - energy.consumption();
-            available as i64
+            crate::player::with_player(player as i32, |p| {
+                let energy = p.get_energy();
+                (energy.production() - energy.consumption()) as i64
+            })
+            .unwrap_or(0)
         });
 
         // ============================================================================
@@ -423,85 +334,45 @@ impl RhaiScriptExecutor {
 
         engine.register_fn("team_destroyed", |team_name: &str| -> bool {
             log::debug!("Rhai: team_destroyed({})", team_name);
-            // Check if all team members are destroyed
-            let team_factory = get_team_factory();
-            if let Ok(mut factory) = team_factory.lock() {
-                if let Some(team_arc) = factory.find_team(team_name) {
-                    if let Ok(team) = team_arc.read() {
-                        if team.get_member_count() == 0 {
-                            return true;
-                        }
-                        let members = team.get_members().to_vec();
-                        drop(team);
-
-                        if let Ok(manager) = get_object_manager().read() {
-                            for &member_id in &members {
-                                if let Some(obj_arc) = manager.get_object(member_id) {
-                                    if let Ok(obj) = obj_arc.read() {
-                                        if !obj.is_destroyed() {
-                                            return false;
-                                        }
-                                    }
-                                }
-                            }
-                            return true;
-                        }
-                    }
+            let Some(team_id) = get_team_factory().lock().ok().and_then(|mut factory| factory.find_team(team_name)) else {
+                return false;
+            };
+            let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
+                return false;
+            };
+            if members.is_empty() {
+                return true;
+            }
+            for member_id in members {
+                if OBJECT_REGISTRY.with_object(member_id, |obj| !obj.is_destroyed()).unwrap_or(false) {
+                    return false;
                 }
             }
-            false
+            true
         });
 
         engine.register_fn("team_unit_count", |team_name: &str| -> i64 {
             log::debug!("Rhai: team_unit_count({})", team_name);
-            // Count living members of team
-            let team_factory = get_team_factory();
-            if let Ok(mut factory) = team_factory.lock() {
-                if let Some(team_arc) = factory.find_team(team_name) {
-                    if let Ok(team) = team_arc.read() {
-                        let members = team.get_members().to_vec();
-                        drop(team);
-
-                        let mut count = 0i64;
-                        if let Ok(manager) = get_object_manager().read() {
-                            for &member_id in &members {
-                                if let Some(obj_arc) = manager.get_object(member_id) {
-                                    if let Ok(obj) = obj_arc.read() {
-                                        if !obj.is_destroyed() {
-                                            count += 1;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        return count;
-                    }
-                }
-            }
-            0
+            let Some(team_id) = get_team_factory().lock().ok().and_then(|mut factory| factory.find_team(team_name)) else {
+                return 0;
+            };
+            let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
+                return 0;
+            };
+            members.into_iter().filter(|id| OBJECT_REGISTRY.with_object(*id, |obj| !obj.is_destroyed()).unwrap_or(false)).count() as i64
         });
 
         engine.register_fn("team_in_area", |team_name: &str, area_name: &str| -> bool {
             log::debug!("Rhai: team_in_area({}, {})", team_name, area_name);
-            let team_factory = get_team_factory();
-            let Ok(mut factory) = team_factory.lock() else {
+            let Some(team_id) = get_team_factory().lock().ok().and_then(|mut factory| factory.find_team(team_name)) else {
                 return false;
             };
-            let Some(team_arc) = factory.find_team(team_name) else {
+            let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
                 return false;
             };
-            let Ok(team) = team_arc.read() else {
-                return false;
-            };
-            let members = team.get_members().to_vec();
-            drop(team);
-
             let area_tracker = get_area_tracker();
             for member_id in members {
-                if area_tracker
-                    .is_object_in_area(member_id as u32, area_name)
-                    .unwrap_or(false)
-                {
+                if area_tracker.is_object_in_area(member_id as u32, area_name).unwrap_or(false) {
                     return true;
                 }
             }
@@ -510,75 +381,29 @@ impl RhaiScriptExecutor {
 
         engine.register_fn("team_members", |team_name: &str| -> i64 {
             log::debug!("Rhai: team_members({})", team_name);
-            let team_factory = get_team_factory();
-            if let Ok(mut factory) = team_factory.lock() {
-                if let Some(team_arc) = factory.find_team(team_name) {
-                    if let Ok(team) = team_arc.read() {
-                        return team.get_member_count() as i64;
-                    }
-                }
-            }
-            0
+            let Some(team_id) = get_team_factory().lock().ok().and_then(|mut factory| factory.find_team(team_name)) else {
+                return 0;
+            };
+            crate::team::with_team(team_id, |team| team.get_member_count() as i64).unwrap_or(0)
         });
 
         engine.register_fn("team_average_health", |team_name: &str| -> f64 {
             log::debug!("Rhai: team_average_health({})", team_name);
-            let team_factory = get_team_factory();
-            let Ok(mut factory) = team_factory.lock() else {
+            let Some(team_id) = get_team_factory().lock().ok().and_then(|mut factory| factory.find_team(team_name)) else {
                 return 100.0;
             };
-            let Some(team_arc) = factory.find_team(team_name) else {
+            let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
                 return 100.0;
             };
-            let Ok(team) = team_arc.read() else {
-                return 100.0;
-            };
-            let members = team.get_members().to_vec();
-            drop(team);
-
-            let obj_manager = get_object_manager();
-            let Ok(manager) = obj_manager.read() else {
-                return 100.0;
-            };
-
             let mut total = 0.0f64;
             let mut count = 0u32;
             for member_id in members {
-                if let Some(obj_arc) = manager.get_object(member_id) {
-                    if let Ok(obj) = obj_arc.read() {
-                        total += (obj.get_health_percentage() as f64) * 100.0;
-                        count += 1;
-                    }
+                if let Some(pct) = OBJECT_REGISTRY.with_object(member_id, |obj| obj.get_health_percentage() as f64) {
+                    total += pct * 100.0;
+                    count += 1;
                 }
             }
-            if count == 0 {
-                100.0
-            } else {
-                (total / count as f64).clamp(0.0, 100.0)
-            }
-        });
-
-        // ============================================================================
-        // Game State Queries
-        // Matches C++ GameLogic interface
-        // ============================================================================
-
-        engine.register_fn("game_time", || -> f64 {
-            log::debug!("Rhai: game_time()");
-            // Get actual game time in seconds
-            if let Ok(game_logic) = get_game_logic().lock() {
-                return game_logic.get_frame() as f64 / LOGICFRAMES_PER_SECOND as f64;
-            }
-            0.0
-        });
-
-        engine.register_fn("game_frame", || -> i64 {
-            log::debug!("Rhai: game_frame()");
-            // Get current game frame number
-            if let Ok(game_logic) = get_game_logic().lock() {
-                return game_logic.get_frame() as i64;
-            }
-            0
+            if count == 0 { 100.0 } else { (total / count as f64).clamp(0.0, 100.0) }
         });
 
         engine.register_fn("is_game_paused", || -> bool {
@@ -590,12 +415,7 @@ impl RhaiScriptExecutor {
         engine.register_fn("get_difficulty", || -> i64 {
             log::debug!("Rhai: get_difficulty()");
             // Resolve from player 0 if available, else default to Normal.
-            let player_arc = player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(0).cloned());
-            let difficulty = player_arc
-                .and_then(|p| p.read().ok().map(|p| p.get_player_difficulty()))
+            let difficulty = crate::player::with_player(0, |p| p.get_player_difficulty())
                 .unwrap_or(crate::player::GameDifficulty::Normal);
             match difficulty {
                 crate::player::GameDifficulty::Easy => 0,

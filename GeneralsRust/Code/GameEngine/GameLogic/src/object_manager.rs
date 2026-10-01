@@ -1370,7 +1370,7 @@ impl ObjectManager {
 
         self.for_each_object_instance(|obj_id, obj_guard| {
             if let Some(team) = obj_guard.get_team() {
-                if crate::team::factory_access::with_team(team, |team_guard| {
+                if crate::team::with_team(team, |team_guard| {
                     team_guard.get_controlling_player_id() == Some(player_id)
                 })
                 .unwrap_or(false)
@@ -1398,7 +1398,7 @@ impl ObjectManager {
     pub fn object_is_owned_by(&self, object_id: ObjectID, player_id: UnsignedInt) -> bool {
         self.with_object(object_id, |obj_guard| {
             if let Some(team) = obj_guard.get_team() {
-                return crate::team::factory_access::with_team(team, |team_guard| {
+                return crate::team::with_team(team, |team_guard| {
                     team_guard.get_controlling_player_id() == Some(player_id)
                 })
                 .unwrap_or(false);

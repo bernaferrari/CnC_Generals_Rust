@@ -1985,9 +1985,9 @@ impl AiStateMachine {
         }
 
         if let Some(team) = owner.get_team() {
-            if let Ok(mut team_guard) = team.write() {
+            crate::team::with_team_mut(team, |team_guard| {
                 team_guard.set_active();
-            }
+            });
         }
     }
 
@@ -2340,9 +2340,9 @@ impl AiStateMachine {
         let handle = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
             let mut squad_obj = Squad::new();
             if let Some(team) = obj_guard.get_team().as_ref() {
-                if let Ok(team_guard) = team.read() {
+                crate::team::with_team(team, |team_guard| {
                     squad_obj.squad_from_team(&team_guard, true);
-                }
+                });
             }
             squad_obj
         });
@@ -2673,9 +2673,9 @@ impl AiCommandInterface for AiStateMachine {
                 let mut squad = Squad::new();
                 if let Ok(mut factory_guard) = get_team_factory().lock() {
                     if let Some(team) = factory_guard.find_team(team_name) {
-                        if let Ok(team_guard) = team.read() {
+                        crate::team::with_team(team, |team_guard| {
                             squad.squad_from_team(&team_guard, true);
-                        }
+                        });
                     }
                 }
                 self.current_state.goal_squad_handle = Some(squad);

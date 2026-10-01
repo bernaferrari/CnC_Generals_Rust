@@ -379,11 +379,11 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
 
-                for team_arc in team_instances {
-                    let Ok(team_guard) = team_arc.read() else {
+                for team_id in team_instances {
+                    let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
                         continue;
                     };
-                    for &member_id in team_guard.get_members() {
+                    for member_id in members {
                         {
                             enum _ObjFlow<T> { Cont, Ret(T), Fall }
                             let _flow = OBJECT_REGISTRY.with_object(member_id, |member_guard| {
@@ -436,26 +436,20 @@ impl ScriptEvaluator {
                 let Ok(list) = player_list().read() else {
                     return Ok(false);
                 };
-                let Some(local_player_arc) = list.get_local_player() else {
+                let Some(local_player) = list.get_local_player() else {
                     return Ok(false);
                 };
-                let Ok(local_player) = local_player_arc.read() else {
-                    return Ok(false);
-                };
-
+                let local_index = local_player.get_player_index();
                 if !local_player.is_player_dead() {
                     return Ok(false);
                 }
 
                 let mut has_alive_ally = false;
-                for player_arc in list.iter() {
-                    if Arc::ptr_eq(player_arc, &local_player_arc) {
+                for player in list.iter() {
+                    if player.get_player_index() == local_index {
                         continue;
                     }
-                    let Ok(player) = player_arc.read() else {
-                        continue;
-                    };
-                    if local_player.is_allied_with_player(&player) && !player.is_defeated() {
+                    if local_player.is_allied_with_player(player) && !player.is_defeated() {
                         has_alive_ally = true;
                         break;
                     }
@@ -496,9 +490,9 @@ impl ScriptEvaluator {
                     let player_name = self
                         .resolve_player_from_param(player_param)
                         .and_then(|p| {
-                            p.read().ok().and_then(|g| {
+                            crate::player::with_player(p, |g| {
                                 NameKeyGenerator::key_to_name(g.get_player_name_key())
-                            })
+                            }).flatten()
                         })
                         .filter(|n| !n.is_empty())
                         .unwrap_or_else(|| player_param.get_string().to_string());
@@ -662,14 +656,14 @@ impl ScriptEvaluator {
                     let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                         return Ok(false);
                     };
-                    let Ok(player_guard) = player_arc.read() else {
+                    let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                         return Ok(false);
-                    };
+                        };
 
                     let mut count = 0;
-                    for obj_id in player_guard.get_object_ids() {
+                    for obj_id in player_guard_ids {
                         let matches = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
-                            __omp_shell("obj_guard.is_effectively_dead()")
+                            !obj_guard.is_effectively_dead()
                                 && !obj_guard.is_destroyed()
                                 && types.contains_template(Some(obj_guard.get_template()))
                         });
@@ -759,18 +753,18 @@ impl ScriptEvaluator {
 
                 // C++ evaluatePlayerDestroyedNOrMoreBuildings resolves both players, ignores N,
                 // then returns FALSE because the condition body is still a TODO.
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(_player_guard) = player_arc.read() else {
+                if crate::player::with_player(player_index, |_| ()).is_none() {
+                    return Ok(false);
+                }
+                let Some(opponent_index) = self.resolve_player_from_param(opponent_param) else {
                     return Ok(false);
                 };
-                let Some(opponent_arc) = self.resolve_player_from_param(opponent_param) else {
+                if crate::player::with_player(opponent_index, |_| ()).is_none() {
                     return Ok(false);
-                };
-                let Ok(_opponent_guard) = opponent_arc.read() else {
-                    return Ok(false);
-                };
+                }
                 Ok(false)
             }
 
@@ -820,11 +814,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 let type_names: Vec<String> = {
@@ -859,12 +849,12 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 let mut count = 0;
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -937,11 +927,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(kind) = Self::kind_of_type_to_mask(kind_of_type_int) {
@@ -970,13 +956,13 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 let kind_of_filter = Self::kind_of_type_to_mask(kind_of_type_int);
                 let mut count = 0;
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -1038,9 +1024,9 @@ impl ScriptEvaluator {
                     let player_name = self
                         .resolve_player_from_param(player_param)
                         .and_then(|p| {
-                            p.read().ok().and_then(|g| {
+                            crate::player::with_player(p, |g| {
                                 NameKeyGenerator::key_to_name(g.get_player_name_key())
-                            })
+                            }).flatten()
                         })
                         .filter(|n| !n.is_empty())
                         .unwrap_or_else(|| player_param.get_string().to_string());
@@ -1134,11 +1120,7 @@ impl ScriptEvaluator {
                 let power_name = power_name_param.get_string();
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(ready) = crate::scripting::host_eval_skirmish_special_power_ready(
@@ -1151,11 +1133,11 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -1210,11 +1192,7 @@ impl ScriptEvaluator {
                 let area_name = trigger_param.get_string();
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(ok) = crate::scripting::host_eval_skirmish_value_in_area(
@@ -1234,12 +1212,12 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 let mut total_cost = 0i32;
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -1284,14 +1262,11 @@ impl ScriptEvaluator {
                 })?;
 
                 let faction_name = faction_param.get_string();
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
-                    return Ok(false);
-                };
-
-                Ok(player_guard.get_side() == faction_name)
+                Ok(crate::player::with_player(player_index, |player| player.get_side() == faction_name)
+                    .unwrap_or(false))
             }
 
             // Skirmish: supplies value within distance of a location meets threshold
@@ -1327,11 +1302,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(ok) =
@@ -1345,10 +1316,12 @@ impl ScriptEvaluator {
                     return Ok(ok);
                 }
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some((player_id, supply_box_value)) = crate::player::with_player(player_index, |player| {
+                    (player.get_player_index() as u32, player.get_supply_box_value() as f32)
+                }) else {
                     return Ok(false);
                 };
 
@@ -1361,7 +1334,6 @@ impl ScriptEvaluator {
 
                 let center = trigger.get_center_point();
                 let radius = trigger.get_radius() + distance;
-                let supply_box_value = player_guard.get_supply_box_value() as f32;
                 let mut max_value = 0.0f32;
 
                 for obj_id in partition.get_objects_in_range(&center, radius) {
@@ -1377,21 +1349,17 @@ impl ScriptEvaluator {
                             
                             let allow_affiliation =
                                 if let Some(owner_id) = obj_guard.get_controlling_player_id() {
-                                    if owner_id == player_guard.get_player_index() as u32 {
+                                    if owner_id == player_id {
                                         true
-                                    } else if let Some(owner_arc) = player_list()
-                                        .read()
-                                        .ok()
-                                        .and_then(|list| list.get_player(owner_id as i32).cloned())
-                                    {
-                                        if let Ok(owner_guard) = owner_arc.read() {
-                                            player_guard.get_relationship(&owner_guard)
-                                                == crate::common::Relationship::Neutral
-                                        } else {
-                                            false
-                                        }
                                     } else {
-                                        false
+                                        crate::player::with_player(player_index, |player| {
+                                            crate::player::with_player(owner_id as i32, |owner| {
+                                                player.get_relationship(owner)
+                                                    == crate::common::Relationship::Neutral
+                                            })
+                                            .unwrap_or(false)
+                                        })
+                                        .unwrap_or(false)
                                     }
                                 } else {
                                     false
@@ -1454,11 +1422,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if condition.custom_data == 1 {
@@ -1484,13 +1448,12 @@ impl ScriptEvaluator {
                     return Ok(false);
                 }
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                if crate::player::with_player(player_index, |_| ()).is_none() {
                     return Ok(false);
-                };
-                let player_index = player_guard.get_player_index();
+                }
 
                 let trigger = match self.get_trigger_area(area_name) {
                     Some(t) => t,
@@ -1521,17 +1484,16 @@ impl ScriptEvaluator {
                             if owner_id == player_index as u32 {
                                 return _ObjFlow::Cont;
                             }
-                            if let Some(owner_arc) = player_list()
-                                .read()
-                                .ok()
-                                .and_then(|list| list.get_player(owner_id as i32).cloned())
-                            {
-                                if let Ok(owner_guard) = owner_arc.read() {
-                                    // C++ PartitionFilterPlayerAffiliation(ALLOW_ALLIES, false).
-                                    if player_guard.is_allied_with_player(&owner_guard) {
-                                        return _ObjFlow::Cont;
-                                    }
-                                }
+                            let allied = crate::player::with_player(player_index, |player| {
+                                crate::player::with_player(owner_id as i32, |owner| {
+                                    player.is_allied_with_player(owner)
+                                })
+                                .unwrap_or(false)
+                            })
+                            .unwrap_or(false);
+                            // C++ PartitionFilterPlayerAffiliation(ALLOW_ALLIES, false).
+                            if allied {
+                                return _ObjFlow::Cont;
                             }
                             
                             condition.custom_data = 1;
@@ -1579,12 +1541,12 @@ impl ScriptEvaluator {
                 }
 
                 let mut all_ready = true;
-                'outer: for team_arc in &team_instances {
-                    let Ok(team_guard) = team_arc.read() else {
+                'outer: for &team_id in &team_instances {
+                    let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
                         all_ready = false;
                         break;
                     };
-                    for &member_id in team_guard.get_members() {
+                    for member_id in members {
                         {
                             enum _ObjFlow<T> { Cont, Ret(T), Fall }
                             let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
@@ -1632,11 +1594,11 @@ impl ScriptEvaluator {
                 };
 
                 let team_name = self.resolve_team_name_token(team_param.get_string());
-                for team_arc in self.resolve_team_instances(&team_name) {
-                    let Ok(team_guard) = team_arc.read() else {
+                for team_id in self.resolve_team_instances(&team_name) {
+                    let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
                         continue;
                     };
-                    for &member_id in team_guard.get_members() {
+                    for member_id in members {
                         {
                             enum _ObjFlow<T> { Cont, Ret(T), Fall }
                             let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
@@ -1691,16 +1653,13 @@ impl ScriptEvaluator {
                 let Ok(list) = player_list().read() else {
                     return Ok(false);
                 };
-                let neutral_player = list.get_neutral_player();
-                let Some(neutral_arc) = neutral_player else {
+                let Some(neutral_guard_ids) = list.get_neutral_player().map(|p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
                 };
-                let Ok(neutral_guard) = neutral_arc.read() else {
-                    return Ok(false);
-                };
+                drop(list);
 
                 let mut num_faction_units = 0i32;
-                for obj_id in neutral_guard.get_object_ids() {
+                for obj_id in neutral_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -1748,14 +1707,11 @@ impl ScriptEvaluator {
 
                 let types = self.resolve_object_types(type_param);
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
-                    return Ok(false);
-                };
-
-                Ok(types.can_build_any(&player_guard))
+                Ok(crate::player::with_player(player_index, |player| types.can_build_any(player))
+                    .unwrap_or(false))
             }
 
             // Skirmish: player's garrisoned building count meets comparison
@@ -1780,11 +1736,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(num_garrisoned) =
@@ -1806,13 +1758,13 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 // C++ counts buildings with ContainModuleInterface::isGarrisonable() && getContainCount() > 0
                 let mut num_garrisoned = 0i32;
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -1865,11 +1817,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(num_captured) =
@@ -1891,12 +1839,12 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 let mut num_captured = 0i32;
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -1956,11 +1904,7 @@ impl ScriptEvaluator {
                 let area_name = trigger_param.get_string();
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(ok) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
@@ -1978,12 +1922,12 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 let mut count = 0;
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -2022,21 +1966,21 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(attacker_index) = self.resolve_player_from_param(attacker_param) else {
                     return Ok(false);
                 };
-
-                let Some(attacker_arc) = self.resolve_player_from_param(attacker_param) else {
+                let Some(attacker_id) =
+                    crate::player::with_player(attacker_index, |a| a.get_player_index())
+                else {
                     return Ok(false);
                 };
-                let Ok(attacker_guard) = attacker_arc.read() else {
-                    return Ok(false);
-                };
-
-                Ok(player_guard.get_attacked_by(attacker_guard.get_player_index()))
+                Ok(crate::player::with_player(player_index, |player| {
+                    player.get_attacked_by(attacker_id)
+                })
+                .unwrap_or(false))
             }
 
             // Skirmish: player has no units inside a trigger area
@@ -2060,11 +2004,7 @@ impl ScriptEvaluator {
 
                 let player_name = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|g| NameKeyGenerator::key_to_name(g.get_player_name_key()))
-                    })
+                    .and_then(|idx| crate::player::with_player(idx, |g| NameKeyGenerator::key_to_name(g.get_player_name_key())).flatten())
                     .filter(|n| !n.is_empty())
                     .unwrap_or_else(|| player_param.get_string().to_string());
                 if let Some(inside) = crate::scripting::host_eval_skirmish_player_has_units_in_area(
@@ -2082,11 +2022,11 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(true);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(true);
-                };
+                    };
 
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     let inside = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                         obj_guard.is_inside_trigger(&trigger)
                             && !obj_guard.is_effectively_dead()
@@ -2115,24 +2055,27 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let Some(discovered_by_arc) = self.resolve_player_from_param(discovered_param)
+                let Some(discovered_by_index_src) =
+                    self.resolve_player_from_param(discovered_param)
                 else {
                     return Ok(false);
                 };
-                let Ok(discovered_by_guard) = discovered_by_arc.read() else {
+                let Some(discovered_by_index) = crate::player::with_player(
+                    discovered_by_index_src,
+                    |p| p.get_player_index() as i32,
+                ) else {
                     return Ok(false);
                 };
-                let discovered_by_index = discovered_by_guard.get_player_index() as i32;
 
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                     return Ok(false);
-                };
+                    };
 
                 // C++: iterates player objects checking shroud status against discoveredByIndex
-                for obj_id in player_guard.get_object_ids() {
+                for obj_id in player_guard_ids {
                     {
                         enum _ObjFlow<T> { Cont, Ret(T), Fall }
                         let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -2200,7 +2143,7 @@ impl ScriptEvaluator {
 
                 let leftover_index = self
                     .resolve_player_from_param(player_param)
-                    .and_then(|arc| arc.read().ok().map(|p| p.get_player_index() as i32));
+                    .and_then(|idx| crate::player::with_player(idx, |p| p.get_player_index() as i32));
 
                 let current_count = if let Some(sum) =
                     crate::scripting::host_query_player_template_count(
@@ -2220,14 +2163,14 @@ impl ScriptEvaluator {
                     let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                         return Ok(false);
                     };
-                    let Ok(player_guard) = player_arc.read() else {
+                    let Some(player_guard_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                         return Ok(false);
-                    };
+                        };
 
                     let mut current_count = 0i32;
-                    for obj_id in player_guard.get_object_ids() {
+                    for obj_id in player_guard_ids {
                         let matches = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
-                            __omp_shell("obj_guard.is_destroyed()")
+                            !obj_guard.is_destroyed()
                                 && types.contains_template(Some(obj_guard.get_template()))
                         });
                         if matches == Some(true) {
@@ -2284,17 +2227,16 @@ impl ScriptEvaluator {
                 })?;
                 let min_param = condition.get_parameter(1);
 
-                let player_arc = self.resolve_player_from_param(player_param);
-                let Some(player_arc) = player_arc else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_id) =
+                    crate::player::with_player(player_index, |p| p.get_player_index() as u32)
+                else {
                     return Ok(false);
                 };
-                let player_id = player_guard.get_player_index() as u32;
                 let player_name = player_param.get_string().to_string();
                 let min_supplies = min_param.as_ref().map(|p| p.get_int()).unwrap_or(0) as i32;
-                drop(player_guard);
 
                 let safe = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
                     crate::scripting::host_query_supply_source_safe(&player_name, min_supplies)
@@ -2319,16 +2261,15 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let player_arc = self.resolve_player_from_param(player_param);
-                let Some(player_arc) = player_arc else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(player_id) =
+                    crate::player::with_player(player_index, |p| p.get_player_index() as u32)
+                else {
                     return Ok(false);
                 };
-                let player_id = player_guard.get_player_index() as u32;
                 let player_name = player_param.get_string().to_string();
-                drop(player_guard);
 
                 let attacked = if crate::object::registry::OBJECT_REGISTRY.is_empty() {
                     crate::scripting::host_query_supply_source_attacked(&player_name)
@@ -2358,14 +2299,11 @@ impl ScriptEvaluator {
 
                 // C++: ndx = pStartNdx->getInt()-1 (externally 1-based, internally 0-based)
                 let ndx = start_param.get_int() - 1;
-                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                let Some(player_index) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let Ok(player_guard) = player_arc.read() else {
-                    return Ok(false);
-                };
-
-                Ok(player_guard.get_mp_start_index() == ndx)
+                Ok(crate::player::with_player(player_index, |p| p.get_mp_start_index() == ndx)
+                    .unwrap_or(false))
             }
 
             _ => {

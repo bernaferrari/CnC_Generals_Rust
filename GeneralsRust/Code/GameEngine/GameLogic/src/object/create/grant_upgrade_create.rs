@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
 
 use crate::object::create::{CreateModule, CreateModuleData};
-use crate::player::{Player, PlayerArcExt};
+use crate::player::{Player};
 use crate::upgrade::{UpgradeStatus, UpgradeType, center::with_upgrade_center};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::rts::AsciiString;

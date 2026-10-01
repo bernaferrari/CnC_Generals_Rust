@@ -57,12 +57,12 @@ impl ScriptEvaluator {
             let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                 return Ok(false);
             };
-            let Ok(player_guard) = player_arc.read() else {
+            let Some(object_ids) = crate::player::with_player(player_arc, |p| p.get_object_ids().to_vec()) else {
                 return Ok(false);
             };
             let types = self.resolve_object_types(type_param);
             let mut count = 0;
-            for obj_id in player_guard.get_object_ids() {
+            for obj_id in object_ids {
                 {
                     enum _ObjFlow<T> { Cont, Ret(T), Fall }
                     let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
@@ -184,10 +184,10 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return _ObjFlow::Ret(Ok(false));
                 };
-                let Ok(player_guard) = player_arc.read() else {
+                let Some(mask) = crate::player::with_player(player_arc, |p| p.get_player_mask()) else {
                     return _ObjFlow::Ret(Ok(false));
                 };
-                return _ObjFlow::Ret(Ok(player_mask.intersects(player_guard.get_player_mask())));
+                return _ObjFlow::Ret(Ok(player_mask.intersects(mask)));
             });
             return match _flow {
                 Some(_ObjFlow::Ret(v)) => v,
@@ -250,7 +250,7 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let player_index = player_arc.read().ok().map(|p| p.get_player_index());
+        let player_index = crate::player::with_player(player_arc, |p| p.get_player_index());
         let Some(player_index) = player_index else {
             return Ok(false);
         };
@@ -308,17 +308,17 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let player_index = player_arc.read().ok().map(|p| p.get_player_index());
+        let player_index = crate::player::with_player(player_arc, |p| p.get_player_index());
         let Some(player_index) = player_index else {
             return Ok(false);
         };
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(members) = crate::team::with_team(team_id, |team| team.get_members().to_vec()) else {
                 continue;
             };
 
-            for &member_id in team_guard.get_members() {
+            for member_id in members {
                 {
                     enum _ObjFlow<T> { Cont, Ret(T), Fall }
                     let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
@@ -397,10 +397,10 @@ impl ScriptEvaluator {
             let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                 return Ok(false);
             };
-            let Ok(player) = player_arc.read() else {
+            let Some(money) = crate::player::with_player(player_arc, |p| p.get_money().get_money()) else {
                 return Ok(false);
             };
-            player.get_money().get_money()
+            money
         };
 
         match comparison {
@@ -435,11 +435,11 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player) = player_arc.read() else {
+        let Some(low) = crate::player::with_player(player_arc, |p| p.get_energy().is_low_power()) else {
             return Ok(false);
         };
         // Player has power if production >= consumption (not low power).
-        Ok(!player.get_energy().is_low_power())
+        Ok(!low)
     }
 
     /// Evaluate player has no power condition
@@ -481,10 +481,7 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Some(player_id) = player_arc
-            .read()
-            .ok()
-            .map(|p| p.get_player_index() as UnsignedInt)
+        let Some(player_id) = crate::player::with_player(player_arc, |p| p.get_player_index() as UnsignedInt)
         else {
             return Ok(false);
         };
@@ -533,19 +530,16 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Some(player_id) = player_arc
-            .read()
-            .ok()
-            .map(|p| p.get_player_index() as UnsignedInt)
+        let Some(player_id) = crate::player::with_player(player_arc, |p| p.get_player_index() as UnsignedInt)
         else {
             return Ok(false);
         };
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            if let Ok(team_guard) = team_arc.read() {
-                if team_guard.get_controlling_player_id() == Some(player_id) {
-                    return Ok(true);
-                }
+        for team_id in self.resolve_team_instances(&team_name) {
+            if crate::team::with_team(team_id, |team| team.get_controlling_player_id() == Some(player_id))
+                == Some(true)
+            {
+                return Ok(true);
             }
         }
 
@@ -581,11 +575,9 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(count) = crate::player::with_player(player_arc, |p| p.count_buildings()) else {
             return Ok(false);
         };
-
-        let count = player_guard.count_buildings();
 
         Ok(max_buildings >= count)
     }
@@ -620,13 +612,13 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
-
         let mask =
             (KindOf::Structure.cpp_mask()) | (KindOf::CountsForVictory.cpp_mask());
-        let count = player_guard.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE);
+        let Some(count) = crate::player::with_player(player_arc, |p| {
+            p.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE)
+        }) else {
+            return Ok(false);
+        };
 
         Ok(max_buildings >= count)
     }
@@ -658,11 +650,9 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(ratio) = crate::player::with_player(player_arc, |p| p.get_energy().supply_ratio() as f64) else {
             return Ok(false);
         };
-
-        let ratio = player_guard.get_energy().supply_ratio() as f64;
         match comparison {
             0 => Ok(ratio < percent),  // LessThan
             1 => Ok(ratio <= percent), // LessEqual
@@ -704,12 +694,12 @@ impl ScriptEvaluator {
         let Some(player_arc) = self.resolve_player_from_param(player_param) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(actual_excess) = crate::player::with_player(player_arc, |p| {
+            let energy = p.get_energy();
+            (energy.production() - energy.consumption()) as i64
+        }) else {
             return Ok(false);
         };
-
-        let energy = player_guard.get_energy();
-        let actual_excess = (energy.production() - energy.consumption()) as i64;
 
         match comparison {
             0 => Ok(actual_excess < desired_excess),  // LessThan

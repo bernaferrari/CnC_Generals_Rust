@@ -371,11 +371,7 @@ impl Object {
         let Some(ref victim_player) = victim_controller else {
             return;
         };
-        if !victim_player
-            .read()
-            .map(|g| g.is_playable_side())
-            .unwrap_or(false)
-        {
+        if !crate::player::with_player(*victim_player, |g| g.is_playable_side()).unwrap_or(false) {
             return;
         }
 
@@ -387,10 +383,10 @@ impl Object {
         let controller = self.get_controlling_player();
 
         // Record object lost for victim's player
-        if let Some(ref victim_player) = victim_controller {
-            if let Ok(mut guard) = victim_player.write() {
+        if let Some(victim_player) = victim_controller {
+            let _ = crate::player::with_player_mut(victim_player, |guard| {
                 guard.get_score_keeper_mut().add_object_lost_obj(victim);
-            }
+            });
         }
 
         // Check relationship - only score kills on enemies
@@ -401,22 +397,20 @@ impl Object {
 
         // Don't count kills that I do on my own buildings or units, cause that's just silly.
         if let (Some(controller_player), Some(victim_player)) = (&controller, &victim_controller) {
-            let controller_idx = controller_player.read().ok().map(|g| g.get_player_index());
-            let victim_idx = victim_player.read().ok().map(|g| g.get_player_index());
+            let controller_idx = Some(*controller_player);
+            let victim_idx = Some(*victim_player);
             if controller_idx.is_some() && victim_idx.is_some() && controller_idx == victim_idx {
                 return;
             }
         }
 
         // Record kill for controlling player
-        if let Some(ref controller_player) = controller {
-            if let Ok(mut guard) = controller_player.write() {
-                guard
-                    .get_score_keeper_mut()
-                    .add_object_destroyed_obj(victim);
+        if let Some(controller_player) = controller {
+            let _ = crate::player::with_player_mut(controller_player, |guard| {
+                guard.get_score_keeper_mut().add_object_destroyed_obj(victim);
                 guard.add_skill_points_for_kill_obj(self, victim);
                 guard.do_bounty_for_kill_obj(self, victim);
-            }
+            });
         }
 
         // Now handle experience, if we can gain any
@@ -474,17 +468,14 @@ impl Object {
         let Some(victim_controller) = self.get_controlling_player() else {
             return;
         };
-        if !victim_controller
-            .read()
-            .map(|player| player.is_playable_side())
-            .unwrap_or(false)
+        if !crate::player::with_player(victim_controller, |player| player.is_playable_side()).unwrap_or(false)
             || self.is_kind_of(KindOf::IgnoredInGui)
         {
             return;
         }
-        if let Ok(mut player) = victim_controller.write() {
+        let _ = crate::player::with_player_mut(victim_controller, |player| {
             player.get_score_keeper_mut().add_object_lost_obj(self);
-        }
+        });
     }
 
     pub fn on_veterancy_level_changed(
@@ -734,12 +725,12 @@ impl Object {
         // that Object so its own template thresholds and level-change effects
         // are used; never apply the sink's returned transition to this source.
         if experience_sink != ExperienceTracker::INVALID_ID {
-            if let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(experience_sink) {
-                let Ok(mut sink_guard) = sink.write() else {
-                    return false;
-                };
-                return sink_guard
-                    .set_experience_and_level_with_side_effects(experience, provide_feedback);
+            if crate::helpers::TheGameLogic::find_object_by_id(experience_sink) {
+                return crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(experience_sink, |sink_guard| {
+                        sink_guard.set_experience_and_level_with_side_effects(experience, provide_feedback)
+                    })
+                    .unwrap_or(false);
             }
             // C++ falls through to this Object's own trainability/reset path
             // if the configured sink ID no longer resolves to a live Object.
@@ -864,9 +855,9 @@ impl Object {
                 weapon.set_caller_veterancy(self.get_veterancy_level());
                 weapon.set_caller_team(self.get_team());
                 if let Some(player) = self.get_controlling_player() {
-                    weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
-                    if let Ok(guard) = player.try_read() {
-                        weapon.set_caller_player_mask(guard.get_player_mask());
+                    weapon.set_caller_player(Some(player));
+                    if let Some(mask) = crate::player::with_player(player, |guard| guard.get_player_mask()) {
+                        weapon.set_caller_player_mask(mask);
                     }
                 }
                 if let Some(drawable) = self.get_drawable() {
@@ -947,9 +938,9 @@ impl Object {
             weapon.set_caller_veterancy(self.get_veterancy_level());
             weapon.set_caller_team(self.get_team());
             if let Some(player) = self.get_controlling_player() {
-                weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
-                if let Ok(guard) = player.try_read() {
-                    weapon.set_caller_player_mask(guard.get_player_mask());
+                weapon.set_caller_player(Some(player));
+                if let Some(mask) = crate::player::with_player(player, |guard| guard.get_player_mask()) {
+                    weapon.set_caller_player_mask(mask);
                 }
             }
             if let Some(drawable) = self.get_drawable() {
@@ -1006,9 +997,9 @@ impl Object {
             weapon.set_caller_veterancy(self.get_veterancy_level());
             weapon.set_caller_team(self.get_team());
             if let Some(player) = self.get_controlling_player() {
-                weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
-                if let Ok(guard) = player.try_read() {
-                    weapon.set_caller_player_mask(guard.get_player_mask());
+                weapon.set_caller_player(Some(player));
+                if let Some(mask) = crate::player::with_player(player, |guard| guard.get_player_mask()) {
+                    weapon.set_caller_player_mask(mask);
                 }
             }
             if let Some(drawable) = self.get_drawable() {
@@ -1049,9 +1040,9 @@ impl Object {
         let Some(player) = self.get_controlling_player() else {
             return;
         };
-        if let Ok(mut player_guard) = player.write() {
+        let _ = crate::player::with_player_mut(player, |player_guard| {
             player_guard.get_academy_stats_mut().record_mine_cleared();
-        }
+        });
     }
 
     pub fn pre_fire_current_weapon(&mut self, victim: Option<ObjectID>) {
@@ -1189,13 +1180,14 @@ impl Object {
             return false;
         }
         if let Some(container_id) = self.get_contained_by() {
-            if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id) {
-                if let Ok(guard) = container.try_read() {
-                    if let Some(contain) = guard.get_contain() {
-                        if !contain.is_passenger_allowed_to_fire(Some(self.id)) {
-                            return false;
-                        }
-                    }
+            if crate::helpers::TheGameLogic::find_object_by_id(container_id) {
+                let allowed = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(container_id, |guard| {
+                        guard.get_contain().map(|contain| contain.is_passenger_allowed_to_fire(Some(self.id))).unwrap_or(true)
+                    })
+                    .unwrap_or(true);
+                if !allowed {
+                    return false;
                 }
             }
         }
@@ -1217,10 +1209,11 @@ impl Object {
                 let slaver_subdued = self
                     .with_slaved_update_interface(|slaved| slaved.slaver_id())
                     .flatten()
-                    .and_then(crate::helpers::TheGameLogic::find_object_by_id)
+                    .filter(|id| crate::helpers::TheGameLogic::find_object_by_id(*id))
                     .and_then(|slaver| {
-                        let guard = slaver.try_read().ok()?;
-                        Some(guard.is_disabled_by_type(DisabledType::DisabledSubdued))
+                        crate::object::registry::OBJECT_REGISTRY.with_object(slaver, |guard| {
+                            guard.is_disabled_by_type(DisabledType::DisabledSubdued)
+                        })
                     })
                     .unwrap_or(false);
                 if slaver_subdued {
@@ -1922,7 +1915,7 @@ impl Object {
                 let under_attack_local = self
                     .get_controlling_player()
                     .and_then(|player| {
-                        player.read().ok().map(|guard| {
+                        crate::player::with_player(player, |guard| {
                             !damage_info
                                 .input
                                 .source_player_mask
@@ -2055,8 +2048,8 @@ impl Object {
             return Ok(());
         }
 
-        let destroyed = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .and_then(|arc| arc.read().ok().map(|guard| guard.is_destroyed()))
+        let destroyed = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |guard| guard.is_destroyed())
             .unwrap_or(true);
         if destroyed {
             return Err(ObjectError::TargetInvalid);
@@ -2098,9 +2091,9 @@ impl Object {
                 weapon.set_caller_veterancy(self.get_veterancy_level());
                 weapon.set_caller_team(self.get_team());
                 if let Some(player) = self.get_controlling_player() {
-                    weapon.set_caller_player(Some(std::sync::Arc::clone(&player)));
-                    if let Ok(guard) = player.try_read() {
-                        weapon.set_caller_player_mask(guard.get_player_mask());
+                    weapon.set_caller_player(Some(player));
+                    if let Some(mask) = crate::player::with_player(player, |guard| guard.get_player_mask()) {
+                        weapon.set_caller_player_mask(mask);
                     }
                 }
                 if let Some(drawable) = self.get_drawable() {

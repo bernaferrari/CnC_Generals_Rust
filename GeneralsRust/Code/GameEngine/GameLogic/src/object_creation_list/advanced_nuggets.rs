@@ -325,7 +325,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                     return None;
                 };
 
-                let Some(Ok(transport)) = crate::team::factory_access::with_team(owner_team, |owner| {
+                let Some(Ok(transport)) = crate::team::with_team(owner_team, |owner| {
                     ctx.thing_factory.new_object(transport_template, owner)
                 }) else {
                     return None;

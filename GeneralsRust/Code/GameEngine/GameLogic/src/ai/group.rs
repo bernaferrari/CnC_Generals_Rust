@@ -1030,14 +1030,12 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 if let Some(module) =
                     obj_ref.find_special_power_with_overridable_destination_active(sp_type)
                 {
-                    if let Ok(mut guard) = module.lock() {
-                        if let Some(sp) = guard.get_special_power_update_interface() {
-                            sp.set_special_power_overridable_destination(loc);
-                        }
+                    if let Some(sp) = module.get_special_power_update_interface() {
+                        sp.set_special_power_overridable_destination(loc);
                     }
                 }
             });

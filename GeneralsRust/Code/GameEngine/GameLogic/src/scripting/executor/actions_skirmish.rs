@@ -62,10 +62,11 @@ impl ScriptActionDispatcher {
         let Some(enemy_player) = enemy_player else {
             return Ok(ScriptActionResult::Success);
         };
-        let Ok(enemy_guard) = enemy_player.read() else {
+        let Some(mp_index) = crate::player::with_player(enemy_player, |enemy_guard| {
+            enemy_guard.get_mp_start_index() + 1
+        }) else {
             return Ok(ScriptActionResult::Success);
         };
-        let mp_index = enemy_guard.get_mp_start_index() + 1;
 
         let path_label = format!("{}{}", waypoint_path_label, mp_index);
         let (waypoint_id, waypoint_pos) =
@@ -82,11 +83,9 @@ impl ScriptActionDispatcher {
             with_script_engine_ref(|engine| engine.get_current_player_name()).flatten();
         if let Some(current_player_name) = current_player_name {
             if let Ok(list) = player_list().read() {
-                if let Some(player_arc) = list.find_player_by_name(&current_player_name) {
-                    if let Ok(player_guard) = player_arc.read() {
-                        let player_id = player_guard.get_player_index() as u32;
-                        self.check_bridges_for_waypoint(player_id, first_unit, waypoint_id);
-                    }
+                if let Some(player) = list.find_player_by_name(&current_player_name) {
+                    let player_id = player.get_player_index() as u32;
+                    self.check_bridges_for_waypoint(player_id, first_unit, waypoint_id);
                 }
             }
         }
@@ -138,10 +137,11 @@ impl ScriptActionDispatcher {
         let Some(enemy_player) = enemy_player else {
             return Ok(ScriptActionResult::Success);
         };
-        let Ok(enemy_guard) = enemy_player.read() else {
+        let Some(mp_index) = crate::player::with_player(enemy_player, |enemy_guard| {
+            enemy_guard.get_mp_start_index() + 1
+        }) else {
             return Ok(ScriptActionResult::Success);
         };
-        let mp_index = enemy_guard.get_mp_start_index() + 1;
 
         let path_label = format!("{}{}", waypoint_path_label, mp_index);
         let waypoint_pos = match get_terrain_logic().read().ok().and_then(|terrain| {
@@ -276,10 +276,11 @@ impl ScriptActionDispatcher {
         let Some(enemy_player) = self.get_skirmish_enemy_player() else {
             return Ok(ScriptActionResult::Success);
         };
-        let Ok(enemy_guard) = enemy_player.read() else {
+        let Some(enemy_player_index) =
+            crate::player::with_player(enemy_player, |enemy_guard| enemy_guard.get_player_index())
+        else {
             return Ok(ScriptActionResult::Success);
         };
-        let enemy_player_index = enemy_guard.get_player_index();
 
         let (power_template, template_name, radius, is_sneak_attack) = {
             let Some(store) = get_special_power_store() else {
@@ -298,32 +299,40 @@ impl ScriptActionDispatcher {
             )
         };
 
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.find_player_by_name(&player_name))
-        else {
+        let Some(player_id) = player_list().read().ok().and_then(|list| {
+            list.find_player_by_name(&player_name)
+                .map(|player| player.get_player_index() as u32)
+        }) else {
             log::warn!("Skirmish action: player '{}' not found", player_name);
             return Ok(ScriptActionResult::Success);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let player_id = player_guard.get_player_index() as u32;
 
         // C++ walks player team prototypes → instances → members, recomputing
         // the superweapon target per ready module and legalizing Sneak Attack.
-        let mut team_member_lists: Vec<Vec<crate::common::ObjectID>> = Vec::new();
+        let prototype_names = crate::player::with_player(player_id as i32, |player| {
+            player
+                .get_player_team_prototypes()
+                .iter()
+                .map(|prototype| prototype.get_name().to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+        let mut team_ids: Vec<crate::team::TeamID> = Vec::new();
         if let Ok(factory) = get_team_factory().lock() {
-            for prototype in player_guard.get_player_team_prototypes() {
-                for team in factory.find_team_instances(prototype.get_name().as_str()) {
-                    if let Ok(team_guard) = team.read() {
-                        team_member_lists.push(team_guard.get_members().to_vec());
-                    }
+            for name in &prototype_names {
+                for team in factory.find_team_instances(name.as_str()) {
+                    team_ids.push(team);
                 }
             }
         }
-        drop(player_guard);
+        let mut team_member_lists: Vec<Vec<crate::common::ObjectID>> = Vec::new();
+        for team in team_ids {
+            if let Some(members) =
+                crate::team::with_team(team, |team_guard| team_guard.get_members().to_vec())
+            {
+                team_member_lists.push(members);
+            }
+        }
 
         if team_member_lists.is_empty() {
             if OBJECT_REGISTRY.is_empty() {
@@ -477,27 +486,28 @@ impl ScriptActionDispatcher {
         let group_arc = self.create_ai_group_from_team(&team_name)?;
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let controlling_player_id = team_arc
-            .read()
-            .ok()
-            .and_then(|team| team.get_controlling_player_id())
-            .ok_or_else(|| {
-                ScriptError::ExecutionFailed("Skirmish team has no controlling player".to_string())
-            })?;
+        let controlling_player_id = crate::team::with_team(team_arc, |team| {
+            team.get_controlling_player_id()
+        })
+        .flatten()
+        .ok_or_else(|| {
+            ScriptError::ExecutionFailed("Skirmish team has no controlling player".to_string())
+        })?;
 
         let player_list_guard = player_list()
             .read()
             .map_err(|_| ScriptError::ExecutionFailed("Failed to lock player list".to_string()))?;
-        let controlling_player = player_list_guard
+        let player_index = player_list_guard
             .get_player(controlling_player_id as i32)
-            .cloned()
+            .map(|player| player.get_player_index())
             .ok_or_else(|| {
                 ScriptError::ExecutionFailed("Skirmish team player not found".to_string())
             })?;
-        let controlling_player_guard = controlling_player.read().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to read skirmish player".to_string())
-        })?;
-        let player_index = controlling_player_guard.get_player_index();
+        let other_players: Vec<(i32, u32)> = player_list_guard
+            .iter()
+            .map(|other| (other.get_player_index(), other.get_player_mask().bits()))
+            .collect();
+        drop(player_list_guard);
 
         let group_center = group_arc
             .read()
@@ -515,20 +525,21 @@ impl ScriptActionDispatcher {
             3 | 4 // ComparisonType::GreaterEqual | ComparisonType::Greater
         ) {
             let mut enemy_mask = 0u32;
-            for other in player_list_guard.iter() {
-                let Ok(other_guard) = other.read() else {
-                    continue;
-                };
-                if other_guard.get_player_index() == player_index {
+            for (other_index, other_mask) in other_players {
+                if other_index == player_index {
                     continue;
                 }
-                if controlling_player_guard.get_relationship(&other_guard) == Relationship::Enemies
-                {
-                    enemy_mask |= other_guard.get_player_mask().bits();
+                let is_enemy = crate::player::with_player(player_index, |me| {
+                    crate::player::with_player(other_index, |other| {
+                        me.get_relationship(other) == Relationship::Enemies
+                    })
+                    .unwrap_or(false)
+                })
+                .unwrap_or(false);
+                if is_enemy {
+                    enemy_mask |= other_mask;
                 }
             }
-            drop(controlling_player_guard);
-            drop(player_list_guard);
             if let Some(loc) = ThePartitionManager::get().and_then(|pm| {
                 pm.get_nearest_group_with_value(
                     player_index,
@@ -541,9 +552,6 @@ impl ScriptActionDispatcher {
             }) {
                 target_loc = loc;
             }
-        } else {
-            drop(controlling_player_guard);
-            drop(player_list_guard);
         }
 
         if let Ok(group) = group_arc.read() {
@@ -598,11 +606,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        let mut source_guard = match source_obj.write() {
-            Ok(guard) => guard,
-            Err(_) => return Ok(ScriptActionResult::Success),
-        };
-
         let group_center = group_arc
             .read()
             .ok()
@@ -610,80 +613,82 @@ impl ScriptActionDispatcher {
             .ok_or_else(|| {
                 ScriptError::ExecutionFailed("Failed to get group center".to_string())
             })?;
+        let _ = OBJECT_REGISTRY.with_object_mut(source_obj, |source_guard| {
 
-        let target_ids = crate::helpers::ThePartitionManager::get()
-            .map(|mgr| mgr.get_objects_in_range(&group_center, range))
-            .unwrap_or_default();
+            let target_ids = crate::helpers::ThePartitionManager::get()
+                .map(|mgr| mgr.get_objects_in_range(&group_center, range))
+                .unwrap_or_default();
 
-        let options =
-            SpecialPowerCommandOption::from_bits_truncate(command_button.get_options_bits());
-        let requires_object_target = options.intersects(
-            SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
-                | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
-                | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT
-                | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
-        );
+            let options =
+                SpecialPowerCommandOption::from_bits_truncate(command_button.get_options_bits());
+            let requires_object_target = options.intersects(
+                SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                    | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                    | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT
+                    | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
+            );
 
-        let mut best_target: Option<ObjectID> = None;
-        let mut best_cost = i32::MIN;
+            let mut best_target: Option<ObjectID> = None;
+            let mut best_cost = i32::MIN;
 
-        for obj_id in target_ids {
-            let cost = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |target_guard| {
-                if target_guard.is_destroyed() {
-                    return None;
-                }
-                if target_guard
-                    .get_status_bits()
-                    .test(crate::common::ObjectStatusTypes::UnderConstruction)
-                {
-                    return None;
-                }
-                if target_guard.is_off_map() != source_guard.is_off_map() {
-                    return None;
-                }
-                let relationship = source_guard.relationship_to(target_guard);
-                let relationship_ok = if requires_object_target {
-                    (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
-                        && relationship == Relationship::Enemies)
-                        || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
-                            && relationship == Relationship::Neutral)
-                        || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
-                            && matches!(relationship, Relationship::Allies))
-                        || (!options.intersects(
-                            SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
-                                | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
-                                | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
-                        ) && relationship == Relationship::Enemies)
-                } else {
-                    relationship == Relationship::Enemies
-                };
-                if !relationship_ok {
-                    return None;
-                }
-                if options.contains(SpecialPowerCommandOption::NEED_TARGET_PRISONER)
-                    && !target_guard.is_captured()
-                {
-                    return None;
-                }
-                Some(target_guard.get_build_cost())
-            });
-            if let Some(Some(cost)) = cost {
-                if cost > best_cost {
-                    best_cost = cost;
-                    best_target = Some(obj_id);
+            for obj_id in target_ids {
+                let cost = OBJECT_REGISTRY.with_object(obj_id, |target_guard| {
+                    if target_guard.is_destroyed() {
+                        return None;
+                    }
+                    if target_guard
+                        .get_status_bits()
+                        .test(crate::common::ObjectStatusTypes::UnderConstruction)
+                    {
+                        return None;
+                    }
+                    if target_guard.is_off_map() != source_guard.is_off_map() {
+                        return None;
+                    }
+                    let relationship = source_guard.relationship_to(target_guard);
+                    let relationship_ok = if requires_object_target {
+                        (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
+                            && relationship == Relationship::Enemies)
+                            || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
+                                && relationship == Relationship::Neutral)
+                            || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
+                                && matches!(relationship, Relationship::Allies))
+                            || (!options.intersects(
+                                SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                                    | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                                    | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
+                            ) && relationship == Relationship::Enemies)
+                    } else {
+                        relationship == Relationship::Enemies
+                    };
+                    if !relationship_ok {
+                        return None;
+                    }
+                    if options.contains(SpecialPowerCommandOption::NEED_TARGET_PRISONER)
+                        && !target_guard.is_captured()
+                    {
+                        return None;
+                    }
+                    Some(target_guard.get_build_cost())
+                });
+                if let Some(Some(cost)) = cost {
+                    if cost > best_cost {
+                        best_cost = cost;
+                        best_target = Some(obj_id);
+                    }
                 }
             }
-        }
 
-        if let Some(target_id) = best_target {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
-                source_guard.do_command_button_at_object(
-                    command_button.get_id(),
-                    target_guard,
-                    CommandSourceType::FromScript,
-                )
-            });
-        }
+            if let Some(target_id) = best_target {
+                let _ = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    source_guard.do_command_button_at_object(
+                        command_button.get_id(),
+                        target_guard,
+                        CommandSourceType::FromScript,
+                    )
+                });
+            }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -824,25 +829,21 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list) = player_list().read() {
-            if !player_name.is_empty() {
-                if let Some(player_arc) = list.find_player_by_name(&player_name) {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard
-                            .set_units_should_idle_or_resume(true, CommandSourceType::FromScript);
-                    }
-                }
-            } else {
-                for player_arc in list.iter() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        if player_guard.get_player_type() == PlayerType::Human {
-                            player_guard.set_units_should_idle_or_resume(
-                                true,
-                                CommandSourceType::FromScript,
-                            );
-                        }
-                    }
-                }
+        if !player_name.is_empty() {
+            let _ = crate::player::with_player_named_mut(&player_name, |player| {
+                player.set_units_should_idle_or_resume(true, CommandSourceType::FromScript);
+            });
+        } else if let Ok(list) = player_list().read() {
+            let humans: Vec<_> = list
+                .iter()
+                .filter(|player| player.get_player_type() == PlayerType::Human)
+                .map(|player| player.get_player_index())
+                .collect();
+            drop(list);
+            for index in humans {
+                let _ = crate::player::with_player_mut(index, |player| {
+                    player.set_units_should_idle_or_resume(true, CommandSourceType::FromScript);
+                });
             }
         }
         Ok(ScriptActionResult::Success)
@@ -861,25 +862,21 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list) = player_list().read() {
-            if !player_name.is_empty() {
-                if let Some(player_arc) = list.find_player_by_name(&player_name) {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard
-                            .set_units_should_idle_or_resume(false, CommandSourceType::FromScript);
-                    }
-                }
-            } else {
-                for player_arc in list.iter() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        if player_guard.get_player_type() == PlayerType::Human {
-                            player_guard.set_units_should_idle_or_resume(
-                                false,
-                                CommandSourceType::FromScript,
-                            );
-                        }
-                    }
-                }
+        if !player_name.is_empty() {
+            let _ = crate::player::with_player_named_mut(&player_name, |player| {
+                player.set_units_should_idle_or_resume(false, CommandSourceType::FromScript);
+            });
+        } else if let Ok(list) = player_list().read() {
+            let humans: Vec<_> = list
+                .iter()
+                .filter(|player| player.get_player_type() == PlayerType::Human)
+                .map(|player| player.get_player_index())
+                .collect();
+            drop(list);
+            for index in humans {
+                let _ = crate::player::with_player_mut(index, |player| {
+                    player.set_units_should_idle_or_resume(false, CommandSourceType::FromScript);
+                });
             }
         }
         Ok(ScriptActionResult::Success)
@@ -1002,10 +999,8 @@ impl ScriptActionDispatcher {
                 }
                 return true;
             }
-            if let Some(contain) = building_guard.get_contain() {
-                if let Ok(mut contain_guard) = contain.lock() {
-                    let _ = contain_guard.remove_all_contained(false);
-                }
+            if let Some(contain) = building_guard.get_contain_mut() {
+                let _ = contain.remove_all_contained(false);
             }
             false
         });

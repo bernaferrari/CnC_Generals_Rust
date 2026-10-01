@@ -42,17 +42,10 @@ impl ScriptCondition for ObjectExistsCondition {
 
         log::debug!("Checking if object {} exists", object_id);
 
-        // Check if object exists in ObjectManager
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
-                    // Object exists and is not destroyed
-                    return Ok(!obj.is_destroyed());
-                }
-            }
-        }
-
-        Ok(false)
+        let exists = OBJECT_REGISTRY
+            .with_object(object_id as u32, |obj| !obj.is_destroyed())
+            .unwrap_or(false);
+        Ok(exists)
     }
 
     fn name(&self) -> &str {
@@ -93,20 +86,11 @@ impl ScriptCondition for ObjectHealthCondition {
             value
         );
 
-        // Get actual object health from ObjectManager
-        let obj_manager = get_object_manager();
-        let object_health = if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
-                    (obj.get_health_percentage() * 100.0) as f64
-                } else {
-                    0.0
-                }
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
+        let object_health = OBJECT_REGISTRY
+            .with_object(object_id as u32, |obj| {
+                (obj.get_health_percentage() * 100.0) as f64
+            })
+            .unwrap_or(0.0);
 
         match comparison.as_str() {
             "greater" => Ok(object_health > value),
@@ -235,27 +219,27 @@ impl ScriptCondition for ObjectNearObjectCondition {
             return Ok(false);
         }
 
-        let obj_manager = get_object_manager();
-        let Ok(manager) = obj_manager.read() else {
+        let p1 = OBJECT_REGISTRY
+            .with_object(object1_id as u32, |obj| {
+                if obj.is_destroyed() {
+                    None
+                } else {
+                    Some(*obj.get_position())
+                }
+            })
+            .flatten();
+        let p2 = OBJECT_REGISTRY
+            .with_object(object2_id as u32, |obj| {
+                if obj.is_destroyed() {
+                    None
+                } else {
+                    Some(*obj.get_position())
+                }
+            })
+            .flatten();
+        let (Some(p1), Some(p2)) = (p1, p2) else {
             return Ok(false);
         };
-
-        let Some(obj1_arc) = /*slot*/ OBJECT_REGISTRY.with_object(object1_id as u32) else {
-            return Ok(false);
-        };
-        let Some(obj2_arc) = /*slot*/ OBJECT_REGISTRY.with_object(object2_id as u32) else {
-            return Ok(false);
-        };
-        let (Ok(obj1), Ok(obj2)) = (obj1_Ok(arc), obj2_Ok(arc)) else {
-            return Ok(false);
-        };
-        let (base1, base2) = (&obj1, &obj2);
-if base1.is_destroyed() || base2.is_destroyed() {
-            return Ok(false);
-        }
-
-        let p1 = *base1.get_position();
-        let p2 = *base2.get_position();
         let dx = p1.x as f64 - p2.x as f64;
         let dy = p1.y as f64 - p2.y as f64;
         Ok(dx * dx + dy * dy <= distance * distance)
@@ -301,18 +285,12 @@ impl ScriptCondition for ObjectOwnedByPlayerCondition {
             player
         );
 
-        // Check object ownership
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
-                    if let Some(owner_id) = obj.get_controlling_player_id() {
-                        return Ok(owner_id == player as u32);
-                    }
-                }
-            }
-        }
-
-        Ok(false)
+        let owned = OBJECT_REGISTRY
+            .with_object(object_id as u32, |obj| {
+                obj.get_controlling_player_id() == Some(player as u32)
+            })
+            .unwrap_or(false);
+        Ok(owned)
     }
 
     fn name(&self) -> &str {
@@ -352,19 +330,12 @@ impl ScriptCondition for BuildingDamagedCondition {
             health_percent
         );
 
-        // Get actual building health
-        // In C++: pObject->Get_Health() / pObject->Get_Max_Health() * 100
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
-                    let current_health_percent = (obj.get_health_percentage() * 100.0) as f64;
-                    return Ok(current_health_percent < health_percent);
-                }
-            }
-        }
-
-        // Object not found, assume not damaged
-        Ok(false)
+        let damaged = OBJECT_REGISTRY
+            .with_object(object_id as u32, |obj| {
+                ((obj.get_health_percentage() * 100.0) as f64) < health_percent
+            })
+            .unwrap_or(false);
+        Ok(damaged)
     }
 
     fn name(&self) -> &str {
@@ -407,22 +378,16 @@ impl ScriptCondition for UnitNearPositionCondition {
             y
         );
 
-        // Get object position and calculate distance
-        // In C++: Calculate distance between object pos and target pos
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
-                    let pos = obj.get_position();
-                    let object_x = pos.x as f64;
-                    let object_y = pos.y as f64;
-                    let actual_distance = ((object_x - x).powi(2) + (object_y - y).powi(2)).sqrt();
-                    return Ok(actual_distance <= distance);
-                }
-            }
-        }
-
-        // Object not found
-        Ok(false)
+        let near = OBJECT_REGISTRY
+            .with_object(object_id as u32, |obj| {
+                let pos = obj.get_position();
+                let object_x = pos.x as f64;
+                let object_y = pos.y as f64;
+                let actual_distance = ((object_x - x).powi(2) + (object_y - y).powi(2)).sqrt();
+                actual_distance <= distance
+            })
+            .unwrap_or(false);
+        Ok(near)
     }
 
     fn name(&self) -> &str {
@@ -700,12 +665,7 @@ impl ScriptCondition for EnemySightedCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player_id = {
-            let p_guard = player
-                .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-            p_guard.get_player_index()
-        };
+        let player_id = player;
 
         // Look up the named unit
         let tracker = get_named_object_tracker();
@@ -759,42 +719,29 @@ impl ScriptCondition for EnemySightedCondition {
             // Filter by alliance relationship
             let passes_alliance = match alliance.as_str() {
                 "neutral" => true,
-                "friend" | "ally" => {
-                    if let Some(ref src_arc) = source_player_arc {
-                        let src_player = src_arc;
-{
-                            let tgt_player = player;
-{
-                                let rel = src_player.get_relationship(&tgt_player);
-                                matches!(rel, Relationship::Allies)
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
-                _ => {
-                    // "enemy" (default)
-                    if let Some(ref src_arc) = source_player_arc {
-                        let src_player = src_arc;
-{
-                            let tgt_player = player;
-{
-                                src_player.is_enemy_with_player(&tgt_player)
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                }
+                "friend" | "ally" => match source_player_arc {
+                    Some(src_index) => crate::player::with_player(src_index, |src_player| {
+                        crate::player::with_player(player, |tgt_player| {
+                            matches!(
+                                src_player.get_relationship(tgt_player),
+                                Relationship::Allies
+                            )
+                        })
+                        .unwrap_or(false)
+                    })
+                    .unwrap_or(false),
+                    None => false,
+                },
+                _ => match source_player_arc {
+                    Some(src_index) => crate::player::with_player(src_index, |src_player| {
+                        crate::player::with_player(player, |tgt_player| {
+                            src_player.is_enemy_with_player(tgt_player)
+                        })
+                        .unwrap_or(false)
+                    })
+                    .unwrap_or(false),
+                    None => false,
+                },
             };
 
             if passes_alliance {

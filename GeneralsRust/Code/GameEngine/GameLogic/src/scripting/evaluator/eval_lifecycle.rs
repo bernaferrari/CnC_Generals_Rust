@@ -24,14 +24,13 @@ impl ScriptEvaluator {
         // C++ evaluateAllDestroyed resolves a Script `SIDE` through
         // playerFromParam, so campaign tokens and cached player masks must not
         // be mistaken for literal display names.
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+        let Some(player_index) = self.resolve_player_from_param(player_param) else {
             return Ok(true);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(true);
-        };
-
-        Ok(!player_guard.has_any_objects())
+        Ok(!crate::player::with_player(player_index, |player_guard| {
+            player_guard.has_any_objects()
+        })
+        .unwrap_or(true))
     }
 
     /// Evaluate player all build facilities destroyed condition
@@ -57,14 +56,13 @@ impl ScriptEvaluator {
 
         // Preserve C++ ScriptConditions::playerFromParam semantics for the
         // corresponding elimination condition.
-        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+        let Some(player_index) = self.resolve_player_from_param(player_param) else {
             return Ok(true);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(true);
-        };
-
-        Ok(!player_guard.has_any_build_facility())
+        Ok(!crate::player::with_player(player_index, |player_guard| {
+            player_guard.has_any_build_facility()
+        })
+        .unwrap_or(true))
     }
 
     /// Evaluate team destroyed condition
@@ -91,11 +89,9 @@ impl ScriptEvaluator {
             return Ok(false);
         }
 
-        for team_arc in teams {
-            if let Ok(team) = team_arc.read() {
-                if team.has_any_objects() {
-                    return Ok(false);
-                }
+        for team_id in teams {
+            if crate::team::with_team(team_id, |team| team.has_any_objects()).unwrap_or(false) {
+                return Ok(false);
             }
         }
 
@@ -117,11 +113,9 @@ impl ScriptEvaluator {
             return Ok(crate::scripting::host_team_has_any_live_units(&team_name));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            if let Ok(team) = team_arc.read() {
-                if team.has_any_units() {
-                    return Ok(true);
-                }
+        for team_id in self.resolve_team_instances(&team_name) {
+            if crate::team::with_team(team_id, |team| team.has_any_units()).unwrap_or(false) {
+                return Ok(true);
             }
         }
 
@@ -190,13 +184,10 @@ impl ScriptEvaluator {
             return Ok(crate::scripting::host_team_was_fielded(&team_name));
         }
 
-        let Some(team_arc) = self.resolve_team_instances(&team_name).into_iter().next() else {
+        let Some(team_id) = self.resolve_team_instances(&team_name).into_iter().next() else {
             return Ok(false);
         };
-        let Ok(team_guard) = team_arc.read() else {
-            return Ok(false);
-        };
-        Ok(team_guard.is_created())
+        Ok(crate::team::with_team(team_id, |team_guard| team_guard.is_created()).unwrap_or(false))
     }
 
     fn evaluate_team_state_is_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
@@ -214,13 +205,13 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let expected_state = state_param.get_string();
 
-        let Some(team_arc) = self.resolve_team_instances(&team_name).into_iter().next() else {
+        let Some(team_id) = self.resolve_team_instances(&team_name).into_iter().next() else {
             return Ok(false);
         };
-        let Ok(team_guard) = team_arc.read() else {
-            return Ok(false);
-        };
-        Ok(team_guard.get_state().as_str() == expected_state)
+        Ok(crate::team::with_team(team_id, |team_guard| {
+            team_guard.get_state().as_str() == expected_state
+        })
+        .unwrap_or(false))
     }
 
     fn evaluate_team_state_is_not_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
@@ -238,12 +229,12 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let expected_state = state_param.get_string();
 
-        let Some(team_arc) = self.resolve_team_instances(&team_name).into_iter().next() else {
+        let Some(team_id) = self.resolve_team_instances(&team_name).into_iter().next() else {
             return Ok(false);
         };
-        let Ok(team_guard) = team_arc.read() else {
-            return Ok(false);
-        };
-        Ok(team_guard.get_state().as_str() != expected_state)
+        Ok(crate::team::with_team(team_id, |team_guard| {
+            team_guard.get_state().as_str() != expected_state
+        })
+        .unwrap_or(false))
     }
 }

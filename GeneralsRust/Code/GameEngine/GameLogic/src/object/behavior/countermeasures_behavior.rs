@@ -583,7 +583,7 @@ impl CountermeasuresBehavior {
         };
 
         let factory = TheThingFactory::get().map_err(|_| BehaviorError::ModuleDisabled)?;
-        let flare = crate::team::factory_access::with_team(team_arc, |team_guard| {
+        let flare = crate::team::with_team(team_arc, |team_guard| {
             factory.new_object(template, team_guard)
         })
         .ok_or(BehaviorError::ModuleDisabled)?

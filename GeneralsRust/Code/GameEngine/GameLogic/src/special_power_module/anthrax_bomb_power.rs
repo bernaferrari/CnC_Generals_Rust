@@ -96,7 +96,7 @@ impl AnthraxBombPower {
                 .ok_or_else(|| format!("Player {} has no default team", player_id))?;
 
                 let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
-                let bomb_id = crate::team::factory_access::with_team(team_id, |team| {
+                let bomb_id = crate::team::with_team(team_id, |team| {
                     factory.new_object(template.clone(), team)
                 })
                 .ok_or_else(|| "Team lock poisoned".to_string())?

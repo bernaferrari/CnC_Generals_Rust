@@ -77,12 +77,14 @@ impl ScriptEvaluator {
         let team_name = self.resolve_team_name_token(team_param.get_string());
         let types = self.resolve_object_types(type_param);
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(members) =
+                crate::team::with_team(team_id, |team_guard| team_guard.get_members().to_vec())
+            else {
                 continue;
             };
-            for member_id in team_guard.get_members() {
-                let hit = OBJECT_REGISTRY.with_object(*member_id, |member_guard| {
+            for member_id in members {
+                let hit = OBJECT_REGISTRY.with_object(member_id, |member_guard| {
                     let Some(body) = member_guard.get_body_module() else {
                         return false;
                     };
@@ -151,15 +153,15 @@ impl ScriptEvaluator {
                 }
 
                 if last.input.source_player_mask != PlayerMaskType::none() {
-                    if let Some(target_player) = target_player.as_ref() {
-                        if let Ok(target_guard) = target_player.read() {
-                            if last
-                                .input
+                    if let Some(target_index) = target_player {
+                        if crate::player::with_player(target_index, |target_guard| {
+                            last.input
                                 .source_player_mask
                                 .intersects(target_guard.get_player_mask())
-                            {
-                                return Ok(true);
-                            }
+                        })
+                        .unwrap_or(false)
+                        {
+                            return Ok(true);
                         }
                     }
                 }
@@ -173,7 +175,7 @@ impl ScriptEvaluator {
                         let Some(target_player) = target_player else {
                             return Ok(false);
                         };
-                        Ok(Arc::ptr_eq(&attacker_player, &target_player))
+                        Ok(attacker_player == target_player)
                     })
                     .unwrap_or(Ok(false))
             })
@@ -206,12 +208,14 @@ impl ScriptEvaluator {
             return Ok(false);
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(members) =
+                crate::team::with_team(team_id, |team_guard| team_guard.get_members().to_vec())
+            else {
                 continue;
             };
-            for member_id in team_guard.get_members() {
-                let hit = OBJECT_REGISTRY.with_object(*member_id, |member_guard| {
+            for member_id in members {
+                let hit = OBJECT_REGISTRY.with_object(member_id, |member_guard| {
                     let Some(body) = member_guard.get_body_module() else {
                         return false;
                     };
@@ -221,13 +225,7 @@ impl ScriptEvaluator {
                     let attacker_id = last.input.source_id;
                     OBJECT_REGISTRY
                         .with_object(attacker_id, |attacker_guard| {
-                            let Some(attacker_player) = attacker_guard.get_controlling_player() else {
-                                return false;
-                            };
-                            Arc::ptr_eq(
-                                &attacker_player,
-                                target_player.as_ref().expect("checked above"),
-                            )
+                            attacker_guard.get_controlling_player() == target_player
                         })
                         .unwrap_or(false)
                 });

@@ -1268,8 +1268,8 @@ impl AutoHealBehavior {
                             if team == healer_team {
                                 return true;
                             }
-                            crate::team::factory_access::with_team(team, |team_guard| {
-                                crate::team::factory_access::with_team(healer_team, |healer| {
+                            crate::team::with_team(team, |team_guard| {
+                                crate::team::with_team(healer_team, |healer| {
                                     healer.get_relationship(team_guard)
                                         == crate::common::Relationship::Allies
                                 })

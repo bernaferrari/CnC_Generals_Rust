@@ -515,23 +515,14 @@ impl DozerAIUpdate {
             crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
                 guard.get_controlling_player_id()
             });
-        let is_ai = if let Some(player_id) = player_id {
-            if let Ok(list) = player_list().read() {
-                if let Some(player) = list.get_player(player_id as i32) {
-                    if let Ok(player_guard) = player.read() {
-                        player_guard.is_skirmish_ai()
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+        let is_ai = player_id
+            .map(|player_id| {
+                crate::player::with_player(player_id as i32, |player_guard| {
+                    player_guard.is_skirmish_ai()
+                })
+                .unwrap_or(false)
+            })
+            .unwrap_or(false);
         if is_ai {
             let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
                 range *= ai
@@ -731,9 +722,7 @@ impl DozerAIUpdate {
         }
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ai_idle();
-                }
+                let _ = ai.ai_idle();
             }
         });
     }
@@ -864,21 +853,22 @@ impl DozerAIUpdate {
                     // C++ privateResumeConstruction -> newTask(DOZER_TASK_BUILD) uses
                     // calcTimeToBuild(player), not the raw template frames.
                     let player = owner_guard.get_controlling_player();
-                    let frames = if let Some(player) = player.as_ref() {
-                        if let Ok(player_guard) = player.read() {
+                    let frames = if let Some(player) = player {
+                        crate::player::with_player(player, |player_guard| {
                             target_guard
                                 .get_template()
-                                .calc_time_to_build(Some(&*player_guard))
+                                .calc_time_to_build(Some(player_guard))
                                 .max(1) as u32
-                        } else {
+                        })
+                        .unwrap_or_else(|| {
                             target_guard.get_template().calc_time_to_build(None).max(1) as u32
-                        }
+                        })
                     } else {
                         target_guard.get_template().calc_time_to_build(None).max(1) as u32
                     };
                     let max_health = target_guard
                         .get_body_module()
-                        .and_then(|body| body.lock().ok().map(|g| g.get_max_health()))
+                        .map(|body| body.get_max_health())
                         .unwrap_or(0.0);
                     Some((frames, max_health))
                 })
@@ -976,9 +966,7 @@ impl DozerAIUpdate {
             target_guard.set_construction_percent(crate::object::CONSTRUCTION_COMPLETE);
 
             if let Some(body) = target_guard.get_body_module() {
-                if let Ok(mut body_guard) = body.lock() {
-                    let _ = body_guard.evaluate_visual_condition();
-                }
+                let _ = body.evaluate_visual_condition();
             }
 
             let template = target_guard.get_template();
@@ -1043,37 +1031,35 @@ impl DozerAIUpdate {
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*owner, |owner_guard| {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let mut end_pos = self
-                        .get_dock_point(self.current_task, DozerDockPoint::End)
-                        .unwrap_or(*owner_guard.get_position());
-                    let start = *owner_guard.get_position();
-                    let is_crusher = owner_guard.get_crusher_level() > 0;
-                    let radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
-                    if let Some(loco_set) = ai_guard.get_locomotor_set_clone() {
-                        let surfaces = loco_set.get_valid_surfaces();
-                        let ai_store = crate::ai::the_ai();
-                        if let Ok(ai_sys) = ai_store.read() {
-                            if let Some(pf_arc) = ai_sys.pathfinder() {
-                                if let Ok(pf) = pf_arc.read() {
-                                    let _ = pf.adjust_to_possible_destination(
-                                        &start,
-                                        &mut end_pos,
-                                        surfaces,
-                                        is_crusher,
-                                        radius,
-                                    );
-                                }
+                let mut end_pos = self
+                    .get_dock_point(self.current_task, DozerDockPoint::End)
+                    .unwrap_or(*owner_guard.get_position());
+                let start = *owner_guard.get_position();
+                let is_crusher = owner_guard.get_crusher_level() > 0;
+                let radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
+                if let Some(loco_set) = ai.get_locomotor_set_clone() {
+                    let surfaces = loco_set.get_valid_surfaces();
+                    let ai_store = crate::ai::the_ai();
+                    if let Ok(ai_sys) = ai_store.read() {
+                        if let Some(pf_arc) = ai_sys.pathfinder() {
+                            if let Ok(pf) = pf_arc.read() {
+                                let _ = pf.adjust_to_possible_destination(
+                                    &start,
+                                    &mut end_pos,
+                                    surfaces,
+                                    is_crusher,
+                                    radius,
+                                );
                             }
                         }
                     }
-                    let mut params = crate::ai::AiCommandParams::new(
-                        crate::ai::AiCommandType::MoveToPosition,
-                        crate::ai::CommandSourceType::FromAi,
-                    );
-                    params.pos = end_pos;
-                    let _ = ai_guard.execute_command(&params);
                 }
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::MoveToPosition,
+                    crate::ai::CommandSourceType::FromAi,
+                );
+                params.pos = end_pos;
+                let _ = ai.execute_command(&params);
             }
         });
     }
@@ -1169,7 +1155,7 @@ impl DozerAIUpdate {
                 let target_body = target_guard.get_body_module();
                 let target_body_max = target_body
                     .as_ref()
-                    .and_then(|body| body.lock().ok().map(|guard| guard.get_max_health()))
+                    .map(|body| body.get_max_health())
                     .unwrap_or(0.0);
                 (
                     *owner_guard.get_position(),
@@ -1230,9 +1216,7 @@ impl DozerAIUpdate {
                 if dist_sq <= MIN_ACTION_TOLERANCE * MIN_ACTION_TOLERANCE {
                     self.action_state = DozerActionState::DoAction;
                 } else if let Some(ai) = owner_ai_update.as_ref() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_movement_target(&dock_pos);
-                    }
+                    let _ = ai.set_movement_target(&dock_pos);
                 }
             }
             DozerActionState::DoAction => match task.task_type {
@@ -1262,10 +1246,8 @@ impl DozerAIUpdate {
                     }
                     let already_full = crate::object::registry::OBJECT_REGISTRY
                         .with_object(task.target_id, |guard| {
-                            guard.get_body_module().and_then(|body| {
-                                body.lock()
-                                    .ok()
-                                    .map(|body| body.get_health() == body.get_max_health())
+                            guard.get_body_module().map(|body| {
+                                body.get_health() == body.get_max_health()
                             })
                         })
                         .flatten()
@@ -1327,16 +1309,17 @@ impl DozerAIUpdate {
                         .flatten();
                     let frames = crate::object::registry::OBJECT_REGISTRY
                         .with_object(task.target_id, |target_guard| {
-                            if let Some(player) = player.as_ref() {
-                                if let Ok(player_guard) = player.read() {
+                            if let Some(player) = player {
+                                crate::player::with_player(player, |player_guard| {
                                     target_guard
                                         .get_template()
-                                        .calc_time_to_build(Some(&*player_guard))
+                                        .calc_time_to_build(Some(player_guard))
                                         .max(1) as u32
-                                } else {
+                                })
+                                .unwrap_or_else(|| {
                                     target_guard.get_template().calc_time_to_build(None).max(1)
                                         as u32
-                                }
+                                })
                             } else {
                                 target_guard.get_template().calc_time_to_build(None).max(1) as u32
                             }
@@ -1434,10 +1417,7 @@ impl DozerAIUpdate {
         }
 
         for behavior in tower.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(interface) = guard.get_bridge_tower_behavior_interface() {
+            if let Some(interface) = behavior.get_bridge_tower_behavior_interface() {
                 return interface.get_bridge_id();
             }
         }
@@ -1462,10 +1442,7 @@ impl DozerAIUpdate {
             return false;
         };
         for behavior in behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
+            if let Some(interface) = behavior.get_bridge_behavior_interface() {
                 interface.create_scaffolding();
                 return interface.is_scaffold_in_motion();
             }
@@ -1498,10 +1475,7 @@ impl DozerAIUpdate {
             return;
         };
         for behavior in behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
+            if let Some(interface) = behavior.get_bridge_behavior_interface() {
                 interface.remove_scaffolding();
                 break;
             }
@@ -1605,10 +1579,7 @@ impl DozerAIUpdate {
         }
 
         for behavior in target.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(interface) = guard.get_bridge_behavior_interface() {
+            if let Some(interface) = behavior.get_bridge_behavior_interface() {
                 let mut ids = Vec::new();
                 for tower_type in [
                     BridgeTowerType::North,

@@ -411,7 +411,7 @@ impl ClassicState for AIFollowPathState {
                             crate::ai::with_ai_group_mut(group_id, |group| group.get_speed())
                         {
                             if let Some(ai) = owner_guard.get_ai_update_interface() {
-                                if let Ok(mut ai_guard) = ai.lock() {
+                                { let ai_guard = ai;
                                     ai_guard.set_desired_speed(group_speed);
                                 }
                             }
@@ -421,7 +421,7 @@ impl ClassicState for AIFollowPathState {
             });
             let configured = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
+                    { let ai_guard = ai;
                         return self.configure_segment(owner_guard, &mut *ai_guard, false);
                     }
                 }

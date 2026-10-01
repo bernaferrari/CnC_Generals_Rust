@@ -344,22 +344,27 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
         })?;
 
         let teams = factory_guard.find_team_instances(&team_name);
-        for team_arc in &teams {
-            let team_id = team_arc;
-let team_missing = crate::team::factory_access::with_team(team_id, |team| {
-            if !team.has_any_objects() {
-                return Ok(false);
-            }
-            // Check that at least one member is alive
-            for &member_id in team.get_members() {
-                let alive = OBJECT_REGISTRY
-                    .with_object(member_id, |obj| {
-                        !obj.is_effectively_dead() && !obj.is_destroyed()
-                    })
-                    .unwrap_or(false);
-                if alive {
-                    return Ok(true);
+        for team_id in &teams {
+            let outcome = crate::team::with_team(*team_id, |team| {
+                if !team.has_any_objects() {
+                    return 0u8;
                 }
+                for &member_id in team.get_members() {
+                    let alive = OBJECT_REGISTRY
+                        .with_object(member_id, |obj| {
+                            !obj.is_effectively_dead() && !obj.is_destroyed()
+                        })
+                        .unwrap_or(false);
+                    if alive {
+                        return 1;
+                    }
+                }
+                2
+            });
+            match outcome {
+                Some(0) => return Ok(false),
+                Some(1) => return Ok(true),
+                _ => {}
             }
         }
         Ok(false)
@@ -871,27 +876,30 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
             return Ok(true); // No teams = vacuously true
         }
 
-        for team_arc in &teams {
-            let team_id = team_arc;
-let team_missing = crate::team::factory_access::with_team(team_id, |team| {
-            let members = team.get_members();
-            if members.is_empty() {
-                continue;
-            }
-
-            for &member_id in members {
-                let garrisoned_or_dead = OBJECT_REGISTRY
-                    .with_object(member_id, |obj| {
-                        if obj.is_effectively_dead() || obj.is_destroyed() {
-                            return true; // Dead units don't need to be garrisoned
-                        }
-                        // Check if the object is disabled by Held type (garrisoned)
-                        obj.is_disabled_by_type(crate::common::DisabledType::Held)
-                    })
-                    .unwrap_or(true); // Object not in registry - assume dead, skip
-                if !garrisoned_or_dead {
-                    return Ok(false);
+        for team_id in &teams {
+            let ungarrisoned = crate::team::with_team(*team_id, |team| {
+                let members = team.get_members();
+                if members.is_empty() {
+                    return false;
                 }
+                for &member_id in members {
+                    let garrisoned_or_dead = OBJECT_REGISTRY
+                        .with_object(member_id, |obj| {
+                            if obj.is_effectively_dead() || obj.is_destroyed() {
+                                return true;
+                            }
+                            obj.is_disabled_by_type(crate::common::DisabledType::Held)
+                        })
+                        .unwrap_or(true);
+                    if !garrisoned_or_dead {
+                        return true;
+                    }
+                }
+                false
+            })
+            .unwrap_or(false);
+            if ungarrisoned {
+                return Ok(false);
             }
         }
         Ok(true)
@@ -1142,25 +1150,30 @@ impl ScriptCondition for SkirmishTeamNearPositionCondition {
         })?;
 
         let teams = factory_guard.find_team_instances(&team_name);
-        for team_arc in &teams {
-            let team_id = team_arc;
-let team_missing = crate::team::factory_access::with_team(team_id, |team| {
-            for &member_id in team.get_members() {
-                let near = OBJECT_REGISTRY
-                    .with_object(member_id, |obj| {
-                        if obj.is_effectively_dead() || obj.is_destroyed() {
-                            return false;
-                        }
-                        let pos = obj.get_position();
-                        let dx = pos.x - center.x;
-                        let dy = pos.y - center.y;
-                        let dist = (dx * dx + dy * dy).sqrt();
-                        dist <= radius
-                    })
-                    .unwrap_or(false);
-                if near {
-                    return Ok(true);
+        for team_id in &teams {
+            let near = crate::team::with_team(*team_id, |team| {
+                for &member_id in team.get_members() {
+                    let near = OBJECT_REGISTRY
+                        .with_object(member_id, |obj| {
+                            if obj.is_effectively_dead() || obj.is_destroyed() {
+                                return false;
+                            }
+                            let pos = obj.get_position();
+                            let dx = pos.x - center.x;
+                            let dy = pos.y - center.y;
+                            let dist = (dx * dx + dy * dy).sqrt();
+                            dist <= radius
+                        })
+                        .unwrap_or(false);
+                    if near {
+                        return true;
+                    }
                 }
+                false
+            })
+            .unwrap_or(false);
+            if near {
+                return Ok(true);
             }
         }
         Ok(false)

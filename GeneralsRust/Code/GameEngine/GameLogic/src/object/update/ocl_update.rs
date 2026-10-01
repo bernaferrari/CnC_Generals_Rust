@@ -13,7 +13,6 @@ use crate::modules::{
 use crate::object::Object;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object_creation_list::live_creation_context;
-use crate::player::PlayerArcExt;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};

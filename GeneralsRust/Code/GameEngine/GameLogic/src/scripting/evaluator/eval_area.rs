@@ -99,14 +99,14 @@ impl ScriptEvaluator {
                 .unwrap_or(false));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(matched) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.some_inside_some_outside(&trigger, which_to_consider)
+                    || team_guard.all_inside(&trigger, which_to_consider)
+            }) else {
                 continue;
             };
-
-            if team_guard.some_inside_some_outside(&trigger, which_to_consider)
-                || team_guard.all_inside(&trigger, which_to_consider)
-            {
+            if matched {
                 return Ok(true);
             }
         }
@@ -156,12 +156,13 @@ impl ScriptEvaluator {
                 .unwrap_or(false));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(matched) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.all_inside(&trigger, which_to_consider)
+            }) else {
                 continue;
             };
-
-            if team_guard.all_inside(&trigger, which_to_consider) {
+            if matched {
                 return Ok(true);
             }
         }
@@ -310,16 +311,13 @@ impl ScriptEvaluator {
                 .unwrap_or(false));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(matched) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.did_enter_or_exit() && team_guard.did_all_enter(&trigger, which_to_consider)
+            }) else {
                 continue;
             };
-
-            if !team_guard.did_enter_or_exit() {
-                continue;
-            }
-
-            if team_guard.did_all_enter(&trigger, which_to_consider) {
+            if matched {
                 return Ok(true);
             }
         }
@@ -367,12 +365,13 @@ impl ScriptEvaluator {
                 .unwrap_or(false));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(matched) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.did_partial_enter(&trigger, which_to_consider)
+            }) else {
                 continue;
             };
-
-            if team_guard.did_partial_enter(&trigger, which_to_consider) {
+            if matched {
                 return Ok(true);
             }
         }
@@ -420,16 +419,13 @@ impl ScriptEvaluator {
                 .unwrap_or(false));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(matched) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.did_enter_or_exit() && team_guard.did_all_exit(&trigger, which_to_consider)
+            }) else {
                 continue;
             };
-
-            if !team_guard.did_enter_or_exit() {
-                continue;
-            }
-
-            if team_guard.did_all_exit(&trigger, which_to_consider) {
+            if matched {
                 return Ok(true);
             }
         }
@@ -477,12 +473,13 @@ impl ScriptEvaluator {
                 .unwrap_or(false));
         }
 
-        for team_arc in self.resolve_team_instances(&team_name) {
-            let Ok(team_guard) = team_arc.read() else {
+        for team_id in self.resolve_team_instances(&team_name) {
+            let Some(matched) = crate::team::with_team(team_id, |team_guard| {
+                team_guard.did_partial_exit(&trigger, which_to_consider)
+            }) else {
                 continue;
             };
-
-            if team_guard.did_partial_exit(&trigger, which_to_consider) {
+            if matched {
                 return Ok(true);
             }
         }

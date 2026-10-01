@@ -492,15 +492,11 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let Some(ai) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
-            owner.get_ai_update_interface()
-        }).flatten() else {
-            return;
-        };
-        let Ok(mut ai_guard) = ai.lock() else {
-            return;
-        };
-        let _ = ai_guard.set_allow_invalid_position(allow);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            if let Some(ai) = owner.get_ai_update_interface() {
+                let _ = ai.set_allow_invalid_position(allow);
+            }
+        });
     }
 
     fn ai_set_ultra_accurate(&self, ultra: Bool) {
@@ -509,15 +505,11 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let Some(ai) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
-            owner.get_ai_update_interface()
-        }).flatten() else {
-            return;
-        };
-        let Ok(mut ai_guard) = ai.lock() else {
-            return;
-        };
-        let _ = ai_guard.set_ultra_accurate(ultra);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            if let Some(ai) = owner.get_ai_update_interface() {
+                let _ = ai.set_ultra_accurate(ultra);
+            }
+        });
     }
 
     fn ai_is_moving(&self) -> bool {
@@ -530,9 +522,8 @@ impl DeliverPayloadAIUpdate {
             .with_object(self.owner_id, |owner| {
                 owner
                     .get_ai_update_interface()
-                    .and_then(|ai| ai.lock().ok().map(|guard| guard.is_moving()))
+                    .map(|ai| ai.is_moving())
             })
-            .flatten()
             .unwrap_or(false)
     }
 
@@ -546,9 +537,8 @@ impl DeliverPayloadAIUpdate {
             .with_object(self.owner_id, |owner| {
                 owner
                     .get_ai_update_interface()
-                    .and_then(|ai| ai.lock().ok().map(|guard| guard.is_idle()))
+                    .map(|ai| ai.is_idle())
             })
-            .flatten()
             .unwrap_or(false)
     }
 
@@ -570,11 +560,7 @@ impl DeliverPayloadAIUpdate {
         let (Some(body), Some(ai)) = (body, ai) else {
             return 999999.0;
         };
-        let Ok(body_guard) = body.lock() else {
-            return 999999.0;
-        };
-        let condition = Self::to_locomotor_damage(body_guard.get_damage_state());
-        drop(body_guard);
+        let condition = Self::to_locomotor_damage(body.get_damage_state());
         let mut min_turn_radius = None;
         let mut travel = None;
         ai.with_cur_locomotor(&mut |loco| {
@@ -962,14 +948,14 @@ impl DeliverPayloadAIUpdate {
                         ) {
                             let factory = TheThingFactory::get();
                             if let Ok(factory) = factory {
-                                if let Some(team) = owner_guard
-                                    .get_controlling_player()
-                                    .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
-                                {
-                                    let Ok(team_guard) = team.read() else {
-                                        continue;
-                                    };
-                                    if let Ok(payload) = factory.new_object(template, &*team_guard)
+                                let team_id = owner_guard.get_controlling_player().and_then(|player_index| {
+                                    crate::player::with_player(player_index, |p| p.get_default_team_id())
+                                }).flatten().flatten();
+                                if let Some(team_id) = team_id {
+                                    let created = crate::team::with_team(team_id, |team_guard| {
+                                        factory.new_object(template, team_guard).ok()
+                                    }).flatten();
+                                    if let Some(payload) = created
                                     {
                                         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(payload, |payload_guard| {
                                             payload_guard.set_producer(Some(owner_guard));

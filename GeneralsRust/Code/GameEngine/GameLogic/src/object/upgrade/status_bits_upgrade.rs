@@ -846,8 +846,7 @@ mod tests {
 
     #[test]
     fn player_upgrade_completion_fans_out_to_existing_object_modules() {
-        use crate::player::PlayerArcExt;
-
+        
         // C++ Player.cpp:3034-3039 + 3054-3081 — Player::addUpgrade(COMPLETE)
         // ends with onUpgradeCompleted, walking every player object so
         // StatusBits/UpgradeModules on EXISTING units re-check immediately.

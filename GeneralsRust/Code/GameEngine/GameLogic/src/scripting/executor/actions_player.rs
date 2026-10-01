@@ -22,11 +22,7 @@ impl ScriptActionDispatcher {
             },
         );
 
-        let object_ids = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.find_player_by_name(&player_name))
-            .and_then(|player| player.read().ok().map(|p| p.get_all_objects()))
+        let object_ids = crate::player::with_player_named(&player_name, |player| player.get_all_objects())
             .unwrap_or_default();
 
         let frame = TheGameLogic::get_frame();
@@ -74,13 +70,9 @@ impl ScriptActionDispatcher {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Disabling base construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_base(false);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_can_build_base(false);
+        });
         crate::scripting::executor::request_host_can_build(
             crate::scripting::executor::HostScriptCanBuildRequest::Base {
                 player: player_name,
@@ -103,13 +95,9 @@ impl ScriptActionDispatcher {
             player_name
         );
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_objects_enabled(&object_name, false);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_objects_enabled(&object_name, false);
+        });
         crate::scripting::executor::request_host_can_build(
             crate::scripting::executor::HostScriptCanBuildRequest::Factories {
                 player: player_name,
@@ -128,13 +116,9 @@ impl ScriptActionDispatcher {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Disabling unit construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_units(false);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_can_build_units(false);
+        });
         crate::scripting::executor::request_host_can_build(
             crate::scripting::executor::HostScriptCanBuildRequest::Units {
                 player: player_name,
@@ -152,13 +136,9 @@ impl ScriptActionDispatcher {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Enabling base construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_base(true);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_can_build_base(true);
+        });
         crate::scripting::executor::request_host_can_build(
             crate::scripting::executor::HostScriptCanBuildRequest::Base {
                 player: player_name,
@@ -177,13 +157,9 @@ impl ScriptActionDispatcher {
         let object_name = self.get_string_param(action, 1)?;
         log::debug!("Enabling factories '{}' for '{}'", object_name, player_name);
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_objects_enabled(&object_name, true);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_objects_enabled(&object_name, true);
+        });
         crate::scripting::executor::request_host_can_build(
             crate::scripting::executor::HostScriptCanBuildRequest::Factories {
                 player: player_name,
@@ -202,13 +178,9 @@ impl ScriptActionDispatcher {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Enabling unit construction for '{}'", player_name);
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_units(true);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_can_build_units(true);
+        });
         crate::scripting::executor::request_host_can_build(
             crate::scripting::executor::HostScriptCanBuildRequest::Units {
                 player: player_name,
@@ -239,43 +211,25 @@ impl ScriptActionDispatcher {
             to_player
         );
 
-        let (source_player, dest_player) = if let Ok(players) = player_list().read() {
-            (
-                players.find_player_by_name(&from_player),
-                players.find_player_by_name(&to_player),
-            )
-        } else {
-            (None, None)
-        };
-        let (Some(source_player), Some(dest_player)) = (source_player, dest_player) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let destination_team = dest_player
-            .read()
-            .ok()
-            .and_then(|player| player.get_default_team());
+        let destination_team = crate::player::with_player_named(&to_player, |player| player.get_default_team())
+            .flatten();
         let Some(destination_team) = destination_team else {
             return Ok(ScriptActionResult::Success);
         };
 
-        let source_object_ids = source_player
-            .read()
-            .ok()
-            .map(|player| player.get_all_objects())
+        let source_object_ids = crate::player::with_player_named(&from_player, |player| player.get_all_objects())
             .unwrap_or_default();
 
-        let source_money = if let Ok(mut src_guard) = source_player.write() {
-            let amount = src_guard.get_money().get_money();
-            src_guard.get_money_mut().set_money(0);
+        let source_money = crate::player::with_player_named_mut(&from_player, |player| {
+            let amount = player.get_money().get_money();
+            player.get_money_mut().set_money(0);
             amount
-        } else {
-            0
-        };
+        })
+        .unwrap_or(0);
         if source_money != 0 {
-            if let Ok(mut dst_guard) = dest_player.write() {
-                dst_guard.get_money_mut().add_money(source_money);
-            }
+            let _ = crate::player::with_player_named_mut(&to_player, |player| {
+                player.get_money_mut().add_money(source_money);
+            });
         }
 
         for object_id in source_object_ids {
@@ -305,22 +259,11 @@ impl ScriptActionDispatcher {
             relation
         );
 
-        let (source_player, target_player_index) = if let Ok(players) = player_list().read() {
-            (
-                players.find_player_by_name(&player1),
-                players
-                    .find_player_by_name(&player2)
-                    .and_then(|player| player.read().ok().map(|player| player.get_player_index())),
-            )
-        } else {
-            (None, None)
-        };
-        if let (Some(source_player), Some(target_player_index)) =
-            (source_player, target_player_index)
-        {
-            if let Ok(mut source_guard) = source_player.write() {
-                source_guard.set_player_relationship_by_index(target_player_index, relationship);
-            }
+        let target_player_index = crate::player::with_player_named(&player2, |player| player.get_player_index());
+        if let Some(target_player_index) = target_player_index {
+            let _ = crate::player::with_player_named_mut(&player1, |player| {
+                player.set_player_relationship_by_index(target_player_index, relationship);
+            });
         }
 
         request_host_player_relates(HostScriptPlayerRelatesRequest {
@@ -347,22 +290,14 @@ impl ScriptActionDispatcher {
             relation
         );
 
-        let player_arc = if let Ok(players) = player_list().read() {
-            players.find_player_by_name(&player_name)
-        } else {
-            None
-        };
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
-            factory.find_team(&team_name)
-        } else {
-            None
-        };
-        if let (Some(player_arc), Some(team_arc)) = (player_arc, team_arc) {
-            if let Ok(team_guard) = team_arc.read() {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_team_relationship(&team_guard, relationship);
-                }
-            };
+        let team_id = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name));
+        if let Some(team_id) = team_id {
+            let _ = crate::player::with_player_named_mut(&player_name, |player| {
+                player.set_team_relationship_by_id(team_id, relationship);
+            });
         }
 
         crate::scripting::request_host_team_override_relation(
@@ -388,22 +323,16 @@ impl ScriptActionDispatcher {
             team_name
         );
 
-        let player_arc = if let Ok(players) = player_list().read() {
-            players.find_player_by_name(&player_name)
-        } else {
-            None
-        };
-        let team_arc = if let Ok(mut factory) = get_team_factory().lock() {
-            factory.find_team(&team_name)
-        } else {
-            None
-        };
-        if let (Some(player_arc), Some(team_arc)) = (player_arc, team_arc) {
-            if let Ok(team_guard) = team_arc.read() {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    let _ = player_guard.remove_team_relationship(&team_guard);
-                }
-            };
+        let team_id = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name));
+        if let Some(team_id) = team_id {
+            let _ = crate::player::with_player_named_mut(&player_name, |player| {
+                let _ = crate::team::with_team(team_id, |team| {
+                    let _ = player.remove_team_relationship(team);
+                });
+            });
         }
 
         crate::scripting::request_host_team_override_relation(
@@ -431,11 +360,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let object_ids = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.find_player_by_name(&player_name))
-            .and_then(|player| player.read().ok().map(|p| p.get_all_objects()))
+        let object_ids = crate::player::with_player_named(&player_name, |player| player.get_all_objects())
             .unwrap_or_default();
 
         for object_id in object_ids {
@@ -477,11 +402,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let object_ids = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.find_player_by_name(&player_name))
-            .and_then(|player| player.read().ok().map(|p| p.get_all_objects()))
+        let object_ids = crate::player::with_player_named(&player_name, |player| player.get_all_objects())
             .unwrap_or_default();
 
         for object_id in object_ids {
@@ -527,16 +448,13 @@ impl ScriptActionDispatcher {
         let points = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} skill points", player_name, points);
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.add_skill_points(points);
-                    log::info!("Player '{}' skill points added", player_name);
-                }
-            } else {
-                log::warn!("Player '{}' not found for add skill points", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            player.add_skill_points(points);
+            log::info!("Player '{}' skill points added", player_name);
+        })
+        .is_none()
+        {
+            log::warn!("Player '{}' not found for add skill points", player_name);
         }
 
         crate::scripting::executor::request_host_rank(HostScriptRankRequest::AddSkillPoints {
@@ -555,21 +473,18 @@ impl ScriptActionDispatcher {
         let levels = self.get_int_param(action, 1)?;
         log::info!("Player '{}' adding {} rank levels", player_name, levels);
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    let current_level = player_guard.get_rank_level();
-                    player_guard.set_rank_level(current_level + levels);
-                    log::info!(
-                        "Player '{}' rank level now {}",
-                        player_name,
-                        current_level + levels
-                    );
-                }
-            } else {
-                log::warn!("Player '{}' not found for add rank level", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            let current_level = player.get_rank_level();
+            player.set_rank_level(current_level + levels);
+            log::info!(
+                "Player '{}' rank level now {}",
+                player_name,
+                current_level + levels
+            );
+        })
+        .is_none()
+        {
+            log::warn!("Player '{}' not found for add rank level", player_name);
         }
 
         crate::scripting::executor::request_host_rank(HostScriptRankRequest::AddRankLevel {
@@ -588,16 +503,13 @@ impl ScriptActionDispatcher {
         let level = self.get_int_param(action, 1)?;
         log::info!("Player '{}' setting rank level to {}", player_name, level);
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_rank_level(level);
-                    log::info!("Player '{}' rank level set to {}", player_name, level);
-                }
-            } else {
-                log::warn!("Player '{}' not found for set rank level", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_rank_level(level);
+            log::info!("Player '{}' rank level set to {}", player_name, level);
+        })
+        .is_none()
+        {
+            log::warn!("Player '{}' not found for set rank level", player_name);
         }
 
         crate::scripting::executor::request_host_rank(HostScriptRankRequest::SetRankLevel {
@@ -645,14 +557,12 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    let _ = player_guard.attempt_to_purchase_science(science_type);
-                };
-            } else {
-                log::warn!("Player '{}' not found for purchase science", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            let _ = player.attempt_to_purchase_science(science_type);
+        })
+        .is_none()
+        {
+            log::warn!("Player '{}' not found for purchase science", player_name);
         }
         crate::scripting::executor::request_host_science_action(&player_name, &science_name, false);
 
@@ -683,14 +593,12 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.repair_structure(structure_id);
-                };
-            } else {
-                log::warn!("Player '{}' not found for repair structure", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            player.repair_structure(structure_id);
+        })
+        .is_none()
+        {
+            log::warn!("Player '{}' not found for repair structure", player_name);
         }
 
         Ok(ScriptActionResult::Success)
@@ -708,13 +616,9 @@ impl ScriptActionDispatcher {
             modifier
         );
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_skill_points_modifier(modifier);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_skill_points_modifier(modifier);
+        });
 
         crate::scripting::executor::request_host_rank(
             HostScriptRankRequest::AffectReceivingExperience {
@@ -738,13 +642,9 @@ impl ScriptActionDispatcher {
             },
         );
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_list_in_score_screen(false);
-                }
-            }
-        }
+        let _ = crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_list_in_score_screen(false);
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -786,17 +686,15 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_science_availability(science_type, availability_type);
-                };
-            } else {
-                log::warn!(
-                    "Player '{}' not found for science availability",
-                    player_name
-                );
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            player.set_science_availability(science_type, availability_type);
+        })
+        .is_none()
+        {
+            log::warn!(
+                "Player '{}' not found for science availability",
+                player_name
+            );
         }
 
         Ok(ScriptActionResult::Success)
@@ -807,7 +705,7 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let player_name = self.resolve_player_name_token(&self.get_string_param(action, 0)?);
-        let mut skillset = self.get_int_param(action, 1)?;
+        let skillset = self.get_int_param(action, 1)?;
         log::debug!("Player '{}' selecting skillset {}", player_name, skillset);
         crate::scripting::executor::request_host_script_player_misc(
             crate::scripting::executor::HostScriptPlayerMiscRequest::SelectSkillset {
@@ -816,16 +714,13 @@ impl ScriptActionDispatcher {
             },
         );
 
-        if let Ok(list_guard) = player_list().read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    // Script uses 1-based skillset numbering; AI uses zero-based.
-                    skillset -= 1;
-                    player_guard.friend_set_skillset(skillset);
-                };
-            } else {
-                log::warn!("Player '{}' not found for select skillset", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player| {
+            // Script uses 1-based skillset numbering; AI uses zero-based.
+            player.friend_set_skillset(skillset - 1);
+        })
+        .is_none()
+        {
+            log::warn!("Player '{}' not found for select skillset", player_name);
         }
 
         Ok(ScriptActionResult::Success)

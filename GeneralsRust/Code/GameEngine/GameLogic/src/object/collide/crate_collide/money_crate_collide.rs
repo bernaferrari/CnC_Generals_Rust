@@ -665,7 +665,7 @@ impl MoneyCrateCollideFactory {
 mod tests {
     use super::*;
     use crate::object::Object;
-    use crate::player::{Player, PlayerArcExt, player_list};
+    use crate::player::{Player, player_list};
     use crate::upgrade::{UpgradeStatus, center::with_upgrade_center_mut};
     use std::sync::RwLock;
 

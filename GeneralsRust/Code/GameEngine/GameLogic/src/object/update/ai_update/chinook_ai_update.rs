@@ -979,7 +979,7 @@ impl ChinookAIUpdate {
             rope.rappeller_ids.retain(|id| {
                 crate::object::registry::OBJECT_REGISTRY
                     .with_object(*id, |rappeller_guard| {
-                        __omp_shell("rappeller_guard.is_effectively_dead() && rappeller_guard.is_above_terrain()")
+                        !rappeller_guard.is_effectively_dead() && rappeller_guard.is_above_terrain()
                     })
                     .unwrap_or(false)
             });

@@ -497,13 +497,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .behavior_mut()
@@ -520,13 +516,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .behavior_mut()
@@ -543,13 +535,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .behavior_mut()
@@ -578,13 +566,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .behavior_mut()
@@ -741,13 +725,9 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .cancel_upgrade_by_name(upgrade_name, &mut refund)
@@ -765,13 +745,9 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .cancel_unit_by_template_name(template_name, &mut refund)
@@ -789,13 +765,9 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if credits <= 0 {
                         return;
                     }
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(player_id as i32) {
-                            if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
-                            }
-                        }
-                    }
+                    let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                        player.get_money_mut().add_money(credits);
+                    });
                 };
                 module
                     .cancel_unit_by_production_id(production_id, &mut refund)
@@ -1486,11 +1458,10 @@ impl ExitInterface for ObjectExitInterface<'_> {
         match self {
             Self::Module(proxy) => proxy.exit(object_id),
             Self::Contain(_) => {
-                let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
+                if !TheGameLogic::find_object_by_id(object_id) {
                     return false;
-                };
-                let exit_id = obj.read().map(|g| g.get_id()).unwrap_or(0);
-                self.exit_object_via_door(exit_id, crate::modules::ExitDoorType::Primary)
+                }
+                self.exit_object_via_door(object_id, crate::modules::ExitDoorType::Primary)
                     .is_ok()
             }
         }

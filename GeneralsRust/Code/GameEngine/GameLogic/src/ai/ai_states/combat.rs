@@ -65,9 +65,9 @@ impl AIAttackState {
 
 fn clear_team_target_if_victim(owner: &crate::object::Object, victim_id: ObjectID) {
     if let Some(team_arc) = owner.get_team() {
-        if let Ok(mut team_guard) = team_arc.write() {
-            crate::ai::states::clear_team_target_object_if_victim(&mut team_guard, victim_id);
-        }
+        crate::team::with_team_mut(team_arc, |team_guard| {
+            crate::ai::states::clear_team_target_object_if_victim(team_guard, victim_id);
+        });
     }
 }
 
@@ -107,9 +107,9 @@ impl AIState for AIAttackState {
             // C++ AIAttackFireWeaponState::onEnter seeds AttackCommonTarget (AIStates.cpp:5153-5156).
             let team_arc = OBJECT_REGISTRY.with_object(context.owner_id, |owner| owner.get_team());
             if let Some(Some(team_arc)) = team_arc {
-                if let Ok(mut team_guard) = team_arc.write() {
-                    crate::ai::states::seed_team_target_if_attack_common(&mut team_guard, target_id);
-                }
+                crate::team::with_team_mut(team_arc, |team_guard| {
+                    crate::ai::states::seed_team_target_if_attack_common(team_guard, target_id);
+                });
             }
         } else {
             let Some(pos) = context.goal_position else {

@@ -187,7 +187,7 @@ impl UpdateModuleInterface for CheckpointUpdate {
         let change = (was_an_ally != self.ally_near) || (was_an_enemy != self.enemy_near);
         let open = !self.enemy_near && self.ally_near;
 
-        if crate::object::registry::OBJECT_REGISTRY
+        let _ = crate::object::registry::OBJECT_REGISTRY
             .with_object_mut(self.object_id, |me| {
                 if let Some(draw) = me.get_drawable() {
                     if change {

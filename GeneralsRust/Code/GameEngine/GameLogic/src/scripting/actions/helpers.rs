@@ -316,7 +316,7 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
             crate::player::with_local_player(|p| p.get_default_team_id())
                 .flatten()
                 .and_then(|team_id| {
-                    crate::team::factory_access::with_team(team_id, |t| t.get_name().to_string())
+                    crate::team::with_team(team_id, |t| t.get_name().to_string())
                 })
                 .unwrap_or_else(|| raw.to_string())
         }
@@ -336,7 +336,7 @@ pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<u32>
         })?;
 
     let members =
-        crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec())
+        crate::team::with_team(team_id, |team| team.get_members().to_vec())
             .ok_or_else(|| GameLogicError::Threading("Failed to read Team".to_string()))?;
 
     let ai_store = the_ai();

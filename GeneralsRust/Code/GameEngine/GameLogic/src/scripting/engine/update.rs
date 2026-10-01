@@ -413,7 +413,7 @@ impl ScriptEngine {
 
             if !instances.is_empty() {
                 for team_id in instances {
-                    let team_name = crate::team::factory_access::with_team(team_id, |t| {
+                    let team_name = crate::team::with_team(team_id, |t| {
                         t.get_name().to_string()
                     })
                     .unwrap_or_else(|| condition_team_name.clone());
@@ -893,14 +893,14 @@ impl ScriptEngine {
 
     fn team_ai_status(team_id: crate::team::TeamID) -> (bool, bool) {
         if dual_world_registry_unavailable() {
-            let name = crate::team::factory_access::with_team(team_id, |team| {
+            let name = crate::team::with_team(team_id, |team| {
                 team.get_name().to_string()
             })
             .unwrap_or_default();
             return crate::scripting::host_team_sequential_status(&name);
         }
 
-        let Some((idle, members)) = crate::team::factory_access::with_team(team_id, |team| {
+        let Some((idle, members)) = crate::team::with_team(team_id, |team| {
             (team.is_idle(), team.get_members().to_vec())
         }) else {
             return (false, true);
@@ -928,7 +928,7 @@ impl ScriptEngine {
         let player_id = if let Some(object_id) = object_id {
             OBJECT_REGISTRY.with_object(object_id, |object| object.get_controlling_player_id())?
         } else if let Some(team_id) = team_id {
-            crate::team::factory_access::with_team(team_id, |team| team.get_controlling_player_id())?
+            crate::team::with_team(team_id, |team| team.get_controlling_player_id())?
         } else {
             None
         }?;

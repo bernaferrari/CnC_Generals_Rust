@@ -39,7 +39,7 @@ fn clear_attack_state_on_exit(owner_id: ObjectID) {
     owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
     owner_guard.clear_leech_range_mode_for_all_weapons();
     if let Some(ai) = owner_guard.get_ai_update_interface() {
-        if let Ok(mut ai_guard) = ai.lock() {
+        { let ai_guard = ai;
             ai_guard.set_current_victim(None);
             for turret in [TurretType::Primary, TurretType::Secondary] {
                 ai_guard.set_turret_target_object(turret, None, false);
@@ -1309,7 +1309,7 @@ impl StateImplementation for AITNGuardAttackAggressorState {
         let mut nemesis_id = self.base.get_nemesis_to_attack();
         if let Some(source_id) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             let body = owner_guard.get_body_module()?;
-            let body_guard = body.lock().ok()?;
+            let body_guard = body;
             let info = body_guard.get_last_damage_info()?;
             if info.source_id != crate::common::INVALID_ID { Some(info.source_id) } else { None }
         }).flatten() {
@@ -1454,7 +1454,7 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
         for tunnel_id in container_list {
             let found = reg.with_object(tunnel_id, |tunnel_guard| {
                 if let Some(ai) = tunnel_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
+                    { let ai_guard = ai;
                         let victim_id = ai_guard.get_goal_object_id();
                         if victim_id != crate::common::INVALID_ID {
                             let is_enemy = reg.with_object(victim_id, |victim_guard| {
@@ -1467,7 +1467,7 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
                     }
                 }
                 let body = tunnel_guard.get_body_module()?;
-                let body_guard = body.lock().ok()?;
+                let body_guard = body;
                 let info = body_guard.get_last_damage_info()?;
                 if info.output.no_effect {
                     return None;
@@ -1589,7 +1589,7 @@ fn has_attacked_tn_owner(owner_id: ObjectID) -> bool {
     }
     let Some(last_attacker) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_ref| {
         let body_module = owner_ref.get_body_module()?;
-        let mut body_guard = body_module.lock().ok()?;
+        let mut body_guard = body_module;
         let last_attacker = body_guard.get_clearable_last_attacker();
         if last_attacker == crate::common::INVALID_ID { return None; }
         body_guard.clear_last_attacker();

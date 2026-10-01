@@ -197,9 +197,7 @@ impl AIPlayer {
                     let Some(ai) = obj_guard.get_ai_update_interface() else {
                         return None;
                     };
-                    let Ok(mut ai_guard) = ai.lock() else {
-                        return None;
-                    };
+                    let ai_guard = ai;;
 
                     // Must have dozer AI; capture task flags before optional truck check.
                     let (has_dozer, build_pending, any_pending) =
@@ -366,9 +364,7 @@ impl AIPlayer {
         else {
             return Ok(());
         };
-        let Ok(body_g) = body.lock() else {
-            return Ok(());
-        };
+        let body_g = body;;
         if body_g.get_damage_state() == crate::object::body::BodyDamageType::Pristine {
             return Ok(());
         }

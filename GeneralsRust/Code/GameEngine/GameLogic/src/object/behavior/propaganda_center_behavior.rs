@@ -205,10 +205,11 @@ impl PropagandaCenterBehavior {
 
         let _ = self.prison_behavior.on_delete();
         for &brainwashed_id in &self.brainwashed_list {
-            if let Some(object) = TheGameLogic::find_object_by_id(brainwashed_id) {
-                if let Ok(mut guard) = object.write() {
-                    guard.restore_original_team()?;
-                }
+            if TheGameLogic::find_object_by_id(brainwashed_id) {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    brainwashed_id,
+                    |guard| guard.restore_original_team(),
+                );
             }
         }
         self.brainwashed_list.clear();
@@ -224,81 +225,83 @@ impl PropagandaCenterBehavior {
         let current_frame = TheGameLogic::get_frame();
 
         if self.brainwashing_subject_id != INVALID_ID {
-            let Some(subject_arc) = TheGameLogic::find_object_by_id(self.brainwashing_subject_id)
-            else {
-                self.clear_brainwashing_subject_if_match(self.brainwashing_subject_id);
+            let subject_id = self.brainwashing_subject_id;
+            if !TheGameLogic::find_object_by_id(subject_id) {
+                self.clear_brainwashing_subject_if_match(subject_id);
                 return Ok(());
-            };
+            }
 
             if current_frame.saturating_sub(self.brainwashing_subject_start_frame)
                 >= self.module_data.brainwash_duration
             {
-                let Some(owner_arc) = self.get_object() else {
+                let Some(owner_id) = self.get_object() else {
                     return Ok(());
                 };
 
-                // The exit interface borrows the owner object mutably; player
-                // data is read before that borrow begins. Lock order and the
-                // per-operation exit scope match the pre-migration module
-                // mutex scopes (reserve, then release, then exit).
-                let (exit_door, controlling_player) = {
-                    let Ok(mut owner_guard) = owner_arc.write() else {
-                        return Ok(());
-                    };
-                    let controlling_player = owner_guard.get_controlling_player();
-                    let Some(mut exit_interface) = owner_guard.get_object_exit_interface()
-                    else {
-                        return Ok(());
-                    };
-
-                    let Ok(subject_guard) = subject_arc.read() else {
-                        return Ok(());
-                    };
-                    // The spawner argument is ignored by every ExitInterface
-                    // implementation, so the owner is not aliased against the
-                    // mutable exit borrow.
-                    let exit_door =
-                        exit_interface.reserve_door_for_exit(None, Some(&*subject_guard));
-                    (exit_door, controlling_player)
+                let reserved = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    owner_id,
+                    |owner_guard| {
+                        let controlling_player = owner_guard.get_controlling_player();
+                        let Some(mut exit_interface) = owner_guard.get_object_exit_interface()
+                        else {
+                            return None;
+                        };
+                        let exit_door = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(subject_id, |subject_guard| {
+                                exit_interface.reserve_door_for_exit(None, Some(subject_guard))
+                            })?;
+                        Some((exit_door, controlling_player))
+                    },
+                );
+                let Some((exit_door, controlling_player)) = reserved.flatten() else {
+                    return Ok(());
                 };
 
                 if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
                     return Ok(());
                 }
 
-                if let Some(player_arc) = controlling_player {
-                    if let Ok(player_guard) = player_arc.read() {
-                        if let Some(default_team) = player_guard.get_default_team() {
-                            if let Ok(mut subject_guard) = subject_arc.write() {
-                                subject_guard.set_temporary_team(Some(default_team))?;
-                            }
+                if let Some(player_index) = controlling_player {
+                    if let Some(default_team) = crate::player::with_player(player_index, |player| {
+                        player.get_default_team_id()
+                    })
+                    .flatten()
+                    {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                            subject_id,
+                            |subject_guard| subject_guard.set_temporary_team(Some(default_team)),
+                        );
+                    }
+                }
+
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    subject_id,
+                    |subject_guard| {
+                        if let Some(ai) = subject_guard.get_ai_update_interface_mut() {
+                            ai.set_surrendered(None, false);
                         }
-                    }
-                }
+                    },
+                );
 
-                if let Ok(mut subject_guard) = subject_arc.write() {
-                    if let Some(ai) = subject_guard.get_ai_update_interface_mut() {
-                        ai.set_surrendered(None, false);
-                    }
-                }
-
-                let subject_id = subject_arc.read().map(|guard| guard.get_id()).unwrap_or(0);
                 if subject_id != INVALID_ID && !self.brainwashed_list.contains(&subject_id) {
                     self.brainwashed_list.push(subject_id);
                 }
 
-                if let Ok(mut owner_guard) = owner_arc.write() {
-                    if let Some(mut exit_interface) = owner_guard.get_object_exit_interface() {
-                        let _ = exit_interface.exit_object_via_door(subject_id, exit_door);
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    owner_id,
+                    |owner_guard| {
+                        if let Some(mut exit_interface) = owner_guard.get_object_exit_interface() {
+                            let _ = exit_interface.exit_object_via_door(subject_id, exit_door);
+                        }
+                    },
+                );
             }
         }
 
         if self.brainwashing_subject_id == INVALID_ID {
             if let Some(&first_contained_id) = self.prison_behavior.get_contained_objects().first()
             {
-                if TheGameLogic::find_object_by_id(first_contained_id).is_some() {
+                if TheGameLogic::find_object_by_id(first_contained_id) {
                     self.brainwashing_subject_id = first_contained_id;
                     self.brainwashing_subject_start_frame = current_frame;
                 }

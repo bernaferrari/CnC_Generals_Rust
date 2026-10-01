@@ -22,17 +22,14 @@ impl ScriptActionDispatcher {
 
         log::info!("Setting player '{}' money to {}", player_name, money_amount);
 
-        // Get player by name and set money
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.get_money_mut().set_money(money_amount);
-                    log::info!("Player '{}' money set to {}", player_name, money_amount);
-                }
-            } else {
-                log::warn!("Player '{}' not found for set money", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player_guard| {
+            player_guard.get_money_mut().set_money(money_amount);
+        })
+        .is_some()
+        {
+            log::info!("Player '{}' money set to {}", player_name, money_amount);
+        } else {
+            log::warn!("Player '{}' not found for set money", player_name);
         }
         crate::scripting::executor::request_host_money(
             crate::scripting::executor::HostScriptMoneyRequest::Set {
@@ -54,17 +51,14 @@ impl ScriptActionDispatcher {
 
         log::info!("Giving player '{}' {} money", player_name, money_amount);
 
-        // Get player by name and add money (can be negative)
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.get_money_mut().add_money(money_amount);
-                    log::info!("Player '{}' received {} money", player_name, money_amount);
-                }
-            } else {
-                log::warn!("Player '{}' not found for give money", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player_guard| {
+            player_guard.get_money_mut().add_money(money_amount);
+        })
+        .is_some()
+        {
+            log::info!("Player '{}' received {} money", player_name, money_amount);
+        } else {
+            log::warn!("Player '{}' not found for give money", player_name);
         }
         crate::scripting::executor::request_host_money(
             crate::scripting::executor::HostScriptMoneyRequest::Give {
@@ -104,20 +98,18 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.grant_science(science_type);
-                    log::info!(
-                        "Player '{}' granted science '{}'",
-                        player_name,
-                        science_name
-                    );
-                }
-            } else {
-                log::warn!("Player '{}' not found for grant science", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player_guard| {
+            player_guard.grant_science(science_type);
+        })
+        .is_some()
+        {
+            log::info!(
+                "Player '{}' granted science '{}'",
+                player_name,
+                science_name
+            );
+        } else {
+            log::warn!("Player '{}' not found for grant science", player_name);
         }
         crate::scripting::executor::request_host_science_action(&player_name, &science_name, true);
 
@@ -138,19 +130,19 @@ impl ScriptActionDispatcher {
             player: player_name.clone(),
         });
 
-        let player_arc = {
+        let player_index = {
             let list = player_list();
             let Ok(list_guard) = list.read() else {
                 return Ok(ScriptActionResult::Success);
             };
-            list_guard.find_player_by_name(&player_name).clone()
+            list_guard.find_player_index_by_name(&player_name)
         };
 
         // Drop PlayerList before kill_player: Team::kill_team re-enters the list.
-        if let Some(player_arc) = player_arc {
-            if let Ok(mut player) = player_arc.write() {
+        if let Some(player_index) = player_index {
+            crate::player::with_player_mut(player_index, |player| {
                 player.kill_player();
-            }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -170,16 +162,14 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let list = player_list();
-        if let Ok(list_guard) = list.read() {
-            if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_units_should_hunt(true, CommandSourceType::FromScript);
-                    log::info!("Player '{}' units now hunting", player_name);
-                }
-            } else {
-                log::warn!("Player '{}' not found for hunt", player_name);
-            }
+        if crate::player::with_player_named_mut(&player_name, |player_guard| {
+            player_guard.set_units_should_hunt(true, CommandSourceType::FromScript);
+        })
+        .is_some()
+        {
+            log::info!("Player '{}' units now hunting", player_name);
+        } else {
+            log::warn!("Player '{}' not found for hunt", player_name);
         }
 
         Ok(ScriptActionResult::Success)
@@ -620,15 +610,11 @@ impl ScriptActionDispatcher {
         let Ok(players) = player_list().read() else {
             return Ok(ScriptActionResult::Success);
         };
-        let player_mask = if let Some(player_arc) = players.find_player_by_name(&player_name) {
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
+        let player_mask = if let Some(player) = players.find_player_by_name(&player_name) {
             player.get_player_mask().bits()
         } else {
             players
                 .iter()
-                .filter_map(|player_arc| player_arc.read().ok())
                 .filter(|player| player.get_player_type() == PlayerType::Human)
                 .fold(0u32, |mask, player| mask | player.get_player_mask().bits())
         };
@@ -676,15 +662,11 @@ impl ScriptActionDispatcher {
         let Ok(players) = player_list().read() else {
             return Ok(ScriptActionResult::Success);
         };
-        let player_mask = if let Some(player_arc) = players.find_player_by_name(&player_name) {
-            let Ok(player) = player_arc.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
+        let player_mask = if let Some(player) = players.find_player_by_name(&player_name) {
             player.get_player_mask().bits()
         } else {
             players
                 .iter()
-                .filter_map(|player_arc| player_arc.read().ok())
                 .filter(|player| player.get_player_type() == PlayerType::Human)
                 .fold(0u32, |mask, player| mask | player.get_player_mask().bits())
         };

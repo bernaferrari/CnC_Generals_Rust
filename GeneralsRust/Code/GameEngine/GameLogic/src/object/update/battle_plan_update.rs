@@ -5,7 +5,7 @@
 use crate::object::ObjectArcExt;
 use crate::object::behavior::battle_plan_update::BattlePlanBonuses;
 use crate::object::body::body_module::MaxHealthChangeType;
-use crate::player::{BattlePlanType, PlayerArcExt};
+use crate::player::{BattlePlanType};
 use crate::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

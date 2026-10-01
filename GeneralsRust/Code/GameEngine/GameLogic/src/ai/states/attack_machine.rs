@@ -666,7 +666,7 @@ impl ClassicState for AIAttackAimAtTargetState {
         if let Some(container_id) = owner_guard.get_contained_by() {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
                     if let Some(contain) = container_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
+                        { let contain_guard = contain;
                             if contain_guard.is_enclosing_container_for(&*owner_guard) {
                                 used_contain = true;
                                 if let Some(goal_id) = self.base.get_machine_goal_object_id() {
@@ -702,7 +702,7 @@ impl ClassicState for AIAttackAimAtTargetState {
                 );
             }
             if let Some(ai) = target_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
+                { let ai_guard = ai;
                     ai_guard.add_targeter(owner_guard.get_id(), true);
                     preventing = ai_guard.is_temporarily_preventing_aim_success();
                 }
@@ -748,7 +748,7 @@ impl ClassicState for AIAttackAimAtTargetState {
             if let Some(target_id) = self.base.get_machine_goal_object_id() {
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
                     if let Some(ai) = target_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
+                        { let ai_guard = ai;
                             ai_guard.add_targeter(owner_guard.get_id(), true);
                             preventing = ai_guard.is_temporarily_preventing_aim_success();
                         }
@@ -879,7 +879,7 @@ impl ClassicState for AIAttackAimAtTargetState {
             let prevented = goal_id.and_then(|id| {
                 crate::object::registry::OBJECT_REGISTRY.with_object(id, |target_guard| {
                     if let Some(ai) = target_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
+                        { let ai_guard = ai;
                             ai_guard.add_targeter(owner_guard.get_id(), true);
                             return ai_guard.is_temporarily_preventing_aim_success();
                         }
@@ -1017,9 +1017,9 @@ impl ClassicState for AIAttackFireWeaponState {
         // C++ AIAttackFireWeaponState::onEnter: first shot seeds AttackCommonTarget.
         if let Some(victim_id) = victim_id {
             if let Some(team_arc) = owner_guard.get_team() {
-                if let Ok(mut team_guard) = team_arc.write() {
-                    seed_team_target_if_attack_common(&mut team_guard, victim_id);
-                }
+                crate::team::with_team_mut(team_arc, |team_guard| {
+                    seed_team_target_if_attack_common(team_guard, victim_id);
+                });
             }
         }
 
@@ -2264,7 +2264,7 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
             let keep_following = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 self.base.base.get_machine_goal_object_id().and_then(|id| {
                     crate::object::registry::OBJECT_REGISTRY.with_object(id, |victim_guard| {
-                        __omp_shell("owner_guard.is_kind_of(KindOf::Immobile)")
+                        !owner_guard.is_kind_of(KindOf::Immobile)
                             && !victim_guard.is_kind_of(KindOf::Immobile)
                     })
                 }).flatten().unwrap_or(false)

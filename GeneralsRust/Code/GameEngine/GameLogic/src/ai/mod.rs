@@ -117,9 +117,8 @@ pub fn resolve_attack_priority_info_for_object(owner_id: ObjectID) -> Option<Att
     if priority_set_name.is_empty() {
         let team_name = OBJECT_REGISTRY
             .with_object(owner_id, |object| {
-                let team_arc = object.get_team()?;
-                let team = team_arc.read().ok()?;
-                Some(team.get_name().to_string())
+                let team_id = object.get_team()?;
+                crate::team::with_team(team_id, |team| team.get_name().to_string())
             })
             .flatten();
 
@@ -1571,14 +1570,15 @@ impl AI {
         }
 
         // C++ AI::update — ThePlayerList->UPDATE() after pathfind queue.
-        if let Ok(list) = ThePlayerList().read() {
-            let players: Vec<_> = list.iter().cloned().collect();
-            drop(list);
-            for player in players {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard.update();
-                }
-            }
+        let indices: Vec<i32> = ThePlayerList()
+            .read()
+            .ok()
+            .map(|list| (0..list.get_player_count() as i32).collect())
+            .unwrap_or_default();
+        for index in indices {
+            let _ = crate::player::with_player_mut(index, |player| {
+                player.update();
+            });
         }
         Ok(())
     }

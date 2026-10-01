@@ -982,50 +982,48 @@ impl ProductionUpdateComplete {
             return mods;
         };
 
-        let player_guard = match player.read() {
-            Ok(guard) => guard,
-            Err(_) => return mods,
-        };
-
-        if let Some(name) = template_name {
-            if let Some(template) = TheThingFactory::find_template(name) {
-                mods.handicap_cost_multiplier = player_guard
-                    .get_handicap()
-                    .get_cost_multiplier_for_template(&template);
-                mods.handicap_time_multiplier = player_guard
-                    .get_handicap()
-                    .get_build_time_multiplier_for_template(&template);
-                mods.production_cost_change_percent =
-                    player_guard.get_production_cost_change_percent(template.get_name().as_str());
-                mods.production_time_change_percent =
-                    player_guard.get_production_time_change_percent(template.get_name().as_str());
+        let filled = crate::player::with_player(player, |player_guard| {
+            if let Some(name) = template_name {
+                if let Some(template) = TheThingFactory::find_template(name) {
+                    mods.handicap_cost_multiplier = player_guard
+                        .get_handicap()
+                        .get_cost_multiplier_for_template(&template);
+                    mods.handicap_time_multiplier = player_guard
+                        .get_handicap()
+                        .get_build_time_multiplier_for_template(&template);
+                    mods.production_cost_change_percent = player_guard
+                        .get_production_cost_change_percent(template.get_name().as_str());
+                    mods.production_time_change_percent = player_guard
+                        .get_production_time_change_percent(template.get_name().as_str());
+                } else {
+                    mods.production_cost_change_percent =
+                        player_guard.get_production_cost_change_percent(name);
+                    mods.production_time_change_percent =
+                        player_guard.get_production_time_change_percent(name);
+                }
             } else {
-                mods.production_cost_change_percent =
-                    player_guard.get_production_cost_change_percent(name);
-                mods.production_time_change_percent =
-                    player_guard.get_production_time_change_percent(name);
+                mods.handicap_cost_multiplier = player_guard.get_handicap().get_cost_multiplier();
+                mods.handicap_time_multiplier =
+                    player_guard.get_handicap().get_build_time_multiplier();
             }
-        } else {
-            mods.handicap_cost_multiplier = player_guard.get_handicap().get_cost_multiplier();
-            mods.handicap_time_multiplier = player_guard.get_handicap().get_build_time_multiplier();
-        }
-        mods.energy_supply_ratio = player_guard.get_energy().supply_ratio();
+            mods.energy_supply_ratio = player_guard.get_energy().supply_ratio();
 
-        let mut kind_of_mask: KindOfMaskType = KIND_OF_MASK_NONE;
-        if let Some(name) = template_name {
-            if let Some(template) = TheThingFactory::find_template(name) {
-                for &kind in ALL_KIND_OF {
-                    if template.is_kind_of(kind) {
-                        kind_of_mask |= kind.cpp_mask();
+            let mut kind_of_mask: KindOfMaskType = KIND_OF_MASK_NONE;
+            if let Some(name) = template_name {
+                if let Some(template) = TheThingFactory::find_template(name) {
+                    for &kind in ALL_KIND_OF {
+                        if template.is_kind_of(kind) {
+                            kind_of_mask |= kind.cpp_mask();
+                        }
                     }
                 }
             }
-        }
 
-        mods.production_cost_change_by_kind =
-            player_guard.get_production_cost_change_based_on_kind_of(kind_of_mask);
-
-        mods
+            mods.production_cost_change_by_kind =
+                player_guard.get_production_cost_change_based_on_kind_of(kind_of_mask);
+            mods
+        });
+        return filled.unwrap_or(mods);
     }
 
     /// Update production progress with all modifiers
@@ -1147,13 +1145,9 @@ impl ProductionUpdateComplete {
             if credits <= 0 {
                 return;
             }
-            if let Ok(list) = crate::player::player_list().read() {
-                if let Some(player_arc) = list.get_player(player_id as i32) {
-                    if let Ok(mut player) = player_arc.write() {
-                        player.get_money_mut().add_money(credits);
-                    }
-                }
-            }
+            let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                player.get_money_mut().add_money(credits);
+            });
         }
     }
 
@@ -1287,11 +1281,12 @@ impl ProductionUpdateComplete {
             let Some(template) = TheThingFactory::find_template(&template_name) else {
                 return Err(format!("Cannot find template '{template_name}'"));
             };
-            let Some(team) = owner.read().ok().and_then(|guard| {
-                guard
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
-            }) else {
+            let Some(team) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.owner_id, |guard| guard.get_controlling_player())
+                .flatten()
+                .and_then(|player| crate::player::with_player(player, |p| p.get_default_team()))
+                .flatten()
+            else {
                 return Err("Producer has no default team".to_string());
             };
             let factory = TheThingFactory::get().map_err(|err| err.to_string())?;
@@ -1323,14 +1318,13 @@ impl ProductionUpdateComplete {
                 voice.set_object_id(new_id);
                 audio.add_audio_event(&voice);
             }
-            if let Some(player) = owner
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_controlling_player())
+            if let Some(player) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.owner_id, |guard| guard.get_controlling_player())
+                .flatten()
             {
-                if let Ok(mut player_guard) = player.write() {
+                let _ = crate::player::with_player_mut(player, |player_guard| {
                     player_guard.on_unit_created(producer_id, new_id);
-                }
+                });
             }
             if let Ok(mut new_guard) = new_obj.write() {
                 new_guard.on_build_complete();
@@ -1715,13 +1709,9 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
             if credits <= 0 {
                 return;
             }
-            if let Ok(list) = crate::player::player_list().read() {
-                if let Some(player_arc) = list.get_player(player_id as i32) {
-                    if let Ok(mut player) = player_arc.write() {
-                        player.get_money_mut().add_money(credits);
-                    }
-                }
-            }
+            let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                player.get_money_mut().add_money(credits);
+            });
         };
         self.cancel_production(index, &mut refund)
     }

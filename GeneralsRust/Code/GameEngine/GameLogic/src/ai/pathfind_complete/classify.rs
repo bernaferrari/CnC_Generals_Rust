@@ -597,7 +597,7 @@ impl PathfindingSystem {
             OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                 let mut ignore_id = INVALID_ID;
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_g) = ai.lock() {
+                    if let ai_g = ai {
                         ignore_id = ai_g.get_ignored_obstacle_id();
                     }
                 }
@@ -676,9 +676,7 @@ impl PathfindingSystem {
                                 }
                                 let other_ai = other_guard.get_ai_update_interface()?;
                                 {
-                                    let Ok(ai_g) = other_ai.lock() else {
-                                        return None;
-                                    };
+                                    let ai_g = other_ai;;
                                     // C++: skip if moving; also skip attacking / busy / ability.
                                     if ai_g.is_moving() {
                                         return None;

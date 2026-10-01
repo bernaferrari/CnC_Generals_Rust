@@ -97,7 +97,7 @@ impl CommandTranslator {
                 {
                     evaluate_as_position = true;
                 }
-                let invalid = __omp_shell("evaluate_as_position")
+                let invalid = !evaluate_as_position
                     && guard.is_locally_controlled()
                     && TheInGameUI::is_in_prefer_selection_mode();
                 (evaluate_as_position, invalid)

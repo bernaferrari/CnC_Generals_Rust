@@ -38,16 +38,8 @@ impl Object {
     }
 
     pub fn get_controlling_player_id(&self) -> Option<UnsignedInt> {
-        if let Some(team_id) = self.get_team_id() {
-            if let Some(controller) =
-                crate::team::with_team(team_id, |team| team.get_controlling_player_id())
-            {
-                return controller;
-            }
-        }
-        self.get_team()
-            .as_ref()
-            .and_then(|team| team.read().ok()?.get_controlling_player_id())
+        let team_id = self.get_team_id()?;
+        crate::team::with_team(team_id, |team| team.get_controlling_player_id()).flatten()
     }
 
     pub fn get_controlling_player(&self) -> Option<crate::player::PlayerIndex> {
@@ -483,12 +475,9 @@ impl Object {
     }
 
     pub fn is_locally_controlled(&self) -> bool {
-        if let Some(player) = self.get_controlling_player() {
-            if let Ok(guard) = player.read() {
-                return guard.is_local_player();
-            }
-        }
-        false
+        self.get_controlling_player()
+            .and_then(|player| crate::player::with_player(player, |guard| guard.is_local_player()))
+            .unwrap_or(false)
     }
 
     /// Check if object is detected (for stealth mechanics)
@@ -659,16 +648,15 @@ impl Object {
         let Some(player) = self.get_controlling_player() else {
             return false;
         };
-        let Ok(player_guard) = player.read() else {
-            return false;
-        };
-        let energy = player_guard.get_energy();
-        if energy.is_power_sabotaged() {
-            return false;
-        }
-
-        let requested = amount.max(0.0).ceil() as Int;
-        energy.get_power() >= requested
+        crate::player::with_player(player, |player_guard| {
+            let energy = player_guard.get_energy();
+            if energy.is_power_sabotaged() {
+                return false;
+            }
+            let requested = amount.max(0.0).ceil() as Int;
+            energy.get_power() >= requested
+        })
+        .unwrap_or(false)
     }
 
     /// Drain power
@@ -683,11 +671,10 @@ impl Object {
         let Some(player) = self.get_controlling_player() else {
             return false;
         };
-        let Ok(mut player_guard) = player.write() else {
-            return false;
-        };
-        player_guard.adjust_power(-amount, true);
-        true
+        crate::player::with_player_mut(player, |player_guard| {
+            player_guard.adjust_power(-amount, true);
+        })
+        .is_some()
     }
 
     /// Enable/disable stealth capability.
@@ -727,17 +714,16 @@ impl Object {
         Ok(())
     }
 
-    /// Set radar visibility
     pub async fn set_radar_visibility(&mut self, visible: bool) -> Result<(), String> {
         if let Some(player) = self.get_controlling_player() {
-            let mut guard = player
-                .write()
-                .map_err(|_| "Failed to lock controlling player".to_string())?;
-            if visible {
-                guard.add_radar(false);
-            } else {
-                guard.remove_radar(false);
-            }
+            crate::player::with_player_mut(player, |guard| {
+                if visible {
+                    guard.add_radar(false);
+                } else {
+                    guard.remove_radar(false);
+                }
+            })
+            .ok_or_else(|| "Failed to lock controlling player".to_string())?;
         }
         Ok(())
     }
@@ -859,8 +845,7 @@ impl Object {
         }
 
         use crate::common::types::ObjectStatusMaskType;
-        use crate::modules::;
-
+        
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
         let is_enclosing = if container_id != INVALID_ID {
             if crate::helpers::TheGameLogic::find_object_by_id(container_id)
@@ -1026,7 +1011,7 @@ impl Object {
         }
 
         self.get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_color()))
+            .and_then(|player| crate::player::with_player(player, |guard| guard.get_player_color()))
             .unwrap_or(Color::black())
     }
 
@@ -1037,10 +1022,7 @@ impl Object {
 
         self.get_controlling_player()
             .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_player_night_color())
+                crate::player::with_player(player, |guard| guard.get_player_night_color())
             })
             .unwrap_or(Color::black())
     }

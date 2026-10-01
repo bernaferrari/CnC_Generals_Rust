@@ -322,12 +322,14 @@ impl UnitAIUpdate {
             return false;
         };
         let base = guard.base_arc();
-        let Ok(object) = base.read() else {
+        let early = crate::object::registry::OBJECT_REGISTRY.with_object(base, |object| {
+            object.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
+                && object.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
+        });
+        if early.is_none() {
             return false;
-        };
-        if object.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
-            && object.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
-        {
+        }
+        if early == Some(true) {
             return true;
         }
         if guard.locomotor_set.get_valid_surfaces() == crate::ai::pathfind_complete::SURFACE_AIR {
@@ -339,19 +341,20 @@ impl UnitAIUpdate {
         if (locomotor.get_legal_surfaces() & crate::ai::pathfind_complete::SURFACE_AIR) != 0 {
             return false;
         }
-        if object.is_disabled_by_type(crate::common::DisabledType::Held) {
-            return false;
-        }
-        if object.is_above_terrain() {
-            if let Some(physics) = object.get_physics() {
-                if let Ok(physics) = physics.lock() {
+        let blocked = crate::object::registry::OBJECT_REGISTRY.with_object(base, |object| {
+            if object.is_disabled_by_type(crate::common::DisabledType::Held) {
+                return true;
+            }
+            if object.is_above_terrain() {
+                if let Some(physics) = object.get_physics() {
                     if physics.get_allow_to_fall() {
-                        return false;
+                        return true;
                     }
                 }
             }
-        }
-        true
+            false
+        }).unwrap_or(true);
+        __omp_shell("blocked")
     }
     pub(super) fn is_allowed_to_move_away_from_unit(&self) -> bool {
         self.jet_ai
@@ -440,11 +443,8 @@ impl UnitAIUpdate {
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
-        let owner_id = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.get_id())
+        let owner_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(guard.base_arc(), |obj| obj.get_id())
             .unwrap_or(INVALID_ID);
         let mut adjusted = *goal;
         let mut interacts_with_bridge_end = false;
@@ -472,14 +472,15 @@ impl UnitAIUpdate {
 
             let dest_layer = layer;
             if layer != crate::common::PathfindLayerEnum::Ground {
-                if let Ok(obj_guard) = guard.base_arc().read() {
-                    interacts_with_bridge_end =
-                        terrain.object_interacts_with_bridge_layer(&obj_guard, terrain_layer, true);
+                if let Some(hit) = crate::object::registry::OBJECT_REGISTRY.with_object(guard.base_arc(), |obj_guard| {
+                    terrain.object_interacts_with_bridge_layer(obj_guard, terrain_layer, true)
+                }) {
+                    interacts_with_bridge_end = hit;
                 }
             }
-            if let Ok(mut obj_guard) = guard.base_arc().write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(guard.base_arc(), |obj_guard| {
                 obj_guard.set_destination_layer(dest_layer);
-            }
+            });
         }
 
         guard.target_position = Some(adjusted);
@@ -494,11 +495,8 @@ impl UnitAIUpdate {
             }
         }
 
-        let is_immobile = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.is_kind_of(KindOf::Immobile))
+        let is_immobile = crate::object::registry::OBJECT_REGISTRY
+            .with_object(guard.base_arc(), |obj| obj.is_kind_of(KindOf::Immobile))
             .unwrap_or(false);
         if is_immobile {
             return Ok(());
@@ -507,11 +505,8 @@ impl UnitAIUpdate {
         let path_layer = ClassicPathLayer::from_u32(layer as u32);
         let (radius, center_in_cell) = Self::compute_pathfind_radius_and_center(&guard);
         let new_cell = Self::compute_goal_cell(&adjusted, center_in_cell);
-        let is_unmanned_heli = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| {
+        let is_unmanned_heli = crate::object::registry::OBJECT_REGISTRY
+            .with_object(guard.base_arc(), |obj| {
                 obj.is_kind_of(KindOf::ProducedAtHelipad)
                     && obj.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
             })
@@ -565,9 +560,8 @@ impl UnitAIUpdate {
         // Use the canonical Pathfinder wrapper so bridge/layer, footprint,
         // occupancy, and off-map validation remain in one implementation.
         let base_arc = guard.base_arc();
-        let Some(base) = base_arc.read().ok() else {
-            return false;
-        };
+        let loco_set = guard.locomotor_set.clone();
+        drop(guard);
         let ai_store = the_ai();
         let Some(pathfinder_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
@@ -576,7 +570,10 @@ impl UnitAIUpdate {
             return false;
         };
         let mut candidate = *goal;
-        if !pathfinder.adjust_destination(&base, &guard.locomotor_set, &mut candidate) {
+        let adjusted = crate::object::registry::OBJECT_REGISTRY.with_object(base_arc, |base| {
+            pathfinder.adjust_destination(base, &loco_set, &mut candidate)
+        }).unwrap_or(false);
+        if !adjusted {
             return false;
         }
         *goal = candidate;
@@ -799,11 +796,8 @@ impl UnitAIUpdate {
         };
 
         let obj_pos = guard.get_position();
-        let is_projectile = guard
-            .base_arc()
-            .read()
-            .ok()
-            .map(|obj| obj.is_kind_of(KindOf::Projectile))
+        let is_projectile = crate::object::registry::OBJECT_REGISTRY
+            .with_object(guard.base_arc(), |obj| obj.is_kind_of(KindOf::Projectile))
             .unwrap_or(false);
         let mut treat_as_aircraft = guard.path_extra_distance > PATHFIND_CLOSE_ENOUGH
             || loc_guard.get_appearance() == LocomotorAppearance::Hover;
@@ -909,16 +903,15 @@ impl UnitAIUpdate {
             return false;
         };
         let obj = guard.base_arc();
-        let Ok(obj_guard) = obj.read() else {
-            return false;
-        };
-        if !obj_guard.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING) {
-            return false;
-        }
-        let Some((weapon, _slot)) = obj_guard.get_current_weapon() else {
-            return false;
-        };
-        (weapon.get_anti_mask() & WeaponAntiMask::MINE) != 0
+        crate::object::registry::OBJECT_REGISTRY.with_object(obj, |obj_guard| {
+            if !obj_guard.test_status(ObjectStatusTypes::OBJECT_STATUS_IS_ATTACKING) {
+                return false;
+            }
+            let Some((weapon, _slot)) = obj_guard.get_current_weapon() else {
+                return false;
+            };
+            (weapon.get_anti_mask() & WeaponAntiMask::MINE) != 0
+        }).unwrap_or(false)
     }
     pub(super) fn is_takeoff_or_landing_in_progress(&self) -> bool {
         self.jet_ai
@@ -1025,9 +1018,11 @@ impl UnitAIUpdate {
         self.ai_dead = true;
         if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(unit_guard) = unit.read() {
-                if let Ok(mut object_guard) = unit_guard.base_arc().write() {
+                let id = unit_guard.base_arc();
+                drop(unit_guard);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |object_guard| {
                     object_guard.set_effectively_dead(true);
-                }
+                });
             }
         }
         self.wake_up_now();
@@ -1072,11 +1067,9 @@ impl UnitAIUpdate {
         }
         let unit = get_unit_arc(self.unit_id)?;
         let unit_guard = unit.read().ok()?;
-        let attacking = unit_guard
-            .base_arc()
-            .read()
-            .ok()
-            .is_some_and(|obj| obj.test_status(crate::common::ObjectStatusTypes::IsAttacking));
+        let attacking = crate::object::registry::OBJECT_REGISTRY
+            .with_object(unit_guard.base_arc(), |obj| obj.test_status(crate::common::ObjectStatusTypes::IsAttacking))
+            .unwrap_or(false);
         if !attacking {
             return None;
         }
@@ -1118,10 +1111,13 @@ impl UnitAIUpdate {
             };
             let self_id = g.get_id();
             let base = g.base_arc();
-            let Ok(obj) = base.read() else {
+            drop(g);
+            let Some(triple) = crate::object::registry::OBJECT_REGISTRY.with_object(base, |obj| {
+                (obj.is_mobile(), self_id, obj.get_team())
+            }) else {
                 return;
             };
-            (obj.is_mobile(), self_id, obj.get_team())
+            triple
         };
         if !mobile {
             return;
@@ -1144,35 +1140,30 @@ impl UnitAIUpdate {
         let mut found_other = false;
 
         if let Some(team_arc) = team {
-            let members = team_arc
-                .read()
-                .ok()
-                .map(|tg| tg.get_members().to_vec())
+            let members = crate::team::with_team(team_arc, |tg| tg.get_members().to_vec())
                 .unwrap_or_default();
             for mid in members {
                 if mid == self_id {
                     continue;
                 }
-                let Some((pos, ai)) = crate::object::registry::OBJECT_REGISTRY
-                    .with_object(mid, |og| {
-                        let Some(oai) = og.get_ai_update_interface() else {
-                            return None;
-                        };
+                let Some((pos, idle, goal_id, goal_pos)) = crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(mid, |og| {
                         if og.is_disabled_by_type(crate::common::types::DisabledType::Held) {
                             return None;
                         }
-                        Some((*og.get_position(), oai))
+                        let Some(oai) = og.get_ai_mut() else {
+                            return None;
+                        };
+                        Some((*og.get_position(), oai.is_idle(), oai.get_goal_object_id(), oai.get_goal_position()))
                     })
                     .flatten()
                 else {
                     continue;
                 };
                 other_pos = Some(pos);
-                if let Ok(aig) = ai.try_lock() {
-                    other_idle = aig.is_idle();
-                    other_goal_id = aig.get_goal_object_id();
-                    other_goal_pos = aig.get_goal_position();
-                }
+                other_idle = idle;
+                other_goal_id = goal_id;
+                other_goal_pos = goal_pos;
                 found_other = true;
                 break;
             }
@@ -1317,12 +1308,12 @@ impl UnitAIUpdate {
         let _ = self.set_goal_object(
             victim
                 .as_ref()
-                .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                 .map(|id| *id),
         );
         let _ = self.ignore_obstacle(
             victim
                 .as_ref()
-                .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                 .map(|id| *id),
         );
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
@@ -1534,15 +1525,11 @@ impl UnitAIUpdate {
         let Some(loc_guard) = guard.locomotor_set.get_active() else {
             return 0.0;
         };
-        let body_state = guard
-            .base_arc()
-            .read()
-            .ok()
-            .and_then(|obj| obj.get_body_module())
-            .and_then(|body| {
-                body.lock()
-                    .ok()
+        let body_state = crate::object::registry::OBJECT_REGISTRY
+            .with_object(guard.base_arc(), |obj| {
+                obj.get_body_module()
                     .map(|b| to_locomotor_body_damage_type(b.get_damage_state()))
+                    .unwrap_or(BodyDamageType::Pristine)
             })
             .unwrap_or(BodyDamageType::Pristine);
         loc_guard.get_max_speed_for_condition(body_state)
@@ -1597,111 +1584,84 @@ impl UnitAIUpdate {
             return;
         };
         let base = guard.base_arc();
-        let (current, angle, body, forward_speed, physics) = {
-            let Ok(object) = base.read() else {
-                return;
-            };
-            let body = object
-                .get_body_module()
-                .and_then(|body| {
-                    body.lock()
-                        .ok()
-                        .map(|b| to_locomotor_body_damage_type(b.get_damage_state()))
-                })
-                .unwrap_or(crate::locomotor::BodyDamageType::Pristine);
-            let physics = object.get_physics();
-            let forward_speed = physics
-                .as_ref()
-                .and_then(|physics| physics.lock().ok().map(|g| g.get_forward_speed_2d()))
-                .unwrap_or(0.0);
-            (
-                *object.get_position(),
-                object.get_orientation(),
-                body,
-                forward_speed,
-                physics,
-            )
-        };
-        let object_arc = guard.base_arc().clone();
         let Some(loco) = guard.locomotor_set.get_active_mut() else {
             return;
         };
-        if let Some(physics) = physics.as_ref() {
-            if let Ok(mut physics) = physics.lock() {
-                loco.apply_physics_options(&mut *physics);
-            }
-        }
         let delta = 1.0 / crate::common::LOGICFRAMES_PER_SECOND as Real;
-        let max_speed = loco.get_max_speed_for_condition(body);
+        let goal_type = goal_type;
+        let goal = goal;
+        let blocked = self.blocked_frames > 0;
         let mut speed = self.desired_speed;
-        if speed == crate::modules::FAST_AS_POSSIBLE || speed > max_speed {
-            speed = max_speed;
-        }
-        speed = self.apply_bump_speed_limit(speed, self.blocked_frames > 0);
-        let airborne_height = loco.template.airborne_targeting_height;
-        let mut object_write = object_arc.write().ok();
-        let mut physics_write = physics.as_ref().and_then(|physics| physics.lock().ok());
-        let (new_pos, new_angle, _new_speed) = if goal_type == 2 {
-            loco.loco_update_move_towards_position(
-                current,
-                angle,
-                forward_speed,
-                goal,
-                0.0,
-                speed,
-                body,
-                delta,
-                self.blocked_frames > 0,
-                physics_write.as_deref_mut(),
-                object_write.as_deref_mut(),
-            )
-        } else {
-            loco.loco_update_move_towards_angle(current, angle, goal.x, forward_speed, body, delta)
-        };
-        drop(object_write);
-        drop(physics_write);
-        drop(guard);
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(guard) = unit.read() {
-                if let Ok(mut object) = guard.base_arc().write() {
-                    if goal_type != 2 {
-                        let _ = object.set_position(&new_pos);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(base, |object| {
+            let body = object
+                .get_body_module()
+                .map(|b| to_locomotor_body_damage_type(b.get_damage_state()))
+                .unwrap_or(crate::locomotor::BodyDamageType::Pristine);
+            let current = *object.get_position();
+            let angle = object.get_orientation();
+            let forward_speed = object
+                .get_physics()
+                .map(|physics| physics.get_forward_speed_2d())
+                .unwrap_or(0.0);
+            if let Some(physics) = object.get_physics_mut() {
+                loco.apply_physics_options(physics);
+            }
+            let max_speed = loco.get_max_speed_for_condition(body);
+            if speed == crate::modules::FAST_AS_POSSIBLE || speed > max_speed {
+                speed = max_speed;
+            }
+            speed = self.apply_bump_speed_limit(speed, blocked);
+            let airborne_height = loco.template.airborne_targeting_height;
+            let (new_pos, new_angle, _new_speed) = if goal_type == 2 {
+                loco.loco_update_move_towards_position(
+                    current,
+                    angle,
+                    forward_speed,
+                    goal,
+                    0.0,
+                    speed,
+                    body,
+                    delta,
+                    blocked,
+                    object.get_physics_mut(),
+                    Some(object),
+                )
+            } else {
+                loco.loco_update_move_towards_angle(current, angle, goal.x, forward_speed, body, delta)
+            };
+            if goal_type != 2 {
+                let _ = object.set_position(&new_pos);
+                if let Some(physics) = object.get_physics_mut() {
+                    let velocity = (new_pos - current) / delta;
+                    physics.set_velocity(&velocity);
+                    let mut yaw_delta = new_angle - angle;
+                    let two_pi = std::f32::consts::PI * 2.0;
+                    while yaw_delta > std::f32::consts::PI {
+                        yaw_delta -= two_pi;
                     }
-                    let _ = object.set_orientation(new_angle);
-                    if let Some(physics) = object.get_physics() {
-                        if let Ok(mut physics) = physics.lock() {
-                            if goal_type != 2 {
-                                let velocity = (new_pos - current) / delta;
-                                physics.set_velocity(&velocity);
-                            }
-                            let mut yaw_delta = new_angle - angle;
-                            let two_pi = std::f32::consts::PI * 2.0;
-                            while yaw_delta > std::f32::consts::PI {
-                                yaw_delta -= two_pi;
-                            }
-                            while yaw_delta < -std::f32::consts::PI {
-                                yaw_delta += two_pi;
-                            }
-                            physics.set_yaw_rate(yaw_delta / delta);
-                            physics.set_turning(if yaw_delta > 0.0 {
-                                1
-                            } else if yaw_delta < 0.0 {
-                                -1
-                            } else {
-                                0
-                            });
-                        }
+                    while yaw_delta < -std::f32::consts::PI {
+                        yaw_delta += two_pi;
                     }
-                    let airborne = object.get_height_above_terrain() > airborne_height as Real;
-                    object.set_status(
-                        crate::common::ObjectStatusMaskType::from_status(
-                            crate::common::ObjectStatusTypes::AirborneTarget,
-                        ),
-                        airborne,
-                    );
+                    physics.set_yaw_rate(yaw_delta / delta);
+                    physics.set_turning(if yaw_delta > 0.0 {
+                        1
+                    } else if yaw_delta < 0.0 {
+                        -1
+                    } else {
+                        0
+                    });
                 }
             }
-        }
+            let _ = object.set_orientation(new_angle);
+            let airborne = object.get_height_above_terrain() > airborne_height as Real;
+            object.set_status(
+                crate::common::ObjectStatusMaskType::from_status(
+                    crate::common::ObjectStatusTypes::AirborneTarget,
+                ),
+                airborne,
+            );
+        });
+        drop(guard);
     }
     pub(super) fn friend_ending_move(&mut self) {
         self.movement_complete = true;
@@ -1721,14 +1681,12 @@ impl UnitAIUpdate {
             Ok(guard) => guard.base_arc(),
             Err(_) => return,
         };
-        let Ok(mut obj_guard) = base_object.write() else {
-            return;
-        };
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(base_object, |obj_guard| {
 
         let mut nationalism = false;
         let mut fanaticism = false;
         if let Some(player) = obj_guard.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
+            let _ = crate::player::with_player(player, |player_guard| {
                 if let Ok(center) = get_upgrade_center().read() {
                     if let Some(upgrade) = center.find_upgrade("Upgrade_Nationalism") {
                         if player_guard.has_upgrade_complete(&upgrade) {
@@ -1741,7 +1699,7 @@ impl UnitAIUpdate {
                         }
                     }
                 }
-            }
+            });
         }
 
         let mut horde = false;
@@ -1798,6 +1756,7 @@ impl UnitAIUpdate {
                 }
             }
         }
+        });
     }
     pub(super) fn set_surrendered(&mut self, to_object_id: Option<ObjectID>, surrendered: bool) {
         // Wave 258: empty dual-world → no factory object walks.
@@ -1823,7 +1782,7 @@ impl UnitAIUpdate {
     pub(super) fn transfer_attack(&mut self, from_id: ObjectID, to_id: ObjectID) {
         use crate::helpers::TheGameLogic;
 
-        let new_target = TheGameLogic::find_object_by_id(to_id);
+        let new_target = TheGameLogic::find_object_by_id(to_id).then_some(to_id);
 
         if let Some(unit) = get_unit_arc(self.unit_id) {
             if let Ok(mut guard) = unit.write() {
@@ -1838,7 +1797,7 @@ impl UnitAIUpdate {
             self.set_goal_object(
                 new_target
                     .as_ref()
-                    .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                     .map(|id| *id),
             );
         }
 
@@ -1869,7 +1828,7 @@ impl UnitAIUpdate {
                     turret,
                     new_target
                         .as_ref()
-                        .and_then(|a| a.read().ok().map(|g| g.get_id())),
+                         .map(|id| *id),
                     true,
                 );
             }
@@ -1967,20 +1926,15 @@ impl UnitAIUpdate {
                 .is_some_and(|id| id != crate::common::INVALID_ID)
         {
             let old_id = guard.attack_target.unwrap();
-            let self_id = guard
-                .base_arc()
-                .read()
-                .ok()
-                .map(|obj| obj.get_id())
+            let self_id = crate::object::registry::OBJECT_REGISTRY
+                .with_object(guard.base_arc(), |obj| obj.get_id())
                 .unwrap_or(crate::common::INVALID_ID);
-            if let Some(old_victim) = crate::helpers::TheGameLogic::find_object_by_id(old_id) {
-                if let Ok(old_guard) = old_victim.read() {
-                    if let Some(ai) = old_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.add_targeter(self_id, false);
-                        }
+            if crate::helpers::TheGameLogic::find_object_by_id(old_id) {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(old_id, |old_guard| {
+                    if let Some(ai) = old_guard.get_ai_mut() {
+                        ai.add_targeter(self_id, false);
                     }
-                }
+                });
             }
         }
 
@@ -2020,11 +1974,8 @@ impl UnitAIUpdate {
         if use_existing_target {
             if let Some(existing_id) = guard.attack_target {
                 let keep = crate::object::registry::OBJECT_REGISTRY.with_object(existing_id, |existing_guard| {
-                    let relationship = guard
-                        .base_arc()
-                        .read()
-                        .ok()
-                        .map(|base| base.relationship_to(existing_guard))
+                    let relationship = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(guard.base_arc(), |base| base.relationship_to(existing_guard))
                         .unwrap_or(Relationship::Neutral);
                     if relationship == Relationship::Enemies {
                         let target_pos = *existing_guard.get_position();
@@ -2126,18 +2077,21 @@ impl UnitAIUpdate {
             return 0;
         };
         let owner_arc = unit_guard.base_arc();
-        let Ok(owner_guard) = owner_arc.read() else {
+        let Some(player_arc) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_arc, |owner_guard| owner_guard.get_controlling_player())
+            .flatten()
+        else {
             return 0;
         };
-        let Some(player_arc) = owner_guard.get_controlling_player() else {
+        let Some(player_guard_type_human) = crate::player::with_player(player_arc, |player_guard| {
+            player_guard.get_player_type() == crate::player::PlayerType::Human
+        }) else {
             return 0;
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return 0;
-        };
+        let player_is_human = player_guard_type_human;
 
         let mut value = 0u32;
-        if player_guard.get_player_type() == crate::player::PlayerType::Human {
+        if player_is_human {
             value |= mood_matrix_parameters::CONTROLLER_PLAYER;
         } else {
             value |= mood_matrix_parameters::CONTROLLER_AI;
@@ -2172,13 +2126,13 @@ impl UnitAIUpdate {
             return mood_matrix_adjustment::ACTION_OK;
         };
         let owner_arc = unit_guard.base_arc();
-        let Ok(owner_guard) = owner_arc.read() else {
+        let mob = crate::object::registry::OBJECT_REGISTRY.with_object(owner_arc, |owner_guard| {
+            owner_guard.is_kind_of(KindOf::Infantry) && owner_guard.is_kind_of(KindOf::IgnoredInGui)
+        });
+        if mob.is_none() {
             return mood_matrix_adjustment::ACTION_OK;
-        };
-
-        // Mirror C++ mob-member special case that ignores mood conversions.
-        if owner_guard.is_kind_of(KindOf::Infantry) && owner_guard.is_kind_of(KindOf::IgnoredInGui)
-        {
+        }
+        if mob == Some(true) {
             return mood_matrix_adjustment::ACTION_OK;
         }
 

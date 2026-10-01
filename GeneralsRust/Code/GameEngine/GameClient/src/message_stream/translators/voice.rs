@@ -101,7 +101,7 @@ pub(super) fn pick_and_play_unit_voice_response(
             } else {
                 name.to_string()
             };
-            let stop = __omp_shell("matches!(")
+            let stop = matches!(
                 msg,
                 GameMessageType::DoMoveTo(_)
                     | GameMessageType::DoAttackMoveTo(_)

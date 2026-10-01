@@ -1492,8 +1492,7 @@ impl ObjectLookup for RegistryObjectLookup {
         }
 
         use crate::common::types::ObjectStatusMaskType;
-        use crate::modules::;
-
+        
         let Some((unselectable, container_id, masked)) =
             OBJECT_REGISTRY.with_object(object_id, |guard| {
                 (

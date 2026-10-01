@@ -534,7 +534,9 @@ impl ScriptActionDispatcher {
             OBJECT_REGISTRY.with_object(building_id, |building_guard| {
                 let player_mask = unit_guard
                     .get_controlling_player()
-                    .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
+                    .and_then(|index| {
+                        crate::player::with_player(index, |player| player.get_player_mask())
+                    })
                     .unwrap_or_else(crate::common::PlayerMaskType::none);
                 if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
                     false
@@ -551,17 +553,15 @@ impl ScriptActionDispatcher {
         }
 
         let entered = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
-            let Some(ai_arc) = unit_guard.get_ai_update_interface() else {
+            unit_guard.leave_group();
+            let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
                 return false;
             };
-            unit_guard.leave_group();
-            if let Ok(mut ai_guard) = ai_arc.lock() {
-                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                params.obj = Some(building_id);
-                let _ = ai_guard.execute_command(&params);
-            }
+            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+            let mut params =
+                AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+            params.obj = Some(building_id);
+            let _ = ai.execute_command(&params);
             true
         });
         if entered.is_none() {
@@ -598,7 +598,9 @@ impl ScriptActionDispatcher {
                     unit_guard.is_kind_of(crate::common::KindOf::Hacker),
                     unit_guard
                         .get_controlling_player()
-                        .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
+                        .and_then(|index| {
+                            crate::player::with_player(index, |player| player.get_player_mask())
+                        })
                         .unwrap_or_else(crate::common::PlayerMaskType::none),
                 )
             })
@@ -634,10 +636,7 @@ impl ScriptActionDispatcher {
                 return false;
             };
             let entered_mask = contain
-                .lock()
-                .ok()
-                .map(|c| c.get_player_who_entered())
-                .unwrap_or_else(crate::common::PlayerMaskType::none);
+                .get_player_who_entered();
             entered_mask == crate::common::PlayerMaskType::none()
                 || entered_mask == unit_player_mask
         });
@@ -647,17 +646,15 @@ impl ScriptActionDispatcher {
         };
 
         let entered = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
-            let Some(ai_arc) = unit_guard.get_ai_update_interface() else {
+            unit_guard.leave_group();
+            let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
                 return false;
             };
-            unit_guard.leave_group();
-            if let Ok(mut ai_guard) = ai_arc.lock() {
-                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                params.obj = Some(target_id);
-                let _ = ai_guard.execute_command(&params);
-            }
+            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+            let mut params =
+                AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+            params.obj = Some(target_id);
+            let _ = ai.execute_command(&params);
             true
         });
         if entered != Some(true) {
@@ -734,23 +731,21 @@ impl ScriptActionDispatcher {
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let ai_arc = OBJECT_REGISTRY
-            .with_object(unit_id, |unit| unit.get_ai_update_interface())
-            .flatten();
-        let Some(ai_arc) = ai_arc else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Ok(ai_guard) = ai_arc.lock() else {
-            return Ok(ScriptActionResult::Success);
-        };
         let mut has_loco = false;
-        ai_guard.with_cur_locomotor(&mut |loco| {
-            has_loco = true;
-            loco.set_close_enough_dist(distance);
+        let updated = OBJECT_REGISTRY.with_object_mut(unit_id, |unit| {
+            let Some(ai) = unit.get_ai_update_interface_mut() else {
+                return false;
+            };
+            ai.with_cur_locomotor(&mut |loco| {
+                has_loco = true;
+                loco.set_close_enough_dist(distance);
+            });
+            true
         });
-        if !has_loco {
+        if updated != Some(true) || !has_loco {
             return Ok(ScriptActionResult::Success);
         }
+
 
         Ok(ScriptActionResult::Success)
     }
@@ -782,11 +777,10 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let destination_team = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.find_player_by_name(&player_name))
-            .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
+        let destination_team = player_list().read().ok().and_then(|list| {
+            list.find_player_by_name(&player_name)
+                .and_then(|player| player.get_default_team())
+        });
         let Some(destination_team) = destination_team else {
             return Ok(ScriptActionResult::Success);
         };
@@ -1154,22 +1148,19 @@ impl ScriptActionDispatcher {
         else {
             return Ok(ScriptActionResult::Success);
         };
-        let ai = OBJECT_REGISTRY.with_object_mut(projectile_id, |projectile_guard| {
-            let ai = projectile_guard.get_ai_update_interface();
+        let _ = OBJECT_REGISTRY.with_object_mut(projectile_id, |projectile_guard| {
             projectile_guard.leave_group();
-            ai
+            let Some(ai) = projectile_guard.get_ai_update_interface_mut() else {
+                return;
+            };
+            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+            let mut params = AiCommandParams::new(
+                AiCommandType::FollowWaypointPath,
+                CommandSourceType::FromScript,
+            );
+            params.waypoint = Some(waypoint.id);
+            let _ = ai.execute_command(&params);
         });
-        if let Some(ai_arc) = ai.flatten() {
-            if let Ok(mut ai_guard) = ai_arc.lock() {
-                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                let mut params = AiCommandParams::new(
-                    AiCommandType::FollowWaypointPath,
-                    CommandSourceType::FromScript,
-                );
-                params.waypoint = Some(waypoint.id);
-                let _ = ai_guard.execute_command(&params);
-            }
-        }
         Ok(ScriptActionResult::Success)
     }
 
@@ -1655,18 +1646,16 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
         let faced = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
-            let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+            obj_guard.leave_group();
+            let Some(ai) = obj_guard.get_ai_update_interface_mut() else {
                 return false;
             };
-            obj_guard.leave_group();
-            if let Ok(mut ai_guard) = ai_arc.lock() {
-                ai_guard.clear_waypoint_queue();
-                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::FaceObject, CommandSourceType::FromScript);
-                params.obj = Some(target_id);
-                let _ = ai_guard.execute_command(&params);
-            }
+            ai.clear_waypoint_queue();
+            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+            let mut params =
+                AiCommandParams::new(AiCommandType::FaceObject, CommandSourceType::FromScript);
+            params.obj = Some(target_id);
+            let _ = ai.execute_command(&params);
             true
         });
         if faced.is_none() {
@@ -1712,20 +1701,18 @@ impl ScriptActionDispatcher {
         };
 
         let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
-            let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+            obj_guard.leave_group();
+            let Some(ai) = obj_guard.get_ai_update_interface_mut() else {
                 return;
             };
-            obj_guard.leave_group();
-            if let Ok(mut ai_guard) = ai_arc.lock() {
-                ai_guard.clear_waypoint_queue();
-                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                let mut params = AiCommandParams::new(
-                    AiCommandType::FacePosition,
-                    CommandSourceType::FromScript,
-                );
-                params.pos = waypoint_pos;
-                let _ = ai_guard.execute_command(&params);
-            }
+            ai.clear_waypoint_queue();
+            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+            let mut params = AiCommandParams::new(
+                AiCommandType::FacePosition,
+                CommandSourceType::FromScript,
+            );
+            params.pos = waypoint_pos;
+            let _ = ai.execute_command(&params);
         });
 
         Ok(ScriptActionResult::Success)
@@ -1749,13 +1736,11 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    if let Some(contain) = obj_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            contain_guard.set_evac_disposition(disposition.max(0) as u32);
-                        }
-                    }
-                });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if let Some(contain) = obj_guard.get_contain_mut() {
+                    contain.set_evac_disposition(disposition.max(0) as u32);
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1836,10 +1821,9 @@ impl ScriptActionDispatcher {
             return false;
         };
 
-        let module = boobytrap_obj
-            .read()
-            .ok()
-            .and_then(|obj| obj.find_update_module("StickyBombUpdate"));
+        let module = OBJECT_REGISTRY
+            .with_object(boobytrap_obj, |obj| obj.find_update_module("StickyBombUpdate"))
+            .flatten();
         let Some(module) = module else {
             return false;
         };
@@ -2057,11 +2041,10 @@ impl ScriptActionDispatcher {
                 Ok(ScriptActionResult::Success)
             };
         };
-        let guarded = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        let guarded = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
             let pos = *obj.get_position();
-            let ai_arc = obj.get_ai_update_interface()?;
-            let Ok(mut ai) = ai_arc.lock() else {
-                return Some(());
+            let Some(ai) = obj.get_ai_update_interface_mut() else {
+                return None;
             };
             let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
             let mut guard_params =
@@ -2109,13 +2092,13 @@ impl ScriptActionDispatcher {
                 Ok(ScriptActionResult::Success)
             };
         };
-        let idled = OBJECT_REGISTRY.with_object(object_id, |obj| {
-            let ai_arc = obj.get_ai_update_interface()?;
-            if let Ok(mut ai) = ai_arc.lock() {
-                let idle_params =
-                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-                let _ = ai.execute_command(&idle_params);
-            }
+        let idled = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            let Some(ai) = obj.get_ai_update_interface_mut() else {
+                return None;
+            };
+            let idle_params =
+                AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+            let _ = ai.execute_command(&idle_params);
             Some(())
         });
         if idled.flatten().is_none() {
@@ -2152,19 +2135,13 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let contain_arc = OBJECT_REGISTRY.with_object(object_id, |obj| obj.get_contain());
-        let Some(contain_arc) = contain_arc else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let contain_arc = contain_arc;
-        let Some(contain_arc) = contain_arc else {
-            return Ok(ScriptActionResult::Success);
-        };
-        if let Ok(mut contain_guard) = contain_arc.lock() {
-            if contain_guard.get_contained_count() > 0 {
-                let _ = contain_guard.kill_all_contained();
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            if let Some(contain) = obj.get_contain_mut() {
+                if contain.get_contained_count() > 0 {
+                    let _ = contain.kill_all_contained();
+                }
             }
-        }
+        });
 
         Ok(ScriptActionResult::Success)
     }
@@ -2198,43 +2175,31 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                let Some(ai_arc) = obj.get_ai_update_interface() else {
-                    return _ObjFlow::Ret(Ok(ScriptActionResult::Success));
-                };
-                let source_pos = *obj.get_position();
-                let source_off_map = obj.is_off_map();
-                drop(obj);
-                
-                let Some(target_id) = self.find_closest_object_of_type_in_trigger(
-                    object_id,
-                    &source_pos,
-                    source_off_map,
-                    &object_type,
-                    &trigger_name,
-                ) else {
-                    return _ObjFlow::Ret(Ok(ScriptActionResult::Success));
-                };
-                
-                if let Ok(mut ai) = ai_arc.lock() {
-                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let mut params =
-                        AiCommandParams::new(AiCommandType::MoveToObject, CommandSourceType::FromScript);
-                    params.obj = Some(target_id);
-                    let _ = ai.execute_command(&params);
-                }
-                
-                _ObjFlow::Ret(Ok(ScriptActionResult::Success))
-            });
-            match _flow {
-                None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => return Ok(ScriptActionResult::Success),
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
+        let Some((source_pos, source_off_map)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            (*obj.get_position(), obj.is_off_map())
+        }) else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let Some(target_id) = self.find_closest_object_of_type_in_trigger(
+            object_id,
+            &source_pos,
+            source_off_map,
+            &object_type,
+            &trigger_name,
+        ) else {
+            return Ok(ScriptActionResult::Success);
+        };
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            if let Some(ai) = obj.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                let mut params = AiCommandParams::new(
+                    AiCommandType::MoveToObject,
+                    CommandSourceType::FromScript,
+                );
+                params.obj = Some(target_id);
+                let _ = ai.execute_command(&params);
             }
-        }
+        });
         Ok(ScriptActionResult::Success)
     }
 
@@ -2350,7 +2315,7 @@ impl ScriptActionDispatcher {
             match manager.create_object(
                 &object_type,
                 spawn_pos,
-                Some(team_arc.clone()),
+                Some(team_arc),
                 crate::object_manager::ObjectCreationFlags::from_template(),
             ) {
                 Ok(id) => id,
@@ -2358,9 +2323,9 @@ impl ScriptActionDispatcher {
             }
         };
 
-        if let Ok(mut team) = team_arc.write() {
+        let _ = crate::team::with_team_mut(team_arc, |team| {
             team.add_member(object_id);
-        }
+        });
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                 let _ = obj.set_orientation(angle);

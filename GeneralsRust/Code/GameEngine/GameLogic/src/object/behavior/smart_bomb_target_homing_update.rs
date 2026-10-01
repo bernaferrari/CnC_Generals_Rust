@@ -116,32 +116,23 @@ impl UpdateModuleInterface for SmartBombTargetHomingUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        // Get object reference
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            Some(arc) => arc,
-            None => return UPDATE_SLEEP_NONE,
-        };
-
-        // Check if significantly above terrain
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
         {
-            if let Ok(obj) = obj_arc.read() {
-                if !obj.is_significantly_above_terrain() {
-                    return UPDATE_SLEEP_NONE;
-                }
-            }
+            return UPDATE_SLEEP_NONE;
         }
 
-        // Get current position and calculate new position
-        let current_pos = {
-            if let Ok(obj) = obj_arc.read() {
-                *obj.get_position()
-            } else {
-                return UPDATE_SLEEP_NONE;
-            }
+        let above = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            obj.is_significantly_above_terrain()
+        });
+        if above != Some(true) {
+            return UPDATE_SLEEP_NONE;
+        }
+
+        let Some(current_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| *obj.get_position())
+        else {
+            return UPDATE_SLEEP_NONE;
         };
 
         // Calculate interpolation coefficients
@@ -157,10 +148,9 @@ impl UpdateModuleInterface for SmartBombTargetHomingUpdate {
             current_pos.z, // Keep Z unchanged
         );
 
-        // Apply new position
-        if let Ok(mut obj) = obj_arc.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
             let _ = obj.set_position(&new_pos);
-        }
+        });
 
         UPDATE_SLEEP_NONE
     }

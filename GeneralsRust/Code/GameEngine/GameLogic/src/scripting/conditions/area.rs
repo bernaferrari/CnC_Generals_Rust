@@ -171,7 +171,7 @@ if base_guard.is_destroyed() {
                     let Some(owner_team_id) = base_guard.get_team() else {
                         return _ObjFlow::Cont;
                     };
-                    let Some(rel) = crate::team::factory_access::with_team(owner_team_id, |team| {
+                    let Some(rel) = crate::team::with_team(owner_team_id, |team| {
                         player_guard.get_relationship_with_team(team)
                     }) else {
                         return _ObjFlow::Cont;
@@ -343,19 +343,12 @@ impl ScriptCondition for PositionInAreaCondition {
         } else if let Some(obj_id) = object_id {
             log::debug!("Checking position of object {}", obj_id);
             // Get object position from ObjectManager
-            if let Ok(manager) = get_object_manager().read() {
-                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id as u32, |obj| {
-                        let pos = obj.get_position();
-                        (pos.x as f64, pos.y as f64)
-                    } else {
-                        (0.0, 0.0)
-                    }
-                } else {
-                    (0.0, 0.0)
-                }
-            } else {
-                (0.0, 0.0)
-            }
+            OBJECT_REGISTRY
+                .with_object(obj_id as u32, |obj| {
+                    let pos = obj.get_position();
+                    (pos.x as f64, pos.y as f64)
+                })
+                .unwrap_or((0.0, 0.0))
         } else {
             return Err(GameLogicError::Configuration(
                 "Either (x, y) or object_id must be provided".to_string(),
@@ -432,37 +425,32 @@ impl ScriptCondition for NoEnemyUnitsInAreaCondition {
 
             // Check each object to see if it's an enemy
             for obj_id in objects_in_area {
-                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                        // Get object's controlling player
-                        if let Some(obj_player_id) = obj.get_controlling_player_id() {
-                            if obj_player_id != player as u32 {
-                                // Check if this player is an enemy
-                                let player_list_lock = player_list();
-                                let Ok(list) = player_list_lock.read() else {
-    return Ok(false);
-};
-{
-                                    if let Some(our_player_arc) = list.get_player(player as i32) {
-                                        let our_player = our_player_arc;
-{
-                                            if let Some(their_player_arc) =
-                                                list.get_player(obj_player_id as i32)
-                                            {
-                                                let their_player = their_player_arc;
-{
-                                                    if our_player
-                                                        .is_enemy_with_player(&their_player)
-                                                    {
-                                                        return Ok(false); // Found an enemy
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                let hit = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                    let Some(obj_player_id) = obj.get_controlling_player_id() else {
+                        return 0u8;
+                    };
+                    if obj_player_id == player as u32 {
+                        return 0;
                     }
+                    let player_list_lock = player_list();
+                    let Ok(list) = player_list_lock.read() else {
+                        return 2;
+                    };
+                    let Some(our_player) = list.get_player(player as i32) else {
+                        return 0;
+                    };
+                    let Some(their_player) = list.get_player(obj_player_id as i32) else {
+                        return 0;
+                    };
+                    if our_player.is_enemy_with_player(their_player) {
+                        1
+                    } else {
+                        0
+                    }
+                });
+                match hit {
+                    Some(1) | Some(2) => return Ok(false),
+                    _ => {}
                 }
             }
         }
@@ -523,38 +511,32 @@ impl ScriptCondition for AnyUnitInAreaCondition {
 
             // Filter by player and unit type if specified
             for obj_id in objects_in_area {
-                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                let matched = OBJECT_REGISTRY
+                    .with_object(obj_id, |obj| {
                         if obj.is_destroyed() {
-                            continue;
+                            return false;
                         }
-
-                        // Check player filter
                         if let Some(player_id) = _player {
-                            if let Some(owner_id) = obj.get_controlling_player_id() {
-                                if owner_id != player_id as u32 {
-                                    continue;
-                                }
-                            } else {
-                                continue;
+                            match obj.get_controlling_player_id() {
+                                Some(owner_id) if owner_id == player_id as u32 => {}
+                                _ => return false,
                             }
                         }
-
-                        // Check unit type filter
                         if let Some(unit_type_value) = _unit_type {
-                            if let Some(template) = &obj.template {
-                                if let ScriptValue::String(unit_type) = unit_type_value {
-                                    if !template.get_name().eq_ignore_ascii_case(unit_type) {
-                                        continue;
-                                    }
+                            let Some(template) = &obj.template else {
+                                return false;
+                            };
+                            if let ScriptValue::String(unit_type) = unit_type_value {
+                                if !template.get_name().eq_ignore_ascii_case(unit_type) {
+                                    return false;
                                 }
-                            } else {
-                                continue;
                             }
                         }
-
-                        // Found at least one matching unit
-                        return Ok(true);
-                    }
+                        true
+                    })
+                    .unwrap_or(false);
+                if matched {
+                    return Ok(true);
                 }
             }
         }

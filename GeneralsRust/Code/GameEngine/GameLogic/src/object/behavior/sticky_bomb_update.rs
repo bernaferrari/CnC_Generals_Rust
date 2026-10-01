@@ -173,9 +173,9 @@ impl StickyBombUpdate {
             .ok_or("Invalid module data")?;
 
         let forever = UpdateSleepTime::Forever.to_u32();
-        if let Ok(obj) = object.read() {
+        let _ = OBJECT_REGISTRY.with_object(object_id, |obj| {
             obj.reschedule_named_update("StickyBombUpdate", forever);
-        }
+        });
 
         Ok(Self {
             object_id: object_id,
@@ -201,12 +201,7 @@ impl StickyBombUpdate {
 
         self.target_id = target.map(|t| t.get_id()).unwrap_or(OBJECT_INVALID_ID);
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(mut obj) = obj_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                 obj.set_producer(target);
 
                 let now = TheGameLogic::get_frame();
@@ -264,7 +259,7 @@ impl StickyBombUpdate {
                         .get_template()
                         .get_per_unit_sound("StickyBombCreated");
                     let _ = obj.set_position(&pos);
-                    drop(obj);
+
 
                     if let Some(sound) = created {
                         if let Some(audio) = TheAudio::get() {
@@ -274,8 +269,7 @@ impl StickyBombUpdate {
                         }
                     }
                 }
-            }
-        }
+        });
     }
 
     pub fn init_sticky_bomb_by_id(&mut self, target_id: ObjectID, bomber_id: ObjectID) {
@@ -288,45 +282,37 @@ impl StickyBombUpdate {
         bomber_id: ObjectID,
         specific_pos: Option<Coord3D>,
     ) {
-        let target = if target_id == OBJECT_INVALID_ID {
-            None
-        } else {
-            TheGameLogic::find_object_by_id(target_id)
-        };
-        let bomber = if bomber_id == OBJECT_INVALID_ID {
-            None
-        } else {
-            TheGameLogic::find_object_by_id(bomber_id)
-        };
-
-        match (target, bomber) {
-            (Some(target), Some(bomber)) => {
-                if let (Ok(target), Ok(bomber)) = (target.read(), bomber.read()) {
-                    self.init_sticky_bomb(Some(&target), Some(&bomber), specific_pos.as_ref());
-                }
+        let has_target = target_id != OBJECT_INVALID_ID && TheGameLogic::find_object_by_id(target_id);
+        let has_bomber = bomber_id != OBJECT_INVALID_ID && TheGameLogic::find_object_by_id(bomber_id);
+        let pos = specific_pos;
+        match (has_target, has_bomber) {
+            (true, true) => {
+                let _ = OBJECT_REGISTRY.with_object(target_id, |target| {
+                    let _ = OBJECT_REGISTRY.with_object(bomber_id, |bomber| {
+                        self.init_sticky_bomb(Some(target), Some(bomber), pos.as_ref());
+                    });
+                });
             }
-            (Some(target), None) => {
-                if let Ok(target) = target.read() {
-                    self.init_sticky_bomb(Some(&target), None, specific_pos.as_ref());
-                }
+            (true, false) => {
+                let _ = OBJECT_REGISTRY.with_object(target_id, |target| {
+                    self.init_sticky_bomb(Some(target), None, pos.as_ref());
+                });
             }
-            (None, Some(bomber)) => {
-                if let Ok(bomber) = bomber.read() {
-                    self.init_sticky_bomb(None, Some(&bomber), specific_pos.as_ref());
-                }
+            (false, true) => {
+                let _ = OBJECT_REGISTRY.with_object(bomber_id, |bomber| {
+                    self.init_sticky_bomb(None, Some(bomber), pos.as_ref());
+                });
             }
-            (None, None) => self.init_sticky_bomb(None, None, specific_pos.as_ref()),
+            (false, false) => self.init_sticky_bomb(None, None, pos.as_ref()),
         }
         if target_id != OBJECT_INVALID_ID {
-            let mark = TheGameLogic::find_object_by_id(self.object_id)
-                .and_then(|obj| obj.read().ok().map(|guard| guard.is_kind_of(KindOf::BoobyTrap)))
+            let mark = OBJECT_REGISTRY
+                .with_object(self.object_id, |obj| obj.is_kind_of(KindOf::BoobyTrap))
                 .unwrap_or(false);
             if mark {
-                if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
-                    if let Ok(mut target_guard) = target_arc.write() {
-                        target_guard.set_status(ObjectStatusMaskType::BOOBY_TRAPPED, true);
-                    }
-                }
+                let _ = OBJECT_REGISTRY.with_object_mut(target_id, |target_guard| {
+                    target_guard.set_status(ObjectStatusMaskType::BOOBY_TRAPPED, true);
+                });
             }
         }
     }
@@ -338,10 +324,10 @@ impl StickyBombUpdate {
 
     /// Match C++ getTargetObject().
     pub fn get_target_object(&self) -> Option<ObjectID> {
-        if self.target_id == OBJECT_INVALID_ID {
+        if self.target_id == OBJECT_INVALID_ID || !TheGameLogic::find_object_by_id(self.target_id) {
             return None;
         }
-        TheGameLogic::find_object_by_id(self.target_id)
+        Some(self.target_id)
     }
 
     /// Set the target object (mirrors C++ setTargetObject).
@@ -373,96 +359,86 @@ impl StickyBombUpdate {
             .geometry_based_damage_weapon_template
             .as_ref()
         {
-            if let (Some(target_arc), Some(object_arc)) = (
-                booby_trapped.as_ref(),
-                (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                }),
-            ) {
-                let blast = {
-                    if let Some((target_guard, obj)) =
-                        target_arc.read().ok().zip(object_arc.read().ok())
-                    {
-                    let bonus = WeaponBonus::default();
-                    let bounding_circle = target_guard
-                        .get_geometry_info()
-                        .get_bounding_circle_radius();
-                    let primary_damage = template.get_primary_damage(&bonus);
-                    let secondary_damage = template.get_secondary_damage(&bonus);
-                    let primary_range =
-                        template.get_primary_damage_radius(&bonus) + bounding_circle;
-                    let secondary_range =
-                        template.get_secondary_damage_radius(&bonus) + bounding_circle;
-                    let source_player_mask = match obj.get_controlling_player() {
-                        Some(player_arc) => player_arc
-                            .read()
-                            .ok()
-                            .map(|player| player.get_player_mask())
-                            .unwrap_or(PlayerMaskType::none()),
-                        None => PlayerMaskType::none(),
-                    };
-                    let mut damage_info = DamageInfo::new();
-                    damage_info.input.source_id = obj.get_id();
-                    damage_info.input.source_player_mask = source_player_mask;
-                    damage_info.input.damage_type = template.damage_type.into();
-                    damage_info.input.death_type = template.death_type.into();
-                    damage_info.input.damage_status_type = template.damage_status_type.into();
-                    Some((
-                        *target_guard.get_position(),
-                        primary_damage,
-                        secondary_damage,
-                        primary_range,
-                        secondary_range,
-                        damage_info,
-                    ))
-                    } else {
-                        None
-                    }
-                };
-                if let Some((
+            let target_id = *booby_trapped;
+            let bomb_present = self.object_id != crate::common::INVALID_ID
+                && TheGameLogic::find_object_by_id(self.object_id);
+            if let (Some(target_id), true) = (target_id, bomb_present) {
+                let bomb_id = self.object_id;
+                let blast = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    OBJECT_REGISTRY.with_object(bomb_id, |obj| {
+                        let bonus = WeaponBonus::default();
+                        let bounding_circle = target_guard
+                            .get_geometry_info()
+                            .get_bounding_circle_radius();
+                        let primary_damage = template.get_primary_damage(&bonus);
+                        let secondary_damage = template.get_secondary_damage(&bonus);
+                        let primary_range =
+                            template.get_primary_damage_radius(&bonus) + bounding_circle;
+                        let secondary_range =
+                            template.get_secondary_damage_radius(&bonus) + bounding_circle;
+                        let player_index = obj.get_controlling_player();
+                        let source_player_mask = player_index
+                            .and_then(|index| {
+                                crate::player::with_player(index, |player| player.get_player_mask())
+                            })
+                            .unwrap_or(PlayerMaskType::none());
+                        let mut damage_info = DamageInfo::new();
+                        damage_info.input.source_id = obj.get_id();
+                        damage_info.input.source_player_mask = source_player_mask;
+                        damage_info.input.damage_type = template.damage_type.into();
+                        damage_info.input.death_type = template.death_type.into();
+                        damage_info.input.damage_status_type = template.damage_status_type.into();
+                        (
+                            *target_guard.get_position(),
+                            primary_damage,
+                            secondary_damage,
+                            primary_range,
+                            secondary_range,
+                            damage_info,
+                        )
+                    })
+                });
+                if let Some(Some((
                     target_pos,
                     primary_damage,
                     secondary_damage,
                     primary_range,
                     secondary_range,
                     mut damage_info,
-                )) = blast
+                ))) = blast
                 {
                     let primary_range_sqr = primary_range * primary_range;
                     let radius = primary_range.max(secondary_range);
                     if let Some(partition) = ThePartitionManager::get() {
                         for id in partition.get_objects_in_range_boundary_3d(&target_pos, radius) {
-                            let Some(victim_arc) = TheGameLogic::find_object_by_id(id) else {
+                            if !TheGameLogic::find_object_by_id(id) {
                                 continue;
-                            };
-                            let Ok(mut victim) = victim_arc.write() else {
-                                continue;
-                            };
-                            let victim_pos = *victim.get_position();
-                            let geom = victim.get_geometry_info();
-                            let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
-                            let delta = Coord3D::new(
-                                victim_pos.x - target_pos.x,
-                                victim_pos.y - target_pos.y,
-                                (victim_pos.z + center_z_delta) - target_pos.z,
-                            );
-                            let center_dist = delta.length();
-                            let victim_radius = geom.get_bounding_sphere_radius();
-                            let boundary_dist = if center_dist <= victim_radius {
-                                0.0
-                            } else {
-                                center_dist - victim_radius
-                            };
-                            let dist_sqr = boundary_dist * boundary_dist;
-                            damage_info.input.amount = if dist_sqr <= primary_range_sqr {
-                                primary_damage
-                            } else {
-                                secondary_damage
-                            };
-                            damage_info.sync_from_input();
-                            let _ = victim.attempt_damage(&mut damage_info);
+                            }
+                            let _ = OBJECT_REGISTRY.with_object_mut(id, |victim| {
+                                let victim_pos = *victim.get_position();
+                                let geom = victim.get_geometry_info();
+                                let center_z_delta = (geom.bounds.min.z + geom.bounds.max.z) * 0.5;
+                                let delta = Coord3D::new(
+                                    victim_pos.x - target_pos.x,
+                                    victim_pos.y - target_pos.y,
+                                    (victim_pos.z + center_z_delta) - target_pos.z,
+                                );
+                                let center_dist = delta.length();
+                                let victim_radius = geom.get_bounding_sphere_radius();
+                                let boundary_dist = if center_dist <= victim_radius {
+                                    0.0
+                                } else {
+                                    center_dist - victim_radius
+                                };
+                                let dist_sqr = boundary_dist * boundary_dist;
+                                damage_info.input.amount = if dist_sqr <= primary_range_sqr {
+                                    primary_damage
+                                } else {
+                                    secondary_damage
+                                };
+                                damage_info.sync_from_input();
+                                let _ = victim.attempt_damage(&mut damage_info);
+                            });
                         }
                     }
                     if let Some(fx) = self.module_data.geometry_based_damage_fx.as_ref() {
@@ -472,31 +448,21 @@ impl StickyBombUpdate {
             }
         }
 
-        if let Some(target_arc) = booby_trapped {
-            if let Ok(mut target_guard) = target_arc.write() {
-                if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                }) {
-                    if let Ok(obj) = object_arc.read() {
-                        if obj.is_kind_of(KindOf::BoobyTrap) {
-                            target_guard.set_status(ObjectStatusMaskType::BOOBY_TRAPPED, false);
-                        }
-                    }
-                }
+        if let Some(target_id) = booby_trapped {
+            let bomb_id = self.object_id;
+            let is_trap = OBJECT_REGISTRY
+                .with_object(bomb_id, |obj| obj.is_kind_of(KindOf::BoobyTrap))
+                .unwrap_or(false);
+            if is_trap {
+                let _ = OBJECT_REGISTRY.with_object_mut(target_id, |target_guard| {
+                    target_guard.set_status(ObjectStatusMaskType::BOOBY_TRAPPED, false);
+                });
             }
         }
 
-        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) {
-            if let Ok(mut obj) = object_arc.write() {
-                obj.kill(None, None);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            obj.kill(None, None);
+        });
     }
 }
 
@@ -511,8 +477,8 @@ impl UpdateModuleInterface for StickyBombUpdate {
 
         // Check if target is dead - if so, destroy the bomb
         if self.target_id != OBJECT_INVALID_ID {
-            if let Some(target) = self.get_target_object() {
-                let follow = target.read().ok().map(|target_guard| {
+            if let Some(target_id) = self.get_target_object() {
+                let follow = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
                     (
                         target_guard.is_effectively_dead(),
                         target_guard.is_kind_of(crate::common::KindOf::Immobile),
@@ -520,23 +486,17 @@ impl UpdateModuleInterface for StickyBombUpdate {
                     )
                 });
                 if let Some((dead, immobile, target_pos)) = follow {
-                    let object_arc = if self.object_id == crate::common::INVALID_ID {
-                        None
-                    } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    };
+                    let bomb_present = self.object_id != crate::common::INVALID_ID
+                        && TheGameLogic::find_object_by_id(self.object_id);
                     if dead {
-                        if let Some(object_arc) = object_arc {
-                            if let Ok(obj) = object_arc.read() {
-                                let id = obj.get_id();
-                                drop(obj);
-                                let _ = TheGameLogic::destroy_object_by_id(id);
-                            }
+                        if bomb_present {
+                            let _ = TheGameLogic::destroy_object_by_id(self.object_id);
                         }
                         return Ok(UpdateSleepTime::None);
                     }
-                    if let Some(object_arc) = object_arc {
-                        if let Ok(mut obj) = object_arc.write() {
+                    if bomb_present {
+                        let offset_z = self.module_data.offset_z;
+                        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                             let mut new_pos = if immobile {
                                 *obj.get_position()
                             } else {
@@ -547,10 +507,10 @@ impl UpdateModuleInterface for StickyBombUpdate {
                                     new_pos.z = terrain.get_ground_height(new_pos.x, new_pos.y, None);
                                 }
                             } else {
-                                new_pos.z += self.module_data.offset_z;
+                                new_pos.z += offset_z;
                             }
                             let _ = obj.set_position(&new_pos);
-                        }
+                        });
                     }
                 }
             }
@@ -558,21 +518,15 @@ impl UpdateModuleInterface for StickyBombUpdate {
 
         if current_frame >= self.next_ping_frame {
             self.next_ping_frame = self.next_ping_frame.wrapping_add(LOGICFRAMES_PER_SECOND);
-            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            }) {
-                if let Ok(obj) = obj_arc.read() {
-                    if let Some(sound) = obj.get_template().get_per_unit_sound("UnitBombPing") {
-                        if let Some(audio) = TheAudio::get() {
-                            let mut event = sound.clone();
-                            event.set_object_id(obj.get_id());
-                            audio.add_audio_event(&event);
-                        }
+            let _ = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                if let Some(sound) = obj.get_template().get_per_unit_sound("UnitBombPing") {
+                    if let Some(audio) = TheAudio::get() {
+                        let mut event = sound.clone();
+                        event.set_object_id(obj.get_id());
+                        audio.add_audio_event(&event);
                     }
                 }
-            }
+            });
         }
 
         Ok(UpdateSleepTime::None)
@@ -598,30 +552,18 @@ impl BehaviorModuleInterface for StickyBombUpdate {
             return Ok(());
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-        }) else {
-            return Ok(());
-        };
-        let shooter_id = obj_arc.read().ok().map(|obj| obj.get_producer_id());
+        let shooter_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| obj.get_producer_id())
+            .flatten();
         let Some(shooter_id) = shooter_id else {
             return Ok(());
         };
-        let goal_id = TheGameLogic::find_object_by_id(shooter_id).and_then(|shooter| {
-            let shooter_guard = shooter.read().ok()?;
-            let ai = shooter_guard.get_ai_update_interface()?;
-            let ai_guard = ai.lock().ok()?;
-            let goal_id = ai_guard.get_goal_object_id();
-            drop(ai_guard);
-            drop(shooter_guard);
-            if goal_id == crate::common::INVALID_ID {
-                None
-            } else {
-                Some(goal_id)
-            }
+        let goal_id = crate::object::registry::OBJECT_REGISTRY.with_object(shooter_id, |shooter| {
+            shooter
+                .get_ai_update_interface()
+                .map(|ai| ai.get_goal_object_id())
         });
+        let goal_id = goal_id.flatten().filter(|id| *id != crate::common::INVALID_ID);
         if let Some(goal_id) = goal_id {
             self.init_sticky_bomb_by_id(goal_id, crate::common::INVALID_ID);
         }

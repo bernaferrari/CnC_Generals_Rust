@@ -259,7 +259,7 @@ impl ScriptConditionEvaluator {
                 let Some(body) = obj.get_body_module() else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
-                let Ok(body_guard) = body.lock() else {
+                let Ok(body_guard) = Ok(body) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 let Some(last) = body_guard.get_last_damage_info() else {
@@ -272,7 +272,7 @@ impl ScriptConditionEvaluator {
                 let Some(victim_player) = players.find_player_by_name(&player_name) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
-                let Ok(victim_guard) = victim_player.read() else {
+                let Ok(victim_guard) = Ok(victim_player) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 let victim_index = victim_guard.get_player_index();
@@ -374,7 +374,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index();
@@ -413,9 +413,11 @@ impl ScriptConditionEvaluator {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj| {
                     // Get controlling player and compare display name
                     if let Some(controlling_player) = obj.get_controlling_player() {
-                        if let Ok(player) = controlling_player.read() {
+                        if let Some(name_key) = crate::player::with_player(controlling_player, |player| {
+                            player.get_player_name_key()
+                        }) {
                             return Ok(
-                                if player.get_player_name_key()
+                                if name_key
                                     == NameKeyGenerator::name_to_key(&player_name)
                                 {
                                     ScriptConditionResult::True
@@ -463,7 +465,7 @@ impl ScriptConditionEvaluator {
             let Some(ai_arc) = obj.get_ai_update_interface() else {
                 return Ok(ScriptConditionResult::False);
             };
-            let Ok(ai) = ai_arc.lock() else {
+            let Ok(ai) = Ok(ai_arc) else {
                 return Ok(ScriptConditionResult::False);
             };
             let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
@@ -752,7 +754,7 @@ impl ScriptConditionEvaluator {
             if let Some(result) =
                 crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj| {
                     if let Some(contain_arc) = obj.get_contain() {
-                        if let Ok(contain_guard) = contain_arc.lock() {
+                        if let Ok(contain_guard) = Ok(contain_arc) {
                             let count = contain_guard.get_contained_count();
                             return if count == 0 {
                                 ScriptConditionResult::True
@@ -798,7 +800,7 @@ impl ScriptConditionEvaluator {
                 let Some(contain_arc) = obj.get_contain() else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
-                let Ok(contain) = contain_arc.lock() else {
+                let Ok(contain) = Ok(contain_arc) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 
@@ -864,7 +866,7 @@ impl ScriptConditionEvaluator {
                 let Some(body) = obj.get_body_module() else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
-                let Ok(body_guard) = body.lock() else {
+                let Ok(body_guard) = Ok(body) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 let cur_health = body_guard.get_health();
@@ -937,7 +939,7 @@ impl ScriptConditionEvaluator {
                 
                 let num_peeps = obj
                     .get_contain()
-                    .and_then(|contain| contain.lock().ok().map(|c| c.get_contained_count()))
+                    .and_then(|contain| Ok(contain).ok().map(|c| c.get_contained_count()))
                     .unwrap_or(0);
                 let frame = TheGameLogic::get_frame();
                 
@@ -1096,7 +1098,7 @@ impl ScriptConditionEvaluator {
             let Some(player_arc) = players.find_player_by_name(&player_name) else {
                 return Ok(ScriptConditionResult::False);
             };
-            let Ok(player) = player_arc.read() else {
+            let Ok(player) = Ok(player_arc) else {
                 return Ok(ScriptConditionResult::False);
             };
             let types = self.resolve_object_types_param(&type_or_list_name);
@@ -1146,7 +1148,7 @@ impl ScriptConditionEvaluator {
                 let Some(contain_arc) = obj.get_contain() else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
-                let Ok(contain) = contain_arc.lock() else {
+                let Ok(contain) = Ok(contain_arc) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 let entered_mask = contain.get_player_who_entered();
@@ -1160,7 +1162,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
-                let Ok(player) = player_arc.read() else {
+                let Ok(player) = Ok(player_arc) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 
@@ -1252,7 +1254,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1289,7 +1291,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1326,7 +1328,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1369,7 +1371,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1412,7 +1414,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1455,7 +1457,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1496,7 +1498,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1542,7 +1544,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index() as usize;
@@ -1758,6 +1760,7 @@ impl ScriptConditionEvaluator {
                 let Some(target_player_arc) = players.find_player_by_name(&player_name) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
+                let target_player_index = target_player_arc.get_player_index();
                 
                 let src_pos = *unit.get_position();
                 let vision_range = unit.get_vision_range();
@@ -1800,10 +1803,8 @@ impl ScriptConditionEvaluator {
                                 return _ObjFlow::Ret(_ObjFlow::Cont);
                             }
                             
-                            if let Some(owner) = candidate.get_controlling_player() {
-                                if Arc::ptr_eq(&owner, &target_player_arc) {
-                                    return _ObjFlow::Ret(_ObjFlow::Ret(Ok(ScriptConditionResult::True)));
-                                }
+                            if candidate.get_controlling_player() == Some(target_player_index) {
+                                return _ObjFlow::Ret(_ObjFlow::Ret(Ok(ScriptConditionResult::True)));
                             }
                             _ObjFlow::Fall
                         });
@@ -1870,6 +1871,7 @@ impl ScriptConditionEvaluator {
                 let Some(target_player_arc) = players.find_player_by_name(&player_name) else {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
+                let target_player_index = target_player_arc.get_player_index();
                 
                 let wanted_types = self.resolve_object_types_param(&type_or_list_name);
                 if wanted_types.list_size() == 0 {
@@ -1906,10 +1908,7 @@ impl ScriptConditionEvaluator {
                                 return _ObjFlow::Ret(_ObjFlow::Cont);
                             }
                             
-                            let Some(owner) = candidate.get_controlling_player() else {
-                                return _ObjFlow::Ret(_ObjFlow::Cont);
-                            };
-                            if !Arc::ptr_eq(&owner, &target_player_arc) {
+                            if candidate.get_controlling_player() != Some(target_player_index) {
                                 return _ObjFlow::Ret(_ObjFlow::Cont);
                             }
                             if !wanted_types.contains_template(Some(candidate.get_template())) {
@@ -1978,7 +1977,7 @@ impl ScriptConditionEvaluator {
             condition.custom_data = -1;
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             condition.custom_data = -1;
             return Ok(ScriptConditionResult::False);
         };
@@ -2025,7 +2024,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_id = player.get_player_index() as u32;
@@ -2074,7 +2073,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
 

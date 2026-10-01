@@ -36,9 +36,9 @@ impl ScriptConditionEvaluator {
                     player_list()
                         .read()
                         .ok()
-                        .and_then(|list| list.get_local_player().cloned())
+                        .and_then(|list| list.get_local_player())
                         .and_then(|p| {
-                            p.read().ok().and_then(|p| {
+                            Ok(p).ok().and_then(|p| {
                                 NameKeyGenerator::key_to_name(p.get_player_name_key())
                             })
                         })
@@ -51,9 +51,9 @@ impl ScriptConditionEvaluator {
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player().cloned())
+                .and_then(|list| list.get_local_player())
                 .and_then(|p| {
-                    p.read()
+                    Ok(p)
                         .ok()
                         .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                 })
@@ -76,7 +76,7 @@ impl ScriptConditionEvaluator {
                     .ok()
                     .and_then(|list| list.get_local_player().and_then(|p| p.get_default_team_id()))
                     .and_then(|team_id| {
-                        crate::team::factory_access::with_team(team_id, |t| t.get_name().to_string())
+                        crate::team::with_team(team_id, |t| t.get_name().to_string())
                     })
                     .unwrap_or_else(|| raw.to_string())
             }
@@ -125,7 +125,7 @@ impl ScriptConditionEvaluator {
         };
         if singleton {
             let active =
-                crate::team::factory_access::with_team(team_id, |guard| guard.is_active())
+                crate::team::with_team(team_id, |guard| guard.is_active())
                     .unwrap_or(false);
             if !active {
                 return None;
@@ -611,7 +611,7 @@ impl ScriptConditionEvaluator {
                 !census.has_any_objects
             } else if let Ok(players) = player_list().read() {
                 if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                    if let Ok(player) = player_arc.read() {
+                    if let Ok(player) = Ok(player_arc) {
                         // C++: player is all destroyed if Player::hasAnyObjects() is false.
                         !player.has_any_objects()
                     } else {
@@ -648,7 +648,7 @@ impl ScriptConditionEvaluator {
         // Look up the player and check if they have any build facilities
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
+                if let Ok(player) = Ok(player_arc) {
                     // All build facilities are destroyed if player has none
                     return Ok(bool_result(!player.has_any_build_facility()));
                 }
@@ -685,7 +685,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = player_arc.read() else {
+                let Ok(player) = Ok(player_arc) else {
                     return Ok(ScriptConditionResult::False);
                 };
                 player.get_money().get_money()
@@ -726,7 +726,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = player_arc.read() else {
+                let Ok(player) = Ok(player_arc) else {
                     return Ok(ScriptConditionResult::False);
                 };
                 player.count_buildings()
@@ -749,7 +749,7 @@ impl ScriptConditionEvaluator {
         // Look up the player and check their power status
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
+                if let Ok(player) = Ok(player_arc) {
                     // C++ parity: Energy::hasSufficientPower
                     return Ok(bool_result(player.get_energy().has_sufficient_power()));
                 }
@@ -798,7 +798,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = player_arc.read() else {
+                let Ok(player) = Ok(player_arc) else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let mask = crate::common::KindOf::Structure.cpp_mask()
@@ -833,7 +833,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = player_arc.read() else {
+                let Ok(player) = Ok(player_arc) else {
                     return Ok(ScriptConditionResult::False);
                 };
                 player.get_energy().supply_ratio()
@@ -870,7 +870,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = player_arc.read() else {
+                let Ok(player) = Ok(player_arc) else {
                     return Ok(ScriptConditionResult::False);
                 };
                 let energy = player.get_energy();
@@ -909,7 +909,7 @@ impl ScriptConditionEvaluator {
         let player_index = if let Ok(players) = player_list().read() {
             players
                 .find_player_by_name(&player_name)
-                .and_then(|arc| arc.read().ok().map(|p| p.get_player_index() as usize))
+                .and_then(|arc| Ok(arc).ok().map(|p| p.get_player_index() as usize))
         } else {
             None
         };
@@ -976,8 +976,7 @@ impl ScriptConditionEvaluator {
                 .or_else(|| {
                     let players = player_list().read().ok()?;
                     let player_arc = players.find_player_by_name(&player_name)?;
-                    player_arc
-                        .read()
+                    Ok(player_arc)
                         .ok()
                         .map(|p| p.get_science_purchase_points())
                 })
@@ -1022,7 +1021,7 @@ impl ScriptConditionEvaluator {
 
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
+                if let Ok(player) = Ok(player_arc) {
                     if player.is_capable_of_purchasing_science(science) {
                         return Ok(ScriptConditionResult::True);
                     }
@@ -1077,7 +1076,7 @@ impl ScriptConditionEvaluator {
         let leftover_player = player_list().read().ok().and_then(|players| {
             players
                 .find_player_by_name(&player_name)
-                .and_then(|arc| arc.read().ok().map(|p| p.get_player_index()))
+                .and_then(|arc| Ok(arc).ok().map(|p| p.get_player_index()))
         });
 
         if let Some(sum_of_objs) =
@@ -1100,7 +1099,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -1159,7 +1158,7 @@ impl ScriptConditionEvaluator {
         let Some(opponent_arc) = players.find_player_by_name(&opponent_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        if player_arc.read().is_err() || opponent_arc.read().is_err() {
+        if Ok(player_arc).is_err() || Ok(opponent_arc).is_err() {
             return Ok(ScriptConditionResult::False);
         }
 
@@ -1210,7 +1209,7 @@ impl ScriptConditionEvaluator {
             let Some(player_arc) = players.find_player_by_name(&player_name) else {
                 return Ok(ScriptConditionResult::False);
             };
-            let Ok(player) = player_arc.read() else {
+            let Ok(player) = Ok(player_arc) else {
                 return Ok(ScriptConditionResult::False);
             };
 
@@ -1275,8 +1274,8 @@ impl ScriptConditionEvaluator {
 
         // C++: non-existent team is not destroyed; existing team uses Team::hasAnyObjects().
         if let Some(team_arc) = self.lookup_condition_team(&team_name) {
-            if let Ok(team) = team_arc.read() {
-                return Ok(bool_result(!team.has_any_objects()));
+            if let Some(__v) = crate::team::with_team(team_arc, |team| !team.has_any_objects()) {
+                return Ok(bool_result(__v));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1298,10 +1297,8 @@ impl ScriptConditionEvaluator {
         // C++ evaluateHasUnits iterates every prototype instance for non-THIS names.
         if let Ok(factory) = get_team_factory().lock() {
             for team_arc in factory.find_team_instances(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    if team.has_any_units() {
-                        return Ok(ScriptConditionResult::True);
-                    }
+                if crate::team::with_team(team_arc, |team| team.has_any_units()).unwrap_or(false) {
+                    return Ok(ScriptConditionResult::True);
                 }
             }
         }
@@ -1321,8 +1318,8 @@ impl ScriptConditionEvaluator {
         );
 
         if let Some(team_arc) = self.lookup_condition_team(&team_name) {
-            if let Ok(team) = team_arc.read() {
-                return Ok(bool_result(team.get_state().as_str() == expected_state));
+            if let Some(__v) = crate::team::with_team(team_arc, |team| team.get_state().as_str() == expected_state) {
+                return Ok(bool_result(__v));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1342,8 +1339,8 @@ impl ScriptConditionEvaluator {
         );
 
         if let Some(team_arc) = self.lookup_condition_team(&team_name) {
-            if let Ok(team) = team_arc.read() {
-                return Ok(bool_result(team.get_state().as_str() != expected_state));
+            if let Some(__v) = crate::team::with_team(team_arc, |team| team.get_state().as_str() != expected_state) {
+                return Ok(bool_result(__v));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1393,11 +1390,11 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(team) = team_arc.read() else {
+        let Some(__members) = crate::team::with_team(team_arc, |team| team.get_members().to_vec()) else {
             return Ok(ScriptConditionResult::False);
         };
 
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             if last_damage_matches_object_types(member_id, &types) {
                 return Ok(ScriptConditionResult::True);
             }
@@ -1431,7 +1428,7 @@ impl ScriptConditionEvaluator {
         let Some(victim_player) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(victim_guard) = victim_player.read() else {
+        let Ok(victim_guard) = Ok(victim_player) else {
             return Ok(ScriptConditionResult::False);
         };
         let victim_index = victim_guard.get_player_index();
@@ -1439,18 +1436,18 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(team) = team_arc.read() else {
+        let Some(__members) = crate::team::with_team(team_arc, |team| team.get_members().to_vec()) else {
             return Ok(ScriptConditionResult::False);
         };
 
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
                     let Some(body) = obj.get_body_module() else {
                         return _ObjFlow::Cont;
                     };
-                    let Ok(body_guard) = body.lock() else {
+                    let Ok(body_guard) = Ok(body) else {
                         return _ObjFlow::Cont;
                     };
                     let Some(last) = body_guard.get_last_damage_info() else {
@@ -1499,8 +1496,8 @@ impl ScriptConditionEvaluator {
         }
 
         if let Some(team_arc) = self.lookup_condition_team(&team_name) {
-            if let Ok(team) = team_arc.read() {
-                return Ok(bool_result(team.is_created()));
+            if let Some(__v) = crate::team::with_team(team_arc, |team| team.is_created()) {
+                return Ok(bool_result(__v));
             }
         }
         Ok(ScriptConditionResult::False)
@@ -1532,7 +1529,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = player_arc.read() else {
+        let Ok(player) = Ok(player_arc) else {
             return Ok(ScriptConditionResult::False);
         };
         let player_index = player.get_player_index();
@@ -1540,11 +1537,11 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(team) = team_arc.read() else {
+        let Some(__members) = crate::team::with_team(team_arc, |team| team.get_members().to_vec()) else {
             return Ok(ScriptConditionResult::False);
         };
 
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
@@ -1579,14 +1576,13 @@ impl ScriptConditionEvaluator {
         // Get the team and its controlling player ID
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    if let Some(controlling_player_id) = team.get_controlling_player_id() {
+                if let Some(controlling_player_id) = crate::team::with_team(team_arc, |team| team.get_controlling_player_id()).flatten() {
                         // Find the player and compare names
                         if let Ok(players) = player_list().read() {
                             if let Some(player_arc) =
                                 players.get_player(controlling_player_id as i32)
                             {
-                                if let Ok(player) = player_arc.read() {
+                                if let Ok(player) = Ok(player_arc) {
                                     return Ok(
                                         if player.get_player_name_key()
                                             == NameKeyGenerator::name_to_key(&player_name)
@@ -1599,7 +1595,6 @@ impl ScriptConditionEvaluator {
                                 }
                             }
                         }
-                    }
                 }
             }
         }
@@ -1637,7 +1632,7 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = factory.find_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(team) = team_arc.read() else {
+        let Some(__members) = crate::team::with_team(team_arc, |team| team.get_members().to_vec()) else {
             return Ok(ScriptConditionResult::False);
         };
 
@@ -1646,7 +1641,7 @@ impl ScriptConditionEvaluator {
         };
 
         let mut any_at_end = false;
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
@@ -1654,7 +1649,7 @@ impl ScriptConditionEvaluator {
                         // C++: no AI -> continue (e.g. rocks/trees in team)
                         return _ObjFlow::Cont;
                     };
-                    let Ok(ai) = ai_arc.lock() else {
+                    let Ok(ai) = Ok(ai_arc) else {
                         return _ObjFlow::Cont;
                     };
                     let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
@@ -1710,8 +1705,8 @@ impl ScriptConditionEvaluator {
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    return Ok(if team.did_all_enter(&trigger, which_to_consider) {
+                if let Some(__v) = crate::team::with_team(team_arc, |team| team.did_all_enter(&trigger, which_to_consider)) {
+                    return Ok(if __v {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
@@ -1745,8 +1740,8 @@ impl ScriptConditionEvaluator {
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    return Ok(if team.did_partial_enter(&trigger, which_to_consider) {
+                if let Some(__v) = crate::team::with_team(team_arc, |team| team.did_partial_enter(&trigger, which_to_consider)) {
+                    return Ok(if __v {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
@@ -1780,8 +1775,8 @@ impl ScriptConditionEvaluator {
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    return Ok(if team.did_all_exit(&trigger, which_to_consider) {
+                if let Some(__v) = crate::team::with_team(team_arc, |team| team.did_all_exit(&trigger, which_to_consider)) {
+                    return Ok(if __v {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
@@ -1815,8 +1810,8 @@ impl ScriptConditionEvaluator {
         }
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    return Ok(if team.did_partial_exit(&trigger, which_to_consider) {
+                if let Some(__v) = crate::team::with_team(team_arc, |team| team.did_partial_exit(&trigger, which_to_consider)) {
+                    return Ok(if __v {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
@@ -1870,11 +1865,11 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = factory.find_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(team) = team_arc.read() else {
+        let Some(__members) = crate::team::with_team(team_arc, |team| team.get_members().to_vec()) else {
             return Ok(ScriptConditionResult::False);
         };
 
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
@@ -1926,11 +1921,11 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = factory.find_team(&team_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(team) = team_arc.read() else {
+        let Some(__members) = crate::team::with_team(team_arc, |team| team.get_members().to_vec()) else {
             return Ok(ScriptConditionResult::False);
         };
 
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
@@ -2125,10 +2120,12 @@ impl ScriptConditionEvaluator {
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
             return Ok(TeamInsideCounts::default());
         };
-        let Ok(team) = team_arc.read() else {
+        let Some((__any, __members)) = crate::team::with_team(team_arc, |team| {
+            (team.has_any_objects(), team.get_members().to_vec())
+        }) else {
             return Ok(TeamInsideCounts::default());
         };
-        if !team.has_any_objects() {
+        if !__any {
             return Ok(TeamInsideCounts::default());
         }
 
@@ -2138,7 +2135,7 @@ impl ScriptConditionEvaluator {
             .unwrap_or_default();
 
         let mut counts = TeamInsideCounts::default();
-        for &member_id in team.get_members() {
+        for &member_id in &__members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
@@ -2193,7 +2190,7 @@ struct TeamInsideCounts {
 
 fn member_counts_for_team_area(obj: &crate::object::Object, which_to_consider: u32) -> bool {
     let surfaces = if let Some(ai) = obj.get_ai() {
-        if let Ok(ai_guard) = ai.lock() {
+        if let Ok(ai_guard) = Ok(ai) {
             ai_guard
                 .get_locomotor_set_clone()
                 .map(|set| set.get_valid_surfaces())
@@ -2226,7 +2223,7 @@ fn last_damage_matches_object_types(
             let Some(body) = obj.get_body_module() else {
                 return _ObjFlow::Ret(false);
             };
-            let Ok(body_guard) = body.lock() else {
+            let Ok(body_guard) = Ok(body) else {
                 return _ObjFlow::Ret(false);
             };
             let Some(last) = body_guard.get_last_damage_info() else {
