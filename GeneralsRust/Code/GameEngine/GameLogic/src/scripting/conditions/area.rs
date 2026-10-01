@@ -68,9 +68,7 @@ if base_guard.is_destroyed() {
                     }
                     
                     // Restrict to "units" (excluding buildings/structures) to match typical mission scripting usage.
-                    let Some(template) = obj_guard.template.as_ref() else {
-                        return _ObjFlow::Cont;
-                    };
+                    let template = obj_guard.get_template();
                     if template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building) {
                         return _ObjFlow::Cont;
                     }
@@ -275,9 +273,7 @@ if base_guard.is_destroyed() {
                     }
                     
                     if let Some(ScriptValue::String(unit_type)) = _unit_type {
-                        let Some(template) = obj_guard.template.as_ref() else {
-                            return _ObjFlow::Cont;
-                        };
+                        let template = obj_guard.get_template();
                         if !template.get_name().as_str().eq_ignore_ascii_case(unit_type) {
                             return _ObjFlow::Cont;
                         }
@@ -523,9 +519,7 @@ impl ScriptCondition for AnyUnitInAreaCondition {
                             }
                         }
                         if let Some(unit_type_value) = _unit_type {
-                            let Some(template) = &obj.template else {
-                                return false;
-                            };
+                            let template = obj.get_template();
                             if let ScriptValue::String(unit_type) = unit_type_value {
                                 if !template.get_name().eq_ignore_ascii_case(unit_type) {
                                     return false;
@@ -590,7 +584,7 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_mask = player.get_player_mask();
             drop(player);
 

@@ -228,9 +228,7 @@ if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
-                    let Some(template) = obj_guard.template.as_ref() else {
-                        return _ObjFlow::Cont;
-                    };
+                    let template = obj_guard.get_template();
                     
                     if template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building) {
                         return _ObjFlow::Cont;
@@ -322,9 +320,7 @@ if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
-                    let Some(template) = obj_guard.template.as_ref() else {
-                        return _ObjFlow::Cont;
-                    };
+                    let template = obj_guard.get_template();
                     
                     let is_building =
                         template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building);
@@ -664,13 +660,9 @@ impl ScriptCondition for StructureBuiltCondition {
             for obj_id in owned_objects {
                 let built = OBJECT_REGISTRY
                     .with_object(obj_id, |obj| {
-                        let Some(template_name) =
-                            obj.template.as_ref().map(|t| t.get_name().to_string())
-                        else {
-                            return false;
-                        };
+                        let template_name = obj.get_template().get_name().to_string();
                         template_name.eq_ignore_ascii_case(&building_type)
-                            && obj.base().is_kind_of(crate::common::KindOf::Structure)
+                            && obj.is_kind_of(crate::common::KindOf::Structure)
                     })
                     .unwrap_or(false);
                 if built {
@@ -728,10 +720,12 @@ impl ScriptCondition for UnitTypeCountExceedsCondition {
             let owned_objects = manager.get_objects_owned_by_player(player as u32);
             for obj_id in owned_objects {
                 let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
-                    if let Some(template) = &obj.template {
-                        if template.get_name().eq_ignore_ascii_case(&unit_type) {
-                            actual_count += 1;
-                        }
+                    if obj
+                        .get_template()
+                        .get_name()
+                        .eq_ignore_ascii_case(&unit_type)
+                    {
+                        actual_count += 1;
                     }
                 });
             }
@@ -1244,11 +1238,7 @@ impl ScriptCondition for PlayerTriggeredSpecialPowerCondition {
             None => return Ok(false),
         };
         let power_name = get_str_param(parameters, "power_name")?;
-        let player_index = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?
-            .get_player_index() as usize;
-
+        let player_index = player_arc as usize;
         Ok(with_script_engine_mut(|engine| {
             engine.is_special_power_triggered(
                 player_index,
@@ -1295,11 +1285,7 @@ impl ScriptCondition for PlayerTriggeredSpecialPowerFromNamedCondition {
         let Some(source_id) = lookup_named_object_id(&unit_name)? else {
             return Ok(false);
         };
-        let player_index = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?
-            .get_player_index() as usize;
-
+        let player_index = player_arc as usize;
         Ok(with_script_engine_mut(|engine| {
             engine.is_special_power_triggered(player_index, &power_name, true, source_id)
         })
@@ -1341,11 +1327,7 @@ impl ScriptCondition for PlayerMidwaySpecialPowerCondition {
             None => return Ok(false),
         };
         let power_name = get_str_param(parameters, "power_name")?;
-        let player_index = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?
-            .get_player_index() as usize;
-
+        let player_index = player_arc as usize;
         Ok(with_script_engine_mut(|engine| {
             engine.is_special_power_midway(
                 player_index,
@@ -1392,11 +1374,7 @@ impl ScriptCondition for PlayerMidwaySpecialPowerFromNamedCondition {
         let Some(source_id) = lookup_named_object_id(&unit_name)? else {
             return Ok(false);
         };
-        let player_index = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?
-            .get_player_index() as usize;
-
+        let player_index = player_arc as usize;
         Ok(with_script_engine_mut(|engine| {
             engine.is_special_power_midway(player_index, &power_name, true, source_id)
         })
@@ -1438,11 +1416,7 @@ impl ScriptCondition for PlayerCompletedSpecialPowerCondition {
             None => return Ok(false),
         };
         let power_name = get_str_param(parameters, "power_name")?;
-        let player_index = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?
-            .get_player_index() as usize;
-
+        let player_index = player_arc as usize;
         Ok(with_script_engine_mut(|engine| {
             engine.is_special_power_complete(
                 player_index,
@@ -1489,11 +1463,7 @@ impl ScriptCondition for PlayerCompletedSpecialPowerFromNamedCondition {
         let Some(source_id) = lookup_named_object_id(&unit_name)? else {
             return Ok(false);
         };
-        let player_index = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?
-            .get_player_index() as usize;
-
+        let player_index = player_arc as usize;
         Ok(with_script_engine_mut(|engine| {
             engine.is_special_power_complete(player_index, &power_name, true, source_id)
         })
@@ -1879,12 +1849,7 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player_index = {
-            let p_guard = player
-                .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-            p_guard.get_player_index()
-        };
+        let player_index = player;
 
         let object_type = get_str_param(parameters, "object_type")?;
 
@@ -1912,20 +1877,14 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
                                 if obj_guard.is_destroyed() {
                                     return false;
                                 }
-                                let owner = {
-                                    let player = obj_guard.get_controlling_player();
-                                    player
-                                        .and_then(|p| Some(p).map(|g| g.get_player_index()))
-                                        .unwrap_or(-1)
-                                };
+                                let owner = obj_guard
+                                    .get_controlling_player()
+                                    .map(|p| p as i32)
+                                    .unwrap_or(-1);
                                 if owner != player_index {
                                     return false;
                                 }
-                                obj_guard
-                                    .template
-                                    .as_ref()
-                                    .map(|template| template.get_name() == object_type.as_str())
-                                    .unwrap_or(false)
+                                obj_guard.get_template().get_name() == object_type.as_str()
                             })
                             .unwrap_or(false)
                     })
@@ -2001,12 +1960,10 @@ impl ScriptCondition for PlayerHasObjectComparisonCondition {
         // Iterate player's owned objects and count those matching the template name.
         // C++ uses countObjectsByThingTemplate which matches by template pointer;
         // we match by template name string which is equivalent for single-template queries.
-        let player_guard = player
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let all_objects = crate::player::with_player(player, |p| p.get_all_objects())
+            .ok_or_else(|| GameLogicError::Threading("player unavailable".to_string()))?;
 
         let mut count: i64 = 0;
-        let all_objects = player_guard.get_all_objects();
         for obj_id in all_objects {
             let matches = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {

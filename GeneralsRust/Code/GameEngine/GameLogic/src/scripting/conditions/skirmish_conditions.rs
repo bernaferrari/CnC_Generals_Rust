@@ -76,13 +76,10 @@ where
                             }
                             players
                                 .get_player(owner_id as i32)
-                                .cloned()
-                                .and_then(|owner_arc| {
-                                    Some(owner_arc).map(|owner| {
-                                        owner.get_player_type() != PlayerType::Neutral
-                                            && !owner.is_player_observer()
-                                            && !player.is_allied_with_player(&owner)
-                                    })
+                                .map(|owner| {
+                                    owner.get_player_type() != PlayerType::Neutral
+                                        && !owner.is_player_observer()
+                                        && !player.is_allied_with_player(owner)
                                 })
                                 .unwrap_or(true)
                         })
@@ -1497,35 +1494,29 @@ impl ScriptCondition for SkirmishAlliedWithHumanCondition {
             let player_mask = player.get_player_mask();
             drop(player);
 
-            // Iterate all players to find any human player that shares an alliance
-            let list = player_list();
-            let guard = list
+            // Iterate all players to find any human player that shares an
+            // alliance (same team = allied in skirmish).
+            let allied_with_human = player_list()
                 .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read player list: {}", e)))?;
-
-            for i in 0..guard.get_player_count() {
-                if let Some(other_arc) = guard.get_player(i as i32) {
-                    // Skip same player
-                    if Arc::ptr_eq(&player_arc, &other_arc) {
-                        continue;
-                    }
-                    let other = other_arc;
-    {
-                        if other.get_player_type() != PlayerType::Human {
+                .map(|guard| {
+                    for i in 0..guard.get_player_count() {
+                        if i as i32 == player_index {
+                            continue; // skip same player
+                        }
+                        let Some(other) = guard.get_player(i as i32) else {
                             continue;
-                        }
-                        // Simple alliance check: if their player masks overlap,
-                        // they are on the same team. For full alliance checking we'd
-                        // need the diplomacy system, but same team = allied in skirmish.
-                        let other_mask = other.get_player_mask();
-                        if player_mask.bits() & other_mask.bits() != 0 {
-                            return Ok(true);
+                        };
+                        if other.get_player_type() == PlayerType::Human
+                            && player_mask.bits() & other.get_player_mask().bits() != 0
+                        {
+                            return true;
                         }
                     }
-                }
-            }
+                    false
+                })
+                .unwrap_or(false);
 
-            Ok(false)
+            Ok(allied_with_human)
                 }).unwrap_or(Ok(false));
 }
 

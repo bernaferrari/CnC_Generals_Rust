@@ -623,13 +623,11 @@ fn host_relationship(
         !looker.owner_player.is_empty(),
         !candidate.owner_player.is_empty(),
     ) {
-        if let (Some(a), Some(b)) = (
+        if let (Some(look), Some(them)) = (
             players.find_player_by_name(&looker.owner_player),
             players.find_player_by_name(&candidate.owner_player),
         ) {
-            if let (Ok(look), Ok(them)) = (Ok(a), Ok(b)) {
-                return look.get_relationship(&them);
-            }
+            return look.get_relationship(them);
         }
     }
     if looker
@@ -1492,10 +1490,8 @@ fn leftover_census_or_player_has_science(
         return true;
     }
     if let Ok(list) = player_list().read() {
-        if let Some(arc) = list.find_player_by_name(player_name) {
-            if let Ok(player) = Ok(arc) {
-                return player.has_science(science);
-            }
+        if let Some(player) = list.find_player_by_name(player_name) {
+            return player.has_science(science);
         }
     }
     if let Some(store) = game_engine::common::rts::science::get_science_store() {
@@ -1645,13 +1641,11 @@ fn host_allow_neutral_affiliation(player_name: &str, obj: &HostScriptQueryObject
         return true;
     }
     if let Ok(players) = player_list().read() {
-        if let (Some(a), Some(b)) = (
+        if let (Some(look), Some(them)) = (
             players.find_player_by_name(player_name),
             players.find_player_by_name(&obj.owner_player),
         ) {
-            if let (Ok(look), Ok(them)) = (Ok(a), Ok(b)) {
-                return look.get_relationship(&them) == crate::common::Relationship::Neutral;
-            }
+            return look.get_relationship(them) == crate::common::Relationship::Neutral;
         }
     }
     false
@@ -1670,16 +1664,14 @@ fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -
         return false;
     }
     if let Ok(players) = player_list().read() {
-        if let (Some(a), Some(b)) = (
+        if let (Some(look), Some(them)) = (
             players.find_player_by_name(player_name),
             players.find_player_by_name(owner_player),
         ) {
-            if let (Ok(look), Ok(them)) = (Ok(a), Ok(b)) {
-                return !matches!(
-                    look.get_relationship(&them),
-                    crate::common::Relationship::Allies
-                );
-            }
+            return !matches!(
+                look.get_relationship(them),
+                crate::common::Relationship::Allies
+            );
         }
     }
     true
@@ -2161,8 +2153,9 @@ pub(crate) fn get_player_arc(
         .get(key)
         .ok_or_else(|| GameLogicError::Configuration(format!("Missing parameter '{}'", key)))?;
     match val {
-        ScriptValue::PlayerId(id) | ScriptValue::Int(id) => Ok(Some(*id as i32)),
-        ScriptValue::String(name) => Ok(crate::player::list::with_player_named(name, |player| {
+        ScriptValue::PlayerId(id) => Ok(Some(*id as i32)),
+        ScriptValue::Int(id) => Ok(Some(*id as i32)),
+        ScriptValue::String(name) => Ok(crate::player::with_player_named(name, |player| {
             player.get_player_index()
         })),
         _ => Err(GameLogicError::Configuration(format!(

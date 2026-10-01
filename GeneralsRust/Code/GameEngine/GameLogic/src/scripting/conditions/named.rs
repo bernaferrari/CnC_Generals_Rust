@@ -389,9 +389,10 @@ impl ScriptCondition for NamedDiscoveredCondition {
         let Some(player_index) = get_player_arc(parameters, "player")? else {
             return Ok(false);
         };
-        let Some(player_index) =
-            crate::player::with_player(player_index, |player| player.get_player_index())
-        else {
+        let Some(unit_name) = parameters.get("unit_name").and_then(|v| match v {
+            ScriptValue::String(s) => Some(s.clone()),
+            _ => None,
+        }) else {
             return Ok(false);
         };
 

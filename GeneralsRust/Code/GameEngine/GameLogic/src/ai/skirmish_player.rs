@@ -708,103 +708,96 @@ impl AISkirmishPlayer {
 
             let obj_id = info.get_object_id();
             if obj_id != crate::common::INVALID_ID {
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) {
-                    if let Ok(obj_guard) = obj_arc.read() {
-                        if obj_guard.get_controlling_player_id() == Some(player_index) {
-                            if obj_guard.is_under_construction()
-                                && (cur_plan.is_kind_of(KindOf::FSPower)
-                                    || cur_plan.is_kind_of(KindOf::PowerPlant))
-                                && !cur_plan.is_kind_of(KindOf::CashGenerator)
-                            {
-                                power_under_construction = true;
-                            }
-                            if obj_guard.is_under_construction() {
-                                info.set_under_construction(true);
-                                let builder_id = obj_guard.get_builder_id();
-                                let bldg_pos = *obj_guard.get_position();
-                                let mut builder_valid = builder_id != crate::common::INVALID_ID;
-
-                                if builder_valid {
-                                    if let Some(builder_arc) =
-                                        TheGameLogic::find_object_by_id(builder_id)
-                                    {
-                                        if let Ok(builder_guard) = builder_arc.read() {
-                                            let wrong_owner = builder_guard
-                                                .get_controlling_player_id()
-                                                != Some(player_index);
-                                            let unmanned = builder_guard.is_disabled_by_type(
-                                                DisabledType::DisabledUnmanned,
-                                            );
-                                            if wrong_owner || unmanned {
-                                                builder_valid = false;
-                                            }
-                                        } else {
-                                            builder_valid = false;
-                                        }
-                                    } else {
-                                        builder_valid = false;
-                                    }
-                                }
-
-                                if !builder_valid {
-                                    drop(obj_guard);
-                                    if let Ok(mut obj_write) = obj_arc.write() {
-                                        obj_write.set_builder(None);
-                                    }
-                                    if let Err(err) = self.base.queue_dozer() {
-                                        log::debug!(
-                                            "AISkirmishPlayer::queue_dozer failed while rebuilding: {err}"
-                                        );
-                                    }
-                                    // C++ findDozer + aiResumeConstruction
-                                    if let Ok(Some(dozer_id)) =
-                                        self.base.find_dozer_public(&bldg_pos)
-                                    {
-                                        if let Some(dozer_arc) =
-                                            TheGameLogic::find_object_by_id(dozer_id)
-                                        {
-                                            if let Ok(dg) = dozer_arc.read() {
-                                                if let Some(ai) = dg.get_ai_update_interface() {
-                                                    { let ai_g = ai;
-                                                        let mut params =
-                                                            crate::ai::AiCommandParams::new(
-                                                                crate::ai::AiCommandType::ResumeConstruction,
-                                                                crate::ai::CommandSourceType::FromAi,
-                                                            );
-                                                        params.obj = Some(obj_id);
-                                                        let _ = ai_g.execute_command(&params);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // C++ always re-issues resume construction on valid dozer.
-                                    if let Some(builder_arc) =
-                                        TheGameLogic::find_object_by_id(builder_id)
-                                    {
-                                        if let Ok(dg) = builder_arc.read() {
-                                            if let Some(ai) = dg.get_ai_update_interface() {
-                                                { let ai_g = ai;
-                                                    let mut params =
-                                                        crate::ai::AiCommandParams::new(
-                                                            crate::ai::AiCommandType::ResumeConstruction,
-                                                            crate::ai::CommandSourceType::FromAi,
-                                                        );
-                                                    params.obj = Some(obj_id);
-                                                    let _ = ai_g.execute_command(&params);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                info.set_under_construction(false);
-                            }
-                            info_opt = info.get_next_mut();
-                            continue;
+                // C++ reads the building, then validates and re-issues against
+                // its builder — one registry checkout per object, no handles.
+                let building =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                        if obj_guard.get_controlling_player_id() != Some(player_index) {
+                            return None;
                         }
+                        Some((
+                            obj_guard.is_under_construction(),
+                            obj_guard.get_builder_id(),
+                            *obj_guard.get_position(),
+                        ))
+                    })
+                    .flatten();
+                if let Some((under_construction, builder_id, bldg_pos)) = building {
+                    if under_construction
+                        && (cur_plan.is_kind_of(KindOf::FSPower)
+                            || cur_plan.is_kind_of(KindOf::PowerPlant))
+                        && !cur_plan.is_kind_of(KindOf::CashGenerator)
+                    {
+                        power_under_construction = true;
                     }
+                    if under_construction {
+                        info.set_under_construction(true);
+                        let mut builder_valid = builder_id != crate::common::INVALID_ID;
+
+                        if builder_valid {
+                            builder_valid = crate::object::registry::OBJECT_REGISTRY
+                                .with_object(builder_id, |builder_guard| {
+                                    let wrong_owner = builder_guard
+                                        .get_controlling_player_id()
+                                        != Some(player_index);
+                                    let unmanned = builder_guard.is_disabled_by_type(
+                                        DisabledType::DisabledUnmanned,
+                                    );
+                                    !(wrong_owner || unmanned)
+                                })
+                                .unwrap_or(false);
+                        }
+
+                        if !builder_valid {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                obj_id,
+                                |obj_write| {
+                                    obj_write.set_builder(None);
+                                },
+                            );
+                            if let Err(err) = self.base.queue_dozer() {
+                                log::debug!(
+                                    "AISkirmishPlayer::queue_dozer failed while rebuilding: {err}"
+                                );
+                            }
+                            // C++ findDozer + aiResumeConstruction
+                            if let Ok(Some(dozer_id)) = self.base.find_dozer_public(&bldg_pos)
+                            {
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                                    dozer_id,
+                                    |dg| {
+                                        if let Some(ai) = dg.get_ai_update_interface() {
+                                            let mut params = crate::ai::AiCommandParams::new(
+                                                crate::ai::AiCommandType::ResumeConstruction,
+                                                crate::ai::CommandSourceType::FromAi,
+                                            );
+                                            params.obj = Some(obj_id);
+                                            let _ = ai.execute_command(&params);
+                                        }
+                                    },
+                                );
+                            }
+                        } else {
+                            // C++ always re-issues resume construction on valid dozer.
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                                builder_id,
+                                |dg| {
+                                    if let Some(ai) = dg.get_ai_update_interface() {
+                                        let mut params = crate::ai::AiCommandParams::new(
+                                            crate::ai::AiCommandType::ResumeConstruction,
+                                            crate::ai::CommandSourceType::FromAi,
+                                        );
+                                        params.obj = Some(obj_id);
+                                        let _ = ai.execute_command(&params);
+                                    }
+                                },
+                            );
+                        }
+                    } else {
+                        info.set_under_construction(false);
+                    }
+                    info_opt = info.get_next_mut();
+                    continue;
                 }
                 // C++: destroyed → clear ID, stamp timestamp, scan for GLA hole
                 // whose RebuildHoleBehavior spawnerID == prior building ID.
@@ -817,20 +810,26 @@ impl AISkirmishPlayer {
                 if !OBJECT_REGISTRY.is_empty() {
                     for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
                         let matched = OBJECT_REGISTRY.with_object(obj_id, |candidate_guard| {
-                            if candidate_guard.is_kind_of(KindOf::RebuildHole) == false {
+                            if !candidate_guard.is_kind_of(KindOf::RebuildHole) {
                                 return None;
                             }
                             let candidate_id = candidate_guard.get_id();
-                            let matched_hole = candidate_guard.get_behavior_modules().iter().any(|behavior| {
-                                ({ let bg = behavior;  }).and_then(|mut bg| {
-                                    bg.get_rebuild_hole_behavior_interface().map(|rhbi| {
-                                        rhbi.get_spawner_id() == prior_id
-                                    })
-                                }).unwrap_or(false)
-                            });
-                            if matched_hole { Some(candidate_id) } else { None }
-                        }).flatten();
-                        if let Some(candidate_id) = matched {
+                            let matched_hole = candidate_guard
+                                .get_behavior_modules()
+                                .iter()
+                                .any(|behavior| {
+                                    behavior
+                                        .get_rebuild_hole_behavior_interface()
+                                        .map(|rhbi| rhbi.get_spawner_id() == prior_id)
+                                        .unwrap_or(false)
+                                });
+                            if matched_hole {
+                                Some(candidate_id)
+                            } else {
+                                None
+                            }
+                        });
+                        if let Some(candidate_id) = matched.flatten() {
                             info.set_object_id(candidate_id);
                             log::debug!(
                                 "AI Found hole to rebuild {}",
@@ -1257,41 +1256,35 @@ impl AISkirmishPlayer {
         let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let Some(player_index) = with_player(player_idx, |guard| guard.get_player_index() as UnsignedInt) else {
+        let player_index = with_player(player_idx, |guard| guard.get_player_index() as UnsignedInt)
+        else {
             return;
         };
 
-        let obj_manager = get_object_manager();
-        let object_ids = {
-            let Ok(manager) = obj_manager.read() else {
-                return;
-            };
-            manager.get_objects_owned_by_player(player_index)
-        };
+        // C++ walks TheGameLogic's object list; the player's own roster plus
+        // one registry checkout per object replaces the manager lock chain.
+        let object_ids = with_player(player_idx, |guard| guard.get_all_objects())
+            .unwrap_or_default();
 
         let mut start_pos = None;
         let mut command_center_id = None;
-        {
-            let Ok(manager) = obj_manager.read() else {
-                return;
-            };
-            for obj_id in object_ids {
-                let Some(obj_arc) = manager.get_object(obj_id) else {
+        for obj_id in object_ids {
+            let Some(found) =
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(obj_id, |obj| {
+                        if obj.is_kind_of(KindOf::CommandCenter) {
+                            Some((*obj.get_position(), obj.get_id()))
+                        } else {
+                            None
+                        }
+                    })
+                    .flatten()
+                else {
                     continue;
                 };
-                let Ok(obj_instance) = obj_arc.read() else {
-                    continue;
-                };
-                let __base_arc = obj_instance.base();
-                let Ok(base_obj) = __base_arc.read() else {
-                    continue;
-                };
-                if base_obj.is_kind_of(KindOf::CommandCenter) {
-                    start_pos = Some(*base_obj.get_position());
-                    command_center_id = Some(obj_id);
-                    break;
-                }
-            }
+            start_pos = Some(found.0);
+            command_center_id = Some(found.1);
+            break;
         }
 
         let Some(start_pos) = start_pos else {
@@ -1315,9 +1308,7 @@ impl AISkirmishPlayer {
                     }
                 }
             }
-            if let Ok(mut manager) = obj_manager.write() {
-                manager.destroy_object(obj_id);
-            }
+            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(obj_id);
         }
 
         let mut build_pos = Coord3D::origin();
@@ -1604,33 +1595,24 @@ impl AISkirmishPlayer {
     /// Get enemy base center
     /// Get enemy base center
     fn get_enemy_base_center(&self, _enemy: &Player) -> Option<Coord3D> {
-        let obj_manager = get_object_manager();
-        let Ok(manager) = obj_manager.read() else {
-            return None;
-        };
-
-        let player_index = _enemy.get_player_index() as UnsignedInt;
-        let object_ids = manager.get_objects_owned_by_player(player_index);
+        let object_ids = _enemy.get_all_objects();
 
         let mut min = Coord3D::new(f32::MAX, f32::MAX, 0.0);
         let mut max = Coord3D::new(f32::MIN, f32::MIN, 0.0);
         let mut found = false;
 
         for obj_id in object_ids {
-            let Some(obj_arc) = manager.get_object(obj_id) else {
+            let Some(pos) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                    if !obj.is_kind_of(KindOf::Structure) {
+                        return None;
+                    }
+                    Some(*obj.get_position())
+                })
+                .flatten()
+            else {
                 continue;
             };
-            let Ok(obj_instance) = obj_arc.read() else {
-                continue;
-            };
-            let __base_arc = obj_instance.base();
-            let Ok(base_obj) = __base_arc.read() else {
-                continue;
-            };
-            if !base_obj.is_kind_of(KindOf::Structure) {
-                continue;
-            }
-            let pos = base_obj.get_position();
             min.x = min.x.min(pos.x);
             min.y = min.y.min(pos.y);
             max.x = max.x.max(pos.x);

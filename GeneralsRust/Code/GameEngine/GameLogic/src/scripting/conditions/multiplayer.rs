@@ -97,10 +97,9 @@ impl ScriptCondition for MultiplayerPlayerDefeatCondition {
         let Ok(players) = player_list().read() else {
             return Ok(false);
         };
-        let Some(local_player_arc) = players.get_local_player().cloned() else {
+        let Some(local_player) = players.get_local_player() else {
             return Ok(false);
         };
-        let local_player = local_player_arc;
         let local_defeat = local_player.is_defeated() || local_player.is_player_dead();
         if !local_defeat || local_player.is_player_observer() {
             return Ok(false);

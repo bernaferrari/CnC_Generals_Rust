@@ -591,7 +591,7 @@ impl ScriptCondition for UnitHealthCondition {
             GameLogicError::Configuration(format!("Unit '{}' not found", unit_name))
         })?;
 
-        let Some((cur_health, initial_health)) = OBJECT_REGISTRY
+        let (cur_health, initial_health) = OBJECT_REGISTRY
             .with_object(object_id, |obj| {
                 obj.get_body_module()
                     .map(|body| (body.get_health(), body.get_initial_health()))
