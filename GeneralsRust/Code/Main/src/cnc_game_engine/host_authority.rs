@@ -2410,9 +2410,7 @@ mod staged_restore_tests {
             let ai_store = gamelogic::ai::the_ai();
             let mut ai = ai_store.write().expect("lock live legacy AI");
             let first = ai.create_group();
-            let first = first.read().expect("read first live AI group").get_id();
             let second = ai.create_group();
-            let second = second.read().expect("read second live AI group").get_id();
             (first, second)
         };
         let live_integration_group_count =
@@ -2574,11 +2572,7 @@ mod staged_restore_tests {
         let resumed_ai_group_id = {
             let ai_store = gamelogic::ai::the_ai();
             let mut ai = ai_store.write().expect("lock restored legacy AI");
-            let resumed = ai.create_group();
-            let resumed_id = resumed
-                .read()
-                .expect("read post-rollback legacy AI group")
-                .get_id();
+            let resumed_id = ai.create_group();
             resumed_id
         };
         assert_eq!(

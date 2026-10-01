@@ -74,9 +74,10 @@ impl ScriptConditionEvaluator {
                 player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.get_local_player().cloned())
-                    .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
-                    .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
+                    .and_then(|list| list.get_local_player().and_then(|p| p.get_default_team_id()))
+                    .and_then(|team_id| {
+                        crate::team::factory_access::with_team(team_id, |t| t.get_name().to_string())
+                    })
                     .unwrap_or_else(|| raw.to_string())
             }
             _ => raw.to_string(),
@@ -86,7 +87,7 @@ impl ScriptConditionEvaluator {
     pub(crate) fn get_team_by_name(
         &self,
         team_name: &str,
-    ) -> Result<Arc<RwLock<crate::team::Team>>, ScriptError> {
+    ) -> Result<crate::team::TeamID, ScriptError> {
         self.lookup_condition_team(team_name)
             .ok_or_else(|| ScriptError::TeamNotFound(team_name.to_string()))
     }
@@ -96,7 +97,7 @@ impl ScriptConditionEvaluator {
     pub(crate) fn lookup_condition_team(
         &self,
         team_name: &str,
-    ) -> Option<Arc<RwLock<crate::team::Team>>> {
+    ) -> Option<crate::team::TeamID> {
         let resolved = self.resolve_string_token(team_name);
         let calling = with_script_engine_ref(|engine| {
             engine
@@ -107,26 +108,30 @@ impl ScriptConditionEvaluator {
         let preferred = calling.filter(|name| name == &resolved);
 
         let factory = get_team_factory();
-        let factory_guard = factory.lock().ok()?;
-        let pick = |name: &str| -> Option<Arc<RwLock<crate::team::Team>>> {
-            let team = factory_guard.find_team_instances(name).into_iter().next()?;
-            if factory_guard
-                .find_team_prototype(name)
-                .is_some_and(|proto| proto.is_singleton())
-            {
-                let active = team.read().ok().is_some_and(|guard| guard.is_active());
-                if !active {
-                    return None;
-                }
+        let (team_id, singleton) = {
+            let factory_guard = factory.lock().ok()?;
+            let pick_id = |name: &str| -> Option<(crate::team::TeamID, bool)> {
+                let team_id = factory_guard.find_team_instances(name).into_iter().next()?;
+                let singleton = factory_guard
+                    .find_team_prototype(name)
+                    .is_some_and(|proto| proto.is_singleton());
+                Some((team_id, singleton))
+            };
+            if let Some(name) = preferred.as_deref() {
+                pick_id(name).or_else(|| pick_id(&resolved))?
+            } else {
+                pick_id(&resolved)?
             }
-            Some(team)
         };
-        if let Some(name) = preferred {
-            if let Some(team) = pick(&name) {
-                return Some(team);
+        if singleton {
+            let active =
+                crate::team::factory_access::with_team(team_id, |guard| guard.is_active())
+                    .unwrap_or(false);
+            if !active {
+                return None;
             }
         }
-        pick(&resolved)
+        Some(team_id)
     }
 
     pub(crate) fn get_trigger_area(

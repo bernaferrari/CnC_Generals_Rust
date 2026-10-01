@@ -1974,7 +1974,8 @@ impl AIAttackApproachTargetState {
                 if let Some(Some(code)) = early {
                     return Ok(code);
                 }
-            }
+            });
+            if let Some(step) = __victim_step { return step; }
             if !self.compute_path()? {
                 return Ok(StateReturnType::Success);
             }
@@ -1983,8 +1984,6 @@ impl AIAttackApproachTargetState {
                 return Ok(StateReturnType::Success);
             }
             return Ok(code);
-            });
-            if let Some(step) = __victim_step { return step; }
         }
 
         {
@@ -2197,6 +2196,9 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
             if attack_can_pursue(&owner_guard, weapon, &victim_guard) {
                 return Ok(Some(StateReturnType::Success));
             }
+            Ok(None)
+            });
+            if let Some(step) = __victim_step { return step; }
         } else {
             owner_guard.ai_pending_destroy_path = true;
         }
@@ -2218,9 +2220,7 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
             }
         }
         Ok(None)
-            });
-            if let Some(step) = __victim_step { return step; }
-        }
+        });
         let __early = __early.ok_or_else(|| "attack approach owner lock poisoned".to_string())?;
         if let Some(code) = __early? {
             return Ok(code);

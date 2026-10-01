@@ -1106,12 +1106,8 @@ impl Object {
         }
     }
 
-    pub fn get_group(&self) -> Option<Arc<RwLock<crate::ai::AiGroup>>> {
-        let group_id = self.group_id?;
-        crate::ai::the_ai()
-            .read()
-            .ok()
-            .and_then(|ai_guard| ai_guard.find_group(group_id))
+    pub fn get_group(&self) -> Option<u32> {
+        self.group_id
     }
 
     // ========================================================================

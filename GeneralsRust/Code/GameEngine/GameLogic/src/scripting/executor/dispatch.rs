@@ -917,11 +917,8 @@ impl ScriptActionDispatcher {
         let Ok(list) = player_list().read() else {
             return;
         };
-        let Some(player_arc) = list.find_player_by_name(player_name) else {
+        let Some(player_guard) = list.find_player_by_name(player_name) else {
             log::warn!("Skirmish action: player '{}' not found", player_name);
-            return;
-        };
-        let Ok(player_guard) = player_arc.read() else {
             return;
         };
 
@@ -935,31 +932,22 @@ impl ScriptActionDispatcher {
         });
     }
 
-    pub(crate) fn get_skirmish_enemy_player(&self) -> Option<Arc<RwLock<crate::player::Player>>> {
+    pub(crate) fn get_skirmish_enemy_player(&self) -> Option<crate::player::PlayerIndex> {
         let current_player_name =
             with_script_engine_ref(|engine| engine.get_current_player_name()).flatten()?;
 
         let list = player_list().read().ok()?;
-        let current_player = list.find_player_by_name(&current_player_name)?;
-        let current_guard = current_player.read().ok()?;
+        let current_guard = list.find_player_by_name(&current_player_name)?;
 
         if let Some(enemy_index) = current_guard.get_current_enemy_player_index() {
-            if let Some(enemy_arc) = list.get_player(enemy_index).cloned() {
-                let is_non_neutral = enemy_arc
-                    .read()
-                    .ok()
-                    .map(|enemy_guard| enemy_guard.get_player_type() != PlayerType::Neutral)
-                    .unwrap_or(false);
-                if is_non_neutral {
-                    return Some(enemy_arc);
+            if let Some(enemy) = list.get_player(enemy_index) {
+                if enemy.get_player_type() != PlayerType::Neutral {
+                    return Some(enemy_index);
                 }
             }
         }
 
-        for player_arc in list.iter() {
-            let Ok(player_guard) = player_arc.read() else {
-                continue;
-            };
+        for player_guard in list.iter() {
             if player_guard.get_player_type() == PlayerType::Human {
                 // C++ ScriptEngine.cpp:5789-5791: Challenge dummy ThePlayer is not the enemy.
                 if is_generals_challenge_campaign() {
@@ -971,7 +959,7 @@ impl ScriptActionDispatcher {
                         continue;
                     }
                 }
-                return Some(player_arc.clone());
+                return Some(player_guard.get_player_index());
             }
         }
 
@@ -980,10 +968,11 @@ impl ScriptActionDispatcher {
 
     pub(crate) fn compute_team_center_and_first(
         &self,
-        team_arc: &Arc<RwLock<crate::team::Team>>,
+        team_id: crate::team::TeamID,
     ) -> Option<(Coord3D, crate::object::ObjectID)> {
-        let team_guard = team_arc.read().ok()?;
-        let members = team_guard.get_members();
+        let members = crate::team::factory_access::with_team(team_id, |team| {
+            team.get_members().to_vec()
+        })?;
         let mut sum = Coord3D::new(0.0, 0.0, 0.0);
         let mut count = 0.0;
         let mut first_unit: Option<crate::object::ObjectID> = None;
@@ -1029,13 +1018,12 @@ impl ScriptActionDispatcher {
         unit_id: crate::object::ObjectID,
         start_waypoint_id: crate::common::WaypointID,
     ) {
-        // AIPlayer::check_bridges still takes an object Arc (AI crate).
-        let Some(unit) = OBJECT_REGISTRY.get_object(unit_id) else {
+        if !OBJECT_REGISTRY.contains(unit_id) {
             return;
-        };
+        }
         let _ = with_ai_integration_mut(|manager| {
             manager.with_ai_player_mut(player_id, |ai_player| {
-                ai_player.check_bridges(&unit, start_waypoint_id);
+                ai_player.check_bridges(unit_id, start_waypoint_id);
             })
         });
     }
@@ -1236,7 +1224,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn get_team_by_name(
         &self,
         team_name: &str,
-    ) -> Result<Arc<RwLock<crate::team::Team>>, ScriptError> {
+    ) -> Result<crate::team::TeamID, ScriptError> {
         let team_name = self.resolve_team_name_token(team_name);
         let factory = get_team_factory();
         if let Ok(mut factory_guard) = factory.lock() {
@@ -1254,7 +1242,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn get_or_create_team_by_name(
         &self,
         team_name: &str,
-    ) -> Result<Arc<RwLock<crate::team::Team>>, ScriptError> {
+    ) -> Result<crate::team::TeamID, ScriptError> {
         let team_name = self.resolve_team_name_token(team_name);
         let factory = get_team_factory();
         let Ok(mut factory_guard) = factory.lock() else {
@@ -1339,7 +1327,7 @@ impl ScriptActionDispatcher {
             return Ok(None);
         }
 
-        let team_arc = match self.get_or_create_team_by_name(team_name) {
+        let team_id = match self.get_or_create_team_by_name(team_name) {
             Ok(team) => team,
             Err(err) => {
                 log::warn!("CREATE_UNIT: team '{}' unavailable: {}", team_name, err);
@@ -1373,7 +1361,7 @@ impl ScriptActionDispatcher {
             match manager.create_object(
                 object_type,
                 position,
-                Some(team_arc.clone()),
+                Some(team_id),
                 crate::object_manager::ObjectCreationFlags::from_template(),
             ) {
                 Ok(id) => id,
@@ -1389,9 +1377,9 @@ impl ScriptActionDispatcher {
             }
         };
 
-        if let Ok(mut team) = team_arc.write() {
+        let _ = crate::team::factory_access::with_team_mut(team_id, |team| {
             team.add_member(object_id);
-        }
+        });
 
         if let Some(unit_name) = unit_name {
             if let Ok(Some(old_object_id)) = tracker.get_object_id(unit_name) {
@@ -1422,14 +1410,11 @@ impl ScriptActionDispatcher {
         team_name: &str,
     ) -> Result<Arc<RwLock<AiGroup>>, ScriptError> {
         // Get team
-        let team_arc = self.get_team_by_name(team_name)?;
-        let members = if let Ok(team) = team_arc.read() {
+        let team_id = self.get_team_by_name(team_name)?;
+        let members = crate::team::factory_access::with_team(team_id, |team| {
             team.get_members().to_vec()
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to read team".to_string(),
-            ));
-        };
+        })
+        .ok_or_else(|| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
 
         // C++ script actions use short-lived groups; avoid contending on global AI write lock.
         let group_id = SCRIPT_TEMP_GROUP_ID.fetch_add(1, Ordering::Relaxed);
@@ -1462,10 +1447,11 @@ impl ScriptActionDispatcher {
         );
 
         if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let members: Vec<_> = team.get_members().to_vec();
-                    drop(team);
+            if let Some(team_id) = factory.find_team(&team_name) {
+                let members = crate::team::factory_access::with_team(team_id, |team| {
+                    team.get_members().to_vec()
+                });
+                if let Some(members) = members {
                     for obj_id in members {
                         let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
                             if let Some(ai) = obj.get_ai_update_interface() {

@@ -100,10 +100,10 @@ pub struct Weapon {
     pub(crate) caller_veterancy: Option<crate::common::VeterancyLevel>,
     pending_assault: Option<Option<ObjectId>>,
     pending_mine_cleared: bool,
-    pub(crate) caller_team: Option<std::sync::Arc<std::sync::RwLock<crate::team::Team>>>,
+    pub(crate) caller_team: Option<crate::team::TeamID>,
     caller_barrel_count: Option<u32>,
     caller_player_mask: Option<crate::common::PlayerMaskType>,
-    caller_player: Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>>,
+    caller_player: Option<crate::player::PlayerIndex>,
     pending_self_damage: Option<crate::damage::DamageInfo>,
 }
 fn goal_boundary_dist_sqr(goal: &Coord3D, source_radius: f32, target: &Coord3D, target_radius: f32) -> f32 {
@@ -173,10 +173,7 @@ impl Weapon {
         self.caller_veterancy = Some(level);
     }
 
-    pub fn set_caller_team(
-        &mut self,
-        team: Option<std::sync::Arc<std::sync::RwLock<crate::team::Team>>>,
-    ) {
+    pub fn set_caller_team(&mut self, team: Option<crate::team::TeamID>) {
         self.caller_team = team;
     }
 
@@ -188,17 +185,12 @@ impl Weapon {
         self.caller_player_mask = Some(mask);
     }
 
-    pub fn set_caller_player(
-        &mut self,
-        player: Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>>,
-    ) {
+    pub fn set_caller_player(&mut self, player: Option<crate::player::PlayerIndex>) {
         self.caller_player = player;
     }
 
-    pub fn caller_player(
-        &self,
-    ) -> Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>> {
-        self.caller_player.clone()
+    pub fn caller_player(&self) -> Option<crate::player::PlayerIndex> {
+        self.caller_player
     }
 
     pub fn caller_player_mask(&self) -> Option<crate::common::PlayerMaskType> {
@@ -1152,8 +1144,6 @@ impl Weapon {
                 .is_some_and(|(id, _)| id == source_obj_id)
             {
                 self.caller_team
-                    .as_ref()
-                    .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
             } else {
                 let Some(team_id) = crate::object::registry::OBJECT_REGISTRY.with_object(
                     source_obj_id,

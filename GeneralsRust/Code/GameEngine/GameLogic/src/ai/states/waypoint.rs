@@ -112,6 +112,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
             return StateReturnType::Failure;
         };
         let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+        let mut speed = FAST_AS_POSSIBLE;
         if self.core.move_as_group {
             if self.core.current_waypoint.is_none() {
                 if let Some(team_arc) = owner_guard.get_team() {
@@ -130,16 +131,18 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                 }
             }
             if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(ai_lock) = the_ai().read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                self.core.group_offset.x = pos.x - center.x;
-                                self.core.group_offset.y = pos.y - center.y;
-                            }
-                        }
+                if let Some((group_speed, center)) =
+                    crate::ai::with_ai_group_mut(group_id, |group| {
+                        let speed = group.get_speed();
+                        let center = group.get_center();
+                        (speed, center)
+                    })
+                {
+                    speed = group_speed;
+                    if let Some(center) = center {
+                        let pos = owner_guard.get_position();
+                        self.core.group_offset.x = pos.x - center.x;
+                        self.core.group_offset.y = pos.y - center.y;
                     }
                 }
             }
@@ -436,17 +439,18 @@ impl AIFollowWaypointPathAsTeamState {
                 }
             }
             if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai();
-                if let Ok(ai_lock) = ai_store.read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                self.core.group_offset.x = pos.x - center.x;
-                                self.core.group_offset.y = pos.y - center.y;
-                            }
-                        }
+                if let Some((group_speed, center)) =
+                    crate::ai::with_ai_group_mut(group_id, |group| {
+                        let speed = group.get_speed();
+                        let center = group.get_center();
+                        (speed, center)
+                    })
+                {
+                    speed = group_speed;
+                    if let Some(center) = center {
+                        let pos = owner_guard.get_position();
+                        self.core.group_offset.x = pos.x - center.x;
+                        self.core.group_offset.y = pos.y - center.y;
                     }
                 }
             }
@@ -587,24 +591,28 @@ impl AIFollowWaypointPathAsTeamState {
                 if let Ok(player_guard) = player.read() {
                     if player_guard.is_skirmish_ai() {
                         if let Some(group_id) = owner_guard.get_group_id() {
-                            let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
-                                if let Some(group) = ai_lock.find_group(group_id) {
-                                    if let Ok(group_guard) = group.read() {
-                                        if let Some(center) = group_guard.get_center() {
-                                            let dx = center.x - self.core.goal_position.x;
-                                            let dy = center.y - self.core.goal_position.y;
-                                            let dist = (dx * dx + dy * dy).sqrt();
-                                            let num = group_guard.get_count() as f32;
-                                            let fudge = ai_lock
-                                                .get_ai_data()
-                                                .read()
-                                                .map(|d| d.skirmish_group_fudge_value)
-                                                .unwrap_or(0.0);
-                                            if dist <= num * fudge {
-                                                status = StateReturnType::Success;
-                                            }
-                                        }
-                                    }
+                            let fudge = the_ai()
+                                .read()
+                                .ok()
+                                .and_then(|ai| {
+                                    ai.get_ai_data()
+                                        .read()
+                                        .ok()
+                                        .map(|d| d.skirmish_group_fudge_value)
+                                })
+                                .unwrap_or(0.0);
+                            if let Some((center, num)) = crate::ai::with_ai_group(group_id, |group| {
+                                group
+                                    .get_center()
+                                    .map(|center| (center, group.get_count() as f32))
+                            })
+                            .flatten()
+                            {
+                                let dx = center.x - self.core.goal_position.x;
+                                let dy = center.y - self.core.goal_position.y;
+                                let dist = (dx * dx + dy * dy).sqrt();
+                                if dist <= num * fudge {
+                                    status = StateReturnType::Success;
                                 }
                             }
                         }
@@ -704,16 +712,18 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         let mut group_offset = Coord2D::new(0.0, 0.0);
         if self.move_as_group {
             if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(ai_lock) = the_ai().read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                group_offset.x = pos.x - center.x;
-                                group_offset.y = pos.y - center.y;
-                            }
-                        }
+                if let Some((group_speed, center)) =
+                    crate::ai::with_ai_group_mut(group_id, |group| {
+                        let speed = group.get_speed();
+                        let center = group.get_center();
+                        (speed, center)
+                    })
+                {
+                    speed = group_speed;
+                    if let Some(center) = center {
+                        let pos = owner_guard.get_position();
+                        group_offset.x = pos.x - center.x;
+                        group_offset.y = pos.y - center.y;
                     }
                 }
             }
@@ -859,17 +869,18 @@ impl AIFollowWaypointPathAsTeamExactState {
         let mut group_offset = Coord2D::new(0.0, 0.0);
         if self.move_as_group {
             if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai();
-                if let Ok(ai_lock) = ai_store.read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            speed = group_guard.get_speed();
-                            if let Some(center) = group_guard.get_center() {
-                                let pos = owner_guard.get_position();
-                                group_offset.x = pos.x - center.x;
-                                group_offset.y = pos.y - center.y;
-                            }
-                        }
+                if let Some((group_speed, center)) =
+                    crate::ai::with_ai_group_mut(group_id, |group| {
+                        let speed = group.get_speed();
+                        let center = group.get_center();
+                        (speed, center)
+                    })
+                {
+                    speed = group_speed;
+                    if let Some(center) = center {
+                        let pos = owner_guard.get_position();
+                        group_offset.x = pos.x - center.x;
+                        group_offset.y = pos.y - center.y;
                     }
                 }
             }

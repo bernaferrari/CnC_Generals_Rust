@@ -616,19 +616,9 @@ impl ScriptEngine {
         // Keep the inner borrow out of that object walk so an update callback
         // cannot conflict with immediate script re-entry.
         if !dual_world_registry_unavailable() {
-            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                let mut guard = match obj.write() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
-                if true {
-                    guard.set_receiving_difficulty_bonus(enable);
-                }
-            }
+            OBJECT_REGISTRY.with_each_mut(|_id, guard| {
+                guard.set_receiving_difficulty_bonus(enable);
+            });
         }
 
         let mut inner = self.lock_inner_mut();

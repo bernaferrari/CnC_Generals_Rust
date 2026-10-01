@@ -1504,16 +1504,10 @@ impl GameLogic {
         let no_buildings = flags
             .contains(crate::system::victory_conditions::MultiplayerEliminationFlags::NO_BUILDINGS);
 
-        let mut newly_defeated_indices: Vec<(
-            PlayerIndex,
-            std::sync::Arc<std::sync::RwLock<Player>>,
-        )> = Vec::new();
+        let mut newly_defeated_indices: Vec<PlayerIndex> = Vec::new();
 
         // Phase 1: Scan for newly-defeated players (C++ lines 163-199)
-        for player_arc in player_list.iter() {
-            let Ok(player) = player_arc.read() else {
-                continue;
-            };
+        for player in player_list.iter() {
             let player_index = player.get_player_index();
             if player_index < 0 {
                 continue;
@@ -1532,7 +1526,7 @@ impl GameLogic {
             };
 
             if is_defeated && !player.is_defeated() {
-                newly_defeated_indices.push((player_index, std::sync::Arc::clone(player_arc)));
+                newly_defeated_indices.push(player_index);
             }
         }
 
@@ -1540,15 +1534,17 @@ impl GameLogic {
         drop(player_list);
 
         // Phase 2: Handle newly-defeated players (C++ VictoryConditions.cpp 166-198)
-        for (player_index, player_arc) in &newly_defeated_indices {
-            let display_name = player_arc
-                .read()
-                .ok()
-                .map(|player| player.get_player_display_name().clone())
-                .unwrap_or_default();
+        for player_index in &newly_defeated_indices {
+            let display_name = crate::player::with_player(*player_index, |player| {
+                player.get_player_display_name().clone()
+            })
+            .unwrap_or_default();
 
-            if let Ok(mut player) = player_arc.write() {
+            if crate::player::with_player_mut(*player_index, |player| {
                 player.set_defeated(true);
+            })
+            .is_some()
+            {
                 info!(
                     "VictoryConditions: Player {} has been eliminated",
                     player_index
@@ -1578,16 +1574,9 @@ impl GameLogic {
                 .iter()
                 .copied()
                 .filter(|id| {
-                    self.objects
-                        .get(id)
-                        .and_then(|obj| obj.read().ok())
-                        .and_then(|guard| {
-                            guard.get_controlling_player().and_then(|player| {
-                                player
-                                    .read()
-                                    .ok()
-                                    .map(|p| p.get_player_index() == *player_index)
-                            })
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(*id, |guard| {
+                            guard.get_controlling_player() == Some(*player_index)
                         })
                         .unwrap_or(false)
                 })

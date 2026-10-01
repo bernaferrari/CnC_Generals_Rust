@@ -1064,33 +1064,28 @@ fn leftover_player_list_is_local_allied_defeat() -> bool {
     let Ok(list) = crate::player::ThePlayerList().read() else {
         return false;
     };
-    let Some(local_arc) = list.get_local_player().cloned() else {
+    let Some(local) = list.get_local_player() else {
         return false;
     };
-    let Ok(local) = local_arc.read() else {
-        return false;
-    };
+    let local_index = local.get_player_index();
+    let local_observer = local.is_player_observer();
 
-    let mut first_living: Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>> = None;
+    let mut first_living: Option<crate::player::PlayerIndex> = None;
     let mut multiple_alliances = false;
-    for player_arc in list.iter() {
-        let Ok(player) = player_arc.read() else {
-            continue;
-        };
-        if !leftover_player_is_playable_living(&player) {
+    for player in list.iter() {
+        if !leftover_player_is_playable_living(player) {
             continue;
         }
-        if let Some(first_arc) = &first_living {
-
-            let Ok(first) = first_arc.read() else {
+        if let Some(first_index) = first_living {
+            let Some(first) = list.get_player(first_index) else {
                 continue;
             };
-            if !leftover_players_are_allies(&first, &player) {
+            if !leftover_players_are_allies(first, player) {
                 multiple_alliances = true;
                 break;
             }
         } else {
-            first_living = Some(std::sync::Arc::clone(player_arc));
+            first_living = Some(player.get_player_index());
         }
     }
     drop(list);
@@ -1098,19 +1093,21 @@ fn leftover_player_list_is_local_allied_defeat() -> bool {
     if multiple_alliances {
         return false;
     }
-    if local.is_player_observer() {
+    if local_observer {
         return true;
     }
-    let Some(first_arc) = first_living else {
+    let Some(first_index) = first_living else {
         // Everyone playable is dead: C++ m_singleAllianceRemaining + !hasAchievedVictory.
         return true;
     };
-    let Ok(alive) = first_arc.read() else {
-        return true;
-    };
-    // Defeat only when the remaining alliance is not the local player's.
-    local.get_player_index() != alive.get_player_index()
-        && !leftover_players_are_allies(&local, &alive)
+    crate::player::with_player(local_index, |local| {
+        crate::player::with_player(first_index, |alive| {
+            local.get_player_index() != alive.get_player_index()
+                && !leftover_players_are_allies(local, alive)
+        })
+        .unwrap_or(true)
+    })
+    .unwrap_or(true)
 }
 
 fn leftover_local_player_is_observer() -> bool {
@@ -1118,7 +1115,7 @@ fn leftover_local_player_is_observer() -> bool {
         return false;
     };
     list.get_local_player()
-        .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
+        .map(|player| player.is_player_observer())
         .unwrap_or(false)
 }
 

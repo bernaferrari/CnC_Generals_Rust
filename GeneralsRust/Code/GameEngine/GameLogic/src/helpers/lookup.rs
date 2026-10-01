@@ -770,7 +770,7 @@ impl TheThingFactory {
     pub fn new_object_with_team_handle(
         &self,
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
-        team: std::sync::Arc<std::sync::RwLock<crate::team::Team>>,
+        team: crate::team::TeamID,
     ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         self.new_object_with_team_handle_and_status(
             template,
@@ -783,7 +783,7 @@ impl TheThingFactory {
     pub fn new_object_with_team_handle_and_status(
         &self,
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
-        team: std::sync::Arc<std::sync::RwLock<crate::team::Team>>,
+        team: crate::team::TeamID,
         status_bits: crate::common::ObjectStatusMaskType,
     ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         use crate::object_manager::get_object_manager;

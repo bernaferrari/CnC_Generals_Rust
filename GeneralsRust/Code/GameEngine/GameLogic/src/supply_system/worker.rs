@@ -1037,7 +1037,7 @@ impl WorkerAIUpdate {
     ) {
         let mut target_display_name: Option<String> = None;
         let mut target_pos: Option<LogicCoord3D> = None;
-        let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
+        let mut controlling_player: Option<crate::player::PlayerIndex> = None;
 
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |target_guard| {
             target_guard.clear_status(
@@ -1084,21 +1084,18 @@ impl WorkerAIUpdate {
         });
 
         if let Some(player) = controlling_player {
-            // The player guard is held across this call, but the handler
-            // works on object/script-engine state via IDs and never
-            // re-resolves this player, so it cannot re-enter the lock.
-            if let Ok(mut player_guard) = player.write() {
-                let builder_id = crate::object::registry::OBJECT_REGISTRY
-                    .with_object(owner_id, |g| g.get_id());
-                let structure_id = crate::object::registry::OBJECT_REGISTRY
-                    .with_object(target_id, |g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
+            let builder_id =
+                crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |g| g.get_id());
+            let structure_id = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID);
+            let _ = crate::player::with_player_mut(player, |player_guard| {
                 player_guard.on_structure_construction_complete_id(
                     builder_id,
                     structure_id,
                     is_rebuild,
                 );
-            }
+            });
         }
 
         crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {

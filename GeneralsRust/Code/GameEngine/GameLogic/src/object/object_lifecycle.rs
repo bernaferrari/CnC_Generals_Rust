@@ -498,10 +498,10 @@ impl Object {
 
         let _ = self.set_team(None);
 
-        if let Some(group) = self.get_group() {
-            if let Ok(mut group_guard) = group.write() {
-                let _ = group_guard.remove(self.id);
-            }
+        if let Some(group_id) = self.get_group() {
+            let _ = crate::ai::with_ai_group_mut(group_id, |group| {
+                let _ = group.remove(self.id);
+            });
         }
         self.group_id = None;
 

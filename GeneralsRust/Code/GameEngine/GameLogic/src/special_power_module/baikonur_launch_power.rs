@@ -87,7 +87,7 @@ impl BaikonurLaunchPower {
             .unwrap_or(false)
     }
 
-    fn resolve_team(&self) -> Result<std::sync::Arc<std::sync::RwLock<crate::team::Team>>, String> {
+    fn resolve_team(&self) -> Result<crate::team::TeamID, String> {
         // Wave 400: empty dual-world → Err.
         if dual_world_registry_unavailable() {
             return Err("Baikonur launch owner object not found".to_string());
@@ -118,14 +118,13 @@ impl BaikonurLaunchPower {
             }
         };
 
-        let team_arc = self.resolve_team()?;
-        let team_guard = team_arc
-            .read()
-            .map_err(|_| "Team lock poisoned".to_string())?;
+        let team_id = self.resolve_team()?;
         let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
-        let detonation = factory
-            .new_object(template.clone(), &*team_guard)
-            .map_err(|e| e.to_string())?;
+        let detonation = crate::team::factory_access::with_team(team_id, |team| {
+            factory.new_object(template.clone(), team)
+        })
+        .ok_or_else(|| "Team lock poisoned".to_string())?
+        .map_err(|e| e.to_string())?;
 
         detonation
             .write()
@@ -150,39 +149,27 @@ impl BaikonurLaunchPower {
             return true;
         }
 
-        let player_list = crate::player::player_list();
-        let Ok(list_guard) = player_list.read() else {
-            return false;
-        };
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex) else {
-            return false;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return false;
-        };
-
-        if !player_guard
-            .get_money_mut()
-            .subtract_money(self.data.base.cost)
-        {
-            return false;
-        }
-
-        if self.data.base.cost > 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_spent(self.data.base.cost as u32);
-        }
-
-        true
+        crate::player::with_player_mut(player_id as PlayerIndex, |player_guard| {
+            if !player_guard
+                .get_money_mut()
+                .subtract_money(self.data.base.cost)
+            {
+                return false;
+            }
+            if self.data.base.cost > 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_spent(self.data.base.cost as u32);
+            }
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn get_player_money(&self, player_id: ObjectID) -> Option<Int> {
-        let player_list = crate::player::player_list();
-        let list_guard = player_list.read().ok()?;
-        let player_arc = list_guard.get_player(player_id as PlayerIndex)?;
-        let player_guard = player_arc.read().ok()?;
-        Some(player_guard.get_money().get_money())
+        crate::player::with_player(player_id as PlayerIndex, |player| {
+            player.get_money().get_money()
+        })
     }
 
     fn check_prerequisites(&self, player_id: ObjectID) -> Bool {

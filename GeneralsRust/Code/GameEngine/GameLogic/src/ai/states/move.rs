@@ -1312,13 +1312,10 @@ impl AIMoveToState {
         self.start_move_sound(owner_guard);
         if owner_guard.get_formation_id() != FormationID::NONE {
             if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai();
-                if let Ok(ai_lock) = ai_store.read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            ai.set_desired_speed(group_guard.get_speed());
-                        }
-                    }
+                if let Some(group_speed) =
+                    crate::ai::with_ai_group_mut(group_id, |group| group.get_speed())
+                {
+                    ai.set_desired_speed(group_speed);
                 }
             }
         }
@@ -1857,14 +1854,10 @@ impl AIMoveToState {
             self.start_move_sound(owner_guard);
             if owner_guard.get_formation_id() != FormationID::NONE {
                 if let Some(group_id) = owner_guard.get_group_id() {
-                    let ai_store = the_ai();
-                    if let Ok(ai_lock) = ai_store.read() {
-                        if let Some(group) = ai_lock.find_group(group_id) {
-                            if let Ok(mut group_guard) = group.write() {
-                                let speed = group_guard.get_speed();
-                                ai_guard.set_desired_speed(speed);
-                            }
-                        }
+                    if let Some(group_speed) =
+                        crate::ai::with_ai_group_mut(group_id, |group| group.get_speed())
+                    {
+                        ai_guard.set_desired_speed(group_speed);
                     }
                 }
             }

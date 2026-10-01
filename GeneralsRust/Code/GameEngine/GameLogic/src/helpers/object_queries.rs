@@ -213,71 +213,72 @@ impl ThePartitionManager {
 
                 // Host path: empty dual-world registry — no object residual for path find.
                 if !OBJECT_REGISTRY.is_empty() {
+                    let mut blocked = false;
                     for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                        let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            continue;
-                        };
-                        let obj_id = obj_guard.get_id();
-
-                        if options.ignore_object_id == Some(obj_id) {
+                        if options.ignore_object_id == Some(obj_id)
+                            || options.source_to_path_to_dest_id == Some(obj_id)
+                        {
                             continue;
                         }
-                        if options.source_to_path_to_dest_id == Some(obj_id) {
-                            continue;
-                        }
-
-                        if let Some(rel_id) = relation_id {
-                            let should_skip = OBJECT_REGISTRY
-                                .with_object(rel_id, |rel_guard| {
-                                    let relation = rel_guard.relationship_to(&obj_guard);
-                                    let is_unit = obj_guard.is_kind_of(KindOf::Infantry)
-                                        || obj_guard.is_kind_of(KindOf::Vehicle);
-                                    let is_structure = obj_guard.is_kind_of(KindOf::Structure);
-
-                                    if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS) != 0
-                                        && relation != Relationship::Enemies
-                                        && is_unit
-                                    {
-                                        return true;
+                        let occupies = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if let Some(rel_id) = relation_id {
+                                if rel_id != obj_id {
+                                    let should_skip = OBJECT_REGISTRY
+                                        .with_object(rel_id, |rel_guard| {
+                                            let relation = rel_guard.relationship_to(obj_guard);
+                                            let is_unit = obj_guard.is_kind_of(KindOf::Infantry)
+                                                || obj_guard.is_kind_of(KindOf::Vehicle);
+                                            let is_structure =
+                                                obj_guard.is_kind_of(KindOf::Structure);
+                                            if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS)
+                                                != 0
+                                                && relation != Relationship::Enemies
+                                                && is_unit
+                                            {
+                                                return true;
+                                            }
+                                            if (options.flags
+                                                & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES)
+                                                != 0
+                                                && relation != Relationship::Enemies
+                                                && is_structure
+                                            {
+                                                return true;
+                                            }
+                                            if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
+                                                && relation == Relationship::Enemies
+                                                && is_unit
+                                            {
+                                                return true;
+                                            }
+                                            if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
+                                                && relation == Relationship::Enemies
+                                                && is_structure
+                                            {
+                                                return true;
+                                            }
+                                            false
+                                        })
+                                        .unwrap_or(false);
+                                    if should_skip {
+                                        return false;
                                     }
-                                    if (options.flags & FPF_IGNORE_ALLY_OR_NEUTRAL_STRUCTURES) != 0
-                                        && relation != Relationship::Enemies
-                                        && is_structure
-                                    {
-                                        return true;
-                                    }
-                                    if (options.flags & FPF_IGNORE_ENEMY_UNITS) != 0
-                                        && relation == Relationship::Enemies
-                                        && is_unit
-                                    {
-                                        return true;
-                                    }
-                                    if (options.flags & FPF_IGNORE_ENEMY_STRUCTURES) != 0
-                                        && relation == Relationship::Enemies
-                                        && is_structure
-                                    {
-                                        return true;
-                                    }
-                                    false
-                                })
-                                .unwrap_or(false);
-                            if should_skip {
-                                continue;
+                                }
                             }
+                            let obj_pos = obj_guard.get_position();
+                            let dx = obj_pos.x - pos.x;
+                            let dy = obj_pos.y - pos.y;
+                            let radius =
+                                obj_guard.get_geometry_info().get_bounding_circle_radius() + 5.0;
+                            dx * dx + dy * dy <= radius * radius
+                        });
+                        if occupies == Some(true) {
+                            blocked = true;
+                            break;
                         }
-
-                        let obj_pos = obj_guard.get_position();
-                        let dx = obj_pos.x - pos.x;
-                        let dy = obj_pos.y - pos.y;
-                        let radius =
-                            obj_guard.get_geometry_info().get_bounding_circle_radius() + 5.0;
-                        if dx * dx + dy * dy <= radius * radius {
-                            return false;
-                        }
+                    }
+                    if blocked {
+                        return false;
                     }
                 }
             }

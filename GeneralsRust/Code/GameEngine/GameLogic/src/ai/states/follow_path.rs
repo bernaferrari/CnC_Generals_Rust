@@ -32,7 +32,7 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
     search_qualifiers,
 };
@@ -278,12 +278,10 @@ impl StateImplementation for AIFollowPathState {
         let Some(started) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if owner_guard.get_formation_id() != FormationID::NONE {
                 if let Some(group_id) = owner_guard.get_group_id() {
-                    if let Ok(store) = the_ai().read() {
-                        if let Some(group) = store.find_group(group_id) {
-                            if let Ok(mut group_guard) = group.write() {
-                                ai.set_desired_speed(group_guard.get_speed());
-                            }
-                        }
+                    if let Some(group_speed) =
+                        crate::ai::with_ai_group_mut(group_id, |group| group.get_speed())
+                    {
+                        ai.set_desired_speed(group_speed);
                     }
                 }
             }
@@ -409,15 +407,12 @@ impl ClassicState for AIFollowPathState {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if owner_guard.get_formation_id() != FormationID::NONE {
                     if let Some(group_id) = owner_guard.get_group_id() {
-                        let ai_store = the_ai();
-                        if let Ok(ai_lock) = ai_store.read() {
-                            if let Some(group) = ai_lock.find_group(group_id) {
-                                if let Ok(mut group_guard) = group.write() {
-                                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                                        if let Ok(mut ai_guard) = ai.lock() {
-                                            ai_guard.set_desired_speed(group_guard.get_speed());
-                                        }
-                                    }
+                        if let Some(group_speed) =
+                            crate::ai::with_ai_group_mut(group_id, |group| group.get_speed())
+                        {
+                            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                                if let Ok(mut ai_guard) = ai.lock() {
+                                    ai_guard.set_desired_speed(group_speed);
                                 }
                             }
                         }
@@ -469,13 +464,10 @@ impl ClassicState for AIFollowPathState {
         let configured = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if owner_guard.get_formation_id() != FormationID::NONE {
                 if let Some(group_id) = owner_guard.get_group_id() {
-                    let ai_store = the_ai();
-                    if let Ok(ai_lock) = ai_store.read() {
-                        if let Some(group) = ai_lock.find_group(group_id) {
-                            if let Ok(mut group_guard) = group.write() {
-                                ai.set_desired_speed(group_guard.get_speed());
-                            }
-                        }
+                    if let Some(group_speed) =
+                        crate::ai::with_ai_group_mut(group_id, |group| group.get_speed())
+                    {
+                        ai.set_desired_speed(group_speed);
                     }
                 }
             }

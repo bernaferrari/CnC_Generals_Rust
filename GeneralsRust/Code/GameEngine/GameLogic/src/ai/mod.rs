@@ -1438,11 +1438,14 @@ fn dispatch_ai_group_command_to_members(
     Ok(())
 }
 
-/// Dispatch a command to every member of an AI group WITHOUT holding the
-/// group's write guard across member AI execution: the member commands
-/// re-enter group/object state, which would deadlock against a live guard on
-/// this non-reentrant std RwLock. Skips silently when the group lock is
-/// poisoned (matching the previous `if let Ok(mut group)` call sites).
+/// Dispatch a command to every member of a detached script group.
+///
+/// Registered groups are owned by [`AI::group_list`] and borrowed through
+/// [`with_ai_group_mut`], which already drops the AI lock before member
+/// commands run. Script actions in `scripting/executor/dispatch.rs` build
+/// short-lived groups under `SCRIPT_TEMP_GROUP_ID` and never insert them;
+/// those callers still pass `&Arc<RwLock<AiGroup>>`. The group read lock is
+/// dropped before member commands run.
 pub fn dispatch_ai_group_command_unguarded(
     group: &std::sync::Arc<std::sync::RwLock<AiGroup>>,
     params: &AiCommandParams,
@@ -1500,7 +1503,7 @@ impl From<String> for AiError {
 pub struct AI {
     pathfinder: Option<Arc<RwLock<Pathfinder>>>,
     pathfinding_system: Option<pathfinding_system::SharedPathfindingSystem>,
-    group_list: Vec<Arc<RwLock<AiGroup>>>,
+    group_list: HashMap<u32, AiGroup>,
     ai_data: Arc<RwLock<AiData>>,
     next_group_id: u32,
     next_formation_id: FormationId,
@@ -1515,7 +1518,7 @@ impl AI {
             pathfinding_system: Some(
                 pathfinding_system::create_pathfinding_system_for_pathfinder(pathfinder),
             ),
-            group_list: Vec::new(),
+            group_list: HashMap::new(),
             ai_data: Arc::new(RwLock::new(AiData::default())),
             next_group_id: 0,
             next_formation_id: NO_FORMATION_ID,
@@ -1601,45 +1604,35 @@ impl AI {
         self.ai_data.clone()
     }
 
-    pub fn create_group(&mut self) -> Arc<RwLock<AiGroup>> {
-        let group = Arc::new(RwLock::new(AiGroup::new(self.get_next_group_id())));
-        self.group_list.push(group.clone());
-        group
+    /// Register an owned group and return its id.
+    ///
+    /// The id is the handle. [`with_ai_group`] / [`with_ai_group_mut`] check
+    /// that value out of the active AI store. Callers that already hold `self`
+    /// exclusively can borrow with [`AI::get_group_by_id`].
+    pub fn create_group(&mut self) -> u32 {
+        let id = self.get_next_group_id();
+        self.group_list.insert(id, AiGroup::new(id));
+        id
     }
 
-    pub fn get_group_by_id(&self, group_id: u32) -> Option<Arc<RwLock<AiGroup>>> {
-        for group in &self.group_list {
-            if let Ok(guard) = group.read() {
-                if guard.get_id() == group_id {
-                    return Some(group.clone());
-                }
-            }
-        }
-        None
+    /// Borrow a registered group. The reference cannot outlive `self`, so it
+    /// cannot escape an AI lock held by the caller. A group checked out by
+    /// [`with_ai_group`] is absent here.
+    pub fn get_group_by_id(&self, group_id: u32) -> Option<&AiGroup> {
+        self.group_list.get(&group_id)
+    }
+
+    pub fn get_group_by_id_mut(&mut self, group_id: u32) -> Option<&mut AiGroup> {
+        self.group_list.get_mut(&group_id)
     }
 
     pub fn destroy_group(&mut self, group_id: u32) -> Result<(), AiError> {
-        self.group_list.retain(|g| {
-            if let Ok(group) = g.read() {
-                group.get_id() != group_id
-            } else {
-                true // Keep groups we can't read
-            }
-        });
+        self.group_list.remove(&group_id);
         Ok(())
     }
 
-    pub fn find_group(&self, id: u32) -> Option<Arc<RwLock<AiGroup>>> {
-        self.group_list
-            .iter()
-            .find(|g| {
-                if let Ok(group) = g.read() {
-                    group.get_id() == id
-                } else {
-                    false
-                }
-            })
-            .cloned()
+    pub fn find_group(&self, id: u32) -> Option<&AiGroup> {
+        self.get_group_by_id(id)
     }
 
     pub fn get_next_formation_id(&mut self) -> FormationId {
@@ -2102,11 +2095,13 @@ impl Snapshot for AI {
             data.crc(xfer);
         }
 
-        for group in &self.group_list {
-            if let Ok(group_guard) = group.read() {
+        let mut group_ids: Vec<u32> = self.group_list.keys().copied().collect();
+        group_ids.sort_unstable();
+        for id in group_ids {
+            if let Some(group) = self.group_list.get(&id) {
                 let mut marker = String::from("MARKER:AIGroup");
                 let _ = xfer.xfer_ascii_string(&mut marker);
-                group_guard.crc(xfer);
+                group.crc(xfer);
             }
         }
     }
@@ -3685,6 +3680,62 @@ pub fn the_ai() -> Arc<RwLock<AI>> {
     crate::system::engine_stores::the_ai()
 }
 
+/// Puts a checked-out group back into the store it came from.
+/// The AI lock is not held across the `with_ai_group*` callback.
+struct AiGroupCheckout {
+    store: Arc<RwLock<AI>>,
+    id: u32,
+    group: Option<AiGroup>,
+}
+
+impl Drop for AiGroupCheckout {
+    fn drop(&mut self) {
+        let Some(group) = self.group.take() else {
+            return;
+        };
+        let displaced = {
+            let mut guard = match self.store.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            guard.group_list.insert(self.id, group)
+        };
+        drop(displaced);
+    }
+}
+
+fn checkout_ai_group(id: u32) -> Option<AiGroupCheckout> {
+    let store = the_ai();
+    let group = {
+        let mut guard = match store.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.group_list.remove(&id)?
+    };
+    Some(AiGroupCheckout {
+        store,
+        id,
+        group: Some(group),
+    })
+}
+
+/// Check `id` out of the active AI store, drop the AI lock, then call `f`.
+///
+/// Same-id re-entry inside `f` returns `None`. Use the borrowed group.
+/// The value is reinserted into the same store when `f` returns or unwinds.
+/// Do not call this while `the_ai()`'s lock is already held on this thread.
+pub fn with_ai_group<R>(id: u32, f: impl FnOnce(&AiGroup) -> R) -> Option<R> {
+    with_ai_group_mut(id, |group| f(group))
+}
+
+/// Mutable checkout. See [`with_ai_group`].
+pub fn with_ai_group_mut<R>(id: u32, f: impl FnOnce(&mut AiGroup) -> R) -> Option<R> {
+    let mut checkout = checkout_ai_group(id)?;
+    let group = checkout.group.as_mut()?;
+    Some(f(group))
+}
+
 /// Move the legacy AI singleton contents out of `bundle` for a whole-world
 /// restore transaction while preserving the lock identity.
 ///
@@ -3768,27 +3819,28 @@ mod tests {
     #[test]
     fn test_ai_group_creation() {
         let mut ai = AI::new();
-        let group = ai.create_group();
+        let id = ai.create_group();
+        let group = ai.get_group_by_id(id).expect("created group");
 
-        assert!(group.read().unwrap().is_empty());
-        assert_eq!(group.read().unwrap().get_count(), 0);
+        assert!(group.is_empty());
+        assert_eq!(group.get_count(), 0);
     }
 
     #[test]
     fn test_ai_group_membership() {
         let mut ai = AI::new();
-        let group = ai.create_group();
+        let id = ai.create_group();
         let obj_id = 42;
 
         {
-            let mut g = group.write().unwrap();
+            let g = ai.get_group_by_id_mut(id).expect("created group");
             g.add(obj_id);
             assert!(g.is_member(obj_id));
             assert_eq!(g.get_count(), 1);
         }
 
         {
-            let mut g = group.write().unwrap();
+            let g = ai.get_group_by_id_mut(id).expect("created group");
             let should_destroy = g.remove(obj_id);
             assert!(should_destroy);
             assert!(!g.is_member(obj_id));

@@ -197,21 +197,11 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
         let mut to_destroy = Vec::new();
-        for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let guard = match obj.read() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if true {
-                if guard.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned) {
-                    to_destroy.push(guard.get_id());
-                }
+        OBJECT_REGISTRY.with_each(|id, guard| {
+            if guard.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned) {
+                to_destroy.push(id);
             }
-        }
+        });
         if !to_destroy.is_empty() {
             if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
                 for obj_id in to_destroy {

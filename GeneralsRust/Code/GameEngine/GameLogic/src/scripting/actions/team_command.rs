@@ -69,7 +69,7 @@ impl ScriptAction for TeamAttackTeamAction {
         let resolved_attacker = resolve_team_name_token(&attacker_team);
         let resolved_target = resolve_team_name_token(&target_team);
 
-        let group_arc = match create_ai_group_from_team(&resolved_attacker) {
+        let group_id = match create_ai_group_from_team(&resolved_attacker) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -81,13 +81,13 @@ impl ScriptAction for TeamAttackTeamAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::AttackTeam, CommandSourceType::FromScript);
             params.team = Some(resolved_target);
             params.int_value = -1; // NO_MAX_SHOTS_LIMIT
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -162,7 +162,7 @@ impl ScriptAction for TeamFollowWaypointsAction {
         };
 
         let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -174,7 +174,7 @@ impl ScriptAction for TeamFollowWaypointsAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let cmd = if as_team {
                 AiCommandType::FollowWaypointPathAsTeam
             } else {
@@ -183,7 +183,7 @@ impl ScriptAction for TeamFollowWaypointsAction {
             let mut params = AiCommandParams::new(cmd, CommandSourceType::FromScript);
             params.waypoint = Some(waypoint_id);
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -283,7 +283,7 @@ impl ScriptAction for TeamGuardAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -295,13 +295,13 @@ impl ScriptAction for TeamGuardAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::GuardPosition, CommandSourceType::FromScript);
             params.pos = guard_pos;
             params.int_value = GuardMode::Normal.as_i32();
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -345,7 +345,7 @@ impl ScriptAction for TeamHuntAction {
         // Uses CommandButtonHuntUpdate module behavior
 
         let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -357,10 +357,10 @@ impl ScriptAction for TeamHuntAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let params = AiCommandParams::new(AiCommandType::Hunt, CommandSourceType::FromScript);
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -423,7 +423,7 @@ impl ScriptAction for TeamMoveToWaypointAction {
         };
 
         let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -435,12 +435,12 @@ impl ScriptAction for TeamMoveToWaypointAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromScript);
             params.pos = position;
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -878,7 +878,7 @@ impl ScriptAction for TeamWanderAction {
         // In C++: AI state WANDER with periodic random destination selection
 
         let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -890,10 +890,10 @@ impl ScriptAction for TeamWanderAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let params = AiCommandParams::new(AiCommandType::Wander, CommandSourceType::FromScript);
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -940,7 +940,7 @@ impl ScriptAction for TeamIdleAction {
         // In C++: theTeam->stopAllActions() clears all AI update queues
 
         let resolved_team = resolve_team_name_token(&team_name);
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -952,10 +952,10 @@ impl ScriptAction for TeamIdleAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let params = AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -1160,7 +1160,7 @@ impl ScriptAction for TeamFollowTeamAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_follower) {
+        let group_id = match create_ai_group_from_team(&resolved_follower) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1172,13 +1172,13 @@ impl ScriptAction for TeamFollowTeamAction {
             }
         };
 
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
             params.obj = Some(target_id);
             params.int_value = GuardMode::Normal.as_i32();
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -1404,7 +1404,7 @@ impl ScriptAction for TeamAttackAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1415,13 +1415,13 @@ impl ScriptAction for TeamAttackAction {
                 return Ok(ScriptResult::Success(None));
             }
         };
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromScript);
             params.obj = Some(target_id);
             params.int_value = -1; // NO_MAX_SHOTS_LIMIT
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -1471,7 +1471,7 @@ impl ScriptAction for TeamAttackAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1482,13 +1482,13 @@ impl ScriptAction for TeamAttackAreaAction {
                 return Ok(ScriptResult::Success(None));
             }
         };
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
             params.pos = center;
             params.polygon = Some(trigger_id);
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -1549,7 +1549,7 @@ impl ScriptAction for TeamGuardAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1560,14 +1560,14 @@ impl ScriptAction for TeamGuardAreaAction {
                 return Ok(ScriptResult::Success(None));
             }
         };
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::GuardArea, CommandSourceType::FromScript);
             params.pos = center;
             params.polygon = Some(trigger_id);
             params.int_value = GuardMode::Normal.as_i32();
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -1637,7 +1637,7 @@ impl ScriptAction for TeamFollowAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let group_arc = match create_ai_group_from_team(&resolved_team) {
+        let group_id = match create_ai_group_from_team(&resolved_team) {
             Ok(group) => group,
             Err(err) => {
                 log::warn!(
@@ -1648,13 +1648,13 @@ impl ScriptAction for TeamFollowAction {
                 return Ok(ScriptResult::Success(None));
             }
         };
-        if let Ok(mut group_guard) = group_arc.write() {
+        let _ = crate::ai::with_ai_group_mut(group_id, |group_guard| {
             let mut params =
                 AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
             params.obj = Some(target_id);
             params.int_value = GuardMode::Normal.as_i32();
             let _ = group_guard.ai_do_command(&params);
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }

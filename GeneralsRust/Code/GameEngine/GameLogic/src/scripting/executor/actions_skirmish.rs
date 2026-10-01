@@ -349,92 +349,97 @@ impl ScriptActionDispatcher {
         let mut fired = false;
         for members in team_member_lists {
             for obj_id in members {
-                let object_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                let Ok(object_guard) = object_arc.read() else {
-                    continue;
-                };
-                if object_guard.is_destroyed() {
-                    continue;
-                }
-
-                let (is_ready, sneak_template) = object_guard
-                    .with_special_power_module_interface_by_name(&template_name, |sp_module| {
-                        (
-                            sp_module.is_ready(),
-                            sp_module.get_reference_thing_template(),
-                        )
-                    })
-                    .unwrap_or((false, None));
-                if !is_ready {
-                    continue;
-                }
-
-                let mut target_location: Option<Coord3D> = None;
-                let _ = with_ai_integration_mut(|manager| {
-                    manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                        IntegratedAiPlayer::Skirmish(skirmish_ai) => {
-                            let mut location = Coord3D::ZERO;
-                            if skirmish_ai.compute_superweapon_target(
-                                &power_template,
-                                &mut location,
-                                enemy_player_index,
-                                radius,
-                            ) {
-                                target_location = Some(location);
-                            }
+                let fired_here = OBJECT_REGISTRY
+                    .with_object_mut(obj_id, |object_guard| {
+                        if object_guard.is_destroyed() {
+                            return false;
                         }
-                        IntegratedAiPlayer::Standard(standard_ai) => {
-                            if let Ok(Some(location)) = standard_ai.compute_superweapon_target(
-                                power_template.get_name(),
-                                radius,
-                                enemy_player_index,
-                            ) {
-                                target_location = Some(location);
-                            }
-                        }
-                    })
-                });
 
-                if is_sneak_attack {
-                    if let Some(template_name) = sneak_template.as_deref() {
-                        if let Some(seed) = target_location {
-                            let legalized = with_ai_integration_mut(|manager| {
-                                manager
-                                    .with_ai_player(player_id, |ai_player| {
-                                        ai_player
-                                            .calc_closest_construction_zone_at(template_name, &seed)
-                                    })
-                                    .flatten()
+                        let (is_ready, sneak_template) = object_guard
+                            .with_special_power_module_interface_by_name(
+                                &template_name,
+                                |sp_module| {
+                                    (
+                                        sp_module.is_ready(),
+                                        sp_module.get_reference_thing_template(),
+                                    )
+                                },
+                            )
+                            .unwrap_or((false, None));
+                        if !is_ready {
+                            return false;
+                        }
+
+                        let mut target_location: Option<Coord3D> = None;
+                        let _ = with_ai_integration_mut(|manager| {
+                            manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                                IntegratedAiPlayer::Skirmish(skirmish_ai) => {
+                                    let mut location = Coord3D::ZERO;
+                                    if skirmish_ai.compute_superweapon_target(
+                                        &power_template,
+                                        &mut location,
+                                        enemy_player_index,
+                                        radius,
+                                    ) {
+                                        target_location = Some(location);
+                                    }
+                                }
+                                IntegratedAiPlayer::Standard(standard_ai) => {
+                                    if let Ok(Some(location)) =
+                                        standard_ai.compute_superweapon_target(
+                                            power_template.get_name(),
+                                            radius,
+                                            enemy_player_index,
+                                        )
+                                    {
+                                        target_location = Some(location);
+                                    }
+                                }
                             })
-                            .flatten();
-                            target_location = legalized;
+                        });
+
+                        if is_sneak_attack {
+                            if let Some(template_name) = sneak_template.as_deref() {
+                                if let Some(seed) = target_location {
+                                    let legalized = with_ai_integration_mut(|manager| {
+                                        manager
+                                            .with_ai_player(player_id, |ai_player| {
+                                                ai_player.calc_closest_construction_zone_at(
+                                                    template_name,
+                                                    &seed,
+                                                )
+                                            })
+                                            .flatten()
+                                    })
+                                    .flatten();
+                                    target_location = legalized;
+                                }
+                            }
                         }
-                    }
-                }
 
-                let Some(target_location) = target_location else {
-                    continue;
-                };
-                if target_location.x == 0.0 && target_location.y == 0.0 && target_location.z == 0.0
-                {
-                    continue;
-                }
+                        let Some(target_location) = target_location else {
+                            return false;
+                        };
+                        if target_location.x == 0.0
+                            && target_location.y == 0.0
+                            && target_location.z == 0.0
+                        {
+                            return false;
+                        }
 
-                let fired_here = object_guard.with_special_power_module_mut_by_name(
-                    &template_name,
-                    |sp_module| {
-                        sp_module.do_special_power_at_location(
-                            &target_location,
-                            INVALID_ANGLE,
-                            SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
-                        );
-                        true
-                    },
-                );
-                if fired_here.unwrap_or(false) {
+                        object_guard
+                            .with_special_power_module_mut_by_name(&template_name, |sp_module| {
+                                sp_module.do_special_power_at_location(
+                                    &target_location,
+                                    INVALID_ANGLE,
+                                    SpecialPowerCommandOption::COMMAND_FIRED_BY_SCRIPT,
+                                );
+                                true
+                            })
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if fired_here {
                     fired = true;
                     break;
                 }

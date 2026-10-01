@@ -125,8 +125,8 @@ impl AIManager {
         self.core.get_ai_data()
     }
 
-    /// Create a new AI group
-    pub fn create_group(&mut self) -> Arc<RwLock<AiGroup>> {
+    /// Create a new AI group. The returned id is owned by `self.core`.
+    pub fn create_group(&mut self) -> u32 {
         self.core.create_group()
     }
 
@@ -135,8 +135,8 @@ impl AIManager {
         self.core.destroy_group(group_id)
     }
 
-    /// Find an AI group by ID
-    pub fn find_group(&self, id: u32) -> Option<Arc<RwLock<AiGroup>>> {
+    /// Borrow an AI group by ID. The reference cannot outlive `self`.
+    pub fn find_group(&self, id: u32) -> Option<&AiGroup> {
         self.core.find_group(id)
     }
 }

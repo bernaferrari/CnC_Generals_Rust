@@ -315,19 +315,15 @@ fn count_special_objects_by_producer(producer_id: ObjectID, special_object_updat
         return 0;
     }
 
-    OBJECT_REGISTRY
-        .get_all_objects()
-        .into_iter()
-        .filter(|obj| {
-            let Ok(guard) = obj.read() else {
-                return false;
-            };
-            if guard.get_producer_id() != producer_id {
-                return false;
-            }
-            guard.find_update_module(special_object_update).is_some()
-        })
-        .count()
+    let mut count = 0usize;
+    OBJECT_REGISTRY.with_each(|_id, guard| {
+        if guard.get_producer_id() == producer_id
+            && guard.find_update_module(special_object_update).is_some()
+        {
+            count += 1;
+        }
+    });
+    count
 }
 
 fn has_special_object_on_target(target_id: ObjectID, special_object_update: &str) -> bool {

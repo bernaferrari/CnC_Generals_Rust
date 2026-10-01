@@ -21,22 +21,23 @@ impl ScriptEvaluator {
                 player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.get_local_player().cloned())
-                    .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
-                    .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
+                    .and_then(|list| list.get_local_player().and_then(|p| p.get_default_team_id()))
+                    .and_then(|team_id| {
+                        crate::team::factory_access::with_team(team_id, |t| t.get_name().to_string())
+                    })
                     .unwrap_or_else(|| raw.to_string())
             }
             _ => raw.to_string(),
         }
     }
 
-    fn resolve_team_instances(&self, team_name: &str) -> Vec<Arc<RwLock<crate::team::Team>>> {
+    fn resolve_team_instances(&self, team_name: &str) -> Vec<crate::team::TeamID> {
         let Ok(mut factory) = get_team_factory().lock() else {
             return Vec::new();
         };
 
-        if let Some(team_arc) = factory.find_team(team_name) {
-            return vec![team_arc];
+        if let Some(team_id) = factory.find_team(team_name) {
+            return vec![team_id];
         }
 
         factory.find_team_instances(team_name)
@@ -62,17 +63,14 @@ impl ScriptEvaluator {
     fn resolve_player_from_param(
         &self,
         param: &Parameter,
-    ) -> Option<Arc<RwLock<crate::player::Player>>> {
+    ) -> Option<crate::player::PlayerIndex> {
         let mask_bits = param.get_int() as u32;
         if param.get_parameter_type() == ParameterType::Side && mask_bits != 0 {
             let mask = PlayerMaskType::from_bits_truncate(mask_bits);
             if let Ok(list) = player_list().read() {
-                for player_arc in list.iter() {
-                    let Ok(player_guard) = player_arc.read() else {
-                        continue;
-                    };
-                    if mask.intersects(player_guard.get_player_mask()) {
-                        return Some(Arc::clone(player_arc));
+                for player in list.iter() {
+                    if mask.intersects(player.get_player_mask()) {
+                        return Some(player.get_player_index());
                     }
                 }
             }
@@ -87,12 +85,8 @@ impl ScriptEvaluator {
                     player_list()
                         .read()
                         .ok()
-                        .and_then(|list| list.get_local_player().cloned())
-                        .and_then(|p| {
-                            p.read().ok().and_then(|p| {
-                                NameKeyGenerator::key_to_name(p.get_player_name_key())
-                            })
-                        })
+                        .and_then(|list| list.get_local_player())
+                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
@@ -103,12 +97,8 @@ impl ScriptEvaluator {
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player().cloned())
-                .and_then(|p| {
-                    p.read()
-                        .ok()
-                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-                })
+                .and_then(|list| list.get_local_player())
+                .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                 .unwrap_or_else(|| raw.to_string()),
             _ => raw.to_string(),
         };
@@ -116,10 +106,10 @@ impl ScriptEvaluator {
         if resolved.is_empty() {
             return None;
         }
-        player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.find_player_by_name(&resolved))
+        player_list().read().ok().and_then(|list| {
+            list.find_player_by_name(&resolved)
+                .map(|player| player.get_player_index())
+        })
     }
 
     fn get_trigger_area(&self, area_name: &str) -> Option<PolygonTrigger> {

@@ -5,7 +5,7 @@
 //! Split from `scripting/actions.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
-use crate::ai::{AiGroup, the_ai};
+use crate::ai::{the_ai, with_ai_group_mut};
 use crate::common::{Coord3D, Relationship};
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -19,7 +19,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::radar::{RadarEventType, get_radar_system};
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+
 
 /// Wave 295: host-only path has no dual-world factory objects.
 #[inline]
@@ -335,7 +335,7 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
     }
 }
 
-pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<RwLock<AiGroup>>> {
+pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<u32> {
     let resolved_team = resolve_team_name_token(team_name);
     let factory = get_team_factory();
     let team_arc = factory
@@ -352,20 +352,23 @@ pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<
         .get_members()
         .to_vec();
 
-    let ai_store = the_ai();let mut ai_guard = ai_store
-        .write()
-        .map_err(|_| GameLogicError::Threading("Failed to lock AI system".to_string()))?;
-    let group = ai_guard.create_group();
+    let ai_store = the_ai();
+    let group_id = {
+        let mut ai_guard = ai_store
+            .write()
+            .map_err(|_| GameLogicError::Threading("Failed to lock AI system".to_string()))?;
+        ai_guard.create_group()
+    };
 
-    if let Ok(mut group_guard) = group.write() {
+    with_ai_group_mut(group_id, |group| {
         for member_id in members {
             if OBJECT_REGISTRY.with_object(member_id, |_| ()).is_some() {
-                group_guard.add(member_id);
+                group.add(member_id);
             }
         }
-    }
+    });
 
-    Ok(group)
+    Ok(group_id)
 }
 
 pub fn get_float_param_optional(

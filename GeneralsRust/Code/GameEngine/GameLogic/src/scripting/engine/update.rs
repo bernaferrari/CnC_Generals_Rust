@@ -413,12 +413,11 @@ impl ScriptEngine {
                 .unwrap_or_default();
 
             if !instances.is_empty() {
-                for team_arc in instances {
-                    let team_name = team_arc
-                        .read()
-                        .ok()
-                        .map(|t| t.get_name().to_string())
-                        .unwrap_or_else(|| condition_team_name.clone());
+                for team_id in instances {
+                    let team_name = crate::team::factory_access::with_team(team_id, |t| {
+                        t.get_name().to_string()
+                    })
+                    .unwrap_or_else(|| condition_team_name.clone());
                     self.lock_inner_mut().condition_team = Some(team_name);
                     self.evaluate_and_execute_script(
                         script,
@@ -665,7 +664,7 @@ impl ScriptEngine {
             let mut it_advanced = false;
             let team_name = sequence.team_to_exec_on.clone();
             let object_id = sequence.object_id;
-            let team_arc = team_name.as_ref().and_then(|name| {
+            let team_id = team_name.as_ref().and_then(|name| {
                 get_team_factory()
                     .lock()
                     .ok()
@@ -679,7 +678,7 @@ impl ScriptEngine {
                 None
             };
 
-            if !object_present && team_arc.is_none() && host_obj.is_none() {
+            if !object_present && team_id.is_none() && host_obj.is_none() {
                 if self
                     .cleanup_sequential_script_by_token(token, false)
                     .is_none()
@@ -692,7 +691,7 @@ impl ScriptEngine {
             {
                 let mut inner = self.lock_inner_mut();
                 inner.current_player =
-                    self.resolve_sequential_current_player(object_present.then_some(object_id), team_arc.as_ref());
+                    self.resolve_sequential_current_player(object_present.then_some(object_id), team_id);
             }
 
             let (obj_has_ai, obj_idle, _) = if object_present {
@@ -706,8 +705,7 @@ impl ScriptEngine {
             } else {
                 (false, false, false)
             };
-            let (team_has_group, team_idle, _) = team_arc
-                .as_ref()
+            let (team_has_group, team_idle, _) = team_id
                 .map(|team| {
                     let (idle, dead) = Self::team_ai_status(team);
                     (true, idle, dead)
@@ -807,8 +805,7 @@ impl ScriptEngine {
                         let team_idle_now = if dual_world_registry_unavailable() {
                             false
                         } else {
-                            team_arc
-                                .as_ref()
+                            team_id
                                 .map(|team| Self::team_ai_status(team).0)
                                 .unwrap_or(false)
                         };
@@ -830,8 +827,7 @@ impl ScriptEngine {
                             } else {
                                 false
                             };
-                            let team_dead_now = team_arc
-                                .as_ref()
+                            let team_dead_now = team_id
                                 .map(|team| Self::team_ai_status(team).1)
                                 .unwrap_or(false);
                             if obj_dead_now || team_dead_now {
@@ -896,23 +892,23 @@ impl ScriptEngine {
             .unwrap_or((false, false, true))
     }
 
-    fn team_ai_status(team_arc: &Arc<RwLock<crate::team::Team>>) -> (bool, bool) {
+    fn team_ai_status(team_id: crate::team::TeamID) -> (bool, bool) {
         if dual_world_registry_unavailable() {
-            let name = team_arc
-                .read()
-                .ok()
-                .map(|team| team.get_name().to_string())
-                .unwrap_or_default();
+            let name = crate::team::factory_access::with_team(team_id, |team| {
+                team.get_name().to_string()
+            })
+            .unwrap_or_default();
             return crate::scripting::host_team_sequential_status(&name);
         }
 
-        let Ok(team) = team_arc.read() else {
+        let Some((idle, members)) = crate::team::factory_access::with_team(team_id, |team| {
+            (team.is_idle(), team.get_members().to_vec())
+        }) else {
             return (false, true);
         };
 
-        let idle = team.is_idle();
         let mut all_dead = true;
-        for &member_id in team.get_members() {
+        for member_id in members {
             let dead = OBJECT_REGISTRY
                 .with_object(member_id, |object| object.is_effectively_dead())
                 .unwrap_or(true);
@@ -928,32 +924,24 @@ impl ScriptEngine {
     fn resolve_sequential_current_player(
         &self,
         object_id: Option<u32>,
-        team_arc: Option<&Arc<RwLock<crate::team::Team>>>,
+        team_id: Option<crate::team::TeamID>,
     ) -> Option<String> {
         let player_id = if let Some(object_id) = object_id {
             OBJECT_REGISTRY.with_object(object_id, |object| object.get_controlling_player_id())?
-        } else if let Some(team_arc) = team_arc {
-            team_arc
-                .read()
-                .ok()
-                .and_then(|team| team.get_controlling_player_id())
+        } else if let Some(team_id) = team_id {
+            crate::team::factory_access::with_team(team_id, |team| team.get_controlling_player_id())?
         } else {
             None
         }?;
 
-        crate::player::player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_id as i32).cloned())
-            .and_then(|player| {
-                player.read().ok().and_then(|player| {
-                    if player.is_skirmish_ai() {
-                        NameKeyGenerator::key_to_name(player.get_player_name_key())
-                    } else {
-                        None
-                    }
-                })
-            })
+        crate::player::player_list().read().ok().and_then(|list| {
+            let player = list.get_player(player_id as i32)?;
+            if player.is_skirmish_ai() {
+                NameKeyGenerator::key_to_name(player.get_player_name_key())
+            } else {
+                None
+            }
+        })
     }
 
     fn sequential_script_count(&self) -> usize {

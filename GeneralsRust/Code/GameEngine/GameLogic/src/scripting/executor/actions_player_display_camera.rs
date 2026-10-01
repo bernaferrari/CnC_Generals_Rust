@@ -358,18 +358,13 @@ impl ScriptActionDispatcher {
         // Wave 284: empty dual-world → skip crate Object walk only.
         if object_id.is_none() && !dual_world_registry_unavailable() {
             let lower = unit_name.to_ascii_lowercase();
-            object_id = OBJECT_REGISTRY
-                .get_all_objects()
-                .into_iter()
-                .find_map(|obj_ref| {
-                    obj_ref.read().ok().and_then(|obj| {
-                        if obj.get_name().to_ascii_lowercase() == lower {
-                            Some(obj.get_id())
-                        } else {
-                            None
-                        }
-                    })
-                });
+            let mut found = None;
+            OBJECT_REGISTRY.with_each(|id, obj| {
+                if found.is_none() && obj.get_name().to_ascii_lowercase() == lower {
+                    found = Some(id);
+                }
+            });
+            object_id = found;
         }
 
         let Some(object_id) = object_id else {

@@ -2,7 +2,6 @@
 
 use crate::common::{Coord3D, ObjectStatusMaskType as GameLogicStatusMask};
 use crate::helpers::{TheGameClient, TheThingFactory};
-use crate::object::Object as GameLogicObject;
 use crate::object_manager::{ObjectCreationFlags, get_object_manager};
 use crate::team::get_team_factory;
 use crate::upgrade_legacy::upgrade_mask_for_ascii;
@@ -16,43 +15,42 @@ use std::sync::{Arc, RwLock};
 
 #[derive(Debug)]
 struct CommonObjectHandle {
-    object: Arc<RwLock<GameLogicObject>>,
+    object_id: crate::common::ObjectID,
 }
 
 impl engine_module::Object for CommonObjectHandle {
     fn get_object_id(&self) -> game_engine::common::system::build_assistant::ObjectID {
-        self.object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(game_engine::common::system::build_assistant::INVALID_ID)
+        self.object_id
     }
 
     fn get_behavior_modules(&self) -> Vec<Arc<dyn engine_module::Module>> {
-        self.object
-            .read()
-            .map(|guard| engine_module::Object::get_behavior_modules(&*guard))
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                engine_module::Object::get_behavior_modules(guard)
+            })
             .unwrap_or_default()
     }
 
     fn init_object(&self) {
-        if let Ok(guard) = self.object.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
             guard.init_object();
-        }
+        });
     }
 
     fn register_with_partition(&self) {
-        let Ok(guard) = self.object.read() else {
+        let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| *guard.get_position())
+        else {
             return;
         };
         let Some(partition) = crate::helpers::ThePartitionManager::get() else {
             return;
         };
-        partition.register_object_at(guard.get_id(), *guard.get_position());
+        partition.register_object_at(self.object_id, pos);
     }
 
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn engine_module::Object>>> {
-        let arc: Arc<RwLock<dyn engine_module::Object>> = self.object.clone();
-        Some(arc)
+        None
     }
 
     fn remove_upgrade(
@@ -72,9 +70,9 @@ impl engine_module::Object for CommonObjectHandle {
             return;
         }
 
-        if let Ok(mut guard) = self.object.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
             guard.remove_upgrade_mask(mask_bits);
-        }
+        });
     }
 }
 
@@ -88,13 +86,12 @@ impl engine_module::Drawable for CommonDrawableHandle {}
 struct GameLogicObjectCreator;
 
 impl GameLogicObjectCreator {
-    fn resolve_team(team: Option<Arc<dyn EngineTeam>>) -> Option<Arc<RwLock<crate::team::Team>>> {
+    fn resolve_team(team: Option<Arc<dyn EngineTeam>>) -> Option<crate::team::TeamID> {
         let team = team?;
         let team_id = team.team_id()?;
-        get_team_factory()
-            .lock()
-            .ok()
-            .and_then(|factory| factory.find_team_by_id(team_id))
+        get_team_factory().lock().ok().and_then(|factory| {
+            factory.find_team_by_id(team_id).map(|_| team_id)
+        })
     }
 }
 
@@ -106,7 +103,7 @@ impl ObjectCreator for GameLogicObjectCreator {
         team: Option<Arc<dyn EngineTeam>>,
     ) -> Result<Box<dyn engine_module::Object>, ThingCreationError> {
         let template_name = template.get_name().to_string();
-        let team_arc = Self::resolve_team(team);
+        let team_id = Self::resolve_team(team);
 
         let object_id = get_object_manager()
             .write()
@@ -116,29 +113,19 @@ impl ObjectCreator for GameLogicObjectCreator {
             .create_object(
                 &template_name,
                 Coord3D::new(0.0, 0.0, 0.0),
-                team_arc,
+                team_id,
                 ObjectCreationFlags::from_template(),
             )
             .map_err(|e| ThingCreationError::CreationFailed(e.to_string()))?;
 
-        let base = get_object_manager()
-            .read()
-            .map_err(|_| {
-                ThingCreationError::CreationFailed("ObjectManager lock poisoned".to_string())
-            })?
-            .with_object(object_id, |instance| instance.base())
-            .ok_or_else(|| {
-                ThingCreationError::CreationFailed("Created object not found".to_string())
-            })?;
-
         let mask = GameLogicStatusMask::from_bits_truncate(status_bits as u64);
         if !mask.is_empty() {
-            if let Ok(mut guard) = base.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
                 guard.set_status(mask, true);
-            }
+            });
         }
 
-        Ok(Box::new(CommonObjectHandle { object: base }))
+        Ok(Box::new(CommonObjectHandle { object_id }))
     }
 }
 
