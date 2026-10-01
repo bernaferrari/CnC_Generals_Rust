@@ -481,6 +481,11 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "SlowDeathBehavior",
             Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
                 SlowDeathBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
@@ -503,12 +508,27 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "FireWeaponWhenDeadBehavior",
-            Box::new(|thing, data| FireWeaponWhenDeadBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                if let Ok(mut obj) = thing.write() {
+                    FireWeaponWhenDeadBehaviorFactory::apply_initial_fx(data.as_ref(), &mut obj);
+                }
+                FireWeaponWhenDeadBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "SupplyWarehouseCripplingBehavior",
             Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
                 SupplyWarehouseCripplingBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
@@ -517,6 +537,11 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "TechBuildingBehavior",
             Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
                 TechBuildingBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
@@ -525,6 +550,11 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "PropagandaTowerBehavior",
             Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
                 PropagandaTowerBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
@@ -543,6 +573,11 @@ impl BehaviorModuleRegistry {
                         )
                     })?;
                 let module_data = Arc::new(typed.clone());
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
                 PropagandaCenterBehavior::new(object_id, module_data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
@@ -551,101 +586,262 @@ impl BehaviorModuleRegistry {
         // Stealth modules
         registry.register_factory(
             "StealthUpdate",
-            Box::new(|thing, data| StealthUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                StealthUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "StealthDetectorUpdate",
-            Box::new(|thing, data| StealthDetectorUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                StealthDetectorUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "GrantStealthBehavior",
-            Box::new(|thing, data| GrantStealthBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                GrantStealthBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
 
         // Base/Building modules
         registry.register_factory(
             "PowerPlantUpdate",
-            Box::new(|thing, data| PowerPlantUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                PowerPlantUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "RadarUpdate",
-            Box::new(|thing, data| RadarUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                RadarUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "ProductionUpdate",
-            Box::new(|thing, data| ProductionUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                ProductionUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "BaseRegenerateUpdate",
-            Box::new(|thing, data| BaseRegenerateUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                BaseRegenerateUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "BunkerBusterBehavior",
-            Box::new(|thing, data| BunkerBusterBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                BunkerBusterBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "ParkingPlaceBehavior",
-            Box::new(|thing, data| ParkingPlaceBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                ParkingPlaceBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
 
         // Combat/Weapon behaviors
         registry.register_factory(
             "CountermeasuresBehavior",
-            Box::new(|thing, data| CountermeasuresBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                CountermeasuresBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "FlightDeckBehavior",
-            Box::new(|thing, data| FlightDeckBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                FlightDeckBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "GenerateMinefieldBehavior",
-            Box::new(|thing, data| GenerateMinefieldBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                GenerateMinefieldBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "MinefieldBehavior",
-            Box::new(|thing, data| MinefieldBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                MinefieldBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
 
         // Special Ability modules
         registry.register_factory(
             "AutoDepositUpdate",
-            Box::new(|thing, data| AutoDepositUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                AutoDepositUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "AutoFindHealingUpdate",
-            Box::new(|thing, data| AutoFindHealingUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                AutoFindHealingUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "HijackerUpdate",
-            Box::new(|thing, data| HijackerUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                HijackerUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "PilotFindVehicleUpdate",
-            Box::new(|thing, data| PilotFindVehicleUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                PilotFindVehicleUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "EMPUpdate",
-            Box::new(|thing, data| EMPUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                EMPUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "AssistedTargetingUpdate",
-            Box::new(|thing, data| AssistedTargetingUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                AssistedTargetingUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "FlammableUpdate",
-            Box::new(|thing, data| FlammableUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                FlammableUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "CleanupHazardUpdate",
-            Box::new(|thing, data| CleanupHazardUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                CleanupHazardUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "EnemyNearUpdate",
-            Box::new(|thing, data| EnemyNearUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                EnemyNearUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "SpecialAbilityUpdate",
-            Box::new(|thing, data| SpecialAbilityUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                SpecialAbilityUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "SpecialPowerUpdateModule",
@@ -658,29 +854,71 @@ impl BehaviorModuleRegistry {
         );
         registry.register_factory(
             "PhysicsBehavior",
-            Box::new(|thing, data| PhysicsBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                PhysicsBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
 
         // Horde/Formation modules
         registry.register_factory(
             "HordeUpdate",
-            Box::new(|thing, data| HordeUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                HordeUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "MobMemberSlavedUpdate",
-            Box::new(|thing, data| MobMemberSlavedUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                MobMemberSlavedUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "TensileFormationUpdate",
-            Box::new(|thing, data| TensileFormationUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                TensileFormationUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "BattlePlanUpdate",
-            Box::new(|thing, data| BattlePlanUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                BattlePlanUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "AnimationSteeringUpdate",
-            Box::new(|thing, data| AnimationSteeringUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                AnimationSteeringUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         // Special Vehicle modules
@@ -704,27 +942,69 @@ impl BehaviorModuleRegistry {
         );
         registry.register_factory(
             "NeutronBlastBehavior",
-            Box::new(|thing, data| NeutronBlastBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                NeutronBlastBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "ToppleUpdate",
-            Box::new(|thing, data| ToppleUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                ToppleUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "StructureCollapseUpdate",
-            Box::new(|thing, data| StructureCollapseUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                StructureCollapseUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "HeightDieUpdate",
-            Box::new(|thing, data| HeightDieUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                HeightDieUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "LifetimeUpdate",
-            Box::new(|thing, data| LifetimeUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                LifetimeUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "DeletionUpdate",
-            Box::new(|thing, data| DeletionUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                DeletionUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         // Weapon modules
@@ -736,15 +1016,36 @@ impl BehaviorModuleRegistry {
         );
         registry.register_factory(
             "WeaponBonusUpdate",
-            Box::new(|thing, data| WeaponBonusUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                WeaponBonusUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "ProjectileStreamUpdate",
-            Box::new(|thing, data| ProjectileStreamUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                ProjectileStreamUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "PointDefenseLaserUpdate",
-            Box::new(|thing, data| PointDefenseLaserUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                PointDefenseLaserUpdateFactory::create_behavior(object_id, data)
+            }),
         );
         registry.register_factory(
             "FireWeaponWhenDamagedBehavior",
@@ -754,37 +1055,86 @@ impl BehaviorModuleRegistry {
         );
         registry.register_factory(
             "StickyBombUpdate",
-            Box::new(|thing, data| StickyBombUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                StickyBombUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "LeafletDropBehavior",
-            Box::new(|thing, data| LeafletDropBehaviorFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                LeafletDropBehaviorFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "DemoTrapUpdate",
-            Box::new(|thing, data| DemoTrapUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                DemoTrapUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "FloatUpdate",
-            Box::new(|thing, data| FloatUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                FloatUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "CheckpointUpdate",
-            Box::new(|thing, data| CheckpointUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                CheckpointUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "ProneUpdate",
-            Box::new(|thing, data| ProneUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                ProneUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "DynamicGeometryInfoUpdate",
-            Box::new(|thing, data| DynamicGeometryInfoUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                DynamicGeometryInfoUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
@@ -796,7 +1146,14 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "RadiusDecalUpdate",
-            Box::new(|thing, data| RadiusDecalUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                RadiusDecalUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
@@ -815,12 +1172,26 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "WaveGuideUpdate",
-            Box::new(|thing, data| WaveGuideUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                WaveGuideUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "SpectreGunshipUpdate",
-            Box::new(|thing, data| SpectreGunshipUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                SpectreGunshipUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
@@ -832,7 +1203,14 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "StructureToppleUpdate",
-            Box::new(|thing, data| StructureToppleUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                StructureToppleUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
@@ -844,12 +1222,26 @@ impl BehaviorModuleRegistry {
 
         registry.register_factory(
             "MissileAIUpdate",
-            Box::new(|thing, data| MissileAIUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                MissileAIUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry.register_factory(
             "ParticleUplinkCannonUpdate",
-            Box::new(|thing, data| ParticleUplinkCannonUpdateFactory::create_behavior(thing, data)),
+            Box::new(|thing, data| {
+                let object_id = thing
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                ParticleUplinkCannonUpdateFactory::create_behavior(object_id, data)
+            }),
         );
 
         registry
