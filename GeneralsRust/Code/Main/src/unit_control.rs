@@ -16,8 +16,6 @@ use crate::input_system::RtsInputSystem;
 use crate::presentation_frame::{PresentationFrame, RenderableObject};
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::Mutex as AsyncMutex;
 use std::time::SystemTime;
 
 /// Host residual: double-click select-type window (seconds).
@@ -508,11 +506,7 @@ impl UnitControlSystem {
     ///
     /// Presentation-only: returns `None` when no snapshot is installed (no live
     /// GameLogic dual-read residual). Callers must seed `set_presentation_frame`.
-    pub fn pick_object_at_screen_pos(
-        &self,
-        screen_pos: Vec2,
-        _game_logic: &GameLogic,
-    ) -> Option<SelectionResult> {
+    pub fn pick_object_at_screen_pos(&self, screen_pos: Vec2) -> Option<SelectionResult> {
         let frame = self.presentation_frame.as_ref()?;
         self.pick_object_at_screen_pos_from_presentation(screen_pos, frame)
     }
@@ -525,15 +519,14 @@ impl UnitControlSystem {
 
     /// Handle left mouse click for unit selection
     /// Supports: Regular click, Shift+click (add), Ctrl+click (remove), Double-click (select all of type)
-    pub async fn handle_left_click(
+    pub fn handle_left_click(
         &mut self,
         screen_pos: Vec2,
         shift_pressed: bool,
         ctrl_pressed: bool,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-        let now = logic.get_total_play_time();
+        let now = game_logic.get_total_play_time();
         let is_double_click = if let Some(last_click) = self.last_click_time {
             (now - last_click) < self.double_click_threshold
         } else {
@@ -541,7 +534,7 @@ impl UnitControlSystem {
         };
         self.last_click_time = Some(now);
 
-        if let Some(result) = self.pick_object_at_screen_pos(screen_pos, &logic) {
+        if let Some(result) = self.pick_object_at_screen_pos(screen_pos) {
             let friendly = if let Some(frame) = self.presentation_frame.as_ref() {
                 frame
                     .objects
@@ -556,23 +549,23 @@ impl UnitControlSystem {
 
             if friendly {
                 // Host presence for selection mutations via authority API.
-                if logic.host_object(result.object_id).is_some() {
+                if game_logic.host_object(result.object_id).is_some() {
                     if is_double_click {
                         // Double-click: select all units of same type
-                        self.select_similar_units(result.object_id, &logic);
+                        self.select_similar_units(result.object_id);
                     } else if ctrl_pressed {
                         // Ctrl+click: toggle selection state
-                        self.toggle_object_selection(result.object_id, &mut logic);
+                        self.toggle_object_selection(result.object_id, game_logic);
                     } else if shift_pressed {
                         // Shift+click: prefer-selection mode; click again to deselect.
                         if self.is_object_selected(result.object_id) {
-                            self.remove_from_selection(result.object_id, &mut logic);
+                            self.remove_from_selection(result.object_id, game_logic);
                         } else {
-                            self.add_to_selection(result.object_id, &mut logic);
+                            self.add_to_selection(result.object_id, game_logic);
                         }
                     } else {
                         // Regular click: select single unit
-                        self.select_single_object(result.object_id, &mut logic);
+                        self.select_single_object(result.object_id, game_logic);
                     }
 
                     println!(
@@ -584,27 +577,21 @@ impl UnitControlSystem {
         } else {
             // Clicked on empty space
             if !shift_pressed && !ctrl_pressed {
-                self.clear_selection(&mut logic);
+                self.clear_selection(game_logic);
                 println!("Cleared selection");
             }
         }
     }
 
     /// Handle right mouse click for unit commands
-    pub async fn handle_right_click(
-        &mut self,
-        screen_pos: Vec2,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    pub fn handle_right_click(&mut self, screen_pos: Vec2, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             println!("No units selected for command");
             return;
         }
 
         // Check if clicking on an enemy unit (attack command)
-        if let Some(result) = self.pick_object_at_screen_pos(screen_pos, &logic) {
+        if let Some(result) = self.pick_object_at_screen_pos(screen_pos) {
             let attackable_enemy = if let Some(frame) = self.presentation_frame.as_ref() {
                 frame
                     .objects
@@ -616,10 +603,10 @@ impl UnitControlSystem {
                 // Wave 951: fail-closed without presentation freeze.
                 false
             };
-            if attackable_enemy && logic.host_object(result.object_id).is_some() {
+            if attackable_enemy && game_logic.host_object(result.object_id).is_some() {
                 // Create attack command
                 let command = self.create_attack_command(result.object_id);
-                logic.queue_command(command);
+                game_logic.queue_command(command);
 
                 println!(
                     "📢 Commanded {} units to attack target {}",
@@ -634,7 +621,7 @@ impl UnitControlSystem {
         if let Some(ground_pos) = self.screen_to_ground(screen_pos) {
             // Create move command
             let command = self.create_move_command(ground_pos);
-            logic.queue_command(command);
+            game_logic.queue_command(command);
 
             println!(
                 "📍 Commanded {} units to move to {:?}",
@@ -645,15 +632,13 @@ impl UnitControlSystem {
     }
 
     /// Handle drag selection (box selection)
-    pub async fn handle_box_selection(
+    pub fn handle_box_selection(
         &mut self,
         start_screen: Vec2,
         end_screen: Vec2,
         shift_pressed: bool,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         // Convert screen box to world coordinates
         let start_world = self.screen_to_ground(start_screen);
         let end_world = self.screen_to_ground(end_screen);
@@ -687,9 +672,7 @@ impl UnitControlSystem {
                 }
 
                 // Update game logic selection
-                drop(logic);
-                let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-                logic.select_objects(self.player_id, self.selected_objects.clone());
+                game_logic.select_objects(self.player_id, self.selected_objects.clone());
 
                 println!("📦 Box selected {} units", self.selected_objects.len());
             }
@@ -697,15 +680,9 @@ impl UnitControlSystem {
     }
 
     /// Update hover state based on mouse position
-    pub async fn update_hover(
-        &mut self,
-        screen_pos: Vec2,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    pub fn update_hover(&mut self, screen_pos: Vec2) {
         let new_hovered = self
-            .pick_object_at_screen_pos(screen_pos, &logic)
+            .pick_object_at_screen_pos(screen_pos)
             .map(|result| result.object_id);
 
         if self.hovered_object != new_hovered {
@@ -788,7 +765,7 @@ impl UnitControlSystem {
     }
 
     /// Select all units of the same type as the clicked unit
-    fn select_similar_units(&mut self, object_id: ObjectId, _game_logic: &GameLogic) {
+    fn select_similar_units(&mut self, object_id: ObjectId) {
         // Wave 949: presentation-only select-similar (no live GameLogic dual-read).
         let Some(frame) = self.presentation_frame.as_ref() else {
             return;
@@ -820,17 +797,11 @@ impl UnitControlSystem {
     }
 
     /// Assign selected units to a control group (Ctrl+0-9)
-    pub async fn assign_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
+    pub fn assign_control_group(&mut self, group_num: u8) {
         // Support groups 0-9 (10 total) like C++ Generals
         if group_num > 9 {
             return;
         }
-
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let mut control_group = ControlGroup::new();
         for &object_id in &self.selected_objects {
@@ -867,19 +838,13 @@ impl UnitControlSystem {
     }
 
     /// Select units from a control group (press 0-9)
-    pub async fn select_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
+    pub fn select_control_group(&mut self, group_num: u8, game_logic: &mut GameLogic) {
         // Support groups 0-9 (10 total) like C++ Generals
         if group_num > 9 {
             return;
         }
 
         if let Some(control_group) = self.control_groups.get_mut(&group_num) {
-            let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
             // C++ SELECT_TEAM: getLiveObjects() + local owner. Not CanSelectDrawable
             // (garrisoned / transported / FireBase members stay on the squad).
             let valid_objects: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref()
@@ -891,7 +856,7 @@ impl UnitControlSystem {
             };
 
             self.selected_objects = valid_objects;
-            logic.select_objects(self.player_id, self.selected_objects.clone());
+            game_logic.select_objects(self.player_id, self.selected_objects.clone());
 
             // Refresh cached positions for display/centering.
             control_group.positions.clear();
@@ -938,7 +903,7 @@ impl UnitControlSystem {
     }
 
     /// Select all player units (Ctrl+A)
-    pub async fn select_all_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn select_all_units(&mut self, game_logic: &mut GameLogic) {
         // Wave 949: presentation-only select-all (no live GameLogic dual-read).
         self.selected_objects.clear();
         if let Some(frame) = self.presentation_frame.as_ref() {
@@ -948,8 +913,7 @@ impl UnitControlSystem {
                 }
             }
         }
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-        logic.select_objects(self.player_id, self.selected_objects.clone());
+        game_logic.select_objects(self.player_id, self.selected_objects.clone());
         println!("Selected all {} units", self.selected_objects.len());
     }
 
@@ -972,7 +936,7 @@ impl UnitControlSystem {
     ///
     /// Presentation-only poses when a snapshot is installed; `None` otherwise
     /// (no live GameLogic dual-read residual).
-    pub fn get_selection_center(&self, _game_logic: &GameLogic) -> Option<Vec3> {
+    pub fn get_selection_center(&self) -> Option<Vec3> {
         if self.selected_objects.is_empty() {
             return None;
         }
@@ -1006,16 +970,15 @@ impl UnitControlSystem {
     }
 
     /// Issue Stop command to all selected units
-    pub async fn command_stop(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn command_stop(&mut self, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         let command = self.create_stop_command();
 
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic./* Wave 950 */ host_object_mut(object_id) {
+            if let Some(obj) = game_logic./* Wave 950 */ host_object_mut(object_id) {
                 if obj.is_mobile() {
                     obj.stop();
                 }
@@ -1030,15 +993,13 @@ impl UnitControlSystem {
     }
 
     /// Issue Hold Position command to all selected units
-    pub async fn command_hold_position(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn command_hold_position(&mut self, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.host_object_mut(object_id) {
+            if let Some(obj) = game_logic.host_object_mut(object_id) {
                 obj.set_guard_position(None);
             }
         }
@@ -1050,15 +1011,13 @@ impl UnitControlSystem {
     }
 
     /// Issue Guard command to all selected units
-    pub async fn command_guard(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn command_guard(&mut self, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         for &object_id in &self.selected_objects {
-            if let Some(obj) = logic.host_object_mut(object_id) {
+            if let Some(obj) = game_logic.host_object_mut(object_id) {
                 obj.set_guard_target(None);
             }
         }
@@ -1208,7 +1167,7 @@ mod tests {
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id];
         ctl.set_presentation_frame(Some(frame));
-        let center = ctl.get_selection_center(&logic).expect("center");
+        let center = ctl.get_selection_center().expect("center");
         assert!(
             (center.x - 10.0).abs() < 0.1 && (center.z - 20.0).abs() < 0.1,
             "expected presentation pose, got {center:?}"
@@ -1478,8 +1437,7 @@ mod tests {
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id];
         ctl.set_presentation_frame(Some(frame));
-        let logic_arc = std::sync::Arc::new(AsyncMutex::new(logic));
-        futures::executor::block_on(ctl.assign_control_group(1, &logic_arc));
+        ctl.assign_control_group(1);
         let group = ctl.get_control_group_info(1).expect("g1");
         assert_eq!(group.objects, vec![id]);
         let pos = *group.positions.get(&id).expect("pos");
@@ -1507,11 +1465,10 @@ mod tests {
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id, id2];
         ctl.set_presentation_frame(Some(frame));
-        let logic_arc = std::sync::Arc::new(AsyncMutex::new(logic));
-        futures::executor::block_on(ctl.assign_control_group(2, &logic_arc));
+        ctl.assign_control_group(2);
         let group = ctl.get_control_group_info(2).expect("g2");
         assert_eq!(group.objects, vec![id]);
-        futures::executor::block_on(ctl.select_control_group(2, &logic_arc));
+        ctl.select_control_group(2, &mut logic);
         assert_eq!(ctl.selected_objects, vec![id]);
     }
 

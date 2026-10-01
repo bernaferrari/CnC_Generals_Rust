@@ -1,17 +1,14 @@
-#![allow(dead_code, unused_variables)]
-
 //! Input Integration Layer
 //!
 //! This module connects the RTS input system to the GameLogic singleton,
 //! translating input commands into game actions like unit selection,
 //! movement, attack commands, and camera control.
 
-use crate::game_logic::{GameLogic, KindOf, ObjectId, Team};
+use crate::game_logic::{GameLogic, KindOf, ObjectId};
 use crate::input_system::{RtsCommandEvent, RtsInputSystem};
 use crate::presentation_frame::PresentationFrame;
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// Input processor that bridges input system and game logic
 pub struct InputProcessor {
@@ -64,14 +61,6 @@ impl InputProcessor {
         self.presentation_frame = frame;
     }
 
-    /// Wave 949: local team from presentation freeze when available.
-    fn presentation_local_team(&self, game_logic: &GameLogic) -> Team {
-        if let Some(frame) = self.presentation_frame.as_ref() {
-            return frame.local_team;
-        }
-        self.local_player_team(game_logic)
-    }
-
     fn presentation_is_selectable(o: &crate::presentation_frame::RenderableObject) -> bool {
         !o.destroyed
             && PresentationFrame::object_has_kind(o, KindOf::Selectable)
@@ -89,21 +78,9 @@ impl InputProcessor {
             && PresentationFrame::object_has_kind(o, KindOf::Attackable)
     }
 
-    fn local_player_team(&self, game_logic: &GameLogic) -> Team {
-        game_logic
-            .get_player(self.local_player_id)
-            .map(|player| player.team)
-            .unwrap_or(Team::Neutral)
-    }
-
     /// Process input and execute game commands
-    pub async fn process_input(&mut self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        // Get current frame from GameLogic
-        let current_frame = {
-            let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            logic.get_frame()
-        };
-
+    pub async fn process_input(&mut self, game_logic: &mut GameLogic) {
+        let current_frame = game_logic.get_frame();
         // Skip if we already processed this frame
         if current_frame == self.last_frame {
             return;
@@ -257,12 +234,10 @@ impl InputProcessor {
         world_pos: Vec3,
         shift_pressed: bool,
         ctrl_pressed: bool,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         // Wave 954: pick + friendly classify presentation-only.
-        let clicked_object = self.find_object_at_position(world_pos, &logic);
+        let clicked_object = self.find_object_at_position(world_pos, game_logic);
 
         if let Some(object_id) = clicked_object {
             let friendly_selectable =
@@ -274,20 +249,20 @@ impl InputProcessor {
                         })
                     })
                     .unwrap_or(false);
-            if friendly_selectable && logic.host_object(object_id).is_some() {
+            if friendly_selectable && game_logic.host_object(object_id).is_some() {
                 if shift_pressed {
-                    let mut current_selection = logic
+                    let mut current_selection = game_logic
                         .get_player(self.local_player_id)
                         .map(|p| p.selected_objects.clone())
                         .unwrap_or_default();
 
                     if !current_selection.contains(&object_id) {
                         current_selection.push(object_id);
-                        logic.select_objects(self.local_player_id, current_selection);
+                        game_logic.select_objects(self.local_player_id, current_selection);
                         println!("Added object {} to selection", object_id);
                     }
                 } else if ctrl_pressed {
-                    let mut current_selection = logic
+                    let mut current_selection = game_logic
                         .get_player(self.local_player_id)
                         .map(|p| p.selected_objects.clone())
                         .unwrap_or_default();
@@ -298,28 +273,22 @@ impl InputProcessor {
                         current_selection.push(object_id);
                         println!("Added object {} to selection", object_id);
                     }
-                    logic.select_objects(self.local_player_id, current_selection);
+                    game_logic.select_objects(self.local_player_id, current_selection);
                 } else {
-                    logic.select_objects(self.local_player_id, vec![object_id]);
+                    game_logic.select_objects(self.local_player_id, vec![object_id]);
                     println!("Selected object {} at {:?}", object_id, world_pos);
                 }
             }
         } else if !shift_pressed && !ctrl_pressed {
-            logic.select_objects(self.local_player_id, vec![]);
+            game_logic.select_objects(self.local_player_id, vec![]);
             println!("Cleared selection");
         }
     }
 
     /// Handle right mouse click for movement/attack commands
 
-    async fn handle_right_click(
-        &mut self,
-        world_pos: Vec3,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
-        let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
+    async fn handle_right_click(&mut self, world_pos: Vec3, game_logic: &mut GameLogic) {
+        let selected_objects = if let Some(player) = game_logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
             return;
@@ -331,7 +300,7 @@ impl InputProcessor {
         }
 
         // Wave 954: attack target classify presentation-only.
-        let target_object = self.find_object_at_position(world_pos, &logic);
+        let target_object = self.find_object_at_position(world_pos, game_logic);
         if let Some(target_id) = target_object {
             let attackable_enemy =
                 self.presentation_frame
@@ -342,8 +311,8 @@ impl InputProcessor {
                         })
                     })
                     .unwrap_or(false);
-            if attackable_enemy && logic.host_object(target_id).is_some() {
-                logic.command_attack(self.local_player_id, target_id);
+            if attackable_enemy && game_logic.host_object(target_id).is_some() {
+                game_logic.command_attack(self.local_player_id, target_id);
                 println!(
                     "Commanded {} units to attack target {}",
                     selected_objects.len(),
@@ -353,7 +322,7 @@ impl InputProcessor {
             }
         }
 
-        logic.command_move(self.local_player_id, world_pos);
+        game_logic.command_move(self.local_player_id, world_pos);
         println!(
             "Commanded {} units to move to {:?}",
             selected_objects.len(),
@@ -369,10 +338,8 @@ impl InputProcessor {
         start_world: Vec3,
         end_world: Vec3,
         shift_pressed: bool,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         let min_x = start_world.x.min(end_world.x);
         let max_x = start_world.x.max(end_world.x);
         let min_z = start_world.z.min(end_world.z);
@@ -393,13 +360,13 @@ impl InputProcessor {
 
         if selected_objects.is_empty() {
             if !shift_pressed {
-                logic.select_objects(self.local_player_id, Vec::new());
+                game_logic.select_objects(self.local_player_id, Vec::new());
             }
             return;
         }
 
         if shift_pressed {
-            let mut current_selection = logic
+            let mut current_selection = game_logic
                 .get_player(self.local_player_id)
                 .map(|p| p.selected_objects.clone())
                 .unwrap_or_default();
@@ -408,26 +375,20 @@ impl InputProcessor {
                     current_selection.push(*obj_id);
                 }
             }
-            logic.select_objects(self.local_player_id, current_selection);
+            game_logic.select_objects(self.local_player_id, current_selection);
         } else {
-            logic.select_objects(self.local_player_id, selected_objects.clone());
+            game_logic.select_objects(self.local_player_id, selected_objects.clone());
         }
         println!("Box selected {} units", selected_objects.len());
     }
 
     /// Select all friendly units matching the clicked unit's template (double-click behavior).
-    async fn select_similar_units(
-        &mut self,
-        world_pos: Vec3,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    async fn select_similar_units(&mut self, world_pos: Vec3, game_logic: &mut GameLogic) {
         // Wave 949: presentation-only select-similar (no live GameLogic dual-read).
         let Some(frame) = self.presentation_frame.as_ref() else {
             return;
         };
-        let Some(clicked_object_id) = self.find_object_at_position(world_pos, &logic) else {
+        let Some(clicked_object_id) = self.find_object_at_position(world_pos, game_logic) else {
             return;
         };
         let Some(clicked) = frame.objects.iter().find(|o| o.id == clicked_object_id) else {
@@ -450,14 +411,12 @@ impl InputProcessor {
         if matches.is_empty() {
             return;
         }
-        logic.select_objects(self.local_player_id, matches.clone());
+        game_logic.select_objects(self.local_player_id, matches.clone());
         println!("Selected {} similar units ({})", matches.len(), template);
     }
 
     /// Select all player units
-    async fn select_all_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    async fn select_all_units(&self, game_logic: &mut GameLogic) {
         // Wave 949: presentation-only select-all (no live GameLogic dual-read).
         let mut all_units = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
@@ -467,15 +426,13 @@ impl InputProcessor {
                 }
             }
         }
-        logic.select_objects(self.local_player_id, all_units.clone());
+        game_logic.select_objects(self.local_player_id, all_units.clone());
         println!("Selected all {} units", all_units.len());
     }
 
     /// Delete selected units
-    async fn delete_selected_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
-        let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
+    async fn delete_selected_units(&self, game_logic: &mut GameLogic) {
+        let selected_objects = if let Some(player) = game_logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
             return;
@@ -488,18 +445,16 @@ impl InputProcessor {
 
         // Destroy selected objects
         for &object_id in &selected_objects {
-            logic.destroy_object(object_id);
+            game_logic.destroy_object(object_id);
         }
 
         // Clear selection
-        logic.select_objects(self.local_player_id, vec![]);
+        game_logic.select_objects(self.local_player_id, vec![]);
         println!("Destroyed {} selected units", selected_objects.len());
     }
 
     /// Cycle through units
-    async fn cycle_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    async fn cycle_units(&self, game_logic: &mut GameLogic) {
         // Wave 949: presentation-only unit cycle (no live GameLogic dual-read).
         let mut all_units: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref() {
             frame
@@ -519,7 +474,7 @@ impl InputProcessor {
 
         all_units.sort();
 
-        let current_selection = logic
+        let current_selection = game_logic
             .get_player(self.local_player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -535,15 +490,14 @@ impl InputProcessor {
             all_units[0]
         };
 
-        logic.select_objects(self.local_player_id, vec![next_unit]);
+        game_logic.select_objects(self.local_player_id, vec![next_unit]);
         println!("Cycled to unit {:?}", next_unit);
     }
 
     /// Toggle game pause
-    async fn toggle_pause(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-        let is_paused = logic.is_paused();
-        logic.set_paused(!is_paused);
+    async fn toggle_pause(&self, game_logic: &mut GameLogic) {
+        let is_paused = game_logic.is_paused();
+        game_logic.set_paused(!is_paused);
 
         if !is_paused {
             println!("Game paused");
@@ -553,14 +507,8 @@ impl InputProcessor {
     }
 
     /// Assign selected units to a control group
-    async fn assign_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
-        let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
+    async fn assign_control_group(&mut self, group_num: u8, game_logic: &GameLogic) {
+        let selected_objects = if let Some(player) = game_logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
             return;
@@ -581,14 +529,7 @@ impl InputProcessor {
     }
 
     /// Select units in a control group
-
-    async fn select_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    async fn select_control_group(&mut self, group_num: u8, game_logic: &mut GameLogic) {
         let Some(group) = self.control_groups.get(&group_num) else {
             println!("Control group {} is empty", group_num);
             return;
@@ -606,7 +547,7 @@ impl InputProcessor {
             return;
         }
 
-        logic.select_objects(self.local_player_id, selection.clone());
+        game_logic.select_objects(self.local_player_id, selection.clone());
         println!(
             "Selected control group {} ({} units)",
             group_num,
@@ -621,22 +562,22 @@ impl InputProcessor {
     }
 
     /// Toggle background music
-    fn toggle_music(&mut self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    fn toggle_music(&mut self, game_logic: &mut GameLogic) {
         self.music_enabled = !self.music_enabled;
         println!(
             "Background music: {}",
             if self.music_enabled { "ON" } else { "OFF" }
         );
-        if let Ok(mut logic) = game_logic.try_lock() {
-            let event = if self.music_enabled {
-                crate::game_logic::AudioEventRequest::new("MusicEnable")
-                    .with_priority(255)
-                    .looping()
-            } else {
-                crate::game_logic::AudioEventRequest::new("MusicDisable").with_priority(255)
-            };
-            logic.queue_audio_event(event);
-        }
+        // Single-owner access: the audio event is always queued (the former
+        // try_lock skip was lock hygiene, not C++ behavior).
+        let event = if self.music_enabled {
+            crate::game_logic::AudioEventRequest::new("MusicEnable")
+                .with_priority(255)
+                .looping()
+        } else {
+            crate::game_logic::AudioEventRequest::new("MusicDisable").with_priority(255)
+        };
+        game_logic.queue_audio_event(event);
     }
 
     /// Find object at world position (simple distance-based selection)
@@ -687,54 +628,6 @@ impl InputProcessor {
         self.music_enabled
     }
 
-    // Static helper methods for internal processing
-    fn handle_left_click_internal(
-        world_pos: Vec3,
-        input: &mut RtsInputSystem,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        println!("Left click at world position: {:?}", world_pos);
-        // Implementation would handle unit selection logic
-    }
-
-    fn handle_right_click_internal(world_pos: Vec3, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        println!("Right click at world position: {:?}", world_pos);
-        // Implementation would handle unit movement/attack commands
-    }
-
-    fn handle_box_selection_internal(
-        start_screen: Vec2,
-        end_screen: Vec2,
-        input: &mut RtsInputSystem,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-        window_size: (f32, f32),
-    ) {
-        println!("Box selection from {:?} to {:?}", start_screen, end_screen);
-        // Implementation would handle box selection of units
-    }
-
-    fn select_all_units_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        println!("Select all units command");
-        // Implementation would select all player units
-    }
-
-    fn delete_selected_units_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        println!("Delete selected units command");
-        // Implementation would destroy selected units
-    }
-
-    fn toggle_pause_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        if let Ok(mut logic) = game_logic.try_lock() {
-            let is_paused = logic.is_paused();
-            logic.set_paused(!is_paused);
-            println!("Game pause toggled: {}", !is_paused);
-        }
-    }
-
-    fn cycle_units_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        println!("Cycle units command");
-        // Implementation would cycle through available units
-    }
 }
 
 /// Helper functions for coordinate conversion and object detection

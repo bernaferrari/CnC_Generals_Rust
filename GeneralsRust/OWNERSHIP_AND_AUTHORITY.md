@@ -76,6 +76,19 @@ FlightDeck custom-field roundtrips preserve the
 current Rust format; the missing original AIUpdate base payload is hq-hfbvn,
 so original-save compatibility is not verified.
 
+## Re-entrancy rule for synchronization removal (2026-09-30, hq-5k02p)
+
+Never hold a `RefCell` borrow, thread-local borrow, or consolidated state
+guard across a call that can re-enter (callbacks, gadget/system dispatch,
+`Box<dyn Trait>` methods, closures stored elsewhere, fire/emit/notify paths).
+When a callback must observe or mutate the same state, use take/restore,
+snapshot-then-apply, or queue-and-drain-after-guard — preserving the original
+observable ordering. A `RefCell` never replaces a re-entrancy-safe lock: it
+converts would-block into a panic. Reference shapes in-tree:
+`helpers/game_client.rs` `ClientVisualState::with_queues` (closure-scoped) and
+its `clear_objectless_drawables` snapshot-then-callback path;
+`state_machine.rs` `goal_squad_copied` (snapshot before state dispatch).
+
 The table below describes current defaults. Later wave logs record historical
 experiments and feature-gated configurations; descriptions of GameWorld as
 last writer do not override the current all-false default authority policy.

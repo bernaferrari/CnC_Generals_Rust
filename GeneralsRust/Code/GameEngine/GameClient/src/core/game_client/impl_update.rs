@@ -1907,38 +1907,49 @@ impl GameClient {
             return Ok(());
         }
 
-        let mut global = global_data.write();
         let low_res_movies = prefers_low_res_movies();
-        let Some(action) = startup_movie_action(
-            global.play_intro,
-            global.after_intro,
-            global.play_sizzle,
-            self.startup_sizzle_pending,
-            low_res_movies,
-        ) else {
+        // Compute the action under the guard, then drop it before touching
+        // the display: play_movie/play_logo_movie call
+        // TheScriptEngine::notify_of_completed_video (via stop_movie), and
+        // script callbacks re-enter get_global_data() — holding the write
+        // guard across playback would deadlock the same thread.
+        let action = {
+            let global = global_data.write();
+            startup_movie_action(
+                global.play_intro,
+                global.after_intro,
+                global.play_sizzle,
+                self.startup_sizzle_pending,
+                low_res_movies,
+            )
+        };
+        let Some(action) = action else {
             return Ok(());
         };
 
         match action {
             StartupMovieAction::PlayLogo(movie_name) => {
                 display.play_logo_movie(movie_name.to_string(), 5000, 3000);
+                let mut global = global_data.write();
                 global.play_intro = false;
                 global.after_intro = true;
                 self.startup_sizzle_pending = true;
             }
             StartupMovieAction::PlaySizzle(movie_name) => {
-                global.allow_exit_out_of_movies = true;
+                global_data.write().allow_exit_out_of_movies = true;
                 if display.play_movie(movie_name.to_string()) {
                     self.startup_sizzle_pending = false;
                     return Ok(());
                 }
                 self.startup_sizzle_pending = false;
+                let mut global = global_data.write();
                 global.break_the_movie = true;
                 global.after_intro = false;
                 drop(global);
                 self.activate_shell_after_startup()?;
             }
             StartupMovieAction::FinalizeStartup => {
+                let mut global = global_data.write();
                 global.break_the_movie = true;
                 global.allow_exit_out_of_movies = true;
                 global.after_intro = false;

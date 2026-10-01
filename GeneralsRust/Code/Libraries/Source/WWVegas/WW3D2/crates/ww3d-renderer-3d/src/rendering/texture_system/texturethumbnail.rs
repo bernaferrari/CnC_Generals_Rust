@@ -13,7 +13,6 @@ const THUMB_COMPRESS_RLE: &[u8; 4] = b"RLE1";
 
 /// Thumbnail data structure
 pub struct ThumbnailClass {
-    manager: Arc<Mutex<ThumbnailManagerClass>>,
     name: String,
     bitmap: Option<Vec<u8>>,
     allocated: bool,
@@ -29,7 +28,6 @@ pub struct ThumbnailClass {
 impl ThumbnailClass {
     /// Create new thumbnail
     pub fn new(
-        manager: Arc<Mutex<ThumbnailManagerClass>>,
         name: &str,
         bitmap: Option<Vec<u8>>,
         width: u32,
@@ -41,8 +39,7 @@ impl ThumbnailClass {
         allocated: bool,
         date_time: u32,
     ) -> Self {
-        let thumbnail = Self {
-            manager: manager.clone(),
+        Self {
             name: name.to_string(),
             bitmap,
             allocated,
@@ -53,14 +50,7 @@ impl ThumbnailClass {
             original_texture_mip_level_count: original_mip_levels,
             original_texture_format: original_format,
             date_time,
-        };
-
-        // Add to manager's hash
-        if let Ok(mut mgr) = manager.lock() {
-            mgr.insert_to_hash(&thumbnail);
         }
-
-        thumbnail
     }
 
     /// Get thumbnail name
@@ -134,7 +124,6 @@ impl ThumbnailManagerClass {
         self.thumbnails.insert(
             thumbnail.name().to_string(),
             Arc::new(ThumbnailClass {
-                manager: thumbnail.manager.clone(),
                 name: thumbnail.name.clone(),
                 bitmap: thumbnail.bitmap.clone(),
                 allocated: thumbnail.allocated,
@@ -162,7 +151,6 @@ impl ThumbnailManagerClass {
         let thumbnail_bitmap = self.generate_thumbnail_bitmap(texture)?;
 
         let thumbnail_arc = Arc::new(ThumbnailClass {
-            manager: Arc::new(Mutex::new(self.clone())),
             name: name.clone(),
             bitmap: Some(thumbnail_bitmap),
             allocated: true,
@@ -282,7 +270,6 @@ impl ThumbnailManagerClass {
             .unwrap_or(filename)
             .to_string();
         let thumbnail = Arc::new(ThumbnailClass {
-            manager: Arc::new(Mutex::new(self.clone())),
             name: name.clone(),
             bitmap: Some(bitmap),
             allocated: true,
@@ -369,28 +356,31 @@ impl Clone for ThumbnailManagerClass {
     }
 }
 
-fn thumbnail_manager_cell() -> &'static OnceLock<Arc<Mutex<ThumbnailManagerClass>>> {
-    static CELL: OnceLock<Arc<Mutex<ThumbnailManagerClass>>> = OnceLock::new();
+fn thumbnail_manager_cell() -> &'static OnceLock<Mutex<ThumbnailManagerClass>> {
+    static CELL: OnceLock<Mutex<ThumbnailManagerClass>> = OnceLock::new();
     &CELL
 }
 
 /// Initialise the global thumbnail manager. Subsequent calls refresh the internal state instead of
 /// allocating an additional singleton, keeping legacy entry points working with safe Rust semantics.
-pub fn init_global_thumbnail_manager() -> Arc<Mutex<ThumbnailManagerClass>> {
+/// Ownership migration: the singleton is a single global lock (rule d); no `Arc` handle is handed
+/// out because no second owner exists.
+pub fn init_global_thumbnail_manager() -> &'static Mutex<ThumbnailManagerClass> {
     let manager = ThumbnailManagerClass::new();
-    if let Err(existing) = thumbnail_manager_cell().set(Arc::new(Mutex::new(manager.clone()))) {
+    let cell = thumbnail_manager_cell();
+    if let Some(existing) = cell.get() {
         if let Ok(mut guard) = existing.lock() {
             *guard = manager;
         }
-        existing.clone()
+        existing
     } else {
-        thumbnail_manager_cell().get().expect("just set").clone()
+        cell.get_or_init(|| Mutex::new(manager))
     }
 }
 
 /// Access the global thumbnail manager if it has been initialised.
-pub fn get_global_thumbnail_manager() -> Option<Arc<Mutex<ThumbnailManagerClass>>> {
-    thumbnail_manager_cell().get().cloned()
+pub fn get_global_thumbnail_manager() -> Option<&'static Mutex<ThumbnailManagerClass>> {
+    thumbnail_manager_cell().get()
 }
 
 /// Clear the global thumbnail manager’s contents without tearing down the singleton. This avoids
@@ -583,7 +573,6 @@ mod tests {
         };
 
         let thumbnail = ThumbnailClass {
-            manager: Arc::new(Mutex::new(manager.clone())),
             name: "test_thumb".to_string(),
             bitmap: Some(vec![7u8; THUMBNAIL_SIZE * THUMBNAIL_SIZE * 4]),
             allocated: true,

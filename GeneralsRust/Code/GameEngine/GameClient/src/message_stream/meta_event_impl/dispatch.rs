@@ -458,13 +458,21 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_SOUND") {
         if let Some(manager) = get_global_audio_manager() {
-            if let Ok(mut audio) = manager.lock() {
-                if audio.is_on(AudioAffect::Sound) {
-                    stop_movies_for_sound_toggle();
+            // Snapshot the flag, then release the audio lock before
+            // stop_movies_for_sound_toggle: it reaches
+            // TheScriptEngine::notify_of_completed_video, and script
+            // callbacks may re-lock the audio manager on this thread.
+            let sound_on = manager
+                .lock()
+                .ok()
+                .is_some_and(|mut audio| audio.is_on(AudioAffect::Sound));
+            if sound_on {
+                stop_movies_for_sound_toggle();
+                if let Ok(mut audio) = manager.lock() {
                     audio.set_on(false, AudioAffect::All);
-                } else {
-                    audio.set_on(true, AudioAffect::All);
                 }
+            } else if let Ok(mut audio) = manager.lock() {
+                audio.set_on(true, AudioAffect::All);
             }
         }
         return Some(GameMessageDisposition::DestroyMessage);

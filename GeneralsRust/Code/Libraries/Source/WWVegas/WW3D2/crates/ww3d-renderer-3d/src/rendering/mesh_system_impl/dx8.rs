@@ -90,6 +90,13 @@ pub struct DX8TextureCategoryClass {
     pub shader: ShaderClass,
     pub material: Option<Arc<VertexMaterialClass>>,
     pub polygon_renderers: Vec<Arc<DX8PolygonRendererClass>>,
+    /// Ownership note (rule b/d): the category is shared as `Arc` between the
+    /// category container and every `DX8PolygonRendererClass` that references
+    /// it (clone sites: `set_texture_category` callers), and
+    /// `RenderObjClass::render(&self)` enqueues through that shared handle
+    /// (C++ `TextureCategoryClass::Add_Render_Task` appends to the shared
+    /// category). The trait path cannot take `&mut self` without migrating the
+    /// whole render-object system, so the task list keeps interior mutability.
     pub(super) render_tasks: Mutex<Vec<MeshRenderTask>>,
 }
 

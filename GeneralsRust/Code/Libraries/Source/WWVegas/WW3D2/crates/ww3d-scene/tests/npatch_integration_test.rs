@@ -148,7 +148,7 @@ fn test_dome_tessellation_creates_smoothness() {
 #[test]
 fn test_pipeline_with_curved_mesh() {
     let mesh = create_curved_cylinder_cap();
-    let pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::MEDIUM);
 
     let mesh_id = 999;
     let subdivided = pipeline.process_mesh(mesh_id, &mesh);
@@ -199,7 +199,7 @@ fn test_quality_levels_affect_recommendations() {
 #[test]
 fn test_memory_efficiency() {
     let mesh = create_dome();
-    let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
     let mesh_id = 1000;
     let _subdivided = pipeline.process_mesh(mesh_id, &mesh);
@@ -309,7 +309,7 @@ fn test_large_mesh_performance() {
         large_mesh.push((v0, v1, v2));
     }
 
-    let pipeline = NPatchPipeline::new(TessellationLevel::LOW);
+    let mut pipeline = NPatchPipeline::new(TessellationLevel::LOW);
 
     // This should complete reasonably fast even for 100 triangles
     let result = pipeline.process_mesh(3000, &large_mesh);

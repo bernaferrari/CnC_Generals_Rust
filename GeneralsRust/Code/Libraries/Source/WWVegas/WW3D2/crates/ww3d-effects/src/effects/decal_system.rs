@@ -13,7 +13,7 @@
 */
 
 use glam::{Mat4, Vec2, Vec3};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 
 /// Errors that can occur in the decal system
@@ -994,7 +994,7 @@ static DECAL_ID_COUNTER: Mutex<DecalId> = Mutex::new(0);
 /// C++ Reference: decalsys.h lines 47-85 (DecalSystemClass)
 pub struct DecalSystem {
     /// All decal meshes in the system
-    pub decal_meshes: Vec<Arc<Mutex<dyn DecalMesh>>>,
+    pub decal_meshes: Vec<Box<dyn DecalMesh>>,
 }
 
 impl DecalSystem {
@@ -1026,14 +1026,13 @@ impl DecalSystem {
     }
 
     /// Register a decal mesh
-    pub fn register_decal_mesh(&mut self, mesh: Arc<Mutex<dyn DecalMesh>>) {
+    pub fn register_decal_mesh(&mut self, mesh: Box<dyn DecalMesh>) {
         self.decal_meshes.push(mesh);
     }
 
     /// Remove a decal from all meshes
     pub fn remove_decal(&mut self, decal_id: DecalId) {
-        for mesh in &self.decal_meshes {
-            let mut mesh = mesh.lock().unwrap();
+        for mesh in &mut self.decal_meshes {
             let _ = mesh.delete_decal(decal_id);
         }
     }
@@ -1151,13 +1150,11 @@ impl MultiFixedPoolDecalSystem {
                 // This matches the C++ implementation where LogicalDecalClass::Clear
                 // iterates through MeshList and calls Delete_Decal on each mesh
                 let decal_system = get_decal_system();
-                if let Ok(system) = decal_system.lock() {
+                if let Ok(mut system) = decal_system.lock() {
                     // Iterate through all registered decal meshes
-                    for mesh in &system.decal_meshes {
-                        if let Ok(mut mesh_guard) = mesh.lock() {
-                            // Try to delete the decal from this mesh
-                            let _ = mesh_guard.delete_decal(decal_id);
-                        }
+                    for mesh in &mut system.decal_meshes {
+                        // Try to delete the decal from this mesh
+                        let _ = mesh.delete_decal(decal_id);
                     }
                 }
             }

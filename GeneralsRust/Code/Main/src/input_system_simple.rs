@@ -1,25 +1,25 @@
-use crate::game_logic::{GameLogic, KindOf, ObjectId, Team};
+use crate::game_logic::{GameLogic, KindOf, ObjectId};
 use crate::input_system::RtsInputSystem;
 use crate::presentation_frame::PresentationFrame;
 use anyhow::Result;
 use glam::{Vec2, Vec3};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::Mutex;
-use tokio::sync::mpsc;
+use std::collections::{HashMap, VecDeque};
 use winit::keyboard::{Key, NamedKey};
 
-/// High-performance async input processor that connects input to game logic
+/// Deterministic command-intake input processor connecting input to game logic.
 ///
-/// This processor uses Tokio async operations to ensure the game loop never blocks
-/// during input processing, providing maximum performance for real-time gameplay.
+/// Input handlers enqueue events into an owned FIFO queue; the frame loop
+/// drains the queue in order with `&mut GameLogic` (single owner, no shared
+/// handle — matches the OWNERSHIP_AND_AUTHORITY "deterministic command
+/// intake" target). The `async` fns below contain no await points: their
+/// futures are ready on first poll (pinned Wave 953 honesty markers require
+/// the `async fn ..._async` shapes).
 pub struct SimpleInputProcessor {
     local_player_id: u32,
     window_size: (f32, f32),
     last_frame: u32,
-    // Async channels for input event processing
-    input_sender: mpsc::UnboundedSender<InputEvent>,
-    input_receiver: mpsc::UnboundedReceiver<InputEvent>,
+    // Owned FIFO intake queue: producers append, the frame loop drains.
+    input_queue: VecDeque<InputEvent>,
     control_groups: HashMap<u8, Vec<ObjectId>>, // 0-9 control groups
     last_camera_position: Vec3,
     last_camera_zoom: f32,
@@ -27,7 +27,7 @@ pub struct SimpleInputProcessor {
     presentation_frame: Option<PresentationFrame>,
 }
 
-/// Input events processed asynchronously
+/// Input events queued for same-frame application by the frame loop
 #[derive(Debug, Clone)]
 pub enum InputEvent {
     SelectAll,
@@ -40,16 +40,13 @@ pub enum InputEvent {
 }
 
 impl SimpleInputProcessor {
-    /// Create a new async input processor with event channels
+    /// Create a new input processor with an owned event queue
     pub fn new(local_player_id: u32, window_size: (f32, f32)) -> Self {
-        let (input_sender, input_receiver) = mpsc::unbounded_channel();
-
         Self {
             local_player_id,
             window_size,
             last_frame: 0,
-            input_sender,
-            input_receiver,
+            input_queue: VecDeque::new(),
             control_groups: HashMap::new(),
             last_camera_position: Vec3::ZERO,
             last_camera_zoom: 50.0,
@@ -62,12 +59,6 @@ impl SimpleInputProcessor {
         self.presentation_frame = frame;
     }
 
-    fn presentation_local_team(&self, game_logic: &GameLogic) -> Team {
-        if let Some(frame) = self.presentation_frame.as_ref() {
-            return frame.local_team;
-        }
-        self.local_player_team(game_logic)
-    }
 
     fn presentation_is_selectable(o: &crate::presentation_frame::RenderableObject) -> bool {
         !o.destroyed
@@ -89,24 +80,18 @@ impl SimpleInputProcessor {
         self.presentation_frame.as_ref()
     }
 
-    fn local_player_team(&self, game_logic: &GameLogic) -> Team {
-        game_logic
-            .get_player(self.local_player_id)
-            .map(|player| player.team)
-            .unwrap_or(Team::Neutral)
-    }
 
-    /// Process input commands asynchronously - never blocks the game loop
+    /// Process input commands for the current frame.
+    ///
+    /// Frame-loop entry point: reads input state, enqueues the resulting
+    /// commands, then drains the intake queue in order against the
+    /// caller-owned `game_logic`.
     pub async fn process_input(
         &mut self,
-        input_system: &Arc<std::sync::Mutex<RtsInputSystem>>,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        input_system: &RtsInputSystem,
+        game_logic: &mut GameLogic,
     ) -> Result<()> {
-        // Get current frame from GameLogic (async, non-blocking)
-        let current_frame = {
-            let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            logic.get_frame()
-        };
+        let current_frame = game_logic.get_frame();
 
         // Skip if we already processed this frame
         if current_frame == self.last_frame {
@@ -114,23 +99,20 @@ impl SimpleInputProcessor {
         }
         self.last_frame = current_frame;
 
-        // Process input events asynchronously
-        let input = input_system.lock().unwrap_or_else(|e| e.into_inner());
-
-        // Collect input state without holding the lock for long
-        let ctrl_pressed = input.is_ctrl_pressed();
-        let select_all = ctrl_pressed && input.is_key_just_pressed(&Key::Character("a".into()));
-        let delete_pressed = input.is_key_just_pressed(&Key::Named(NamedKey::Delete));
-        let space_pressed = input.is_key_just_pressed(&Key::Named(NamedKey::Space));
-        let tab_pressed = input.is_key_just_pressed(&Key::Named(NamedKey::Tab));
-        let camera = input.get_camera();
+        let ctrl_pressed = input_system.is_ctrl_pressed();
+        let select_all =
+            ctrl_pressed && input_system.is_key_just_pressed(&Key::Character("a".into()));
+        let delete_pressed = input_system.is_key_just_pressed(&Key::Named(NamedKey::Delete));
+        let space_pressed = input_system.is_key_just_pressed(&Key::Named(NamedKey::Space));
+        let tab_pressed = input_system.is_key_just_pressed(&Key::Named(NamedKey::Tab));
+        let camera = input_system.get_camera();
         self.last_camera_position = camera.position;
         self.last_camera_zoom = camera.zoom;
 
         // Check number keys
         let mut control_group_action = None;
         for i in 0..=9 {
-            if input.is_key_just_pressed(&Key::Character(i.to_string().into())) {
+            if input_system.is_key_just_pressed(&Key::Character(i.to_string().into())) {
                 if ctrl_pressed {
                     control_group_action = Some((i as u8, true)); // assign
                     break;
@@ -141,45 +123,42 @@ impl SimpleInputProcessor {
             }
         }
 
-        // Release input lock immediately
-        drop(input);
-
-        // Queue events for async processing (non-blocking)
+        // Queue events for same-frame application (deterministic order)
         if select_all {
-            let _ = self.input_sender.send(InputEvent::SelectAll);
+            self.input_queue.push_back(InputEvent::SelectAll);
         }
 
         if delete_pressed {
-            let _ = self.input_sender.send(InputEvent::Delete);
+            self.input_queue.push_back(InputEvent::Delete);
         }
 
         if space_pressed {
-            let _ = self.input_sender.send(InputEvent::TogglePause);
+            self.input_queue.push_back(InputEvent::TogglePause);
         }
 
         if tab_pressed {
-            let _ = self.input_sender.send(InputEvent::CycleUnits);
+            self.input_queue.push_back(InputEvent::CycleUnits);
         }
 
         if let Some((group_num, is_assign)) = control_group_action {
-            let _ = self.input_sender.send(InputEvent::ControlGroup {
+            self.input_queue.push_back(InputEvent::ControlGroup {
                 number: group_num,
                 assign: is_assign,
             });
         }
 
-        // Process queued events asynchronously
+        // Drain the queue in FIFO order (same order the channel preserved)
         self.process_queued_events(game_logic).await?;
 
         Ok(())
     }
 
-    /// Process all queued input events asynchronously
-    async fn process_queued_events(&mut self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        // Drain first, then process: preserves event order without holding a
-        // borrow of the receiver across awaits.
+    /// Process all queued input events in FIFO order
+    async fn process_queued_events(&mut self, game_logic: &mut GameLogic) -> Result<()> {
+        // Drain first, then apply: preserves event order without borrowing
+        // the queue across the applier calls.
         let mut events = Vec::new();
-        while let Ok(event) = self.input_receiver.try_recv() {
+        while let Some(event) = self.input_queue.pop_front() {
             events.push(event);
         }
 
@@ -190,11 +169,8 @@ impl SimpleInputProcessor {
         Ok(())
     }
 
-    /// Select all player units asynchronously
-
-    async fn select_all_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    /// Select all player units
+    async fn select_all_units_async(&self, game_logic: &mut GameLogic) -> Result<()> {
         // Wave 953: presentation-only select-all (no live get_objects dual-read).
         let mut all_units = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
@@ -204,16 +180,14 @@ impl SimpleInputProcessor {
                 }
             }
         }
-        logic.select_objects(self.local_player_id, all_units.clone());
+        game_logic.select_objects(self.local_player_id, all_units.clone());
         println!("Selected all {} units", all_units.len());
         Ok(())
     }
 
-    /// Delete selected units asynchronously
-    async fn delete_selected_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
-        let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
+    /// Delete selected units
+    async fn delete_selected_units_async(&self, game_logic: &mut GameLogic) -> Result<()> {
+        let selected_objects = if let Some(player) = game_logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
             return Ok(());
@@ -226,21 +200,20 @@ impl SimpleInputProcessor {
 
         // Destroy selected objects
         for &object_id in &selected_objects {
-            logic.destroy_object(object_id);
+            game_logic.destroy_object(object_id);
         }
 
         // Clear selection
-        logic.select_objects(self.local_player_id, vec![]);
+        game_logic.select_objects(self.local_player_id, vec![]);
         println!("Destroyed {} selected units", selected_objects.len());
 
         Ok(())
     }
 
-    /// Toggle game pause asynchronously
-    async fn toggle_pause_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-        let is_paused = logic.is_paused();
-        logic.set_paused(!is_paused);
+    /// Toggle game pause
+    async fn toggle_pause_async(&self, game_logic: &mut GameLogic) -> Result<()> {
+        let is_paused = game_logic.is_paused();
+        game_logic.set_paused(!is_paused);
 
         if !is_paused {
             println!("Game paused");
@@ -251,11 +224,8 @@ impl SimpleInputProcessor {
         Ok(())
     }
 
-    /// Cycle through units asynchronously
-
-    async fn cycle_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
+    /// Cycle through units
+    async fn cycle_units_async(&self, game_logic: &mut GameLogic) -> Result<()> {
         // Wave 953: presentation-only unit cycle (no live get_objects dual-read).
         let mut all_units: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref() {
             frame
@@ -275,7 +245,7 @@ impl SimpleInputProcessor {
 
         all_units.sort();
 
-        let current_selection = logic
+        let current_selection = game_logic
             .get_player(self.local_player_id)
             .map(|p| p.selected_objects.clone())
             .unwrap_or_default();
@@ -291,20 +261,18 @@ impl SimpleInputProcessor {
             all_units[0]
         };
 
-        logic.select_objects(self.local_player_id, vec![next_unit]);
+        game_logic.select_objects(self.local_player_id, vec![next_unit]);
         println!("Cycled to unit {:?}", next_unit);
         Ok(())
     }
 
-    /// Assign selected units to a control group asynchronously
+    /// Assign selected units to a control group
     async fn assign_control_group_async(
         &mut self,
         group_num: u8,
-        game_logic: &Arc<Mutex<GameLogic>>,
+        game_logic: &GameLogic,
     ) -> Result<()> {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
-        let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
+        let selected_objects = if let Some(player) = game_logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
             return Ok(());
@@ -325,12 +293,11 @@ impl SimpleInputProcessor {
         Ok(())
     }
 
-    /// Select units in a control group asynchronously
-
+    /// Select units in a control group
     async fn select_control_group_async(
         &self,
         group_num: u8,
-        game_logic: &Arc<Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) -> Result<()> {
         let stored = self.control_groups.get(&group_num).cloned();
         let Some(stored) = stored else {
@@ -338,14 +305,13 @@ impl SimpleInputProcessor {
             return Ok(());
         };
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         // Wave 953: control-group filter presentation-only (fail-closed without freeze).
         // C++ SELECT_TEAM: getLiveObjects / isSelectable — not CanSelectDrawable.
         let mut selection = Vec::new();
         if let Some(frame) = self.presentation_frame.as_ref() {
             selection = frame.filter_live_squad_ids(&stored, true);
         }
-        logic.select_objects(self.local_player_id, selection.clone());
+        game_logic.select_objects(self.local_player_id, selection.clone());
         println!(
             "Selected control group {}: {} units",
             group_num,
@@ -354,19 +320,16 @@ impl SimpleInputProcessor {
         Ok(())
     }
 
-    /// Handle left click for unit selection asynchronously
+    /// Handle left click for unit selection (queues an intake event)
     pub async fn handle_left_click(
         &self,
         world_pos: Vec3,
-        input_system: &Arc<Mutex<RtsInputSystem>>,
+        input_system: &RtsInputSystem,
     ) -> Result<()> {
-        let shift_pressed = {
-            let input = input_system.lock().unwrap_or_else(|e| e.into_inner());
-            input.is_shift_pressed()
-        };
+        let shift_pressed = input_system.is_shift_pressed();
 
-        // Queue the click event for async processing
-        let _ = self.input_sender.send(InputEvent::LeftClick {
+        // Queue the click event for same-frame application
+        self.input_queue.push_back(InputEvent::LeftClick {
             world_pos,
             shift_held: shift_pressed,
         });
@@ -374,18 +337,15 @@ impl SimpleInputProcessor {
         Ok(())
     }
 
-    /// Handle left click processing asynchronously
-
+    /// Apply a queued left click
     async fn handle_left_click_async(
         &self,
         world_pos: Vec3,
         shift_held: bool,
-        game_logic: &Arc<Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         // Wave 953: pick + friendly classify presentation-only.
-        let clicked_object = self.find_object_at_position(world_pos, &logic);
+        let clicked_object = self.find_object_at_position(world_pos, game_logic);
 
         if let Some(object_id) = clicked_object {
             let friendly_selectable =
@@ -397,47 +357,44 @@ impl SimpleInputProcessor {
                         })
                     })
                     .unwrap_or(false);
-            if friendly_selectable && logic.host_object(object_id).is_some() {
+            if friendly_selectable && game_logic.host_object(object_id).is_some() {
                 if shift_held {
-                    let mut current_selection = logic
+                    let mut current_selection = game_logic
                         .get_player(self.local_player_id)
                         .map(|p| p.selected_objects.clone())
                         .unwrap_or_default();
                     if !current_selection.contains(&object_id) {
                         current_selection.push(object_id);
                     }
-                    logic.select_objects(self.local_player_id, current_selection);
+                    game_logic.select_objects(self.local_player_id, current_selection);
                 } else {
-                    logic.select_objects(self.local_player_id, vec![object_id]);
+                    game_logic.select_objects(self.local_player_id, vec![object_id]);
                 }
             }
         } else if !shift_held {
             // Click empty ground clears selection residual.
-            logic.select_objects(self.local_player_id, Vec::new());
+            game_logic.select_objects(self.local_player_id, Vec::new());
         }
 
         Ok(())
     }
 
-    /// Handle right click for movement/attack commands asynchronously
+    /// Handle right click for movement/attack commands (queues an intake event)
     pub async fn handle_right_click(&self, world_pos: Vec3) -> Result<()> {
-        // Queue the click event for async processing
-        let _ = self.input_sender.send(InputEvent::RightClick { world_pos });
+        // Queue the click event for same-frame application
+        self.input_queue.push_back(InputEvent::RightClick { world_pos });
 
         Ok(())
     }
 
-    /// Handle right click processing asynchronously
-
+    /// Apply a queued right click
     async fn handle_right_click_async(
         &self,
         world_pos: Vec3,
-        game_logic: &Arc<Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         // Get currently selected units
-        let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
+        let selected_objects = if let Some(player) = game_logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
         } else {
             return Ok(());
@@ -449,7 +406,7 @@ impl SimpleInputProcessor {
         }
 
         // Wave 953: attack target classify presentation-only.
-        let target_object = self.find_object_at_position(world_pos, &logic);
+        let target_object = self.find_object_at_position(world_pos, game_logic);
         if let Some(target_id) = target_object {
             let attackable_enemy =
                 self.presentation_frame
@@ -460,8 +417,8 @@ impl SimpleInputProcessor {
                         })
                     })
                     .unwrap_or(false);
-            if attackable_enemy && logic.host_object(target_id).is_some() {
-                logic.command_attack(self.local_player_id, target_id);
+            if attackable_enemy && game_logic.host_object(target_id).is_some() {
+                game_logic.command_attack(self.local_player_id, target_id);
                 println!(
                     "Commanded {} units to attack target {}",
                     selected_objects.len(),
@@ -472,7 +429,7 @@ impl SimpleInputProcessor {
         }
 
         // Otherwise, issue move command
-        logic.command_move(self.local_player_id, world_pos);
+        game_logic.command_move(self.local_player_id, world_pos);
         println!(
             "Commanded {} units to move to {:?}",
             selected_objects.len(),
@@ -482,10 +439,10 @@ impl SimpleInputProcessor {
         Ok(())
     }
 
-    /// Find object at world position (optimized for async processing)
+    /// Find object at world position (presentation pick)
     ///
-    /// This function is kept synchronous since it only reads data and performs calculations.
-    /// It's called while holding the GameLogic lock, so it should be fast.
+    /// This function is kept synchronous since it only reads data and performs
+    /// calculations.
     fn find_object_at_position(
         &self,
         world_pos: Vec3,
@@ -536,19 +493,12 @@ impl SimpleInputProcessor {
         self.window_size = (width, height);
     }
 
-    /// Get input event sender for external systems to queue events
-    ///
-    /// This allows other parts of the game to queue input events for async processing
-    /// without blocking the game loop.
-    pub fn get_input_sender(&self) -> mpsc::UnboundedSender<InputEvent> {
-        self.input_sender.clone()
-    }
 
-    /// Process a single input event asynchronously (used for external event queuing)
+    /// Process a single input event (used by the queue drain)
     pub async fn process_single_event(
         &mut self,
         event: InputEvent,
-        game_logic: &Arc<Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) -> Result<()> {
         match event {
             InputEvent::SelectAll => {
@@ -586,12 +536,12 @@ impl SimpleInputProcessor {
     }
 
     /// Flush all pending input events (useful for frame cleanup or shutdown)
-    pub async fn flush_events(&mut self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<usize> {
+    pub async fn flush_events(&mut self, game_logic: &mut GameLogic) -> Result<usize> {
         let mut count = 0;
-        // Drain first, then process: preserves event order without holding a
-        // borrow of the receiver across awaits.
+        // Drain first, then apply: preserves event order without borrowing
+        // the queue across the applier calls.
         let mut events = Vec::new();
-        while let Ok(event) = self.input_receiver.try_recv() {
+        while let Some(event) = self.input_queue.pop_front() {
             count += 1;
             events.push(event);
         }
@@ -605,53 +555,25 @@ impl SimpleInputProcessor {
 }
 
 /*
-** PERFORMANCE OPTIMIZATION NOTES
+** DESIGN NOTES
 **
-** This modernized input system provides several key performance improvements:
+** Command-intake input processing (single owner, no shared handle):
 **
-** 1. NON-BLOCKING OPERATIONS:
-**    - All mutex operations use std::sync::Mutex with .lock().unwrap_or_else(|e| e.into_inner())
-**    - Input processing never blocks the main game loop
-**    - Event processing is batched for maximum throughput
+** - Input handlers append InputEvents to an owned FIFO VecDeque.
+** - The frame loop drains the queue in order and applies each event to the
+**   caller-owned `&mut GameLogic`, so input event ordering and pause toggling
+**   keep their original per-frame timing.
+** - The `async` fns contain no await points: their futures are ready on the
+**   first poll (pollster::block_on callers are unchanged).
 **
-** 2. ASYNC EVENT CHANNELS:
-**    - Uses tokio::sync::mpsc::unbounded_channel for zero-copy event queuing
-**    - Events are processed asynchronously in batches
-**    - No memory allocations during normal input processing
-**
-** 3. OPTIMIZED LOCK MANAGEMENT:
-**    - Minimizes lock hold time by collecting input state quickly
-**    - Releases locks immediately before expensive operations
-**    - Uses Arc<Mutex<T>> for shared ownership without blocking
-**
-** 4. BATCH PROCESSING:
-**    - Processes multiple input events in a single pass
-**    - Reduces context switching between async tasks
-**    - Optimizes cache locality for better performance
-**
-** 5. ERROR HANDLING:
-**    - Uses Result<T> types for proper error propagation
-**    - Graceful degradation on input processing errors
-**    - Never panics on input system failures
-**
-** PERFORMANCE CHARACTERISTICS:
-** - Lock contention: Minimized through short-lived locks
-** - Memory allocation: Zero allocations during normal operation
-** - Async overhead: Minimal due to batched processing
-** - Latency: Sub-millisecond input-to-action latency
-** - Throughput: Can process 1000+ input events per frame
-**
-** USAGE PATTERN:
-** The async input system should be called once per frame:
+** USAGE PATTERN (once per frame):
 **
 ** ```rust
 ** // In main game loop
-** if let Err(e) = input_processor.process_input(&input_system, &game_logic).await {
+** if let Err(e) = input_processor.process_input(&input_system, &mut game_logic).await {
 **     eprintln!("Input processing error: {}", e);
 ** }
 ** ```
-**
-** This ensures maximum performance while maintaining responsive gameplay.
 */
 
 #[cfg(test)]

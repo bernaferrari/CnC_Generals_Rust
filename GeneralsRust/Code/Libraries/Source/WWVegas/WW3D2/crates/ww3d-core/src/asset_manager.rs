@@ -8,7 +8,7 @@ use crate::texture::Texture;
 use crate::w3d_io::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 
 /// Asset types that can be managed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -38,24 +38,24 @@ pub enum AssetStatus {
 /// Asset handle for reference-counted assets
 #[derive(Debug, Clone)]
 pub struct AssetHandle<T> {
-    inner: Arc<RwLock<Option<T>>>,
-    status: Arc<RwLock<AssetStatus>>,
+    inner: Option<T>,
+    status: AssetStatus,
     name: String,
 }
 
 impl<T> AssetHandle<T> {
     fn new(name: String) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(None)),
-            status: Arc::new(RwLock::new(AssetStatus::Unloaded)),
+            inner: None,
+            status: AssetStatus::Unloaded,
             name,
         }
     }
 
     fn with_asset(name: String, asset: T) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(Some(asset))),
-            status: Arc::new(RwLock::new(AssetStatus::Loaded)),
+            inner: Some(asset),
+            status: AssetStatus::Loaded,
             name,
         }
     }
@@ -65,39 +65,38 @@ impl<T> AssetHandle<T> {
     }
 
     pub fn status(&self) -> AssetStatus {
-        *self.status.read().unwrap()
+        self.status
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.status() == AssetStatus::Loaded
+        self.status == AssetStatus::Loaded
     }
 
     pub fn get(&self) -> Option<T>
     where
         T: Clone,
     {
-        self.inner.read().unwrap().clone()
+        self.inner.clone()
     }
 
     pub fn with<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&T) -> R,
     {
-        let guard = self.inner.read().unwrap();
-        guard.as_ref().map(f)
+        self.inner.as_ref().map(f)
     }
 
-    fn set(&self, asset: T) {
-        *self.inner.write().unwrap() = Some(asset);
-        *self.status.write().unwrap() = AssetStatus::Loaded;
+    fn set(&mut self, asset: T) {
+        self.inner = Some(asset);
+        self.status = AssetStatus::Loaded;
     }
 
-    fn set_status(&self, status: AssetStatus) {
-        *self.status.write().unwrap() = status;
+    fn set_status(&mut self, status: AssetStatus) {
+        self.status = status;
     }
 
-    fn set_failed(&self) {
-        *self.status.write().unwrap() = AssetStatus::Failed;
+    fn set_failed(&mut self) {
+        self.status = AssetStatus::Failed;
     }
 }
 
@@ -283,7 +282,7 @@ impl AssetManager {
             .ok_or_else(|| W3DError::AssetNotFound(name.to_string()))?;
 
         // Create handle and mark as loading
-        let handle = AssetHandle::new(name.to_string());
+        let mut handle = AssetHandle::new(name.to_string());
         handle.set_status(AssetStatus::Loading);
 
         // Load the mesh
@@ -328,7 +327,7 @@ impl AssetManager {
             .ok_or_else(|| W3DError::AssetNotFound(name.to_string()))?;
 
         // Create handle and mark as loading
-        let handle = AssetHandle::new(name.to_string());
+        let mut handle = AssetHandle::new(name.to_string());
         handle.set_status(AssetStatus::Loading);
 
         // Load the hierarchy
@@ -373,7 +372,7 @@ impl AssetManager {
             .ok_or_else(|| W3DError::AssetNotFound(name.to_string()))?;
 
         // Create handle and mark as loading
-        let handle = AssetHandle::new(name.to_string());
+        let mut handle = AssetHandle::new(name.to_string());
         handle.set_status(AssetStatus::Loading);
 
         // Load the animation

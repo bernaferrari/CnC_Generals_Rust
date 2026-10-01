@@ -269,13 +269,16 @@ pub struct EnhancedGameWindow {
     hierarchy: RwLock<WindowHierarchy>,
 
     // Optional gadget widget for script-created windows. Kept as its own
-    // lock: guards are held across gadget event dispatch, which re-enters
-    // property accessors below.
+    // lock: gadget dispatch below re-enters property accessors, so widget
+    // guards are scoped to direct widget mutation and never held across
+    // message dispatch or helper calls that re-lock `widget`.
     widget: Mutex<Option<WindowWidget>>,
 
-    // Event callbacks. Kept as its own lock: read guards are held while
-    // user callbacks run and may re-enter this window.
-    callbacks: RwLock<Option<Box<dyn WindowCallbacks>>>,
+    // Event callbacks. Kept as its own lock and stored behind an Arc so the
+    // handle is cloned out before dispatch: user callbacks re-enter this
+    // window (send_message recursion, set_callbacks) and must not run while
+    // a guard is live.
+    callbacks: RwLock<Option<Arc<dyn WindowCallbacks>>>,
 }
 
 /// Mutable per-window properties (C++ GameWindow member fields).
@@ -480,6 +483,9 @@ impl EnhancedGameWindow {
         }
     }
 
+    /// Mutate the gadget widget. `f` must only touch the widget: it runs
+    /// under the widget lock, and calling back into this window (send_message
+    /// and friends) from `f` would self-deadlock.
     pub fn with_widget_mut<T>(&self, f: impl FnOnce(&mut WindowWidget) -> T) -> Option<T> {
         let mut guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
         guard.as_mut().map(f)
@@ -625,7 +631,7 @@ impl EnhancedGameWindow {
     }
     
     pub fn set_callbacks(&self, callbacks: Box<dyn WindowCallbacks>) {
-        *self.callbacks.write().unwrap_or_else(|e| e.into_inner()) = Some(callbacks);
+        *self.callbacks.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::from(callbacks));
     }
     
     pub fn set_tooltip(&self, text: &str, delay: u32) {
@@ -879,7 +885,16 @@ impl EnhancedGameWindow {
                 _ => {}
             }
         }
-        if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        // Clone the callback handle out and drop the lock before dispatch:
+        // on_input/on_system re-enter this window (nested send_message,
+        // set_callbacks, gadget dispatch) and must not run under a live
+        // callbacks guard.
+        let callbacks = self
+            .callbacks
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(callbacks) = callbacks.as_ref() {
             // Try input handler first
             let result = callbacks.on_input(self, message, wparam, lparam);
             if result.is_handled() {
@@ -890,7 +905,7 @@ impl EnhancedGameWindow {
             if widget_result.is_handled() {
                 return widget_result;
             }
-            
+
             // Then try system handler
             let system_result = callbacks.on_system(self, message, wparam, lparam);
             if system_result.is_handled() {
@@ -1001,96 +1016,109 @@ impl EnhancedGameWindow {
     }
 
     fn handle_widget_input(&self, msg: WindowMessage, data1: WindowMsgData, data2: WindowMsgData) -> WindowMsgHandled {
-        let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(widget) = widget_guard.as_mut() else {
-            return WindowMsgHandled::Ignored;
-        };
+        // Gadget output is produced under the widget lock, then the lock is
+        // released before dispatch: the dispatch loop below calls
+        // send_message (self or parent), which re-enters handle_widget_input
+        // and would re-lock `widget` on the same thread.
+        let (messages, is_slider, is_listbox, is_tab_control) = {
+            let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(widget) = widget_guard.as_mut() else {
+                return WindowMsgHandled::Ignored;
+            };
 
-        if matches!(widget, WindowWidget::ListBox(_))
-            && (msg == WindowMessage::WheelUp || msg == WindowMessage::WheelDown)
-        {
-            let delta = if msg == WindowMessage::WheelUp { -1 } else { 1 };
-            if let WindowWidget::ListBox(listbox) = widget {
-                listbox.scroll_by(delta);
+            if matches!(widget, WindowWidget::ListBox(_))
+                && (msg == WindowMessage::WheelUp || msg == WindowMessage::WheelDown)
+            {
+                let delta = if msg == WindowMessage::WheelUp { -1 } else { 1 };
+                if let WindowWidget::ListBox(listbox) = widget {
+                    listbox.scroll_by(delta);
+                }
+                return WindowMsgHandled::Handled;
             }
-            return WindowMsgHandled::Handled;
-        }
 
-        let (x, y) = unpack_coords(data2);
-        let event = match msg {
-            WindowMessage::MousePos => Some(InputEvent::MouseMove { x, y }),
-            WindowMessage::MouseEntering => Some(InputEvent::MouseEnter { x, y }),
-            WindowMessage::MouseLeaving => Some(InputEvent::MouseLeave { x, y }),
-            WindowMessage::LeftDown => Some(InputEvent::MouseDown {
-                x,
-                y,
-                button: MouseButton::Left,
-            }),
-            WindowMessage::LeftUp => Some(InputEvent::MouseUp {
-                x,
-                y,
-                button: MouseButton::Left,
-            }),
-            WindowMessage::LeftDrag => Some(InputEvent::MouseDrag {
-                x,
-                y,
-                button: MouseButton::Left,
-            }),
-            WindowMessage::MiddleDown => Some(InputEvent::MouseDown {
-                x,
-                y,
-                button: MouseButton::Middle,
-            }),
-            WindowMessage::MiddleUp => Some(InputEvent::MouseUp {
-                x,
-                y,
-                button: MouseButton::Middle,
-            }),
-            WindowMessage::MiddleDrag => Some(InputEvent::MouseDrag {
-                x,
-                y,
-                button: MouseButton::Middle,
-            }),
-            WindowMessage::RightDown => Some(InputEvent::MouseDown {
-                x,
-                y,
-                button: MouseButton::Right,
-            }),
-            WindowMessage::RightUp => Some(InputEvent::MouseUp {
-                x,
-                y,
-                button: MouseButton::Right,
-            }),
-            WindowMessage::RightDrag => Some(InputEvent::MouseDrag {
-                x,
-                y,
-                button: MouseButton::Right,
-            }),
-            WindowMessage::Char => Some(InputEvent::KeyDown {
-                key: map_keycode(data1),
-                modifiers: KeyModifiers::none(),
-            }),
-            _ => None,
+            let (x, y) = unpack_coords(data2);
+            let event = match msg {
+                WindowMessage::MousePos => Some(InputEvent::MouseMove { x, y }),
+                WindowMessage::MouseEntering => Some(InputEvent::MouseEnter { x, y }),
+                WindowMessage::MouseLeaving => Some(InputEvent::MouseLeave { x, y }),
+                WindowMessage::LeftDown => Some(InputEvent::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                }),
+                WindowMessage::LeftUp => Some(InputEvent::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                }),
+                WindowMessage::LeftDrag => Some(InputEvent::MouseDrag {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                }),
+                WindowMessage::MiddleDown => Some(InputEvent::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Middle,
+                }),
+                WindowMessage::MiddleUp => Some(InputEvent::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Middle,
+                }),
+                WindowMessage::MiddleDrag => Some(InputEvent::MouseDrag {
+                    x,
+                    y,
+                    button: MouseButton::Middle,
+                }),
+                WindowMessage::RightDown => Some(InputEvent::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Right,
+                }),
+                WindowMessage::RightUp => Some(InputEvent::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Right,
+                }),
+                WindowMessage::RightDrag => Some(InputEvent::MouseDrag {
+                    x,
+                    y,
+                    button: MouseButton::Right,
+                }),
+                WindowMessage::Char => Some(InputEvent::KeyDown {
+                    key: map_keycode(data1),
+                    modifiers: KeyModifiers::none(),
+                }),
+                _ => None,
+            };
+
+            let Some(event) = event else {
+                return WindowMsgHandled::Ignored;
+            };
+
+            let messages = handle_widget_event(widget, &event);
+            (
+                messages,
+                matches!(widget, WindowWidget::HorizontalSlider(_) | WindowWidget::VerticalSlider(_)),
+                matches!(widget, WindowWidget::ListBox(_)),
+                matches!(widget, WindowWidget::TabControl(_)),
+            )
         };
 
-        let Some(event) = event else {
-            return WindowMsgHandled::Ignored;
-        };
-
-        let messages = handle_widget_event(widget, &event);
         if messages.is_empty() {
             return WindowMsgHandled::Ignored;
         }
 
-        if matches!(widget, WindowWidget::HorizontalSlider(_) | WindowWidget::VerticalSlider(_)) {
+        if is_slider {
             self.update_slider_thumb();
         }
 
-        if matches!(widget, WindowWidget::ListBox(_)) {
+        if is_listbox {
             self.update_listbox_scrollbar();
         }
 
-        if matches!(widget, WindowWidget::TabControl(_)) {
+        if is_tab_control {
             if let Some(selected) = messages.iter().find_map(|message| {
                 if let GadgetMessage::ValueChanged { value, .. } = message {
                     if let GadgetValue::Integer(val) = value {
@@ -1131,7 +1159,7 @@ impl EnhancedGameWindow {
                 GadgetMessage::Custom { .. } => (WindowMessage::User(0x8000), self.id as u32),
             };
 
-            let result = if let Some(ref parent) = target_parent {
+            let result = if let Some(parent) = &target_parent {
                 parent.send_message(msg, data1, 0)
             } else {
                 self.send_message(msg, data1, 0)
@@ -1154,12 +1182,26 @@ impl EnhancedGameWindow {
         data1: WindowMsgData,
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(widget) = widget_guard.as_mut() else {
-            return WindowMsgHandled::Ignored;
-        };
+        // Snapshot only the widget variant, then release the lock: the
+        // handlers below call helpers (sync_combobox_listbox,
+        // update_listbox_scrollbar, child with_widget_mut) that re-lock
+        // `widget` and would self-deadlock on this thread.
+        let is_combobox = self
+            .widget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|widget| matches!(widget, WindowWidget::ComboBox(_)));
+        let is_listbox = self
+            .widget
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_some_and(|widget| matches!(widget, WindowWidget::ListBox(_)));
+        // No early return here: InputFocus must still reach non-list/box
+        // widgets below, matching the original fallthrough.
 
-        if matches!(widget, WindowWidget::ComboBox(_)) {
+        if is_combobox {
             if let Some(links) = self.combobox_links() {
                 if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as u32 {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
@@ -1195,18 +1237,27 @@ impl EnhancedGameWindow {
                                 None
                             }
                         }).flatten() {
-                            if let WindowWidget::ComboBox(combo) = widget {
-                                let _ = combo.select_index(selected);
-                            }
+                            let _ = self.with_widget_mut(|widget| {
+                                if let WindowWidget::ComboBox(combo) = widget {
+                                    combo.select_index(selected)
+                                } else {
+                                    false
+                                }
+                            });
                         }
                         if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
                             self.sync_combobox_edit_box(&edit_box);
                         }
-                        let dont_hide = if let WindowWidget::ComboBox(combo) = widget {
-                            combo.take_dont_hide_next()
-                        } else {
-                            false
-                        };
+                        let dont_hide = self
+                            .with_widget_mut(|widget| {
+                                if let WindowWidget::ComboBox(combo) = widget {
+                                    Some(combo.take_dont_hide_next())
+                                } else {
+                                    None
+                                }
+                            })
+                            .flatten()
+                            .unwrap_or(false);
                         if !dont_hide {
                             list_box.hide(true);
                             if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
@@ -1228,9 +1279,11 @@ impl EnhancedGameWindow {
                                 None
                             }
                         }).flatten() {
-                            if let WindowWidget::ComboBox(combo) = widget {
-                                combo.set_text(text);
-                            }
+                            let _ = self.with_widget_mut(|widget| {
+                                if let WindowWidget::ComboBox(combo) = widget {
+                                    combo.set_text(text)
+                                }
+                            });
                         }
                         return WindowMsgHandled::Handled;
                     }
@@ -1238,20 +1291,24 @@ impl EnhancedGameWindow {
             }
         }
 
-        if matches!(widget, WindowWidget::ListBox(_)) {
+        if is_listbox {
             if let Some(links) = self.listbox_links() {
                 if msg == WindowMessage::GadgetSelected && data1 == links.up_button as u32 {
-                    if let WindowWidget::ListBox(listbox) = widget {
-                        listbox.scroll_by(-1);
-                    }
+                    self.with_widget_mut(|widget| {
+                        if let WindowWidget::ListBox(listbox) = widget {
+                            listbox.scroll_by(-1);
+                        }
+                    });
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
                 }
 
                 if msg == WindowMessage::GadgetSelected && data1 == links.down_button as u32 {
-                    if let WindowWidget::ListBox(listbox) = widget {
-                        listbox.scroll_by(1);
-                    }
+                    self.with_widget_mut(|widget| {
+                        if let WindowWidget::ListBox(listbox) = widget {
+                            listbox.scroll_by(1);
+                        }
+                    });
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
                 }
@@ -1266,9 +1323,11 @@ impl EnhancedGameWindow {
                     } else {
                         0
                     };
-                    if let WindowWidget::ListBox(listbox) = widget {
-                        listbox.set_scroll_offset(slider_value.max(0) as usize);
-                    }
+                    self.with_widget_mut(|widget| {
+                        if let WindowWidget::ListBox(listbox) = widget {
+                            listbox.set_scroll_offset(slider_value.max(0) as usize);
+                        }
+                    });
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
                 }
@@ -1282,7 +1341,9 @@ impl EnhancedGameWindow {
             } else {
                 InputEvent::FocusLost
             };
-            let messages = handle_widget_event(widget, &event);
+            let messages = self
+                .with_widget_mut(|widget| handle_widget_event(widget, &event))
+                .unwrap_or_default();
             return if messages.is_empty() {
                 WindowMsgHandled::Ignored
             } else {
@@ -1294,45 +1355,66 @@ impl EnhancedGameWindow {
     }
 
     fn sync_combobox_listbox(&self, list_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
-            return;
+        // Snapshot combo contents under a scoped guard: the child-listbox
+        // mutation below re-enters window locks and must not run while this
+        // window's widget guard is live.
+        let snapshot = {
+            let widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(WindowWidget::ComboBox(combo)) = widget_guard.as_ref() else {
+                return;
+            };
+            (
+                combo.items().iter().map(|item| item.text.clone()).collect::<Vec<_>>(),
+                combo.selected_index(),
+            )
         };
-        let Some(_) = list_box.with_widget_mut(|widget| {
-            if let WindowWidget::ListBox(listbox) = widget {
-                listbox.clear();
-                for item in combo.items() {
-                    listbox.add_item(&item.text);
+        let populated = list_box
+            .with_widget_mut(|widget| {
+                if let WindowWidget::ListBox(listbox) = widget {
+                    listbox.clear();
+                    for text in &snapshot.0 {
+                        listbox.add_item(text);
+                    }
+                    if let Some(selected) = snapshot.1 {
+                        let _ = listbox.select_index(selected, KeyModifiers::none());
+                    }
+                    Some(())
+                } else {
+                    None
                 }
-                if let Some(selected) = combo.selected_index() {
-                    let _ = listbox.select_index(selected, KeyModifiers::none());
-                }
-                Some(())
-            } else {
-                None
-            }
-        }).flatten() else {
-            return;
-        };
-        list_box.update_listbox_scrollbar();
+            })
+            .flatten();
+        if populated.is_some() {
+            list_box.update_listbox_scrollbar();
+        }
     }
 
     fn sync_combobox_edit_box(&self, edit_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
-            return;
+        // Snapshot text under a scoped guard before touching the child.
+        let text = {
+            let widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(WindowWidget::ComboBox(combo)) = widget_guard.as_ref() else {
+                return;
+            };
+            combo.text().to_string()
         };
         let _ = edit_box.with_widget_mut(|widget| {
             if let WindowWidget::TextEntry(entry) = widget {
-                entry.set_text(combo.text());
+                entry.set_text(text);
             }
         });
     }
 
     fn resize_combobox_listbox(&self, list_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
-            return;
+        // Snapshot combo metrics under a scoped guard: the child resizing
+        // below re-enters window locks.
+        let (count, max_display) = {
+            let widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(WindowWidget::ComboBox(combo)) = widget_guard.as_ref() else {
+                return;
+            };
+            (combo.items().len().max(1), combo.max_display())
         };
-        let count = combo.items().len().max(1);
-        let max_display = combo.max_display();
         let visible = if max_display > 0 {
             count.min(max_display)
         } else {
@@ -1370,16 +1452,21 @@ impl EnhancedGameWindow {
         let Some(links) = self.listbox_links() else {
             return;
         };
-        let Some(WindowWidget::ListBox(listbox)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
-            return;
+        // Snapshot listbox metrics under a scoped guard: the tail of this
+        // function re-locks `widget` (with_widget_mut) and would self-deadlock
+        // if the read guard stayed live.
+        let (bounds, item_height, item_count, raw_scroll_offset) = {
+            let widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(WindowWidget::ListBox(listbox)) = widget_guard.as_ref() else {
+                return;
+            };
+            (listbox.bounds(), listbox.item_height(), listbox.items().len(), listbox.scroll_offset())
         };
-
-        let bounds = listbox.bounds();
-        let item_height = listbox.item_height().max(1) as usize;
+        let item_height = item_height.max(1) as usize;
         let visible = (bounds.height as usize / item_height).max(1);
-        let max_offset = listbox.items().len().saturating_sub(visible);
-        let scroll_offset = listbox.scroll_offset().min(max_offset);
-        if scroll_offset != listbox.scroll_offset() {
+        let max_offset = item_count.saturating_sub(visible);
+        let scroll_offset = raw_scroll_offset.min(max_offset);
+        if scroll_offset != raw_scroll_offset {
             let _ = self.with_widget_mut(|widget| {
                 if let WindowWidget::ListBox(listbox) = widget {
                     listbox.set_scroll_offset(scroll_offset);
@@ -1549,7 +1636,15 @@ impl EnhancedGameWindow {
 
         if !self.get_status().contains(WindowStatus::SEE_THRU) {
             // Call custom draw callback if available
-            if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+            // Clone the callback handle out and drop the lock before
+            // dispatch: on_draw re-enters this window (child rendering,
+            // set_callbacks) and must not run under a live callbacks guard.
+            let callbacks = self
+                .callbacks
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(callbacks) = callbacks.as_ref() {
                 if callbacks.on_draw(self, renderer).is_ok() {
                     // Custom rendering handled by callback
                 } else {
