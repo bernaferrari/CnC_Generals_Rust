@@ -92,33 +92,25 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let members = team_arc
-            .read()
+        // C++ walks the team's members and adjusts each current locomotor.
+        let members = self
+            .get_team_by_name(&team_name)
             .ok()
-            .map(|team| team.get_members().to_vec())
+            .and_then(|team_id| {
+                crate::team::with_team(team_id, |team| team.get_members().to_vec())
+            })
             .unwrap_or_default();
 
         for member_id in members {
-            let ai_arc = OBJECT_REGISTRY.with_object(member_id, |obj| obj.get_ai_update_interface());
-            let Some(ai_arc) = ai_arc else {
-                continue;
-            };
-            let Some(ai_arc) = ai_arc else {
-                return Ok(ScriptActionResult::Success);
-            };
-            let Some(ai_arc) = ai_arc else {
-                return Ok(ScriptActionResult::Success);
-            };
-            let Ok(ai_guard) = ai_arc.lock() else {
-                return Ok(ScriptActionResult::Success);
-            };
             let mut has_loco = false;
-            ai_guard.with_cur_locomotor(&mut |loco| {
-                has_loco = true;
-                loco.set_close_enough_dist(distance);
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
+                    return;
+                };
+                ai.with_cur_locomotor(&mut |loco| {
+                    has_loco = true;
+                    loco.set_close_enough_dist(distance);
+                });
             });
             if !has_loco {
                 return Ok(ScriptActionResult::Success);

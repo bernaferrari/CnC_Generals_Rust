@@ -24,13 +24,12 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        let Some(team_arc) = self.get_team_by_name(&team_name).ok() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let members = team_arc
-            .read()
+        let members = self
+            .get_team_by_name(&team_name)
             .ok()
-            .map(|team| team.get_members().to_vec())
+            .and_then(|team_id| {
+                crate::team::with_team(team_id, |team| team.get_members().to_vec())
+            })
             .unwrap_or_default();
         if members.is_empty() {
             return Ok(ScriptActionResult::Success);
@@ -45,7 +44,9 @@ impl ScriptActionDispatcher {
                     leader.is_kind_of(KindOf::MoneyHacker),
                     leader
                         .get_controlling_player()
-                        .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
+                        .and_then(|p| {
+                            crate::player::with_player(p, |player| player.get_player_mask())
+                        })
                         .unwrap_or_else(crate::common::PlayerMaskType::none),
                 )
             })
@@ -76,10 +77,7 @@ impl ScriptActionDispatcher {
                     } else if is_internet_center || !obj.is_kind_of(KindOf::Structure) {
                         return _ObjFlow::Cont;
                     }
-                    let Some(contain) = obj.get_contain() else {
-                        return _ObjFlow::Cont;
-                    };
-                    let Ok(contain_guard) = contain.lock() else {
+                    let Some(contain_guard) = obj.get_contain() else {
                         return _ObjFlow::Cont;
                     };
                     if !leader_is_hacker {
@@ -114,8 +112,7 @@ impl ScriptActionDispatcher {
         for (_, building_id) in buildings {
             let slots_available = OBJECT_REGISTRY.with_object(building_id, |obj| {
                 let contain = obj.get_contain()?;
-                let contain_guard = contain.lock().ok()?;
-                Some(contain_guard.get_contain_max() - contain_guard.get_contain_count() as i32)
+                Some(contain.get_contain_max() - contain.get_contained_count() as i32)
             });
             let Some(Some(slots_available)) = slots_available else {
                 continue;
@@ -134,18 +131,16 @@ impl ScriptActionDispatcher {
                         if !member.is_kind_of(KindOf::Infantry) || member.is_kind_of(KindOf::NoGarrison) {
                             return _ObjFlow::Cont;
                         }
-                        let Some(ai_arc) = member.get_ai_update_interface() else {
+                        member.leave_group();
+                        let Some(ai_guard) = member.get_ai_update_interface_mut() else {
                             return _ObjFlow::Cont;
                         };
-                        member.leave_group();
-                        if let Ok(mut ai_guard) = ai_arc.lock() {
-                            let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                            let mut params =
-                                AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                            params.obj = Some(building_id);
-                            let _ = ai_guard.execute_command(&params);
-                            filled += 1;
-                        }
+                        let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params =
+                            AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+                        params.obj = Some(building_id);
+                        let _ = ai_guard.execute_command(&params);
+                        filled += 1;
                         _ObjFlow::Fall
                     });
                     match _flow {

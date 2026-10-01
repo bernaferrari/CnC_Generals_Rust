@@ -54,7 +54,7 @@ impl ScriptActionDispatcher {
         }
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let Some((center, first_unit)) = self.compute_team_center_and_first(&team_arc) else {
+        let Some((center, first_unit)) = self.compute_team_center_and_first(team_arc) else {
             return Ok(ScriptActionResult::Success);
         };
 
@@ -129,7 +129,7 @@ impl ScriptActionDispatcher {
         }
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let Some((center, _first_unit)) = self.compute_team_center_and_first(&team_arc) else {
+        let Some((center, _first_unit)) = self.compute_team_center_and_first(team_arc) else {
             return Ok(ScriptActionResult::Success);
         };
 

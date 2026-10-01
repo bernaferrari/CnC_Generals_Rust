@@ -779,7 +779,7 @@ impl ScriptActionDispatcher {
 
         let destination_team = player_list().read().ok().and_then(|list| {
             list.find_player_by_name(&player_name)
-                .and_then(|player| player.get_default_team())
+                .and_then(|player| player.get_default_team_id())
         });
         let Some(destination_team) = destination_team else {
             return Ok(ScriptActionResult::Success);

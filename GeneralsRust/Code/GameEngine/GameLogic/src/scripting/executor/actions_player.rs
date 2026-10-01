@@ -211,8 +211,9 @@ impl ScriptActionDispatcher {
             to_player
         );
 
-        let destination_team = crate::player::with_player_named(&to_player, |player| player.get_default_team())
-            .flatten();
+        let destination_team =
+            crate::player::with_player_named(&to_player, |player| player.get_default_team_id())
+                .flatten();
         let Some(destination_team) = destination_team else {
             return Ok(ScriptActionResult::Success);
         };

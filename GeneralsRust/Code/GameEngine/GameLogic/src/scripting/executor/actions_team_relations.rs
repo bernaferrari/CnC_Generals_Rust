@@ -969,7 +969,7 @@ impl ScriptActionDispatcher {
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some(team_center) = self
-            .compute_team_center_and_first(&team_arc)
+            .compute_team_center_and_first(team_arc)
             .map(|(center, _)| center)
         else {
             return Ok(ScriptActionResult::Success);

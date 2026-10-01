@@ -38,9 +38,7 @@ impl ScriptActionDispatcher {
         let Ok(team_arc) = self.get_team_by_name(&team_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let members = team_arc
-            .read()
-            .map(|team| team.get_members().to_vec())
+        let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
             .unwrap_or_default();
 
         // C++: TheControlBar->findCommandButton(ability); if (!commandButton) return;
@@ -981,7 +979,7 @@ impl ScriptActionDispatcher {
                 })
                 .unwrap_or_default();
                 for object_id in members {
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |mut obj| {
                             self.apply_object_panel_flag_for_single_object(
                                 &mut obj, &flag_name, enable,
                             );

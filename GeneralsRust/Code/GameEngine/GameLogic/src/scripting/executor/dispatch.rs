@@ -966,13 +966,13 @@ impl ScriptActionDispatcher {
     pub(crate) fn compute_team_center_and_first(
         &self,
         team_id: crate::team::TeamID,
-    ) -> Option<(Coord3D, crate::object::ObjectID)> {
+    ) -> Option<(Coord3D, crate::common::ObjectID)> {
         let members = crate::team::with_team(team_id, |team| {
             team.get_members().to_vec()
         })?;
         let mut sum = Coord3D::new(0.0, 0.0, 0.0);
         let mut count = 0.0;
-        let mut first_unit: Option<crate::object::ObjectID> = None;
+        let mut first_unit: Option<crate::common::ObjectID> = None;
 
         for &member_id in members {
             let Some(pos) = OBJECT_REGISTRY.with_object(member_id, |obj| *obj.get_position()) else {
@@ -1012,7 +1012,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn check_bridges_for_waypoint(
         &self,
         player_id: u32,
-        unit_id: crate::object::ObjectID,
+        unit_id: crate::common::ObjectID,
         start_waypoint_id: crate::common::WaypointID,
     ) {
         if !OBJECT_REGISTRY.contains(unit_id) {
