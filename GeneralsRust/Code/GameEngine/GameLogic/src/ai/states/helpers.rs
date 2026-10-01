@@ -132,7 +132,7 @@ pub(crate) fn get_wall_height() -> Real {
     the_ai()
         .read()
         .ok()
-        .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
+        .and_then(|ai| Some(&*ai.get_ai_data()).map(|data| data.wall_height))
         .unwrap_or(0.0)
 }
 

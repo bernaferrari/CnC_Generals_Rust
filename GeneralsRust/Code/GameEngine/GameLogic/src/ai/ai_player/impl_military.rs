@@ -326,7 +326,7 @@ impl AIPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     let poor = if data.resources_poor > 0 {
                         data.resources_poor
                     } else {

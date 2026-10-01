@@ -121,7 +121,7 @@ impl AIManager {
     }
 
     /// Get AI data (configuration)
-    pub fn get_ai_data(&self) -> Arc<RwLock<AiData>> {
+    pub fn get_ai_data(&self) -> &AiData {
         self.core.get_ai_data()
     }
 

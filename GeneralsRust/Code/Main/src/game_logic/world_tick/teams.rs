@@ -230,7 +230,7 @@ impl GameLogic {
         };
         let leftover = leftover.or_else(|| {
             gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|d| {
+                Some(ai.get_ai_data()).map(|d| {
                     (
                         d.alert_range_modifier,
                         d.aggressive_range_modifier,
@@ -356,9 +356,7 @@ impl GameLogic {
             .filter(|&frames| frames > 0)
             .or_else(|| {
                 gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    ai.get_ai_data()
-                        .read()
-                        .ok()
+                    Some(ai.get_ai_data())
                         .map(|d| d.guard_chase_unit_frames)
                         .filter(|&frames| frames > 0)
                 })
@@ -378,9 +376,7 @@ impl GameLogic {
             .filter(|&rate| rate > 0)
             .or_else(|| {
                 gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    ai.get_ai_data()
-                        .read()
-                        .ok()
+                    Some(ai.get_ai_data())
                         .map(|d| d.guard_enemy_scan_rate)
                         .filter(|&rate| rate > 0)
                 })
@@ -398,9 +394,7 @@ impl GameLogic {
             .filter(|&rate| rate > 0)
             .or_else(|| {
                 gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    ai.get_ai_data()
-                        .read()
-                        .ok()
+                    Some(ai.get_ai_data())
                         .map(|d| d.guard_enemy_return_scan_rate)
                         .filter(|&rate| rate > 0)
                 })

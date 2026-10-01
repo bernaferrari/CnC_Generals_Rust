@@ -79,12 +79,7 @@ impl AIPlayer {
         let ai_store = the_ai();let resources_mod = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|d| d.team_resources_to_build)
-            })
+            .map(|ai| ai.get_ai_data().team_resources_to_build)
             .filter(|m| *m > 0.0)
             .unwrap_or(TEAM_RESOURCES_TO_BUILD);
         // C++: cost *= m_teamResourcesToBuild; (Int *= Real truncates)

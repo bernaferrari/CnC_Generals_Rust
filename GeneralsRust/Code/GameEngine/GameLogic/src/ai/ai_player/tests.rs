@@ -588,12 +588,12 @@ fn arm_structure_timer_applies_wealth_mods_like_cpp() {
     // C++: m_structureTimer = TheAI->getAiData()->m_structureSeconds * FPS
     // (live AIData, not a per-player field). Snapshot and restore AIData.
     let prev_seconds = {
-        let ai_store = the_ai();let ai_g = ai_store.write().expect("ai");
-        let data_arc = ai_g.get_ai_data().clone();
-        drop(ai_g);
-        let mut data = data_arc.write().expect("data");
-        let prev = data.structure_seconds;
-        data.structure_seconds = 10.0; // 300 frames base
+        let ai_store = the_ai();let mut ai_g = ai_store.write().expect("ai");
+        let mut prev = 0.0;
+        ai_g.update_ai_data(|data| {
+            prev = data.structure_seconds;
+            data.structure_seconds = 10.0; // 300 frames base
+        });
         prev
     };
     let mut player_ai = AIPlayer::new(1);
@@ -608,11 +608,8 @@ fn arm_structure_timer_applies_wealth_mods_like_cpp() {
     );
     assert_eq!(player_ai.structure_timer, 499);
     {
-        let ai_store = the_ai();let ai_g = ai_store.write().expect("ai restore");
-        let data_arc = ai_g.get_ai_data().clone();
-        drop(ai_g);
-        let mut data = data_arc.write().expect("data restore");
-        data.structure_seconds = prev_seconds;
+        let ai_store = the_ai();let mut ai_g = ai_store.write().expect("ai restore");
+        ai_g.update_ai_data(|data| data.structure_seconds = prev_seconds);
     }
 }
 

@@ -463,7 +463,7 @@ impl UnitAIUpdate {
                 adjusted.z = crate::ai::the_ai()
                     .read()
                     .ok()
-                    .and_then(|ai| ai.get_ai_data().read().ok().map(|data| data.wall_height))
+                    .and_then(|ai| Some(&*ai.get_ai_data()).map(|data| data.wall_height))
                     .unwrap_or(adjusted.z);
             } else {
                 adjusted.z =
@@ -2047,15 +2047,12 @@ impl UnitAIUpdate {
             return INVALID_ID;
         };
         let ai_data = ai.get_ai_data();
-        let Ok(ai_data_guard) = ai_data.read() else {
-            return INVALID_ID;
-        };
 
         let mut qualifiers = search_qualifiers::CAN_ATTACK;
-        if ai_data_guard.attack_uses_line_of_sight {
+        if ai_data.attack_uses_line_of_sight {
             qualifiers |= search_qualifiers::CAN_SEE;
         }
-        if ai_data_guard.attack_ignore_insignificant_buildings {
+        if ai_data.attack_ignore_insignificant_buildings {
             qualifiers |= search_qualifiers::IGNORE_INSIGNIFICANT_BUILDINGS;
         }
         if guard.auto_acquire_attack_buildings {

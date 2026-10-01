@@ -2,11 +2,20 @@
 //!
 //! Complete implementation of the GameWindow system matching the original C++
 //! implementation with full event handling, hierarchy management, and rendering support.
+//!
+//! # Ownership model
+//!
+//! Like the C++ original, a window tree is owned by a single thread (the client
+//! UI thread that runs the window manager: input, message dispatch, and draw
+//! all happen there). Every per-window field is plain single-owner state held
+//! in [`Cell`]/[`RefCell`]; there are no locks because there is no second
+//! accessor. `EnhancedGameWindow` is intentionally `!Sync` (and `Arc<...>`
+//! therefore `!Send`), so any attempt to share a window across threads fails
+//! to compile instead of deadlocking at runtime.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::sync::{Arc, Weak, RwLock, Mutex};
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Weak};
 use bitflags::bitflags;
 use thiserror::Error;
 
@@ -19,7 +28,7 @@ use crate::gui::game_window::{
     GWS_TAB_PANE, GWS_VERT_SLIDER,
 };
 use crate::gui::gadgets::{
-    GadgetMessage, GadgetState, GadgetValue, InputEvent, KeyCode, KeyModifiers, MouseButton,
+    GadgetMessage, GadgetState, GadgetValue, Gadget, InputEvent, KeyCode, KeyModifiers, MouseButton,
 };
 
 /// Enhanced GameWindow errors
@@ -190,6 +199,12 @@ pub enum WindowMsgHandled {
     Handled,
 }
 
+impl WindowMsgHandled {
+    pub fn is_handled(self) -> bool {
+        matches!(self, WindowMsgHandled::Handled)
+    }
+}
+
 /// Window draw data for different states
 #[derive(Debug, Clone)]
 pub struct WindowDrawData {
@@ -236,7 +251,11 @@ impl Default for WindowTextColors {
 }
 
 /// Window event callbacks
-pub trait WindowCallbacks: Send + Sync {
+///
+/// Callbacks are invoked on the UI thread that owns the window; they must not
+/// outlive it or hop threads. No `Send`/`Sync` bounds are needed — and the
+/// window type itself is `!Sync`, so cross-thread sharing cannot compile.
+pub trait WindowCallbacks {
     /// Called when the window needs to be drawn
     fn on_draw(&self, window: &EnhancedGameWindow, renderer: &mut UIRenderer) -> Result<()> {
         Ok(())
@@ -257,61 +276,65 @@ pub trait WindowCallbacks: Send + Sync {
 }
 
 /// Enhanced GameWindow implementation
+///
+/// All mutable state below is confined to the owning UI thread; `Cell` holds
+/// `Copy` values, `RefCell` holds heap-backed values. Neither is `Sync`, which
+/// is what pins the whole window tree to one thread.
 pub struct EnhancedGameWindow {
     // Core properties
     id: WindowId,
     name: String,
-    status: RwLock<WindowStatus>,
-    window_type: RwLock<String>,
-    style: RwLock<u32>,
-    
+    status: Cell<WindowStatus>,
+    window_type: RefCell<String>,
+    style: Cell<u32>,
+
     // Position and size
-    position: RwLock<(i32, i32)>,
-    size: RwLock<(i32, i32)>,
-    
+    position: Cell<(i32, i32)>,
+    size: Cell<(i32, i32)>,
+
     // Hierarchy
-    parent: RwLock<Option<Weak<EnhancedGameWindow>>>,
-    children: RwLock<Vec<Arc<EnhancedGameWindow>>>,
-    
+    parent: RefCell<Option<Weak<EnhancedGameWindow>>>,
+    children: RefCell<Vec<Arc<EnhancedGameWindow>>>,
+
     // Visual properties
-    text: RwLock<String>,
-    text_colors: RwLock<WindowTextColors>,
-    draw_data: RwLock<WindowDrawData>,
-    font_name: RwLock<String>,
-    font_size: RwLock<i32>,
-    
+    text: RefCell<String>,
+    text_colors: Cell<WindowTextColors>,
+    draw_data: RefCell<WindowDrawData>,
+    font_name: RefCell<String>,
+    font_size: Cell<i32>,
+
     // Event handling
-    callbacks: RwLock<Option<Box<dyn WindowCallbacks>>>,
-    
+    callbacks: RefCell<Option<Box<dyn WindowCallbacks>>>,
+
     // State tracking
-    is_mouse_over: RwLock<bool>,
-    is_pressed: RwLock<bool>,
-    is_focused: RwLock<bool>,
-    is_toggled: RwLock<bool>,
-    tooltip_text: RwLock<String>,
-    tooltip_delay: RwLock<u32>,
+    is_mouse_over: Cell<bool>,
+    is_pressed: Cell<bool>,
+    is_focused: Cell<bool>,
+    is_toggled: Cell<bool>,
+    tooltip_text: RefCell<String>,
+    tooltip_delay: Cell<u32>,
 
     // Optional gadget widget for script-created windows
-    widget: Mutex<Option<WindowWidget>>,
-    combobox_links: RwLock<Option<ComboBoxLinks>>,
-    listbox_links: RwLock<Option<ListBoxLinks>>,
-    slider_thumb: RwLock<Option<WindowId>>,
+    widget: RefCell<Option<WindowWidget>>,
+    combobox_links: Cell<Option<ComboBoxLinks>>,
+    listbox_links: Cell<Option<ListBoxLinks>>,
+    slider_thumb: Cell<Option<WindowId>>,
 
     // Press animation state for elastic button feel
-    press_scale: RwLock<f32>,
-    press_scale_target: RwLock<f32>,
-    press_scale_velocity: RwLock<f32>,
+    press_scale: Cell<f32>,
+    press_scale_target: Cell<f32>,
+    press_scale_velocity: Cell<f32>,
     press_spring_strength: f32,
     press_spring_damping: f32,
     press_impulse: f32,
     release_impulse: f32,
-    press_was_down: RwLock<bool>,
+    press_was_down: Cell<bool>,
 
     // Render-time bounds override (used to preserve press-scale for custom draws)
-    render_bounds_override: RwLock<Option<UIRect>>,
-    
+    render_bounds_override: Cell<Option<UIRect>>,
+
     // User data
-    user_data: RwLock<HashMap<String, Box<dyn std::any::Any + Send + Sync>>>,
+    user_data: RefCell<HashMap<String, Box<dyn std::any::Any>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -335,16 +358,16 @@ impl EnhancedGameWindow {
         Arc::new(Self {
             id,
             name: name.to_string(),
-            status: RwLock::new(WindowStatus::NONE),
-            window_type: RwLock::new(String::new()),
-            style: RwLock::new(0),
-            position: RwLock::new((0, 0)),
-            size: RwLock::new((100, 100)),
-            parent: RwLock::new(None),
-            children: RwLock::new(Vec::new()),
-            text: RwLock::new(String::new()),
-            text_colors: RwLock::new(WindowTextColors::default()),
-            draw_data: RwLock::new(WindowDrawData {
+            status: Cell::new(WindowStatus::NONE),
+            window_type: RefCell::new(String::new()),
+            style: Cell::new(0),
+            position: Cell::new((0, 0)),
+            size: Cell::new((100, 100)),
+            parent: RefCell::new(None),
+            children: RefCell::new(Vec::new()),
+            text: RefCell::new(String::new()),
+            text_colors: Cell::new(WindowTextColors::default()),
+            draw_data: RefCell::new(WindowDrawData {
                 enabled: None,
                 disabled: None,
                 hilited: None,
@@ -358,29 +381,29 @@ impl EnhancedGameWindow {
                 pushed_color: [0.0, 0.0, 0.0, 0.0],
                 pushed_border: [0.0, 0.0, 0.0, 0.0],
             }),
-            font_name: RwLock::new("Arial".to_string()),
-            font_size: RwLock::new(12),
-            callbacks: RwLock::new(None),
-            is_mouse_over: RwLock::new(false),
-            is_pressed: RwLock::new(false),
-            is_focused: RwLock::new(false),
-            is_toggled: RwLock::new(false),
-            tooltip_text: RwLock::new(String::new()),
-            tooltip_delay: RwLock::new(1000),
-            widget: Mutex::new(None),
-            combobox_links: RwLock::new(None),
-            listbox_links: RwLock::new(None),
-            slider_thumb: RwLock::new(None),
-            user_data: RwLock::new(HashMap::new()),
-            press_scale: RwLock::new(1.0),
-            press_scale_target: RwLock::new(1.0),
-            press_scale_velocity: RwLock::new(0.0),
+            font_name: RefCell::new("Arial".to_string()),
+            font_size: Cell::new(12),
+            callbacks: RefCell::new(None),
+            is_mouse_over: Cell::new(false),
+            is_pressed: Cell::new(false),
+            is_focused: Cell::new(false),
+            is_toggled: Cell::new(false),
+            tooltip_text: RefCell::new(String::new()),
+            tooltip_delay: Cell::new(1000),
+            widget: RefCell::new(None),
+            combobox_links: Cell::new(None),
+            listbox_links: Cell::new(None),
+            slider_thumb: Cell::new(None),
+            user_data: RefCell::new(HashMap::new()),
+            press_scale: Cell::new(1.0),
+            press_scale_target: Cell::new(1.0),
+            press_scale_velocity: Cell::new(0.0),
             press_spring_strength: 60.0,
             press_spring_damping: 10.0,
             press_impulse: -4.5,
             release_impulse: 5.5,
-            press_was_down: RwLock::new(false),
-            render_bounds_override: RwLock::new(None),
+            press_was_down: Cell::new(false),
+            render_bounds_override: Cell::new(None),
         })
     }
     
@@ -394,30 +417,30 @@ impl EnhancedGameWindow {
     }
     
     pub fn get_status(&self) -> WindowStatus {
-        *self.status.read().unwrap_or_else(|e| e.into_inner())
+        self.status.get()
     }
 
     pub fn set_window_type(&self, window_type: &str) {
-        *self.window_type.write().unwrap_or_else(|e| e.into_inner()) = window_type.to_string();
+        *self.window_type.borrow_mut() = window_type.to_string();
     }
 
     pub fn get_window_type(&self) -> String {
-        self.window_type.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.window_type.borrow().clone()
     }
 
     pub fn set_style(&self, style: u32) {
-        *self.style.write().unwrap_or_else(|e| e.into_inner()) = style;
+        self.style.set(style);
     }
 
     pub fn get_style(&self) -> u32 {
-        *self.style.read().unwrap_or_else(|e| e.into_inner())
-    }
-    
-    pub fn get_position(&self) -> (i32, i32) {
-        *self.position.read().unwrap_or_else(|e| e.into_inner())
+        self.style.get()
     }
 
-    pub fn get_screen_position(&self) -> (i32, i32) {
+    pub fn get_position(&self) -> (i32, i32) {
+        self.position.get()
+    }
+
+    pub fn get_screen_position(self: &Arc<Self>) -> (i32, i32) {
         let mut x = 0;
         let mut y = 0;
         let mut current: Option<Arc<EnhancedGameWindow>> = Some(self.clone());
@@ -429,14 +452,14 @@ impl EnhancedGameWindow {
         }
         (x, y)
     }
-    
+
     pub fn get_size(&self) -> (i32, i32) {
-        *self.size.read().unwrap_or_else(|e| e.into_inner())
+        self.size.get()
     }
-    
+
     pub fn get_bounds(&self) -> UIRect {
-        if let Some(bounds) = self.render_bounds_override.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            return *bounds;
+        if let Some(bounds) = self.render_bounds_override.get() {
+            return bounds;
         }
         let pos = self.get_position();
         let size = self.get_size();
@@ -444,75 +467,74 @@ impl EnhancedGameWindow {
     }
 
     pub fn get_enabled_image_name(&self) -> Option<String> {
-        let draw_data = self.draw_data.read().unwrap_or_else(|e| e.into_inner());
-        draw_data.enabled.clone()
+        self.draw_data.borrow().enabled.clone()
     }
-    
+
     pub fn get_text(&self) -> String {
-        self.text.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.text.borrow().clone()
     }
-    
+
     pub fn get_font_name(&self) -> String {
-        self.font_name.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.font_name.borrow().clone()
     }
-    
+
     pub fn get_font_size(&self) -> i32 {
-        *self.font_size.read().unwrap_or_else(|e| e.into_inner())
+        self.font_size.get()
     }
-    
+
     // Property setters
     pub fn set_status(&self, status: WindowStatus) {
-        *self.status.write().unwrap_or_else(|e| e.into_inner()) = status;
+        self.status.set(status);
     }
 
     pub fn set_widget(&self, widget: WindowWidget) {
-        *self.widget.lock().unwrap_or_else(|e| e.into_inner()) = Some(widget);
+        *self.widget.borrow_mut() = Some(widget);
         self.sync_widget_bounds();
-        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(widget) = self.widget.borrow_mut().as_mut() {
             set_widget_visible(widget, !self.is_hidden());
             set_widget_enabled(widget, self.is_enabled());
         }
     }
 
     pub fn with_widget_mut<T>(&self, f: impl FnOnce(&mut WindowWidget) -> T) -> Option<T> {
-        let mut guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = self.widget.borrow_mut();
         guard.as_mut().map(f)
     }
 
     pub fn set_combobox_links(&self, links: ComboBoxLinks) {
-        *self.combobox_links.write().unwrap_or_else(|e| e.into_inner()) = Some(links);
+        self.combobox_links.set(Some(links));
     }
 
     pub fn combobox_links(&self) -> Option<ComboBoxLinks> {
-        *self.combobox_links.read().unwrap_or_else(|e| e.into_inner())
+        self.combobox_links.get()
     }
 
     pub fn set_listbox_links(&self, links: ListBoxLinks) {
-        *self.listbox_links.write().unwrap_or_else(|e| e.into_inner()) = Some(links);
+        self.listbox_links.set(Some(links));
     }
 
     pub fn listbox_links(&self) -> Option<ListBoxLinks> {
-        *self.listbox_links.read().unwrap_or_else(|e| e.into_inner())
+        self.listbox_links.get()
     }
 
     pub fn set_slider_thumb(&self, thumb_id: WindowId) {
-        *self.slider_thumb.write().unwrap_or_else(|e| e.into_inner()) = Some(thumb_id);
+        self.slider_thumb.set(Some(thumb_id));
     }
 
     pub fn slider_thumb(&self) -> Option<WindowId> {
-        *self.slider_thumb.read().unwrap_or_else(|e| e.into_inner())
+        self.slider_thumb.get()
     }
 
     pub fn set_position(&self, x: i32, y: i32) {
-        *self.position.write().unwrap_or_else(|e| e.into_inner()) = (x, y);
+        self.position.set((x, y));
         self.sync_widget_bounds();
     }
-    
+
     pub fn set_size(&self, width: i32, height: i32) {
-        *self.size.write().unwrap_or_else(|e| e.into_inner()) = (width, height);
+        self.size.set((width, height));
         self.sync_widget_bounds();
     }
-    
+
     pub fn set_bounds(&self, x: i32, y: i32, width: i32, height: i32) {
         self.set_position(x, y);
         self.set_size(width, height);
@@ -521,17 +543,17 @@ impl EnhancedGameWindow {
     fn sync_widget_bounds(&self) {
         let (x, y) = self.get_position();
         let (width, height) = self.get_size();
-        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(widget) = self.widget.borrow_mut().as_mut() {
             set_widget_bounds(widget, x, y, width, height);
         }
     }
-    
+
     pub fn set_text(&self, text: &str) {
-        *self.text.write().unwrap_or_else(|e| e.into_inner()) = text.to_string();
+        *self.text.borrow_mut() = text.to_string();
     }
 
     pub fn set_progress_value(&self, value: f32) {
-        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(widget) = self.widget.borrow_mut().as_mut() {
             if let WindowWidget::ProgressBar(bar) = widget {
                 bar.set_value(value);
             }
@@ -539,16 +561,16 @@ impl EnhancedGameWindow {
     }
 
     pub fn set_progress_percent(&self, percent: f32) {
-        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        if let Some(widget) = self.widget.borrow_mut().as_mut() {
             if let WindowWidget::ProgressBar(bar) = widget {
                 bar.set_percentage(percent);
             }
         }
     }
-    
+
     pub fn set_font(&self, name: &str, size: i32) {
-        *self.font_name.write().unwrap_or_else(|e| e.into_inner()) = name.to_string();
-        *self.font_size.write().unwrap_or_else(|e| e.into_inner()) = size;
+        *self.font_name.borrow_mut() = name.to_string();
+        self.font_size.set(size);
     }
 
     pub fn set_draw_images(
@@ -558,7 +580,7 @@ impl EnhancedGameWindow {
         hilited: Option<&str>,
         pushed: Option<&str>,
     ) {
-        let mut draw_data = self.draw_data.write().unwrap_or_else(|e| e.into_inner());
+        let mut draw_data = self.draw_data.borrow_mut();
         draw_data.enabled = enabled.map(|s| s.to_string());
         draw_data.disabled = disabled.map(|s| s.to_string());
         draw_data.hilited = hilited.map(|s| s.to_string());
@@ -580,7 +602,7 @@ impl EnhancedGameWindow {
         pushed_color: [f32; 4],
         pushed_border: [f32; 4],
     ) {
-        let mut draw_data = self.draw_data.write().unwrap_or_else(|e| e.into_inner());
+        let mut draw_data = self.draw_data.borrow_mut();
         draw_data.enabled = enabled;
         draw_data.disabled = disabled;
         draw_data.hilited = hilited;
@@ -606,32 +628,33 @@ impl EnhancedGameWindow {
         hilited_border: [f32; 4],
         pushed_border: [f32; 4],
     ) {
-        let mut colors = self.text_colors.write().unwrap_or_else(|e| e.into_inner());
-        colors.enabled = enabled;
-        colors.disabled = disabled;
-        colors.hilited = hilited;
-        colors.pushed = pushed;
-        colors.enabled_border = enabled_border;
-        colors.disabled_border = disabled_border;
-        colors.hilited_border = hilited_border;
-        colors.pushed_border = pushed_border;
+        self.text_colors.set(WindowTextColors {
+            enabled,
+            disabled,
+            hilited,
+            pushed,
+            enabled_border,
+            disabled_border,
+            hilited_border,
+            pushed_border,
+        });
     }
-    
+
     pub fn set_callbacks(&self, callbacks: Box<dyn WindowCallbacks>) {
-        *self.callbacks.write().unwrap_or_else(|e| e.into_inner()) = Some(callbacks);
+        *self.callbacks.borrow_mut() = Some(callbacks);
     }
-    
+
     pub fn set_tooltip(&self, text: &str, delay: u32) {
-        *self.tooltip_text.write().unwrap_or_else(|e| e.into_inner()) = text.to_string();
-        *self.tooltip_delay.write().unwrap_or_else(|e| e.into_inner()) = delay;
+        *self.tooltip_text.borrow_mut() = text.to_string();
+        self.tooltip_delay.set(delay);
     }
 
     pub fn get_tooltip(&self) -> String {
-        self.tooltip_text.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.tooltip_text.borrow().clone()
     }
 
     pub fn get_tooltip_delay(&self) -> u32 {
-        *self.tooltip_delay.read().unwrap_or_else(|e| e.into_inner())
+        self.tooltip_delay.get()
     }
     
     // Status checks
@@ -652,15 +675,15 @@ impl EnhancedGameWindow {
     }
     
     pub fn is_mouse_over(&self) -> bool {
-        *self.is_mouse_over.read().unwrap_or_else(|e| e.into_inner())
+        self.is_mouse_over.get()
     }
-    
+
     pub fn is_pressed(&self) -> bool {
-        *self.is_pressed.read().unwrap_or_else(|e| e.into_inner())
+        self.is_pressed.get()
     }
 
     pub fn is_toggled(&self) -> bool {
-        *self.is_toggled.read().unwrap_or_else(|e| e.into_inner())
+        self.is_toggled.get()
     }
 
     pub fn is_input_enabled(&self) -> bool {
@@ -674,48 +697,47 @@ impl EnhancedGameWindow {
     }
 
     fn widget_pressed_state(&self) -> Option<bool> {
-        let widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
-        let widget = widget_guard.as_ref()?;
-        Some(matches!(widget_state(widget), GadgetState::Pressed))
+        let widget = self.widget.borrow();
+        Some(matches!(widget_state(widget.as_ref()?), GadgetState::Pressed))
     }
 
     pub fn get_press_scale(&self) -> f32 {
         if self.is_press_anim_enabled() {
-            *self.press_scale.read().unwrap_or_else(|e| e.into_inner())
+            self.press_scale.get()
         } else {
             1.0
         }
     }
 
     fn update_press_state(&self, pressed: bool) {
-        *self.is_pressed.write().unwrap_or_else(|e| e.into_inner()) = pressed;
+        self.is_pressed.set(pressed);
 
         if !self.is_press_anim_enabled() {
-            *self.press_scale.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = 0.0;
-            *self.press_was_down.write().unwrap_or_else(|e| e.into_inner()) = pressed;
+            self.press_scale.set(1.0);
+            self.press_scale_target.set(1.0);
+            self.press_scale_velocity.set(0.0);
+            self.press_was_down.set(pressed);
             return;
         }
 
-        let mut was_down = self.press_was_down.write().unwrap_or_else(|e| e.into_inner());
-        if pressed != *was_down {
-            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = if pressed { 0.94 } else { 1.0 };
-            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = if pressed {
+        let was_down = self.press_was_down.get();
+        if pressed != was_down {
+            self.press_scale_target.set(if pressed { 0.94 } else { 1.0 });
+            self.press_scale_velocity.set(if pressed {
                 self.press_impulse
             } else {
                 self.release_impulse
-            };
-            *was_down = pressed;
+            });
+            self.press_was_down.set(pressed);
         }
     }
 
     pub fn update_press_animation(&self, delta_time: f32) {
         if !self.is_press_anim_enabled() {
-            *self.press_scale.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
-            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = 0.0;
-            *self.press_was_down.write().unwrap_or_else(|e| e.into_inner()) = false;
+            self.press_scale.set(1.0);
+            self.press_scale_target.set(1.0);
+            self.press_scale_velocity.set(0.0);
+            self.press_was_down.set(false);
             return;
         }
 
@@ -728,102 +750,101 @@ impl EnhancedGameWindow {
             return;
         }
 
-        let target = *self.press_scale_target.read().unwrap_or_else(|e| e.into_inner());
-        let mut scale = self.press_scale.write().unwrap_or_else(|e| e.into_inner());
-        let mut velocity = self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner());
+        let target = self.press_scale_target.get();
+        let mut scale = self.press_scale.get();
+        let mut velocity = self.press_scale_velocity.get();
 
-        let displacement = *scale - target;
+        let displacement = scale - target;
         let accel = -self.press_spring_strength * displacement
-            - self.press_spring_damping * *velocity;
-        *velocity += accel * dt;
-        *scale += *velocity * dt;
+            - self.press_spring_damping * velocity;
+        velocity += accel * dt;
+        scale += velocity * dt;
 
-        if (*scale - target).abs() < 0.0005 && velocity.abs() < 0.0005 {
-            *scale = target;
-            *velocity = 0.0;
+        if (scale - target).abs() < 0.0005 && velocity.abs() < 0.0005 {
+            scale = target;
+            velocity = 0.0;
         }
+
+        self.press_scale.set(scale);
+        self.press_scale_velocity.set(velocity);
     }
-    
+
     pub fn is_focused(&self) -> bool {
-        *self.is_focused.read().unwrap_or_else(|e| e.into_inner())
+        self.is_focused.get()
     }
-    
+
     // Status modification
     pub fn enable(&self, enabled: bool) {
-        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
+        let mut status = self.status.get();
         if enabled {
             status.insert(WindowStatus::ENABLED);
         } else {
             status.remove(WindowStatus::ENABLED);
         }
-        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        self.status.set(status);
+        if let Some(widget) = self.widget.borrow_mut().as_mut() {
             set_widget_enabled(widget, enabled);
         }
     }
-    
+
     pub fn hide(&self, hidden: bool) {
-        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
+        let mut status = self.status.get();
         if hidden {
             status.insert(WindowStatus::HIDDEN);
         } else {
             status.remove(WindowStatus::HIDDEN);
         }
-        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        self.status.set(status);
+        if let Some(widget) = self.widget.borrow_mut().as_mut() {
             set_widget_visible(widget, !hidden);
         }
     }
-    
+
     pub fn activate(&self, active: bool) {
-        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
+        let mut status = self.status.get();
         if active {
             status.insert(WindowStatus::ACTIVE);
         } else {
             status.remove(WindowStatus::ACTIVE);
         }
+        self.status.set(status);
     }
-    
+
     // Hierarchy management
     pub fn add_child(self: &Arc<Self>, child: Arc<EnhancedGameWindow>) -> Result<()> {
         // Set parent reference in child
-        {
-            let mut child_parent = child.parent.write().unwrap_or_else(|e| e.into_inner());
-            *child_parent = Some(Arc::downgrade(self));
-        }
-        
+        *child.parent.borrow_mut() = Some(Arc::downgrade(self));
+
         // Add to children list
-        self.children.write().unwrap_or_else(|e| e.into_inner()).push(child);
-        
+        self.children.borrow_mut().push(child);
+
         Ok(())
     }
-    
+
     pub fn remove_child(&self, child: &Arc<EnhancedGameWindow>) -> Result<()> {
         // Clear parent reference in child
-        {
-            let mut child_parent = child.parent.write().unwrap_or_else(|e| e.into_inner());
-            *child_parent = None;
-        }
-        
+        *child.parent.borrow_mut() = None;
+
         // Remove from children list
-        let mut children = self.children.write().unwrap_or_else(|e| e.into_inner());
-        children.retain(|c| c.get_id() != child.get_id());
-        
+        self.children.borrow_mut().retain(|c| c.get_id() != child.get_id());
+
         Ok(())
     }
-    
+
     pub fn get_parent(&self) -> Option<Arc<EnhancedGameWindow>> {
-        self.parent.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|weak| weak.upgrade())
+        self.parent.borrow().as_ref().and_then(|weak| weak.upgrade())
     }
-    
+
     pub fn get_children(&self) -> Vec<Arc<EnhancedGameWindow>> {
-        self.children.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.children.borrow().clone()
     }
-    
+
     pub fn get_child_count(&self) -> usize {
-        self.children.read().unwrap_or_else(|e| e.into_inner()).len()
+        self.children.borrow().len()
     }
-    
+
     pub fn find_child_by_name(&self, name: &str) -> Option<Arc<EnhancedGameWindow>> {
-        let children = self.children.read().unwrap_or_else(|e| e.into_inner());
+        let children = self.children.borrow();
         for child in children.iter() {
             if child.get_name() == name {
                 return Some(child.clone());
@@ -835,9 +856,9 @@ impl EnhancedGameWindow {
         }
         None
     }
-    
+
     pub fn find_child_by_id(&self, id: WindowId) -> Option<Arc<EnhancedGameWindow>> {
-        let children = self.children.read().unwrap_or_else(|e| e.into_inner());
+        let children = self.children.borrow();
         for child in children.iter() {
             if child.get_id() == id {
                 return Some(child.clone());
@@ -860,7 +881,7 @@ impl EnhancedGameWindow {
                 _ => {}
             }
         }
-        if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if let Some(callbacks) = self.callbacks.borrow().as_ref() {
             // Try input handler first
             let result = callbacks.on_input(self, message, wparam, lparam);
             if result.is_handled() {
@@ -920,7 +941,7 @@ impl EnhancedGameWindow {
         
         match message {
             WindowMessage::MouseEntering if is_in_bounds => {
-                *self.is_mouse_over.write().unwrap_or_else(|e| e.into_inner()) = true;
+                self.is_mouse_over.set(true);
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_gadget_style {
                     let _ = self.send_message(WindowMessage::GadgetMouseEntering, 0, 0);
@@ -928,7 +949,7 @@ impl EnhancedGameWindow {
                 handled
             }
             WindowMessage::MouseLeaving => {
-                *self.is_mouse_over.write().unwrap_or_else(|e| e.into_inner()) = false;
+                self.is_mouse_over.set(false);
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_gadget_style {
                     let _ = self.send_message(WindowMessage::GadgetMouseLeaving, 0, 0);
@@ -938,8 +959,8 @@ impl EnhancedGameWindow {
             WindowMessage::LeftDown if is_in_bounds => {
                 self.update_press_state(true);
                 if toggle_like && trigger_on_mouse_down {
-                    let mut toggled = self.is_toggled.write().unwrap_or_else(|e| e.into_inner());
-                    *toggled = !*toggled;
+                    let toggled = self.is_toggled.get();
+                    self.is_toggled.set(!toggled);
                 }
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_button_style && trigger_on_mouse_down {
@@ -952,8 +973,8 @@ impl EnhancedGameWindow {
                 self.update_press_state(false);
                 if was_pressed && is_in_bounds {
                     if toggle_like && !trigger_on_mouse_down {
-                        let mut toggled = self.is_toggled.write().unwrap_or_else(|e| e.into_inner());
-                        *toggled = !*toggled;
+                        let toggled = self.is_toggled.get();
+                        self.is_toggled.set(!toggled);
                     }
                     let handled = self.send_message(message, 0, pack_coords(x, y));
                     if is_button_style && !trigger_on_mouse_down {
@@ -982,96 +1003,110 @@ impl EnhancedGameWindow {
     }
 
     fn handle_widget_input(&self, msg: WindowMessage, data1: WindowMsgData, data2: WindowMsgData) -> WindowMsgHandled {
-        let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(widget) = widget_guard.as_mut() else {
-            return WindowMsgHandled::Ignored;
-        };
+        // The widget is driven under one exclusive borrow that ends with this
+        // block; the follow-up helpers re-enter `self.widget`, so they must run
+        // after it (early returns drop the borrow like any other exit).
+        let (is_slider, is_listbox, is_tab_control, messages) = {
+            let mut widget_guard = self.widget.borrow_mut();
+            let Some(widget) = widget_guard.as_mut() else {
+                return WindowMsgHandled::Ignored;
+            };
 
-        if matches!(widget, WindowWidget::ListBox(_))
-            && (msg == WindowMessage::WheelUp || msg == WindowMessage::WheelDown)
-        {
-            let delta = if msg == WindowMessage::WheelUp { -1 } else { 1 };
-            if let WindowWidget::ListBox(listbox) = widget {
-                listbox.scroll_by(delta);
+            if matches!(widget, WindowWidget::ListBox(_))
+                && (msg == WindowMessage::WheelUp || msg == WindowMessage::WheelDown)
+            {
+                let delta = if msg == WindowMessage::WheelUp { -1 } else { 1 };
+                if let WindowWidget::ListBox(listbox) = widget {
+                    listbox.scroll_by(delta);
+                }
+                return WindowMsgHandled::Handled;
             }
-            return WindowMsgHandled::Handled;
-        }
 
-        let (x, y) = unpack_coords(data2);
-        let event = match msg {
-            WindowMessage::MousePos => Some(InputEvent::MouseMove { x, y }),
-            WindowMessage::MouseEntering => Some(InputEvent::MouseEnter { x, y }),
-            WindowMessage::MouseLeaving => Some(InputEvent::MouseLeave { x, y }),
-            WindowMessage::LeftDown => Some(InputEvent::MouseDown {
-                x,
-                y,
-                button: MouseButton::Left,
-            }),
-            WindowMessage::LeftUp => Some(InputEvent::MouseUp {
-                x,
-                y,
-                button: MouseButton::Left,
-            }),
-            WindowMessage::LeftDrag => Some(InputEvent::MouseDrag {
-                x,
-                y,
-                button: MouseButton::Left,
-            }),
-            WindowMessage::MiddleDown => Some(InputEvent::MouseDown {
-                x,
-                y,
-                button: MouseButton::Middle,
-            }),
-            WindowMessage::MiddleUp => Some(InputEvent::MouseUp {
-                x,
-                y,
-                button: MouseButton::Middle,
-            }),
-            WindowMessage::MiddleDrag => Some(InputEvent::MouseDrag {
-                x,
-                y,
-                button: MouseButton::Middle,
-            }),
-            WindowMessage::RightDown => Some(InputEvent::MouseDown {
-                x,
-                y,
-                button: MouseButton::Right,
-            }),
-            WindowMessage::RightUp => Some(InputEvent::MouseUp {
-                x,
-                y,
-                button: MouseButton::Right,
-            }),
-            WindowMessage::RightDrag => Some(InputEvent::MouseDrag {
-                x,
-                y,
-                button: MouseButton::Right,
-            }),
-            WindowMessage::Char => Some(InputEvent::KeyDown {
-                key: map_keycode(data1),
-                modifiers: KeyModifiers::none(),
-            }),
-            _ => None,
+            let (x, y) = unpack_coords(data2);
+            let event = match msg {
+                WindowMessage::MousePos => Some(InputEvent::MouseMove { x, y }),
+                WindowMessage::MouseEntering => Some(InputEvent::MouseEnter { x, y }),
+                WindowMessage::MouseLeaving => Some(InputEvent::MouseLeave { x, y }),
+                WindowMessage::LeftDown => Some(InputEvent::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                }),
+                WindowMessage::LeftUp => Some(InputEvent::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                }),
+                WindowMessage::LeftDrag => Some(InputEvent::MouseDrag {
+                    x,
+                    y,
+                    button: MouseButton::Left,
+                }),
+                WindowMessage::MiddleDown => Some(InputEvent::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Middle,
+                }),
+                WindowMessage::MiddleUp => Some(InputEvent::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Middle,
+                }),
+                WindowMessage::MiddleDrag => Some(InputEvent::MouseDrag {
+                    x,
+                    y,
+                    button: MouseButton::Middle,
+                }),
+                WindowMessage::RightDown => Some(InputEvent::MouseDown {
+                    x,
+                    y,
+                    button: MouseButton::Right,
+                }),
+                WindowMessage::RightUp => Some(InputEvent::MouseUp {
+                    x,
+                    y,
+                    button: MouseButton::Right,
+                }),
+                WindowMessage::RightDrag => Some(InputEvent::MouseDrag {
+                    x,
+                    y,
+                    button: MouseButton::Right,
+                }),
+                WindowMessage::Char => Some(InputEvent::KeyDown {
+                    key: map_keycode(data1),
+                    modifiers: KeyModifiers::none(),
+                }),
+                _ => None,
+            };
+
+            let Some(event) = event else {
+                return WindowMsgHandled::Ignored;
+            };
+
+            let messages = handle_widget_event(widget, &event);
+            if messages.is_empty() {
+                return WindowMsgHandled::Ignored;
+            }
+
+            // Decide which follow-up work the widget kind needs while the
+            // borrow is still live.
+            (
+                matches!(widget, WindowWidget::HorizontalSlider(_) | WindowWidget::VerticalSlider(_)),
+                matches!(widget, WindowWidget::ListBox(_)),
+                matches!(widget, WindowWidget::TabControl(_)),
+                messages,
+            )
         };
 
-        let Some(event) = event else {
-            return WindowMsgHandled::Ignored;
-        };
-
-        let messages = handle_widget_event(widget, &event);
-        if messages.is_empty() {
-            return WindowMsgHandled::Ignored;
-        }
-
-        if matches!(widget, WindowWidget::HorizontalSlider(_) | WindowWidget::VerticalSlider(_)) {
+        if is_slider {
             self.update_slider_thumb();
         }
 
-        if matches!(widget, WindowWidget::ListBox(_)) {
+        if is_listbox {
             self.update_listbox_scrollbar();
         }
 
-        if matches!(widget, WindowWidget::TabControl(_)) {
+        if is_tab_control {
             if let Some(selected) = messages.iter().find_map(|message| {
                 if let GadgetMessage::ValueChanged { value, .. } = message {
                     if let GadgetValue::Integer(val) = value {
@@ -1090,7 +1125,7 @@ impl EnhancedGameWindow {
         let target_parent = self.get_parent();
         for message in messages {
             if let GadgetMessage::ValueChanged { value: GadgetValue::Boolean(state), .. } = message {
-                *self.is_toggled.write().unwrap_or_else(|e| e.into_inner()) = state;
+                self.is_toggled.set(state);
             }
 
             let (msg, data1) = match message {
@@ -1135,12 +1170,11 @@ impl EnhancedGameWindow {
         data1: WindowMsgData,
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(widget) = widget_guard.as_mut() else {
-            return WindowMsgHandled::Ignored;
-        };
-
-        if matches!(widget, WindowWidget::ComboBox(_)) {
+        // The widget borrow is taken only for short, scoped reads/writes: the
+        // handlers below call back into `self.set_size`, `self.find_child_by_id`
+        // and child windows, which re-enter `self.widget`.
+        let is_combobox = matches!(self.widget.borrow().as_ref(), Some(WindowWidget::ComboBox(_)));
+        if is_combobox {
             if let Some(links) = self.combobox_links() {
                 if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as u32 {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
@@ -1169,25 +1203,27 @@ impl EnhancedGameWindow {
 
                 if msg == WindowMessage::GadgetValueChanged && data1 == links.list_box as u32 {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
-                        if let Some(selected) = list_box.with_widget_mut(|widget| {
+                        let selected = list_box.with_widget_mut(|widget| {
                             if let WindowWidget::ListBox(listbox) = widget {
                                 listbox.selected_indices().first().copied()
                             } else {
                                 None
                             }
-                        }).flatten() {
-                            if let WindowWidget::ComboBox(combo) = widget {
-                                let _ = combo.select_index(selected);
-                            }
+                        }).flatten();
+                        if let Some(selected) = selected {
+                            self.with_widget_mut(|widget| {
+                                if let WindowWidget::ComboBox(combo) = widget {
+                                    let _ = combo.select_index(selected);
+                                }
+                            });
                         }
                         if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
                             self.sync_combobox_edit_box(&edit_box);
                         }
-                        let dont_hide = if let WindowWidget::ComboBox(combo) = widget {
-                            combo.take_dont_hide_next()
-                        } else {
-                            false
-                        };
+                        let dont_hide = self.with_widget_mut(|widget| match widget {
+                            WindowWidget::ComboBox(combo) => combo.take_dont_hide_next(),
+                            _ => false,
+                        }).unwrap_or(false);
                         if !dont_hide {
                             list_box.hide(true);
                             if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
@@ -1202,16 +1238,19 @@ impl EnhancedGameWindow {
 
                 if msg == WindowMessage::GadgetEditDone && data1 == links.edit_box as u32 {
                     if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
-                        if let Some(text) = edit_box.with_widget_mut(|widget| {
+                        let text = edit_box.with_widget_mut(|widget| {
                             if let WindowWidget::TextEntry(entry) = widget {
                                 Some(entry.displayed_text().to_string())
                             } else {
                                 None
                             }
-                        }).flatten() {
-                            if let WindowWidget::ComboBox(combo) = widget {
-                                combo.set_text(text);
-                            }
+                        }).flatten();
+                        if let Some(text) = text {
+                            self.with_widget_mut(|widget| {
+                                if let WindowWidget::ComboBox(combo) = widget {
+                                    combo.set_text(text);
+                                }
+                            });
                         }
                         return WindowMsgHandled::Handled;
                     }
@@ -1219,20 +1258,25 @@ impl EnhancedGameWindow {
             }
         }
 
-        if matches!(widget, WindowWidget::ListBox(_)) {
+        let is_listbox = matches!(self.widget.borrow().as_ref(), Some(WindowWidget::ListBox(_)));
+        if is_listbox {
             if let Some(links) = self.listbox_links() {
                 if msg == WindowMessage::GadgetSelected && data1 == links.up_button as u32 {
-                    if let WindowWidget::ListBox(listbox) = widget {
-                        listbox.scroll_by(-1);
-                    }
+                    self.with_widget_mut(|widget| {
+                        if let WindowWidget::ListBox(listbox) = widget {
+                            listbox.scroll_by(-1);
+                        }
+                    });
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
                 }
 
                 if msg == WindowMessage::GadgetSelected && data1 == links.down_button as u32 {
-                    if let WindowWidget::ListBox(listbox) = widget {
-                        listbox.scroll_by(1);
-                    }
+                    self.with_widget_mut(|widget| {
+                        if let WindowWidget::ListBox(listbox) = widget {
+                            listbox.scroll_by(1);
+                        }
+                    });
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
                 }
@@ -1247,9 +1291,11 @@ impl EnhancedGameWindow {
                     } else {
                         0
                     };
-                    if let WindowWidget::ListBox(listbox) = widget {
-                        listbox.set_scroll_offset(slider_value.max(0) as usize);
-                    }
+                    self.with_widget_mut(|widget| {
+                        if let WindowWidget::ListBox(listbox) = widget {
+                            listbox.set_scroll_offset(slider_value.max(0) as usize);
+                        }
+                    });
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
                 }
@@ -1263,11 +1309,13 @@ impl EnhancedGameWindow {
             } else {
                 InputEvent::FocusLost
             };
-            let messages = handle_widget_event(widget, &event);
-            return if messages.is_empty() {
-                WindowMsgHandled::Ignored
-            } else {
+            let handled = self.with_widget_mut(|widget| {
+                !handle_widget_event(widget, &event).is_empty()
+            }).unwrap_or(false);
+            return if handled {
                 WindowMsgHandled::Handled
+            } else {
+                WindowMsgHandled::Ignored
             };
         }
 
@@ -1275,10 +1323,11 @@ impl EnhancedGameWindow {
     }
 
     fn sync_combobox_listbox(&self, list_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
+        let widget = self.widget.borrow();
+        let Some(WindowWidget::ComboBox(combo)) = widget.as_ref() else {
             return;
         };
-        let Some(_) = list_box.with_widget_mut(|widget| {
+        let synced = list_box.with_widget_mut(|widget| {
             if let WindowWidget::ListBox(listbox) = widget {
                 listbox.clear();
                 for item in combo.items() {
@@ -1287,18 +1336,20 @@ impl EnhancedGameWindow {
                 if let Some(selected) = combo.selected_index() {
                     let _ = listbox.select_index(selected, KeyModifiers::none());
                 }
-                Some(())
+                true
             } else {
-                None
+                false
             }
-        }).flatten() else {
+        }).unwrap_or(false);
+        if !synced {
             return;
-        };
+        }
         list_box.update_listbox_scrollbar();
     }
 
     fn sync_combobox_edit_box(&self, edit_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
+        let widget = self.widget.borrow();
+        let Some(WindowWidget::ComboBox(combo)) = widget.as_ref() else {
             return;
         };
         let _ = edit_box.with_widget_mut(|widget| {
@@ -1309,7 +1360,8 @@ impl EnhancedGameWindow {
     }
 
     fn resize_combobox_listbox(&self, list_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
+        let widget = self.widget.borrow();
+        let Some(WindowWidget::ComboBox(combo)) = widget.as_ref() else {
             return;
         };
         let count = combo.items().len().max(1);
@@ -1351,16 +1403,23 @@ impl EnhancedGameWindow {
         let Some(links) = self.listbox_links() else {
             return;
         };
-        let Some(WindowWidget::ListBox(listbox)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
-            return;
+        // Read the listbox geometry and scroll state in one short borrow; the
+        // writes below re-enter `self.widget` (and touch child windows), so the
+        // borrow must be released first.
+        let (bounds, raw_scroll_offset, max_offset, scroll_offset) = {
+            let widget = self.widget.borrow();
+            let Some(WindowWidget::ListBox(listbox)) = widget.as_ref() else {
+                return;
+            };
+            let bounds = listbox.bounds();
+            let item_height = listbox.item_height().max(1) as usize;
+            let visible = (bounds.height as usize / item_height).max(1);
+            let max_offset = listbox.items().len().saturating_sub(visible);
+            let raw_scroll_offset = listbox.scroll_offset();
+            let scroll_offset = raw_scroll_offset.min(max_offset);
+            (bounds, raw_scroll_offset, max_offset, scroll_offset)
         };
-
-        let bounds = listbox.bounds();
-        let item_height = listbox.item_height().max(1) as usize;
-        let visible = (bounds.height as usize / item_height).max(1);
-        let max_offset = listbox.items().len().saturating_sub(visible);
-        let scroll_offset = listbox.scroll_offset().min(max_offset);
-        if scroll_offset != listbox.scroll_offset() {
+        if scroll_offset != raw_scroll_offset {
             let _ = self.with_widget_mut(|widget| {
                 if let WindowWidget::ListBox(listbox) = widget {
                     listbox.set_scroll_offset(scroll_offset);
@@ -1461,8 +1520,7 @@ impl EnhancedGameWindow {
     fn show_tab_pane(&self, index: usize) {
         let panes: Vec<Arc<EnhancedGameWindow>> = self
             .children
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+            .borrow()
             .iter()
             .filter(|child| (child.get_style() & GWS_TAB_PANE) != 0)
             .cloned()
@@ -1511,45 +1569,48 @@ impl EnhancedGameWindow {
         let use_disabled_colors = !self.is_enabled() && !status.contains(WindowStatus::ALWAYS_COLOR);
         let toggled = self.is_toggled();
         let pressed_or_toggled = self.is_pressed() || toggled;
+        let colors = self.text_colors.get();
         let (state_color, border_color, z_order) = if use_disabled_colors {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.disabled, colors.disabled_border, 0.1)
         } else if pressed_or_toggled {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.pushed, colors.pushed_border, 0.3)
         } else if self.is_mouse_over() {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.hilited, colors.hilited_border, 0.2)
         } else {
-            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.enabled, colors.enabled_border, 0.1)
         };
-        
+
         let _override_guard = RenderBoundsOverride::new(self, bounds);
 
-        if !self.get_status().contains(WindowStatus::SEE_THRU) {
+        if !status.contains(WindowStatus::SEE_THRU) {
             // Call custom draw callback if available
-            if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
-                if callbacks.on_draw(self, renderer).is_ok() {
-                    // Custom rendering handled by callback
-                } else {
-                    // Default rendering
-                    self.render_default(renderer, bounds, state_color, border_color, z_order)?;
-                }
+            let drew_custom = if let Some(callbacks) = self.callbacks.borrow().as_ref() {
+                callbacks.on_draw(self, renderer).is_ok()
             } else {
+                false
+            };
+            if !drew_custom {
                 // Default rendering
-                self.render_default(renderer, bounds, state_color, border_color, z_order)?;
+                self.render_default(
+                    renderer,
+                    bounds,
+                    state_color,
+                    border_color,
+                    z_order,
+                    status,
+                    pressed_or_toggled,
+                )?;
             }
         }
-        
+
         // Render children
         for child in self.get_children() {
             child.render(renderer, world_pos)?;
         }
-        
+
         Ok(())
     }
-    
+
     fn render_default(
         &self,
         renderer: &mut UIRenderer,
@@ -1557,9 +1618,11 @@ impl EnhancedGameWindow {
         color: [f32; 4],
         border_color: [f32; 4],
         z_order: f32,
+        status: WindowStatus,
+        pressed_or_toggled: bool,
     ) -> Result<()> {
         // Draw background if needed
-        let draw_data = self.draw_data.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let draw_data = self.draw_data.borrow().clone();
         let use_disabled_images = !self.is_enabled() && !status.contains(WindowStatus::ALWAYS_COLOR);
         let (image_name, fill_color, border_color) = if use_disabled_images {
             (
@@ -1644,9 +1707,9 @@ impl EnhancedGameWindow {
             };
 
             let (text, hotkey_index) = if status.contains(WindowStatus::HOTKEY_TEXT) {
-                parse_hotkey_text(raw_text)
+                parse_hotkey_text(&raw_text)
             } else {
-                (raw_text.to_string(), None)
+                (raw_text, None)
             };
             
             if border_color[3] > 0.0 {
@@ -1684,19 +1747,18 @@ impl EnhancedGameWindow {
                     let text_width = text_layout.text.len() as f32 * char_width;
                     let base_x = match alignment {
                         TextAlignment::Center => bounds.x + (bounds.width - text_width) * 0.5,
-                        TextAlignment::Left => bounds.x,
+                        TextAlignment::Left | TextAlignment::Justify => bounds.x,
                         TextAlignment::Right => bounds.x + bounds.width - text_width,
                     };
                     let base_y = bounds.y + (bounds.height - font_size * 1.2) * 0.5;
                     if let Some(ch) = text_layout.text.chars().nth(hotkey_idx) {
-                        let hotkey_color = self.text_colors.read().unwrap_or_else(|e| e.into_inner()).hilited;
+                        let hotkey_color = self.text_colors.get().hilited;
                         let pos = Vec2::new(base_x + (hotkey_idx as f32 * char_width), base_y);
                         renderer.draw_text_simple(&ch.to_string(), pos, point_size as f32, hotkey_color)?;
                     }
                 }
             }
-        }
-        
+
         Ok(())
     }
     
@@ -1723,13 +1785,16 @@ impl EnhancedGameWindow {
     }
     
     // User data management
-    pub fn set_user_data<T: std::any::Any + Send + Sync>(&self, key: &str, value: T) {
-        self.user_data.write().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), Box::new(value));
+    pub fn set_user_data<T: std::any::Any>(&self, key: &str, value: T) {
+        self.user_data.borrow_mut().insert(key.to_string(), Box::new(value));
     }
-    
-    pub fn get_user_data<T: std::any::Any + Send + Sync>(&self, key: &str) -> Option<&T> {
-        let store = self.user_data.read().unwrap_or_else(|e| e.into_inner());
-        store.get(key).and_then(|value| value.downcast_ref::<T>())
+
+    /// Runs `f` against the user-data value stored under `key`, if present and
+    /// of type `T`. (A `get_user_data` returning a borrowed `&T` cannot be
+    /// expressed through a `RefCell`; use this closure accessor instead.)
+    pub fn with_user_data<T: std::any::Any, R>(&self, key: &str, f: impl FnOnce(&T) -> R) -> Option<R> {
+        let store = self.user_data.borrow();
+        store.get(key).and_then(|value| value.downcast_ref::<T>()).map(f)
     }
 }
 
@@ -1739,14 +1804,14 @@ struct RenderBoundsOverride<'a> {
 
 impl<'a> RenderBoundsOverride<'a> {
     fn new(window: &'a EnhancedGameWindow, bounds: UIRect) -> Self {
-        *window.render_bounds_override.write().unwrap_or_else(|e| e.into_inner()) = Some(bounds);
+        window.render_bounds_override.set(Some(bounds));
         Self { window }
     }
 }
 
 impl Drop for RenderBoundsOverride<'_> {
     fn drop(&mut self) {
-        *self.window.render_bounds_override.write().unwrap_or_else(|e| e.into_inner()) = None;
+        self.window.render_bounds_override.set(None);
     }
 }
 
@@ -1798,42 +1863,44 @@ fn map_keycode(data: WindowMsgData) -> KeyCode {
         0x1005 => KeyCode::End,
         0x1006 => KeyCode::PageUp,
         0x1007 => KeyCode::PageDown,
-        b'0' as u16 => KeyCode::Num0,
-        b'1' as u16 => KeyCode::Num1,
-        b'2' as u16 => KeyCode::Num2,
-        b'3' as u16 => KeyCode::Num3,
-        b'4' as u16 => KeyCode::Num4,
-        b'5' as u16 => KeyCode::Num5,
-        b'6' as u16 => KeyCode::Num6,
-        b'7' as u16 => KeyCode::Num7,
-        b'8' as u16 => KeyCode::Num8,
-        b'9' as u16 => KeyCode::Num9,
-        b'a' as u16 | b'A' as u16 => KeyCode::A,
-        b'b' as u16 | b'B' as u16 => KeyCode::B,
-        b'c' as u16 | b'C' as u16 => KeyCode::C,
-        b'd' as u16 | b'D' as u16 => KeyCode::D,
-        b'e' as u16 | b'E' as u16 => KeyCode::E,
-        b'f' as u16 | b'F' as u16 => KeyCode::F,
-        b'g' as u16 | b'G' as u16 => KeyCode::G,
-        b'h' as u16 | b'H' as u16 => KeyCode::H,
-        b'i' as u16 | b'I' as u16 => KeyCode::I,
-        b'j' as u16 | b'J' as u16 => KeyCode::J,
-        b'k' as u16 | b'K' as u16 => KeyCode::K,
-        b'l' as u16 | b'L' as u16 => KeyCode::L,
-        b'm' as u16 | b'M' as u16 => KeyCode::M,
-        b'n' as u16 | b'N' as u16 => KeyCode::N,
-        b'o' as u16 | b'O' as u16 => KeyCode::O,
-        b'p' as u16 | b'P' as u16 => KeyCode::P,
-        b'q' as u16 | b'Q' as u16 => KeyCode::Q,
-        b'r' as u16 | b'R' as u16 => KeyCode::R,
-        b's' as u16 | b'S' as u16 => KeyCode::S,
-        b't' as u16 | b'T' as u16 => KeyCode::T,
-        b'u' as u16 | b'U' as u16 => KeyCode::U,
-        b'v' as u16 | b'V' as u16 => KeyCode::V,
-        b'w' as u16 | b'W' as u16 => KeyCode::W,
-        b'x' as u16 | b'X' as u16 => KeyCode::X,
-        b'y' as u16 | b'Y' as u16 => KeyCode::Y,
-        b'z' as u16 | b'Z' as u16 => KeyCode::Z,
+        // `b'x' as u16` is a cast expression, not a valid pattern, so match on
+        // the literal ASCII code points directly.
+        48 => KeyCode::Num0, // b'0'
+        49 => KeyCode::Num1, // b'1'
+        50 => KeyCode::Num2, // b'2'
+        51 => KeyCode::Num3, // b'3'
+        52 => KeyCode::Num4, // b'4'
+        53 => KeyCode::Num5, // b'5'
+        54 => KeyCode::Num6, // b'6'
+        55 => KeyCode::Num7, // b'7'
+        56 => KeyCode::Num8, // b'8'
+        57 => KeyCode::Num9, // b'9'
+        97 | 65 => KeyCode::A,  // b'a' | b'A'
+        98 | 66 => KeyCode::B,  // b'b' | b'B'
+        99 | 67 => KeyCode::C,  // b'c' | b'C'
+        100 | 68 => KeyCode::D, // b'd' | b'D'
+        101 | 69 => KeyCode::E, // b'e' | b'E'
+        102 | 70 => KeyCode::F, // b'f' | b'F'
+        103 | 71 => KeyCode::G, // b'g' | b'G'
+        104 | 72 => KeyCode::H, // b'h' | b'H'
+        105 | 73 => KeyCode::I, // b'i' | b'I'
+        106 | 74 => KeyCode::J, // b'j' | b'J'
+        107 | 75 => KeyCode::K, // b'k' | b'K'
+        108 | 76 => KeyCode::L, // b'l' | b'L'
+        109 | 77 => KeyCode::M, // b'm' | b'M'
+        110 | 78 => KeyCode::N, // b'n' | b'N'
+        111 | 79 => KeyCode::O, // b'o' | b'O'
+        112 | 80 => KeyCode::P, // b'p' | b'P'
+        113 | 81 => KeyCode::Q, // b'q' | b'Q'
+        114 | 82 => KeyCode::R, // b'r' | b'R'
+        115 | 83 => KeyCode::S, // b's' | b'S'
+        116 | 84 => KeyCode::T, // b't' | b'T'
+        117 | 85 => KeyCode::U, // b'u' | b'U'
+        118 | 86 => KeyCode::V, // b'v' | b'V'
+        119 | 87 => KeyCode::W, // b'w' | b'W'
+        120 | 88 => KeyCode::X, // b'x' | b'X'
+        121 | 89 => KeyCode::Y, // b'y' | b'Y'
+        122 | 90 => KeyCode::Z, // b'z' | b'Z'
         _ => KeyCode::Char((key as u8) as char),
     }
 }

@@ -17,7 +17,7 @@ impl AIPlayer {
         let ai_store = the_ai();let max_recruit = ai_store
             .read()
             .ok()
-            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
+            .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.max_recruit_distance))
             .filter(|d| *d > 0.0)
             .unwrap_or(99999.0);
 
@@ -203,7 +203,8 @@ impl AIPlayer {
 
         let mut desired = 0;
         let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
-            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+            {
+                let ai_data = ai_guard.get_ai_data();
                 for info in &ai_data.side_info {
                     if info.side == side {
                         desired = match self.difficulty {

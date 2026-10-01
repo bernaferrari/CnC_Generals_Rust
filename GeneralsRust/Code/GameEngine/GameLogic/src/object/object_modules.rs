@@ -1220,12 +1220,7 @@ fn template_wants_repulsor_helper(template: &dyn ThingTemplate) -> bool {
     crate::ai::the_ai()
         .read()
         .ok()
-        .and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
-                .map(|data| data.enable_repulsors)
-        })
+        .map(|ai| ai.get_ai_data().enable_repulsors)
         .unwrap_or(false)
 }
 

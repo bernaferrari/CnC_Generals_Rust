@@ -1507,7 +1507,10 @@ pub struct AI {
     pathfinder: Option<Arc<RwLock<Pathfinder>>>,
     pathfinding_system: Option<pathfinding_system::SharedPathfindingSystem>,
     group_list: Vec<Arc<RwLock<AiGroup>>>,
-    ai_data: Arc<RwLock<AiData>>,
+    /// C++ `AI::aiData` — plain owned member state, exactly like the C++
+    /// original: written only by `init()` (AIData.ini parse) and by explicit
+    /// `&mut self` maintenance, read freely through the AI's shared lock.
+    ai_data: AiData,
     next_group_id: u32,
     next_formation_id: FormationId,
 }
@@ -1522,7 +1525,7 @@ impl AI {
                 pathfinding_system::create_pathfinding_system_for_pathfinder(pathfinder),
             ),
             group_list: Vec::new(),
-            ai_data: Arc::new(RwLock::new(AiData::default())),
+            ai_data: AiData::default(),
             next_group_id: 0,
             next_formation_id: NO_FORMATION_ID,
         }
@@ -1533,12 +1536,10 @@ impl AI {
     pub fn init(&mut self) {
         self.next_group_id = 0;
 
-        if let Ok(mut ai_data) = self.ai_data.write() {
-            let ini_store = get_ai_data_store();
-            if let Ok(ini_store) = ini_store.read() {
-                if let Some(ini_data) = ini_store.get_active() {
-                    *ai_data = convert_ai_data(ini_data);
-                }
+        let ini_store = get_ai_data_store();
+        if let Ok(ini_store) = ini_store.read() {
+            if let Some(ini_data) = ini_store.get_active() {
+                self.ai_data = convert_ai_data(ini_data);
             }
         }
     }
@@ -1603,8 +1604,14 @@ impl AI {
         self.pathfinding_system.clone()
     }
 
-    pub fn get_ai_data(&self) -> Arc<RwLock<AiData>> {
-        self.ai_data.clone()
+    pub fn get_ai_data(&self) -> &AiData {
+        &self.ai_data
+    }
+
+    /// Mutate `ai_data`. Only tests and INI (re)load need this — gameplay
+    /// reads through the AI's shared lock, exactly like C++ `TheAI->getAiData()`.
+    pub fn update_ai_data(&mut self, f: impl FnOnce(&mut AiData)) {
+        f(&mut self.ai_data);
     }
 
     pub fn create_group(&mut self) -> Arc<RwLock<AiGroup>> {
@@ -1695,11 +1702,7 @@ impl AI {
         let mut best_enemy = None;
         let mut effective_priority = 0;
         let mut actual_priority = 0;
-        let attack_priority_modifier = self
-            .ai_data
-            .read()
-            .unwrap()
-            .attack_priority_distance_modifier;
+        let attack_priority_modifier = self.ai_data.attack_priority_distance_modifier;
 
         for target_id in candidates {
             if target_id == me {
@@ -1970,7 +1973,7 @@ impl AI {
             return Ok(None);
         }
 
-        let ai_data = self.ai_data.read().unwrap();
+        let ai_data = &self.ai_data;
         if !ai_data.enable_repulsors {
             return Ok(None);
         }
@@ -2061,7 +2064,7 @@ impl AI {
             return Err(AiError::InvalidObject);
         };
 
-        let ai_data = self.ai_data.read().unwrap();
+        let ai_data = &self.ai_data;
 
         if (factors_to_consider & vision_factors::OWNER_TYPE) != 0 {
             if player_is_human {
@@ -2110,10 +2113,10 @@ impl Snapshot for AI {
             }
         }
 
-        if let Ok(data) = self.ai_data.read() {
+        {
             let mut marker = String::from("MARKER:TAiData");
             let _ = xfer.xfer_ascii_string(&mut marker);
-            data.crc(xfer);
+            self.ai_data.crc(xfer);
         }
 
         for group in &self.group_list {
@@ -3033,12 +3036,7 @@ impl Pathfinder {
         let attack_uses_los = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.attack_uses_line_of_sight)
-            })
+            .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
             .unwrap_or(false);
         if !attack_uses_los {
             return false;

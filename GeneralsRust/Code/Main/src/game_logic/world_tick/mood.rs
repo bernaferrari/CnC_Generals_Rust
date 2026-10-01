@@ -369,9 +369,7 @@ impl GameLogic {
                         .filter(|v| *v > 0.0)
                         .or_else(|| {
                             gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                                ai.get_ai_data()
-                                    .read()
-                                    .ok()
+                                Some(ai.get_ai_data())
                                     .map(|d| d.attack_priority_distance_modifier)
                             })
                         })
@@ -738,9 +736,7 @@ impl GameLogic {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
+                Some(ai.get_ai_data())
                     .map(|d| d.attack_ignore_insignificant_buildings)
             })
             .unwrap_or(false)
@@ -756,9 +752,7 @@ impl GameLogic {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
+                Some(ai.get_ai_data())
                     .map(|d| d.attack_uses_line_of_sight)
             })
             .unwrap_or(true)

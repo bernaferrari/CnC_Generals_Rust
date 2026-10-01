@@ -38,9 +38,7 @@ impl<'a> CommandExecutor<'a> {
         let (min_d, req) = from_store
             .or_else(|| {
                 gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                    ai.get_ai_data()
-                        .read()
-                        .ok()
+                    Some(ai.get_ai_data())
                         .map(|d| (d.min_distance_for_group, d.distance_requires_group))
                 })
             })

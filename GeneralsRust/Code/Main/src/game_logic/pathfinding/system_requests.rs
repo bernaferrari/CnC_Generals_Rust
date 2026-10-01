@@ -1006,9 +1006,7 @@ impl PathfindingSystem {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
+                Some(ai.get_ai_data())
                     .map(|d| d.attack_uses_line_of_sight)
             })
             .unwrap_or(true)
@@ -1339,10 +1337,9 @@ impl PathfindingSystem {
         if self.grid.wall_height <= 0.0 {
             let ai_store = gamelogic::ai::the_ai();
             if let Ok(ai) = ai_store.read() {
-                if let Ok(data) = ai.get_ai_data().read() {
-                    if data.wall_height > 0.0 {
-                        self.grid.wall_height = data.wall_height;
-                    }
+                let data = ai.get_ai_data();
+                if data.wall_height > 0.0 {
+                    self.grid.wall_height = data.wall_height;
                 }
             }
         }

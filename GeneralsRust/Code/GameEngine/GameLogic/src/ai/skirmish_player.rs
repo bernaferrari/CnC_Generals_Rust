@@ -157,7 +157,8 @@ impl AISkirmishPlayer {
 
         let mut build_list = None;
         let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
-            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+            {
+                let ai_data = ai_guard.get_ai_data();
                 if let Some(entry) = ai_data
                     .side_build_lists
                     .iter()
@@ -289,7 +290,7 @@ impl AISkirmishPlayer {
         // C++ walks m_sideInfo until side match, then calls with that entry's
         // m_baseDefenseStructure1 (even if empty — template lookup fails fast).
         let ai_store = the_ai();let defense_name = ai_store.read().ok().and_then(|ai| {
-            ai.get_ai_data().read().ok().and_then(|data| {
+            Some(&*ai.get_ai_data()).and_then(|data| {
                 data.side_info
                     .iter()
                     .find(|info| info.side == player_side)
@@ -371,9 +372,7 @@ impl AISkirmishPlayer {
             }
             let mut defense_distance = self.base.get_base_radius();
             let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
-                if let Ok(ai_data) = ai_guard.get_ai_data().read() {
-                    defense_distance += ai_data.skirmish_base_defense_extra_distance;
-                }
+                defense_distance += ai_guard.get_ai_data().skirmish_base_defense_extra_distance;
             }
             offset.x *= defense_distance;
             offset.y *= defense_distance;
@@ -676,7 +675,7 @@ impl AISkirmishPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     if data.rebuild_delay_seconds > 0 {
                         data.rebuild_delay_seconds as u32
                     } else {
@@ -1009,7 +1008,7 @@ impl AISkirmishPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     (
                         if data.resources_poor > 0 {
                             data.resources_poor
@@ -1086,7 +1085,7 @@ impl AISkirmishPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     (
                         if data.resources_poor > 0 {
                             data.resources_poor
@@ -1386,7 +1385,8 @@ impl AISkirmishPlayer {
 
         let mut angle = 0.0f32;
         let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
-            if let Ok(ai_data) = ai_guard.get_ai_data().read() {
+            {
+                let ai_data = ai_guard.get_ai_data();
                 if ai_data.rotate_skirmish_bases {
                     angle = match grid_index {
                         0 => 0.0,
@@ -1748,11 +1748,9 @@ impl AISkirmishPlayer {
         let ai_store = the_ai();let (poor, wealthy) = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| (data.resources_poor, data.resources_wealthy))
+            .map(|ai| {
+                let data = ai.get_ai_data();
+                (data.resources_poor, data.resources_wealthy)
             })
             .unwrap_or((
                 crate::ai::ai_player::RESOURCES_POOR,

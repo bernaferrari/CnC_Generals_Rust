@@ -1063,9 +1063,7 @@ impl AIPlayer {
         }
         drop(store);
         gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
+            Some(ai.get_ai_data())
                 .map(|d| d.supply_center_safe_radius)
         })
     }

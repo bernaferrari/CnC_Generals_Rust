@@ -693,9 +693,7 @@ impl AIPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
+                Some(ai.get_ai_data())
                     .map(|d| d.rotate_skirmish_bases)
             })
             .unwrap_or(false)
@@ -713,7 +711,7 @@ impl AIPlayer {
                 gamelogic::ai::the_ai()
                     .read()
                     .ok()
-                    .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
+                    .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.max_recruit_distance))
             })
             .unwrap_or(0.0);
         if dist > 0.0 { dist } else { 99_999.0 }
@@ -749,8 +747,7 @@ impl AIPlayer {
         }
         let ai_store = gamelogic::ai::the_ai();
         let ai = ai_store.read().ok()?;
-        let data_arc = ai.get_ai_data();
-        let data = data_arc.read().ok()?;
+        let data = ai.get_ai_data();
         let entry = data
             .side_build_lists
             .iter()
@@ -877,8 +874,7 @@ impl AIPlayer {
         }
         let ai_store = gamelogic::ai::the_ai();
         let ai = ai_store.read().ok()?;
-        let ai_data = ai.get_ai_data();
-        let data = ai_data.read().ok()?;
+        let data = ai.get_ai_data();
         let info = data
             .side_info
             .iter()

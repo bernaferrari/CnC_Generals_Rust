@@ -63,18 +63,17 @@ fn relative_angle_2d(owner_pos: &Coord3D, owner_orientation: Real, target_pos: &
 
 /// Copy enemy-scan inputs, then query vision range.
 ///
-/// `AI::get_adjusted_vision_range_for_object` read-locks `AiData`. Holding that
-/// guard across the call deadlocks: `std::sync::RwLock` does not reenter.
+/// `AI::get_adjusted_vision_range_for_object` walks the AI internally, so the
+/// `AiData` copy is read out before that call instead of holding a guard.
 fn enemy_scan_setup(owner_id: ObjectID, factors: u32) -> Result<(u32, u32, Real), AiError> {
     let ai_store = the_ai();
     let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
     let (uses_los, ignore_insignificant, scan_rate) = {
         let data = ai.get_ai_data();
-        let guard = data.read().map_err(|_| AiError::LockFailed)?;
         (
-            guard.attack_uses_line_of_sight,
-            guard.attack_ignore_insignificant_buildings,
-            guard.guard_enemy_scan_rate,
+            data.attack_uses_line_of_sight,
+            data.attack_ignore_insignificant_buildings,
+            data.guard_enemy_scan_rate,
         )
     };
     let mut qualifiers = search_qualifiers::CAN_ATTACK | search_qualifiers::ATTACK_BUILDINGS;
@@ -1091,12 +1090,7 @@ impl AiStateMachine {
             let attack_uses_los = ai_store
                 .read()
                 .ok()
-                .and_then(|ai| {
-                    ai.get_ai_data()
-                        .read()
-                        .ok()
-                        .map(|data| data.attack_uses_line_of_sight)
-                })
+                .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
                 .unwrap_or(false);
 
             if attack_uses_los && !attacker_above && !target_above {
@@ -1150,12 +1144,7 @@ impl AiStateMachine {
             let attack_uses_los = ai_store
                 .read()
                 .ok()
-                .and_then(|ai| {
-                    ai.get_ai_data()
-                        .read()
-                        .ok()
-                        .map(|data| data.attack_uses_line_of_sight)
-                })
+                .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
                 .unwrap_or(false);
             if attack_uses_los && !attacker_above {
                 let ai_store = the_ai();

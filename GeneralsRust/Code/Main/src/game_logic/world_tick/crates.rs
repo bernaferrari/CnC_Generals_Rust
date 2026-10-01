@@ -521,9 +521,7 @@ impl GameLogic {
                 .filter(|v| *v > 0.0)
                 .or_else(|| {
                     gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-                        ai.get_ai_data()
-                            .read()
-                            .ok()
+                        Some(ai.get_ai_data())
                             .map(|d| d.attack_priority_distance_modifier)
                     })
                 })

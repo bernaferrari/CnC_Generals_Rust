@@ -533,12 +533,8 @@ impl DozerAIUpdate {
             false
         };
         if is_ai {
-            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
-                range *= ai
-                    .get_ai_data()
-                    .read()
-                    .map(|d| d.ai_dozer_bored_radius_modifier)
-                    .unwrap_or(1.0);
+            if let Ok(ai) = the_ai().read() {
+                range *= ai.get_ai_data().ai_dozer_bored_radius_modifier;
             }
         }
         range

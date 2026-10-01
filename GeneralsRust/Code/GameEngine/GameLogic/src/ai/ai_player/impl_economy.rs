@@ -705,7 +705,7 @@ impl AIPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     if data.rebuild_delay_seconds > 0 {
                         data.rebuild_delay_seconds as u32
                     } else {
@@ -729,7 +729,7 @@ impl AIPlayer {
         let ai_store = the_ai();let structure_seconds = ai_store
             .read()
             .ok()
-            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.structure_seconds))
+            .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.structure_seconds))
             .unwrap_or(self.structure_seconds);
         self.structure_seconds = structure_seconds;
         let mut timer = (structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
@@ -761,7 +761,7 @@ impl AIPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     (
                         if data.resources_poor > 0 {
                             data.resources_poor
@@ -800,7 +800,7 @@ impl AIPlayer {
             .read()
             .ok()
             .and_then(|ai| {
-                ai.get_ai_data().read().ok().map(|data| {
+                Some(&*ai.get_ai_data()).map(|data| {
                     (
                         if data.resources_poor > 0 {
                             data.resources_poor

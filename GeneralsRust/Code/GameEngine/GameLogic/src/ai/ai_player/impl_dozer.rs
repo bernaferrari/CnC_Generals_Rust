@@ -1083,7 +1083,7 @@ impl AIPlayer {
         let ai_store = the_ai();let max_recruit = ai_store
             .read()
             .ok()
-            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.max_recruit_distance))
+            .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.max_recruit_distance))
             .unwrap_or(99999.0);
 
         let mut order = WorkOrder::new(thing_name.clone());

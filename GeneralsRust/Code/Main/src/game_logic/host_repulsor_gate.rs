@@ -60,10 +60,8 @@ pub fn apply_resolved_to_leftover_and_gate() -> bool {
     let enabled = from_aidata();
     set_enabled(enabled);
     let ai_store = gamelogic::ai::the_ai();
-    if let Ok(ai) = ai_store.write() {
-        if let Ok(mut data) = ai.get_ai_data().write() {
-            data.enable_repulsors = enabled;
-        }
+    if let Ok(mut ai) = ai_store.write() {
+        ai.update_ai_data(|data| data.enable_repulsors = enabled);
     }
     enabled
 }

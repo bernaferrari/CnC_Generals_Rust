@@ -25,12 +25,9 @@ impl AIPlayer {
         // Prefer live AIData; fall back to retail Default/AIData.ini constants when unloaded.
         let ai_store = the_ai();
         let (team_seconds, structure_seconds) = if let Ok(ai) = ai_store.read() {
-            if let Ok(data) = ai.get_ai_data().read() {
-                // C++ overwrites the 10 initializer with AIData, including 0.
-                (data.team_seconds, data.structure_seconds)
-            } else {
-                (DEFAULT_TEAM_SECONDS, DEFAULT_STRUCTURE_SECONDS)
-            }
+            // C++ overwrites the 10 initializer with AIData, including 0.
+            let data = ai.get_ai_data();
+            (data.team_seconds, data.structure_seconds)
         } else {
             (DEFAULT_TEAM_SECONDS, DEFAULT_STRUCTURE_SECONDS)
         };
@@ -461,12 +458,10 @@ impl AIPlayer {
         };
 
         let ai_store = the_ai();
-        let aidata_r = ai_store.read().ok().and_then(|ai| {
-            ai.get_ai_data()
-                .read()
-                .ok()
-                .map(|d| d.supply_center_safe_radius)
-        });
+        let aidata_r = ai_store
+            .read()
+            .ok()
+            .map(|ai| ai.get_ai_data().supply_center_safe_radius);
         let radius = leftover_is_location_safe_radius(
             aidata_r,
             thing

@@ -257,6 +257,22 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// Implements this state's behavior, decides when to change state
     fn update(&mut self) -> StateReturnType;
 
+    /// Step for a machine that its AI owns outright (no `Arc<Mutex<_>>`).
+    /// C++ states reach their owner through the machine pointer
+    /// (`TurretAI.h:75` — `((TurretStateMachine*)getMachine())->getTurretAI()`).
+    /// An owned machine inverts that arrow, so the owner is loaned to the step
+    /// and the state downcasts it. Default keeps [`Self::update`].
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        let _ = owner;
+        self.update()
+    }
+
+    /// Enter variant of [`Self::update_with_owner`]. Default keeps [`Self::on_enter`].
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        let _ = owner;
+        self.on_enter()
+    }
+
     /// AI-machine step. Dock and turret keep [`update`]. Default ignores the borrow.
     fn update_with_ai(
         &mut self,
@@ -739,6 +755,18 @@ impl StateMachine {
         }
     }
 
+    /// Placeholder for an AI-owned machine before its states are defined and
+    /// while it is taken out of its owner for one step. An empty machine never
+    /// steps: `update` would return `Failure`, so callers gate on [`is_empty`].
+    pub fn empty() -> Self {
+        Self::new_with_owner_id(crate::common::INVALID_ID, "empty-machine")
+    }
+
+    /// True until [`define_state`](Self::define_state) first runs.
+    pub fn is_empty(&self) -> bool {
+        self.state_map.is_empty()
+    }
+
     fn internal_clear(&mut self) {
         self.goal_object_id = crate::common::INVALID_ID;
         self.goal_squad = None;
@@ -798,15 +826,22 @@ impl StateMachine {
 
     /// Run one step of the machine
     pub fn update(&mut self) -> StateReturnType {
+        self.update_with_owner(&mut ())
+    }
+
+    /// Same step, with the owner AI loaned to the current state (see
+    /// [`StateImplementation::update_with_owner`]).
+    pub fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
         let now = self.get_current_frame();
         if self.sleep_till != 0 && now < self.sleep_till {
             if self.current_state_id.is_none() {
                 return StateReturnType::Failure;
             }
 
-            return self.check_for_sleep_transitions(StateReturnType::Sleep(
-                self.sleep_till.wrapping_sub(now),
-            ));
+            return self.check_for_sleep_transitions(
+                StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
+                owner,
+            );
         }
 
         // Not sleeping anymore.
@@ -824,15 +859,15 @@ impl StateMachine {
                 let Some(state) = self.state_map.get_mut(&state_id) else {
                     return StateReturnType::Failure;
                 };
-                if let Some(owner) = step_owner {
-                    state.note_step_owner(owner);
+                if let Some(step_owner) = step_owner {
+                    state.note_step_owner(step_owner);
                 }
                 state.bind_goal_object_id(goal_object_id);
                 state.bind_goal_position(goal_position);
                 state.bind_goal_squad(goal_squad);
                 state.bind_goal_polygon(goal_polygon);
                 state.bind_goal_waypoint(goal_waypoint);
-                state.update()
+                state.update_with_owner(owner)
             };
             self.apply_pending_victim_goal();
             if self.current_state_id.is_none() {
@@ -846,12 +881,13 @@ impl StateMachine {
 
             if let StateReturnType::Sleep(frames) = status {
                 self.sleep_till = now.wrapping_add(frames);
-                return self.check_for_sleep_transitions(StateReturnType::Sleep(
-                    self.sleep_till.wrapping_sub(now),
-                ));
+                return self.check_for_sleep_transitions(
+                    StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
+                    owner,
+                );
             }
 
-            return self.check_for_transitions(status);
+            return self.check_for_transitions(status, owner);
         }
 
         StateReturnType::Failure
@@ -871,6 +907,7 @@ impl StateMachine {
             return self.check_for_sleep_transitions_ai(
                 StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
                 Some(ai),
+                &mut (),
             );
         }
 
@@ -938,10 +975,11 @@ impl StateMachine {
                 return self.check_for_sleep_transitions_ai(
                     StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
                     Some(ai),
+                    &mut (),
                 );
             }
 
-            return self.check_for_transitions_ai(status, Some(ai));
+            return self.check_for_transitions_ai(status, Some(ai), &mut ());
         }
 
         StateReturnType::Failure
@@ -1032,6 +1070,20 @@ impl StateMachine {
         self.internal_set_state(new_state_id)
     }
 
+    /// [`set_current_state`](Self::set_current_state) with the owner AI loaned to
+    /// the entering state (see [`StateImplementation::on_enter_with_owner`]).
+    pub fn set_current_state_with_owner(
+        &mut self,
+        new_state_id: StateId,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        if self.locked {
+            return StateReturnType::Continue;
+        }
+
+        self.set_state_entering_with_owner(new_state_id, owner)
+    }
+
     /// Internal state transition used by state-driven transitions even when locked.
     pub fn internal_set_state(&mut self, new_state_id: StateId) -> StateReturnType {
         self.set_state_entering(new_state_id, None)
@@ -1040,8 +1092,27 @@ impl StateMachine {
     /// `ai` is the update borrow. `None` keeps [`on_enter`].
     pub fn set_state_entering(
         &mut self,
+        new_state_id: StateId,
+        ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+    ) -> StateReturnType {
+        self.set_state_entering_impl(new_state_id, ai, &mut ())
+    }
+
+    /// Enter `new_state_id` with the owner AI loaned to the entering state (see
+    /// [`StateImplementation::on_enter_with_owner`]).
+    pub fn set_state_entering_with_owner(
+        &mut self,
+        new_state_id: StateId,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        self.set_state_entering_impl(new_state_id, None, owner)
+    }
+
+    fn set_state_entering_impl(
+        &mut self,
         mut new_state_id: StateId,
         mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         self.sleep_till = 0;
 
@@ -1133,7 +1204,7 @@ impl StateMachine {
                 if let Some(ref mut ai_ref) = ai {
                     new_state.on_enter_with_waypoint(&mut **ai_ref, goal_id, goal_pos, waypoint)
                 } else {
-                    new_state.on_enter()
+                    new_state.on_enter_with_owner(owner)
                 }
             };
             if let Some(id) = self.current_state_id {
@@ -1170,23 +1241,29 @@ impl StateMachine {
                 return self.check_for_sleep_transitions_ai(
                     StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
                     ai,
+                    owner,
                 );
             }
 
-            return self.check_for_transitions_ai(status, ai);
+            return self.check_for_transitions_ai(status, ai, owner);
         }
 
         StateReturnType::Continue
     }
 
-    fn check_for_transitions(&mut self, status: StateReturnType) -> StateReturnType {
-        self.check_for_transitions_ai(status, None)
+    fn check_for_transitions(
+        &mut self,
+        status: StateReturnType,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        self.check_for_transitions_ai(status, None, owner)
     }
 
     fn check_for_transitions_ai(
         &mut self,
         status: StateReturnType,
         mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         if status.is_sleep() {
             return StateReturnType::Failure;
@@ -1196,7 +1273,7 @@ impl StateMachine {
             self.transition_depth = self.transition_depth.saturating_sub(1);
             return StateReturnType::Failure;
         }
-        let result = self.check_for_transitions_inner(status, ai);
+        let result = self.check_for_transitions_inner(status, ai, owner);
         self.transition_depth = self.transition_depth.saturating_sub(1);
         result
     }
@@ -1205,6 +1282,7 @@ impl StateMachine {
         &mut self,
         status: StateReturnType,
         mut ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
@@ -1214,7 +1292,7 @@ impl StateMachine {
         };
 
         match status {
-            StateReturnType::Continue => self.check_condition_transitions_ai(&meta, ai),
+            StateReturnType::Continue => self.check_condition_transitions_ai(&meta, ai, owner),
             _ if status.is_success() => match meta.success_state_id {
                 EXIT_MACHINE_WITH_SUCCESS => {
                     let _ = self.internal_set_state(MACHINE_DONE_STATE_ID);
@@ -1225,7 +1303,7 @@ impl StateMachine {
                     StateReturnType::Failure
                 }
                 INVALID_STATE_ID => status,
-                next => self.set_state_entering(next, ai),
+                next => self.set_state_entering_impl(next, ai, owner),
             },
             _ if status.is_failure() => match meta.failure_state_id {
                 EXIT_MACHINE_WITH_SUCCESS => {
@@ -1237,20 +1315,25 @@ impl StateMachine {
                     StateReturnType::Failure
                 }
                 INVALID_STATE_ID => status,
-                next => self.set_state_entering(next, ai),
+                next => self.set_state_entering_impl(next, ai, owner),
             },
             other => other,
         }
     }
 
-    fn check_for_sleep_transitions(&mut self, status: StateReturnType) -> StateReturnType {
-        self.check_for_sleep_transitions_ai(status, None)
+    fn check_for_sleep_transitions(
+        &mut self,
+        status: StateReturnType,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        self.check_for_sleep_transitions_ai(status, None, owner)
     }
 
     fn check_for_sleep_transitions_ai(
         &mut self,
         status: StateReturnType,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         if !matches!(status, StateReturnType::Sleep(_)) {
             return status;
@@ -1260,7 +1343,7 @@ impl StateMachine {
             self.sleep_transition_depth = self.sleep_transition_depth.saturating_sub(1);
             return StateReturnType::Failure;
         }
-        let result = self.check_for_sleep_transitions_inner(status, ai);
+        let result = self.check_for_sleep_transitions_inner(status, ai, owner);
         self.sleep_transition_depth = self.sleep_transition_depth.saturating_sub(1);
         result
     }
@@ -1269,6 +1352,7 @@ impl StateMachine {
         &mut self,
         status: StateReturnType,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
@@ -1276,17 +1360,22 @@ impl StateMachine {
         let Some(meta) = self.state_meta.get(&state_id).cloned() else {
             return status;
         };
-        self.check_condition_transitions_or_sleep(&meta, status, ai)
+        self.check_condition_transitions_or_sleep(&meta, status, ai, owner)
     }
 
-    fn check_condition_transitions(&mut self, meta: &StateMeta) -> StateReturnType {
-        self.check_condition_transitions_ai(meta, None)
+    fn check_condition_transitions(
+        &mut self,
+        meta: &StateMeta,
+        owner: &mut dyn std::any::Any,
+    ) -> StateReturnType {
+        self.check_condition_transitions_ai(meta, None, owner)
     }
 
     fn check_condition_transitions_ai(
         &mut self,
         meta: &StateMeta,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
@@ -1299,7 +1388,7 @@ impl StateMachine {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
-                    next => self.set_state_entering(next, ai),
+                    next => self.set_state_entering_impl(next, ai, owner),
                 };
             }
         }
@@ -1311,6 +1400,7 @@ impl StateMachine {
         meta: &StateMeta,
         status: StateReturnType,
         ai: Option<&mut dyn crate::modules::AIUpdateInterface>,
+        owner: &mut dyn std::any::Any,
     ) -> StateReturnType {
         let Some(state_id) = self.current_state_id else {
             return StateReturnType::Failure;
@@ -1324,7 +1414,7 @@ impl StateMachine {
                 return match transition.to_state_id {
                     EXIT_MACHINE_WITH_SUCCESS => StateReturnType::Success,
                     EXIT_MACHINE_WITH_FAILURE => StateReturnType::Failure,
-                    next => self.set_state_entering(next, ai),
+                    next => self.set_state_entering_impl(next, ai, owner),
                 };
             }
         }
