@@ -89,35 +89,23 @@ impl AnthraxBombPower {
         if !self.data.bomb_template.is_empty() {
             if let Some(template) = TheThingFactory::find_template(self.data.bomb_template.as_str())
             {
-                let list = player_list()
-                    .read()
-                    .map_err(|_| "PlayerList lock poisoned".to_string())?;
-                let player = list
-                    .get_player(player_id as Int)
-                    .cloned()
-                    .ok_or_else(|| format!("Invalid player id {}", player_id))?;
-                let team_arc = player
-                    .read()
-                    .map_err(|_| "Player lock poisoned".to_string())?
-                    .get_default_team()
-                    .ok_or_else(|| format!("Player {} has no default team", player_id))?;
+                let team_id = crate::player::with_player(player_id as crate::player::PlayerIndex, |player| {
+                    player.get_default_team_id()
+                })
+                .ok_or_else(|| format!("Invalid player id {}", player_id))?
+                .ok_or_else(|| format!("Player {} has no default team", player_id))?;
 
-                let team_guard = team_arc
-                    .read()
-                    .map_err(|_| "Team lock poisoned".to_string())?;
                 let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
-                let bomb = factory
-                    .new_object(template.clone(), &*team_guard)
-                    .map_err(|e| e.to_string())?;
+                let bomb_id = crate::team::factory_access::with_team(team_id, |team| {
+                    factory.new_object(template.clone(), team)
+                })
+                .ok_or_else(|| "Team lock poisoned".to_string())?
+                .map_err(|e| e.to_string())?;
 
-                bomb.write()
-                    .map_err(|_| "Anthrax bomb lock poisoned".to_string())?
-                    .set_position(&spawn_pos)?;
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(bomb_id, |bomb| bomb.set_position(&spawn_pos))
+                    .ok_or_else(|| "Anthrax bomb lock poisoned".to_string())??;
 
-                let bomb_id = bomb
-                    .read()
-                    .map_err(|_| "Anthrax bomb lock poisoned".to_string())?
-                    .get_id();
                 self.bomber_id = Some(bomb_id);
             } else {
                 log::warn!(

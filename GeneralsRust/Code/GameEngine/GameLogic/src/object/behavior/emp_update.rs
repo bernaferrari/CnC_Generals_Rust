@@ -350,7 +350,7 @@ impl EMPUpdate {
             .downcast_ref::<EMPUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        Self::new_with_data(object, Arc::new(specific_data.clone()))
+        Self::new_with_data(object_id, Arc::new(specific_data.clone()))
     }
 
     pub fn new_with_data(
@@ -364,9 +364,9 @@ impl EMPUpdate {
         let target_scale =
             GameLogicRandomValueReal(module_data.target_scale_min, module_data.target_scale_max);
 
-        if let Ok(mut guard) = object.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
             let _ = guard.set_orientation(GameLogicRandomValueReal(-PI, PI));
-        }
+        });
 
         let current_scale = module_data.start_scale;
         Ok(Self {
@@ -381,25 +381,34 @@ impl EMPUpdate {
     }
 
     fn do_disable_attack(&self, source: ObjectID) {
-        // Wave 333: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
         }
 
         let data = &self.module_data;
-        let source_guard = match source.read() {
-            Ok(guard) => guard,
-            Err(_) => return,
+        let Some((
+            source_id,
+            source_pos,
+            source_player_id,
+            producer_id,
+            source_team,
+            source_defector,
+        )) = OBJECT_REGISTRY.with_object(source, |source_guard| {
+            (
+                source_guard.get_id(),
+                *source_guard.get_position(),
+                source_guard.get_controlling_player_id(),
+                source_guard.get_producer_id(),
+                source_guard.get_team_id(),
+                source_guard.is_undetected_defector(),
+            )
+        }) else {
+            return;
         };
         let radius = data.effect_radius;
         if radius <= 0.0 {
             return;
         }
-
-        let source_id = source_guard.get_id();
-        let source_pos = *source_guard.get_position();
-        let source_player_id = source_guard.get_controlling_player_id();
-        let producer_id = source_guard.get_producer_id();
 
         let mut intended_victim_id = None;
         let mut only_effect_airborne = false;
@@ -476,7 +485,24 @@ impl EMPUpdate {
                         return false;
                     }
                 } else if (data.reject_mask & WeaponAffectsMask::ALLIES as Int) != 0 {
-                    let relationship = victim.relationship_to(&source_guard);
+                    let relationship = match (victim.get_team_id(), source_team) {
+                        (Some(my_id), Some(other_id)) => {
+                            if victim.is_undetected_defector() {
+                                Relationship::Neutral
+                            } else if source_defector || my_id == other_id {
+                                Relationship::Allies
+                            } else {
+                                crate::team::with_team(my_id, |my_team| {
+                                    crate::team::with_team(other_id, |other_team| {
+                                        my_team.get_relationship(other_team)
+                                    })
+                                })
+                                .flatten()
+                                .unwrap_or(Relationship::Neutral)
+                            }
+                        }
+                        _ => Relationship::Neutral,
+                    };
                     if matches!(relationship, Relationship::Allies) {
                         return false;
                     }
@@ -561,50 +587,49 @@ impl EMPUpdate {
 
 impl UpdateModuleInterface for EMPUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Wave 333: empty dual-world → None sleep.
         if dual_world_registry_unavailable() {
             return UpdateSleepTime::None;
         }
-
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+        {
             return UpdateSleepTime::None;
-        };
+        }
 
         let now = TheGameLogic::get_frame();
-
-        if let Ok(obj) = obj_arc.read() {
-            self.current_scale += (self.target_scale - self.current_scale) * 0.05;
+        self.current_scale += (self.target_scale - self.current_scale) * 0.05;
+        let scale = self.current_scale;
+        let start_color = self.module_data.start_color;
+        let end_color = self.module_data.end_color;
+        let tint_env_fade_frames = self.tint_env_fade_frames;
+        let tint_env_play_frame = self.tint_env_play_frame;
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
             if let Some(drawable) = obj.get_drawable() {
                 if let Ok(mut dr) = drawable.write() {
-                    dr.set_instance_scale(self.current_scale);
-                    if now < self.tint_env_play_frame {
-                        dr.color_tint(Some(saturate_rgb(self.module_data.start_color, 2.0)));
+                    dr.set_instance_scale(scale);
+                    if now < tint_env_play_frame {
+                        dr.color_tint(Some(saturate_rgb(start_color, 2.0)));
                     }
-                    if now == self.tint_env_play_frame {
+                    if now == tint_env_play_frame {
                         dr.color_flash(
-                            Some(saturate_rgb(self.module_data.end_color, 5.0)),
+                            Some(saturate_rgb(end_color, 5.0)),
                             9999,
-                            self.tint_env_fade_frames,
+                            tint_env_fade_frames,
                             true,
                         );
                     }
                 }
             }
-        }
+        });
 
-        if now == self.tint_env_play_frame {
-            self.do_disable_attack(&obj_arc);
+        if now == tint_env_play_frame {
+            self.do_disable_attack(self.object_id);
         }
 
         if now >= self.die_frame {
-            if let Ok(mut obj) = obj_arc.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                 obj.kill(None, None);
-            }
+            });
         }
 
         UpdateSleepTime::None

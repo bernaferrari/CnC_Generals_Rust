@@ -126,10 +126,9 @@ impl BaikonurLaunchPower {
         .ok_or_else(|| "Team lock poisoned".to_string())?
         .map_err(|e| e.to_string())?;
 
-        detonation
-            .write()
-            .map_err(|_| "Detonation object lock poisoned".to_string())?
-            .set_position(&self.target_position)?;
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(detonation, |obj| obj.set_position(&self.target_position))
+            .ok_or_else(|| "Detonation object lock poisoned".to_string())??;
 
         Ok(())
     }

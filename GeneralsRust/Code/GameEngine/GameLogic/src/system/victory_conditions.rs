@@ -463,10 +463,7 @@ impl EliminationDetector {
         let mut runtime_census: HashMap<PlayerIndex, (usize, usize, bool)> = HashMap::new();
 
         if let Ok(runtime_players) = crate::player::player_list().read() {
-            for runtime_player_arc in runtime_players.iter() {
-                let Ok(runtime_player) = runtime_player_arc.read() else {
-                    continue;
-                };
+            for runtime_player in runtime_players.iter() {
 
                 let index = runtime_player.get_player_index();
                 if index < 0 {

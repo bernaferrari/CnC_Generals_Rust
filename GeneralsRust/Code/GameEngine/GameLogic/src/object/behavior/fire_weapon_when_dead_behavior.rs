@@ -275,60 +275,36 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
             return Ok(());
         }
 
-        let object = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-
-        let obj_read = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return Ok(()),
-        };
-
-        // Check if die is applicable. Matches C++ lines 68-70
-        if !data.die_mux_data.is_die_applicable(&*obj_read, damage_info) {
-            return Ok(());
-        }
-
-        // Never apply until built (don't fire on construction cancel). Matches C++ lines 73-75
-        if obj_read.test_status(ObjectStatusTypes::UnderConstruction) {
-            return Ok(());
-        }
-
-        // Check upgrade conflicts. Matches C++ lines 78-88
         let (_, conflicting_mask) = self.get_upgrade_activation_masks();
-
-        if obj_read.completed_upgrades().intersects(conflicting_mask) {
-            return Ok(());
-        }
-
-        if let Some(player) = obj_read.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard
-                    .get_completed_upgrade_mask()
-                    .intersects(conflicting_mask)
-                {
-                    return Ok(());
+        let Some((obj_id, obj_position)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
+                if !data.die_mux_data.is_die_applicable(obj_read, damage_info) {
+                    return None;
                 }
-            }
-        }
+                if obj_read.test_status(ObjectStatusTypes::UnderConstruction) {
+                    return None;
+                }
+                if obj_read.completed_upgrades().intersects(conflicting_mask) {
+                    return None;
+                }
+                if let Some(player) = obj_read.get_controlling_player() {
+                    if let Some(true) = crate::player::with_player(player, |player_guard| {
+                        player_guard
+                            .get_completed_upgrade_mask()
+                            .intersects(conflicting_mask)
+                    }) {
+                        return None;
+                    }
+                }
+                Some((obj_read.get_id(), *obj_read.get_position()))
+            })
+            .flatten()
+        else {
+            return Ok(());
+        };
 
-        // Fire death weapon. Matches C++ lines 90-94
-        // C++: if (d->m_deathWeapon) {
-        //        TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition());
-        //      }
+
         if let Some(death_weapon_tmpl) = &data.death_weapon {
-            let obj_position = *obj_read.get_position();
-            let obj_id = obj_read.get_id();
-            drop(obj_read); // Release read lock before firing
-
-            // Fire the death weapon using weapon store singleton
-            // Matches C++ line 93: TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition());
             crate::weapon::with_weapon_store_mut(|store| {
                 store.create_and_fire_temp_weapon(
                     death_weapon_tmpl,
@@ -351,19 +327,12 @@ impl UpgradeModuleInterface for FireWeaponWhenDeadBehavior {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return false;
-        };
-        let Ok(mut obj_guard) = object_arc.write() else {
-            return false;
-        };
         let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
-        self.upgrade_mux.attempt_upgrade(mask, &mut obj_guard)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |obj_guard| {
+                self.upgrade_mux.attempt_upgrade(mask, obj_guard)
+            })
+            .unwrap_or(false)
     }
 
     fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {

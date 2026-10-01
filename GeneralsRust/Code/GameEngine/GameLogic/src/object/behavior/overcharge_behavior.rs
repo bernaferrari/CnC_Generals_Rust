@@ -209,8 +209,13 @@ impl OverchargeBehavior {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        if TheGameLogic::find_object_by_id(id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(id)
+        {
+            Some(id)
+        } else {
+            None
+        }
     }
 
     pub fn is_overcharge_active(&self) -> Bool {

@@ -641,7 +641,6 @@ impl SpawnBehavior {
             return Err("Object not set".into());
         }
         crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .ok_or_else(|| "Object not found".into())
     }
 
@@ -656,7 +655,6 @@ impl SpawnBehavior {
         }
 
         let spawned = crate::helpers::TheGameLogic::find_object_by_id(spawned_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(spawned_id))
             .ok_or("spawned object unavailable")?;
         let modules = {
             let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
@@ -968,7 +966,6 @@ impl SpawnBehavior {
 
                 for obj_id in player_object_ids {
                     let Some(player_obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
                     else {
                         continue;
                     };

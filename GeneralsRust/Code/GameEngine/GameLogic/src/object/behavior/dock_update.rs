@@ -427,13 +427,10 @@ impl DockUpdate {
             });
             return;
         }
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world =
-                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.enter_position), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = with_dock_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&self.enter_position), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        });
     }
 
     pub fn get_dock_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D) {
@@ -447,13 +444,10 @@ impl DockUpdate {
             });
             return;
         }
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world =
-                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.dock_position), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = with_dock_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&self.dock_position), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        });
     }
 
     pub fn get_exit_position(&mut self, obj_id: ObjectID, goal_pos: &mut Coord3D) {
@@ -467,13 +461,10 @@ impl DockUpdate {
             });
             return;
         }
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world =
-                    owner_guard.convert_bone_pos_to_world_pos(Some(&self.exit_position), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = with_dock_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&self.exit_position), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        });
     }
 
     pub fn on_enter_reached(&mut self, obj_id: ObjectID) {
@@ -482,11 +473,9 @@ impl DockUpdate {
         }
         let clear = MODELCONDITION_DOCKING_ENDING;
         let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
+        let _ = with_dock_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+        });
         let _ = with_dock_object_mut(obj_id, |obj_guard| {
             obj_guard.clear_and_set_model_condition_flags(clear, set)
         });
@@ -506,11 +495,9 @@ impl DockUpdate {
         }
         let clear = MODELCONDITION_DOCKING_BEGINNING;
         let set = MODELCONDITION_DOCKING_ACTIVE;
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
+        let _ = with_dock_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+        });
         let _ = with_dock_object_mut(obj_id, |obj_guard| {
             obj_guard.clear_and_set_model_condition_flags(clear, set)
         });
@@ -522,11 +509,9 @@ impl DockUpdate {
         }
         let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
         let set = MODELCONDITION_DOCKING_ENDING;
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
+        let _ = with_dock_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+        });
         let _ = with_dock_object_mut(obj_id, |obj_guard| {
             obj_guard.clear_and_set_model_condition_flags(clear, set)
         });
@@ -571,11 +556,9 @@ impl DockUpdate {
                 | MODELCONDITION_DOCKING_BEGINNING
                 | MODELCONDITION_DOCKING_ACTIVE
                 | MODELCONDITION_DOCKING;
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    let _ = owner_guard.clear_model_condition_flags(clear);
-                }
-            }
+            let _ = with_dock_object_mut(self.owner_id, |owner_guard| {
+                let _ = owner_guard.clear_model_condition_flags(clear);
+            });
             let _ = with_dock_object_mut(obj_id, |obj_guard| obj_guard.clear_model_condition_flags(clear));
         }
     }
@@ -589,27 +572,23 @@ impl DockUpdate {
                     break;
                 }
             }
-        } else if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_kind_of(KindOf::SupplySource) {
-                    if let Some(docker) = TheGameLogic::find_object_by_id(self.active_docker) {
-                        if let Ok(mut docker_guard) = docker.write() {
-                            if docker_guard.is_kind_of(KindOf::Dozer)
-                                && docker_guard.is_kind_of(KindOf::Harvester)
-                            {
-                                if let Some(drawable) = docker_guard.get_drawable() {
-                                    let flags = drawable.get_model_condition_flags();
-                                    if flags.contains(MODELCONDITION_DOCKING_BEGINNING) {
-                                        let _ = docker_guard.clear_model_condition_flags(
-                                            ModelConditionFlags::MOVING,
-                                        );
-                                    }
-                                }
-                            }
+        } else if with_dock_object(self.owner_id, |owner| owner.is_kind_of(KindOf::SupplySource))
+            == Some(true)
+        {
+            let _ = with_dock_object_mut(self.active_docker, |docker_guard| {
+                if docker_guard.is_kind_of(KindOf::Dozer)
+                    && docker_guard.is_kind_of(KindOf::Harvester)
+                {
+                    if let Some(drawable) = docker_guard.get_drawable() {
+                        let flags = drawable.get_model_condition_flags();
+                        if flags.contains(MODELCONDITION_DOCKING_BEGINNING) {
+                            let _ = docker_guard.clear_model_condition_flags(
+                                ModelConditionFlags::MOVING,
+                            );
                         }
                     }
                 }
-            }
+            });
         }
     }
 }

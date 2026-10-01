@@ -124,6 +124,30 @@ pub struct LeafletDropBehavior {
     fx_fired: Bool,
 }
 
+/// `victim.relationship_to(source)` using fields copied off the source.
+/// The object registry checks out one id at a time, so the source must not
+/// still be borrowed when the victim is checked out.
+fn victim_relationship_to_source(
+    victim: &GameObject,
+    source_team: Option<UnsignedInt>,
+    source_undetected_defector: bool,
+) -> Relationship {
+    let (Some(my_id), Some(other_id)) = (victim.get_team_id(), source_team) else {
+        return Relationship::Neutral;
+    };
+    if victim.is_undetected_defector() {
+        return Relationship::Neutral;
+    }
+    if source_undetected_defector || my_id == other_id {
+        return Relationship::Allies;
+    }
+    crate::team::with_team(my_id, |my_team| {
+        crate::team::with_team(other_id, |other_team| my_team.get_relationship(other_team))
+    })
+    .flatten()
+    .unwrap_or(Relationship::Neutral)
+}
+
 impl LeafletDropBehavior {
     pub fn new(
         object_id: ObjectID,
@@ -143,7 +167,7 @@ impl LeafletDropBehavior {
         })
     }
 
-    fn do_disable_attack(&self, obj: &GameObject) {
+    fn do_disable_attack(&self) {
         // Wave 393: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -157,21 +181,38 @@ impl LeafletDropBehavior {
         if radius <= 0.0 {
             return;
         }
-        let candidates = partition.get_objects_in_range_boundary_3d(obj.get_position(), radius);
+
+        // Copy source fields before any victim id is checked out.
+        let Some((source_id, source_pos, source_team, source_defector)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |source| {
+                (
+                    source.get_id(),
+                    *source.get_position(),
+                    source.get_team_id(),
+                    source.is_undetected_defector(),
+                )
+            })
+        else {
+            return;
+        };
+
+        let candidates = partition.get_objects_in_range_boundary_3d(&source_pos, radius);
+        let duration = self.module_data.disabled_duration;
 
         for id in candidates {
-            if id == obj.get_id() {
+            if id == source_id {
                 continue;
             }
 
-            let duration = self.module_data.disabled_duration;
             let _ = OBJECT_REGISTRY.with_object_mut(id, |target| {
                 if !(target.is_kind_of(crate::common::KindOf::Infantry)
                     || target.is_kind_of(crate::common::KindOf::Vehicle))
                 {
                     return;
                 }
-                if target.relationship_to(obj) != Relationship::Enemies {
+                if victim_relationship_to_source(target, source_team, source_defector)
+                    != Relationship::Enemies
+                {
                     return;
                 }
                 target.set_disabled_until(DisabledType::DisabledEmp, now.wrapping_add(duration));
@@ -187,23 +228,16 @@ impl UpdateModuleInterface for LeafletDropBehavior {
             return UpdateSleepTime::Forever;
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID || !OBJECT_REGISTRY.contains(self.object_id)
+        {
             return UpdateSleepTime::None;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return UpdateSleepTime::None;
-        };
+        }
 
         if !self.fx_fired {
             if let Some(manager) = TheParticleSystemManager::get() {
                 if let Some(name) = self.module_data.leaflet_fx_particle_system.as_ref() {
                     if let Some(id) = manager.create_particle_system(Some(name.as_ref())) {
-                        manager.attach_particle_system_to_object(id, obj.get_id());
+                        manager.attach_particle_system_to_object(id, self.object_id);
                     }
                 }
             }
@@ -215,7 +249,7 @@ impl UpdateModuleInterface for LeafletDropBehavior {
             return UpdateSleepTime::Forever;
         }
 
-        self.do_disable_attack(&obj);
+        self.do_disable_attack();
         UpdateSleepTime::None
     }
 }
@@ -230,15 +264,9 @@ impl DieModuleInterface for LeafletDropBehavior {
             return Ok(());
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
-                self.do_disable_attack(&obj);
-            }
+        if self.object_id != crate::common::INVALID_ID && OBJECT_REGISTRY.contains(self.object_id)
+        {
+            self.do_disable_attack();
         }
         Ok(())
     }

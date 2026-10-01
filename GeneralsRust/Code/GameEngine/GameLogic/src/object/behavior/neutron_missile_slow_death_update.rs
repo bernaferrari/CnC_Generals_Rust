@@ -523,41 +523,37 @@ impl UpdateModuleInterface for NeutronMissileSlowDeathUpdate {
             return UpdateSleepTime::None;
         }
 
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if self.object_id == crate::common::INVALID_ID {
+            return UpdateSleepTime::Forever;
+        }
+        let Some(sleep) = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            self.ensure_activation(obj);
+
+            let curr_frame = TheGameLogic::get_frame();
+            let elapsed = (curr_frame - self.activation_frame) as Real;
+
+            for i in 0..MAX_NEUTRON_BLASTS {
+                let blast = self.module_data.blast_info[i];
+                if !blast.enabled {
+                    continue;
+                }
+
+                if !self.completed_blasts[i] && elapsed > blast.delay {
+                    self.do_blast(&blast, obj);
+                    self.completed_blasts[i] = true;
+                }
+
+                if !self.completed_scorch_blasts[i] && elapsed > blast.scorch_delay {
+                    self.do_scorch_blast(&blast, obj);
+                    self.completed_scorch_blasts[i] = true;
+                }
+            }
+
+            UpdateSleepTime::None
         }) else {
             return UpdateSleepTime::Forever;
         };
-        let Ok(obj) = object_arc.read() else {
-            return UpdateSleepTime::None;
-        };
-
-        self.ensure_activation(&obj);
-
-        let curr_frame = TheGameLogic::get_frame();
-        let elapsed = (curr_frame - self.activation_frame) as Real;
-
-        for i in 0..MAX_NEUTRON_BLASTS {
-            let blast = self.module_data.blast_info[i];
-            if !blast.enabled {
-                continue;
-            }
-
-            if !self.completed_blasts[i] && elapsed > blast.delay {
-                self.do_blast(&blast, &obj);
-                self.completed_blasts[i] = true;
-            }
-
-            if !self.completed_scorch_blasts[i] && elapsed > blast.scorch_delay {
-                self.do_scorch_blast(&blast, &obj);
-                self.completed_scorch_blasts[i] = true;
-            }
-        }
-
-        UpdateSleepTime::None
+        sleep
     }
 }
 

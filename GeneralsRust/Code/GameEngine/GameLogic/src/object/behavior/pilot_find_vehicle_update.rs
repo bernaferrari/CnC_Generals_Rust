@@ -139,111 +139,101 @@ impl PilotFindVehicleUpdate {
 
 impl UpdateModuleInterface for PilotFindVehicleUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return UpdateSleepTime::Forever;
-        };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return UpdateSleepTime::Forever;
-        };
-
-        if owner_guard.is_destroyed() || owner_guard.get_container_id().is_some() {
+        if self.object_id == crate::common::INVALID_ID {
             return UpdateSleepTime::Forever;
         }
-
-        let is_human = owner_guard
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_type()))
-            == Some(PlayerType::Human);
-        if is_human {
-            return UpdateSleepTime::Forever;
-        }
-
-        let Some(ai) = owner_guard.get_ai() else {
-            return UpdateSleepTime::Forever;
-        };
-        if let Ok(ai_guard) = ai.lock() {
-            if !ai_guard.is_idle() {
-                return UpdateSleepTime::from_u32(self.module_data.scan_rate);
-            }
-        }
-
-        let owner_id = owner_guard.get_id();
-        let owner_pos = *owner_guard.get_position();
-
-        let object_ids = ThePartitionManager::get()
-            .map(|mgr| mgr.get_objects_in_range(&owner_pos, self.module_data.scan_range))
-            .unwrap_or_default();
-
-        let mut best_target = None;
-        let mut best_dist_sqr = Real::MAX;
-
-        for obj_id in object_ids {
-            if obj_id == owner_id {
-                continue;
+        let scan_rate = self.module_data.scan_rate;
+        let scan_range = self.module_data.scan_range;
+        let min_health = self.module_data.min_health;
+        let sleep = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+            if owner_guard.is_destroyed() || owner_guard.get_container_id().is_some() {
+                return UpdateSleepTime::Forever;
             }
 
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                continue;
+            let is_human = owner_guard
+                .get_controlling_player()
+                .and_then(|player| player.read().ok().map(|guard| guard.get_player_type()))
+                == Some(PlayerType::Human);
+            if is_human {
+                return UpdateSleepTime::Forever;
+            }
+
+            let Some(ai) = owner_guard.get_ai() else {
+                return UpdateSleepTime::Forever;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            if obj_guard.is_destroyed() || !obj_guard.is_kind_of(KindOf::Vehicle) {
-                continue;
+            if let Ok(ai_guard) = ai.lock() {
+                if !ai_guard.is_idle() {
+                    return UpdateSleepTime::from_u32(scan_rate);
+                }
             }
 
-            if owner_guard.get_relationship_to(&obj_guard) != ObjectRelationship::Ally {
-                continue;
+            let owner_id = owner_guard.get_id();
+            let owner_pos = *owner_guard.get_position();
+
+            let object_ids = ThePartitionManager::get()
+                .map(|mgr| mgr.get_objects_in_range(&owner_pos, scan_range))
+                .unwrap_or_default();
+
+            let mut best_target = None;
+            let mut best_dist_sqr = Real::MAX;
+
+            for obj_id in object_ids {
+                if obj_id == owner_id {
+                    continue;
+                }
+
+                let candidate = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || !obj_guard.is_kind_of(KindOf::Vehicle) {
+                        return None;
+                    }
+                    if owner_guard.get_relationship_to(obj_guard) != ObjectRelationship::Ally {
+                        return None;
+                    }
+                    let Some(body) = obj_guard.get_body_module() else {
+                        return None;
+                    };
+                    let Ok(body_guard) = body.lock() else {
+                        return None;
+                    };
+                    if body_guard.get_health() < body_guard.get_max_health() * min_health {
+                        return None;
+                    }
+                    drop(body_guard);
+                    let Some(contain_arc) = obj_guard.get_contain() else {
+                        return None;
+                    };
+                    let Ok(contain_guard) = contain_arc.lock() else {
+                        return None;
+                    };
+                    if contain_guard.get_contained_count() >= contain_guard.get_max_capacity() {
+                        return None;
+                    }
+                    let pos = obj_guard.get_position();
+                    let dx = pos.x - owner_pos.x;
+                    let dy = pos.y - owner_pos.y;
+                    Some(dx * dx + dy * dy)
+                });
+                if let Some(Some(dist_sqr)) = candidate {
+                    if dist_sqr < best_dist_sqr {
+                        best_dist_sqr = dist_sqr;
+                        best_target = Some(obj_id);
+                    }
+                }
             }
 
-            let Some(body) = obj_guard.get_body_module() else {
-                continue;
-            };
-            let Ok(body_guard) = body.lock() else {
-                continue;
-            };
-            if body_guard.get_health() < body_guard.get_max_health() * self.module_data.min_health {
-                continue;
-            }
-            drop(body_guard);
-
-            let Some(contain_arc) = obj_guard.get_contain() else {
-                continue;
-            };
-            let Ok(contain_guard) = contain_arc.lock() else {
-                continue;
-            };
-            if contain_guard.get_contained_count() >= contain_guard.get_max_capacity() {
-                continue;
+            if let Some(target_id) = best_target {
+                ai.ai_enter(target_id, CommandSourceType::FromAi);
+                self.did_move_to_base = false;
+            } else if !self.did_move_to_base {
+                if let Some(base_center) = Self::owner_base_center(owner_guard) {
+                    ai.ai_move_to_position(&base_center, false, CommandSourceType::FromAi);
+                    self.did_move_to_base = true;
+                }
             }
 
-            let pos = obj_guard.get_position();
-            let dx = pos.x - owner_pos.x;
-            let dy = pos.y - owner_pos.y;
-            let dist_sqr = dx * dx + dy * dy;
-            if dist_sqr < best_dist_sqr {
-                best_dist_sqr = dist_sqr;
-                best_target = Some(obj_id);
-            }
-        }
-
-        if let Some(target_id) = best_target {
-            ai.ai_enter(target_id, CommandSourceType::FromAi);
-            self.did_move_to_base = false;
-        } else if !self.did_move_to_base {
-            if let Some(base_center) = Self::owner_base_center(&owner_guard) {
-                ai.ai_move_to_position(&base_center, false, CommandSourceType::FromAi);
-                self.did_move_to_base = true;
-            }
-        }
-
-        UpdateSleepTime::from_u32(self.module_data.scan_rate)
+            UpdateSleepTime::from_u32(scan_rate)
+        });
+        sleep.unwrap_or(UpdateSleepTime::Forever)
     }
 }
 

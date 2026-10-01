@@ -164,13 +164,10 @@ impl AIPlayer {
         let list = player_list().read().map_err(|_| AiError::LockFailed)?;
         let mut best: Option<(f32, Coord3D)> = None;
 
-        for (idx, player_arc) in list.iter().enumerate() {
+        for (idx, player_guard) in list.iter().enumerate() {
             if idx as u32 == self.player_id {
                 continue;
             }
-            let Ok(player_guard) = player_arc.read() else {
-                continue;
-            };
             if player_guard.get_player_type() == PlayerType::Neutral {
                 continue;
             }
@@ -275,8 +272,7 @@ impl AIPlayer {
     /// Updates resource tracking, income rates, and economic pressure
     pub(super) fn analyze_economic_situation(&mut self) -> Result<(), AiError> {
         let current_resources = if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(player_guard) = player_arc.read() {
+            if let Some(player_guard) = list.get_player(self.player_id as i32) {
                     let money = player_guard.get_money().get_money();
                     let power = player_guard.get_energy().get_power() as i32;
                     self.economic_state
@@ -299,13 +295,6 @@ impl AIPlayer {
                         0.5
                     };
                     money
-                } else {
-                    self.economic_state
-                        .current_resources
-                        .get("money")
-                        .copied()
-                        .unwrap_or(0)
-                }
             } else {
                 self.economic_state
                     .current_resources
@@ -375,16 +364,9 @@ impl AIPlayer {
         self.economic_state.supply_shortage = active_harvesters < desired_harvesters;
 
         // Check for power shortage (scan for power plants vs power usage)
-        self.economic_state.power_shortage = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_energy().is_low_power())
-            })
+        self.economic_state.power_shortage = crate::player::with_player(self.player_id as i32, |guard| {
+            guard.get_energy().is_low_power()
+        })
             .unwrap_or(false);
 
         Ok(())
@@ -397,18 +379,13 @@ impl AIPlayer {
             return 0;
         }
 
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-        else {
-            return 0;
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) = crate::player::with_player(self.player_id as i32, |player_guard| {
+            player_guard.get_all_objects()
+        }) else {
             return 0;
         };
         let mut count = 0;
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let is_supply = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     obj_guard.is_kind_of(KindOf::SupplySource)
@@ -433,19 +410,14 @@ impl AIPlayer {
             return 0.0;
         }
 
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-        else {
-            return 1.0;
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) = crate::player::with_player(self.player_id as i32, |player_guard| {
+            player_guard.get_all_objects()
+        }) else {
             return 1.0;
         };
         let mut total = 0.0;
         let mut count = 0.0;
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let Some(pct) = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     if !obj_guard.is_kind_of(KindOf::Structure)

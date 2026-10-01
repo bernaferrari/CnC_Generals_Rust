@@ -8,17 +8,14 @@ use crate::common::xfer::XferExt;
 use crate::common::{
     Bool, CommandSourceType, Coord3D, ModuleData, ObjectID, ObjectStatusMaskType, UnsignedInt,
 };
-use crate::helpers::TheGameLogic;
-use crate::modules::{
-    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
-};
+use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
+use crate::object::INVALID_ID as OBJECT_INVALID_ID;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::HijackerControlInterface;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Wave 288: host-only path has no dual-world factory objects.
 #[inline]
@@ -114,7 +111,7 @@ impl HijackerUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object_id,
+            object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             target_id: OBJECT_INVALID_ID,
@@ -144,6 +141,52 @@ impl HijackerUpdate {
     pub fn set_is_in_vehicle(&mut self, is_in_vehicle: Bool) {
         self.is_in_vehicle = is_in_vehicle;
     }
+
+    /// Vehicle is gone. Put the hijacker back in the world at the last eject pos.
+    fn restore_hijacker_after_vehicle_death(&mut self) {
+        let hijacker_id = self.object_id;
+        let eject_pos = self.eject_pos;
+        if hijacker_id == OBJECT_INVALID_ID {
+            return;
+        }
+
+        // Read the container id first. `with_object_mut` checks that object out,
+        // so the container release must not run while the hijacker is borrowed.
+        let container_id = OBJECT_REGISTRY
+            .with_object(hijacker_id, |hijacker| hijacker.get_container_id())
+            .flatten();
+        if let Some(container_id) = container_id {
+            let _ = OBJECT_REGISTRY.with_object_mut(container_id, |container| {
+                if let Some(contain) = container.get_contain_mut() {
+                    let _ = contain.release_object(hijacker_id);
+                }
+            });
+        }
+
+        let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+            let _ = hijacker.set_position(&eject_pos);
+            if let Some(drawable) = hijacker.get_drawable() {
+                if let Ok(mut drawable_guard) = drawable.write() {
+                    let _ = drawable_guard.set_drawable_hidden(false);
+                }
+            }
+            hijacker.set_status(
+                ObjectStatusMaskType::NO_COLLISIONS
+                    | ObjectStatusMaskType::MASKED
+                    | ObjectStatusMaskType::UNSELECTABLE,
+                false,
+            );
+            hijacker.handle_partition_cell_maintenance();
+            if let Some(ai) = hijacker.get_ai_mut() {
+                // C++ AIUpdateInterface::aiIdle(FromAI) issued after eject.
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Idle,
+                    CommandSourceType::FromAi,
+                );
+                let _ = ai.execute_command(&params);
+            }
+        });
+    }
 }
 
 impl UpdateModuleInterface for HijackerUpdate {
@@ -158,111 +201,35 @@ impl UpdateModuleInterface for HijackerUpdate {
         }
 
         if self.is_in_vehicle {
-            if let Some(target_arc) = TheGameLogic::find_object_by_id(self.target_id) {
-                if let Ok(target_guard) = target_arc.read() {
-                    let target_pos = *target_guard.get_position();
-                    let target_tracker = target_guard.get_experience_tracker();
-                    let target_level = target_guard.get_veterancy_level();
-                    self.was_target_airborne = target_guard.is_significantly_above_terrain();
-                    self.eject_pos = target_pos;
-                    // Release the target read guard before any write phase below:
-                    // the veterancy merge takes `target_arc.write()`, and re-entrant
-                    // locking on the same RwLock would deadlock.
-                    drop(target_guard);
-                    if let Some(hijacker_arc) = (if self.object_id == crate::common::INVALID_ID {
-                        None
-                    } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
-                        )
-                    }) {
-                        if let Ok(mut hijacker_guard) = hijacker_arc.write() {
-                            let hijacker_tracker = hijacker_guard.get_experience_tracker();
-                            let hijacker_level = hijacker_guard.get_veterancy_level();
-                            let _ = hijacker_guard.set_position(&target_pos);
-                            drop(hijacker_guard);
+            let target_id = self.target_id;
+            // Snapshot the vehicle, then drop the checkout before touching the
+            // hijacker. Same-id re-entry returns None for the duration of a callback.
+            let target_snapshot = OBJECT_REGISTRY.with_object(target_id, |target| {
+                (
+                    *target.get_position(),
+                    target.get_experience_tracker().is_some(),
+                    target.get_veterancy_level(),
+                    target.is_significantly_above_terrain(),
+                )
+            });
 
-                            if let (Some(_target_tracker), Some(_hijacker_tracker)) =
-                                (target_tracker, hijacker_tracker)
-                            {
-                                let highest_level = target_level.max(hijacker_level);
-                                // C++ HijackerUpdate.cpp:74-77 sets BOTH trackers to the
-                                // highest level via `setVeterancyLevel(highestLevel)`
-                                // (ExperienceTracker.h:30 default `provideFeedback = TRUE`),
-                                // and the C++ tracker fires Object::onVeterancyLevelChanged
-                                // itself (ExperienceTracker.cpp:82-95) — weapon-set swap,
-                                // body notify, promotion anim + sound included.
-                                if Arc::ptr_eq(&target_arc, &hijacker_arc) {
-                                    if let Ok(mut target_guard) = target_arc.write() {
-                                        target_guard.set_veterancy_level_with_side_effects(
-                                            highest_level,
-                                            true,
-                                        );
-                                    }
-                                } else {
-                                    if let Ok(mut hijacker_guard) = hijacker_arc.write() {
-                                        hijacker_guard.set_veterancy_level_with_side_effects(
-                                            highest_level,
-                                            true,
-                                        );
-                                    }
-                                    if let Ok(mut target_guard) = target_arc.write() {
-                                        target_guard.set_veterancy_level_with_side_effects(
-                                            highest_level,
-                                            true,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
+            if let Some((target_pos, target_has_tracker, target_level, airborne)) = target_snapshot
+            {
+                self.was_target_airborne = airborne;
+                self.eject_pos = target_pos;
+
+                let hijacker_id = self.object_id;
+                if hijacker_id != OBJECT_INVALID_ID {
+                    Self::track_hijacked_vehicle(
+                        hijacker_id,
+                        target_id,
+                        &target_pos,
+                        target_has_tracker,
+                        target_level,
+                    );
                 }
             } else {
-                if let Some(hijacker_arc) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                }) {
-                    if let Ok(hijacker_guard) = hijacker_arc.read() {
-                        if let Some(container_id) = hijacker_guard.get_container_id() {
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-                                container_id,
-                                |container_guard| {
-                                    if let Some(contain) = container_guard.get_contain_mut() {
-                                        let _ = contain
-                                            .release_object(hijacker_guard.get_id());
-                                    }
-                                },
-                            );
-                        }
-                    }
-                    if let Ok(mut hijacker_guard) = hijacker_arc.write() {
-                        let _ = hijacker_guard.set_position(&self.eject_pos);
-                        if let Some(drawable) = hijacker_guard.get_drawable() {
-                            if let Ok(mut drawable_guard) = drawable.write() {
-                                let _ = drawable_guard.set_drawable_hidden(false);
-                            }
-                        }
-                        hijacker_guard.set_status(
-                            ObjectStatusMaskType::NO_COLLISIONS
-                                | ObjectStatusMaskType::MASKED
-                                | ObjectStatusMaskType::UNSELECTABLE,
-                            false,
-                        );
-                        hijacker_guard.handle_partition_cell_maintenance();
-                        if let Some(ai) = hijacker_guard.get_ai_mut() {
-                            // C++ AIUpdateInterface::aiIdle(FromAI) issued after eject.
-                            let params = crate::ai::AiCommandParams::new(
-                                crate::ai::AiCommandType::Idle,
-                                CommandSourceType::FromAi,
-                            );
-                            let _ = ai.execute_command(&params);
-                        }
-                    }
-                }
-
+                self.restore_hijacker_after_vehicle_death();
                 self.target_id = OBJECT_INVALID_ID;
                 self.is_in_vehicle = false;
                 self.update = false;
@@ -275,6 +242,55 @@ impl UpdateModuleInterface for HijackerUpdate {
 
         self.was_target_airborne = false;
         UpdateSleepTime::None
+    }
+}
+
+impl HijackerUpdate {
+    fn track_hijacked_vehicle(
+        hijacker_id: ObjectID,
+        target_id: ObjectID,
+        target_pos: &Coord3D,
+        target_has_tracker: bool,
+        target_level: crate::common::VeterancyLevel,
+    ) {
+        if hijacker_id == target_id {
+            let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |obj| {
+                let _ = obj.set_position(target_pos);
+                if target_has_tracker && obj.get_experience_tracker().is_some() {
+                    let highest_level = target_level.max(obj.get_veterancy_level());
+                    obj.set_veterancy_level_with_side_effects(highest_level, true);
+                }
+            });
+            return;
+        }
+
+        let Some((hijacker_has_tracker, hijacker_level)) =
+            OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+                let hijacker_has_tracker = hijacker.get_experience_tracker().is_some();
+                let hijacker_level = hijacker.get_veterancy_level();
+                let _ = hijacker.set_position(target_pos);
+                (hijacker_has_tracker, hijacker_level)
+            })
+        else {
+            return;
+        };
+
+        if target_has_tracker && hijacker_has_tracker {
+            let highest_level = target_level.max(hijacker_level);
+            // C++ HijackerUpdate.cpp:74-77 sets BOTH trackers to the
+            // highest level via `setVeterancyLevel(highestLevel)`
+            // (ExperienceTracker.h:30 default `provideFeedback = TRUE`),
+            // and the C++ tracker fires Object::onVeterancyLevelChanged
+            // itself (ExperienceTracker.cpp:82-95) — weapon-set swap,
+            // body notify, promotion anim + sound included. Same-level
+            // sets are a no-op there (`m_currentLevel != newLevel`).
+            let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+                hijacker.set_veterancy_level_with_side_effects(highest_level, true);
+            });
+            let _ = OBJECT_REGISTRY.with_object_mut(target_id, |target| {
+                target.set_veterancy_level_with_side_effects(highest_level, true);
+            });
+        }
     }
 }
 
@@ -343,41 +359,60 @@ impl HijackerUpdateFactory {
 mod tests {
     use super::*;
     use crate::common::{ObjectStatusTypes, VeterancyLevel};
-    use crate::experience::ExperienceTracker;
-    use crate::object::registry::OBJECT_REGISTRY;
-    use std::sync::Mutex;
+    use crate::object::registry::test_isolation_lock;
+    use crate::object::Object as GameObject;
     use crate::weapon::WeaponSetType;
 
     fn module_data() -> Arc<dyn ModuleData> {
         Arc::new(HijackerUpdateModuleData::default())
     }
 
+    fn register_tracked(id: ObjectID, level: VeterancyLevel) {
+        let mut object = GameObject::new_test(id, 100.0);
+        object.attach_experience_tracker_for_test(true);
+        if let Some(tracker) = object.get_experience_tracker() {
+            if let Ok(mut guard) = tracker.lock() {
+                guard.set_veterancy_level(level);
+            }
+        }
+        OBJECT_REGISTRY.register_object(id, object);
+    }
+
+    fn veterancy_of(id: ObjectID) -> VeterancyLevel {
+        OBJECT_REGISTRY
+            .with_object(id, |object| object.get_veterancy_level())
+            .expect("tracked object")
+    }
+
     #[test]
     fn inactive_hijacker_update_runs_again_next_frame_like_cpp() {
-        let hijacker = Arc::new(RwLock::new(GameObject::new_test(9301, 100.0)));
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new(9301, module_data()).unwrap();
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
     }
 
     #[test]
     fn hijacker_in_vehicle_tracks_target_position_each_frame() {
-        let hijacker = Arc::new(RwLock::new(GameObject::new_test(9302, 100.0)));
-        let target = Arc::new(RwLock::new(GameObject::new_test(9303, 100.0)));
+        let _lock = test_isolation_lock().lock().unwrap();
+        let hijacker = GameObject::new_test(9302, 100.0);
+        let mut target = GameObject::new_test(9303, 100.0);
         let target_pos = Coord3D {
             x: 35.0,
             y: -12.0,
             z: 4.0,
         };
-        target.write().unwrap().set_position(&target_pos).unwrap();
-        OBJECT_REGISTRY.register_object(9302, &hijacker);
-        OBJECT_REGISTRY.register_object(9303, &target);
+        target.set_position(&target_pos).unwrap();
+        OBJECT_REGISTRY.register_object(9302, hijacker);
+        OBJECT_REGISTRY.register_object(9303, target);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new(9302, module_data()).unwrap();
         update.configure_hijacked_vehicle(9303);
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
-        assert_eq!(*hijacker.read().unwrap().get_position(), target_pos);
+        let pos = OBJECT_REGISTRY
+            .with_object(9302, |hijacker| *hijacker.get_position())
+            .expect("hijacker registered");
+        assert_eq!(pos, target_pos);
         assert_eq!(update.eject_pos, target_pos);
         assert_eq!(update.target_id, 9303);
         assert!(update.update);
@@ -389,35 +424,16 @@ mod tests {
 
     #[test]
     fn hijacker_in_vehicle_keeps_highest_veterancy_with_target() {
-        let hijacker = Arc::new(RwLock::new(GameObject::new_test(9304, 100.0)));
-        let target = Arc::new(RwLock::new(GameObject::new_test(9305, 100.0)));
-        let hijacker_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9304)));
-        let target_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9305)));
-        hijacker_tracker
-            .lock()
-            .unwrap()
-            .set_veterancy_level(VeterancyLevel::Veteran);
-        target_tracker
-            .lock()
-            .unwrap()
-            .set_veterancy_level(VeterancyLevel::Elite);
-        hijacker.write().unwrap().experience_tracker = Some(Arc::clone(&hijacker_tracker));
-        target.write().unwrap().experience_tracker = Some(Arc::clone(&target_tracker));
-        OBJECT_REGISTRY.register_object(9304, &hijacker);
-        OBJECT_REGISTRY.register_object(9305, &target);
+        let _lock = test_isolation_lock().lock().unwrap();
+        register_tracked(9304, VeterancyLevel::Veteran);
+        register_tracked(9305, VeterancyLevel::Elite);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new(9304, module_data()).unwrap();
         update.configure_hijacked_vehicle(9305);
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
-        assert_eq!(
-            hijacker_tracker.lock().unwrap().get_veterancy_level(),
-            VeterancyLevel::Elite
-        );
-        assert_eq!(
-            target_tracker.lock().unwrap().get_veterancy_level(),
-            VeterancyLevel::Elite
-        );
+        assert_eq!(veterancy_of(9304), VeterancyLevel::Elite);
+        assert_eq!(veterancy_of(9305), VeterancyLevel::Elite);
 
         OBJECT_REGISTRY.unregister_object(9304);
         OBJECT_REGISTRY.unregister_object(9305);
@@ -426,33 +442,33 @@ mod tests {
     #[test]
     fn hijacker_merge_fires_cpp_on_veterancy_level_changed_side_effects() {
         // C++ HijackerUpdate.cpp:74-77 setVeterancyLevel(highestLevel) fires
-        // Object::onVeterancyLevelChanged from inside the tracker
-        // (ExperienceTracker.cpp:82-95) — the Elite weapon-set flag must land
-        // on BOTH hijacker and vehicle, not just the tracker level.
-        let hijacker = Arc::new(RwLock::new(GameObject::new_test(9309, 100.0)));
-        let target = Arc::new(RwLock::new(GameObject::new_test(9310, 100.0)));
-        let hijacker_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9309)));
-        let target_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9310)));
-        target_tracker
-            .lock()
-            .unwrap()
-            .set_veterancy_level(VeterancyLevel::Elite);
-        hijacker.write().unwrap().experience_tracker = Some(Arc::clone(&hijacker_tracker));
-        target.write().unwrap().experience_tracker = Some(Arc::clone(&target_tracker));
-        OBJECT_REGISTRY.register_object(9309, &hijacker);
-        OBJECT_REGISTRY.register_object(9310, &target);
+        // Object::onVeterancyLevelChanged only when the level actually changes
+        // (ExperienceTracker.cpp:87-93). The hijacker promotes Regular → Elite
+        // and must pick up the Elite weapon set. The vehicle is already Elite,
+        // so the same-level set does not re-fire side effects.
+        let _lock = test_isolation_lock().lock().unwrap();
+        register_tracked(9309, VeterancyLevel::Regular);
+        register_tracked(9310, VeterancyLevel::Elite);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new(9309, module_data()).unwrap();
         update.configure_hijacked_vehicle(9310);
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
 
+        let hijacker_elite = OBJECT_REGISTRY
+            .with_object(9309, |hijacker| {
+                hijacker.test_weapon_set_flag(WeaponSetType::Elite)
+            })
+            .expect("hijacker registered");
         assert!(
-            hijacker.read().unwrap().test_weapon_set_flag(WeaponSetType::Elite),
+            hijacker_elite,
             "hijacker weapon set must follow the merged Elite level"
         );
+        let target_elite = OBJECT_REGISTRY
+            .with_object(9310, |target| target.test_weapon_set_flag(WeaponSetType::Elite))
+            .expect("vehicle registered");
         assert!(
-            target.read().unwrap().test_weapon_set_flag(WeaponSetType::Elite),
-            "vehicle weapon set must follow the merged Elite level"
+            !target_elite,
+            "already-Elite vehicle must not re-fire onVeterancyLevelChanged"
         );
 
         OBJECT_REGISTRY.unregister_object(9309);
@@ -461,28 +477,26 @@ mod tests {
 
     #[test]
     fn missing_target_restores_hijacker_object_state() {
-        let hijacker = Arc::new(RwLock::new(GameObject::new_test(9306, 100.0)));
+        let _lock = test_isolation_lock().lock().unwrap();
+        let mut hijacker = GameObject::new_test(9306, 100.0);
         let eject_pos = Coord3D {
             x: 8.0,
             y: 9.0,
             z: 10.0,
         };
-        {
-            let mut hijacker_guard = hijacker.write().unwrap();
-            hijacker_guard
-                .set_position(&Coord3D {
-                    x: 1.0,
-                    y: 2.0,
-                    z: 3.0,
-                })
-                .unwrap();
-            hijacker_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
-            hijacker_guard.set_status(ObjectStatusMaskType::MASKED, true);
-            hijacker_guard.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
-        }
-        OBJECT_REGISTRY.register_object(9306, &hijacker);
+        hijacker
+            .set_position(&Coord3D {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            })
+            .unwrap();
+        hijacker.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
+        hijacker.set_status(ObjectStatusMaskType::MASKED, true);
+        hijacker.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
+        OBJECT_REGISTRY.register_object(9306, hijacker);
 
-        let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
+        let mut update = HijackerUpdate::new(9306, module_data()).unwrap();
         update.configure_hijacked_vehicle(99_999);
         update.eject_pos = eject_pos;
         update.was_target_airborne = true;
@@ -493,11 +507,20 @@ mod tests {
         assert!(!update.is_in_vehicle);
         assert!(!update.was_target_airborne);
 
-        let hijacker_guard = hijacker.read().unwrap();
-        assert_eq!(*hijacker_guard.get_position(), eject_pos);
-        assert!(!hijacker_guard.test_status(ObjectStatusTypes::NoCollisions));
-        assert!(!hijacker_guard.test_status(ObjectStatusTypes::Masked));
-        assert!(!hijacker_guard.test_status(ObjectStatusTypes::Unselectable));
+        let (pos, no_collisions, masked, unselectable) = OBJECT_REGISTRY
+            .with_object(9306, |hijacker| {
+                (
+                    *hijacker.get_position(),
+                    hijacker.test_status(ObjectStatusTypes::NoCollisions),
+                    hijacker.test_status(ObjectStatusTypes::Masked),
+                    hijacker.test_status(ObjectStatusTypes::Unselectable),
+                )
+            })
+            .expect("hijacker registered");
+        assert_eq!(pos, eject_pos);
+        assert!(!no_collisions);
+        assert!(!masked);
+        assert!(!unselectable);
 
         OBJECT_REGISTRY.unregister_object(9306);
     }

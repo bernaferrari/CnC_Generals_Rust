@@ -285,10 +285,9 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         let Some(player) = primary_object.get_controlling_player() else {
             return None;
         };
-        let Some(owner_arc) = player.read().ok().and_then(|p| p.get_default_team()) else {
-            return None;
-        };
-        let Ok(owner) = owner_arc.read() else {
+        let Some(owner_team) =
+            crate::player::with_player(player, |p| p.get_default_team_id()).flatten()
+        else {
             return None;
         };
 
@@ -326,8 +325,9 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                     return None;
                 };
 
-                let Ok(transport) = ctx.thing_factory.new_object(transport_template, &*owner)
-                else {
+                let Some(Ok(transport)) = crate::team::factory_access::with_team(owner_team, |owner| {
+                    ctx.thing_factory.new_object(transport_template, owner)
+                }) else {
                     return None;
                 };
 

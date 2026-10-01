@@ -1259,17 +1259,11 @@ impl DamageModuleInterface for TransitionDamageFX {
             return Ok(());
         }
 
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+        {
             return Ok(());
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return Ok(());
-        };
+        }
 
         self.clear_particle_systems_for_state(old_state);
 
@@ -1277,22 +1271,22 @@ impl DamageModuleInterface for TransitionDamageFX {
             return Ok(());
         }
 
-        let last_damage = object_guard
-            .get_body_module()
-            .and_then(|body| body.get_last_damage_info());
-
         let damage_source_pos = Self::resolve_damage_source_pos(damage_info);
 
-        let drawable = object_guard.get_drawable();
-        let drawable_guard = drawable.as_ref().and_then(|d| d.read().ok());
-
-        self.play_fx_for_state(
-            &object_guard,
-            drawable_guard.as_deref(),
-            damage_source_pos,
-            last_damage,
-            new_state,
-        );
+        let played = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            let last_damage = object_guard
+                .get_body_module()
+                .and_then(|body| body.get_last_damage_info());
+            let drawable = object_guard.get_drawable();
+            let drawable_guard = drawable.as_ref().and_then(|d| d.read().ok());
+            self.play_fx_for_state(
+                object_guard,
+                drawable_guard.as_deref(),
+                damage_source_pos,
+                last_damage,
+                new_state,
+            );
+        });
 
         Ok(())
     }

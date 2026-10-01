@@ -540,22 +540,15 @@ impl FireWeaponWhenDamagedBehavior {
             return;
         }
 
-        if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj_guard) = obj.read() {
-                let now = crate::helpers::TheGameLogic::get_frame();
-                let wake_frame = match sleep_time {
-                    UpdateSleepTime::None => now.saturating_add(1),
-                    UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
-                    UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
-                };
-                obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
-            }
-        }
+        let now = crate::helpers::TheGameLogic::get_frame();
+        let wake_frame = match sleep_time {
+            UpdateSleepTime::None => now.saturating_add(1),
+            UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
+            UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
+        };
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+            obj_guard.reschedule_named_update("FireWeaponWhenDamagedBehavior", wake_frame);
+        });
     }
 
     fn ensure_weapon_for_xfer(
@@ -620,31 +613,19 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
             return Ok(());
         }
 
-        let object = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(obj) => obj,
-            None => return Ok(()),
-        };
-
-        let obj_read = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return Ok(()),
-        };
-
-        let Some(body_damage_type) = obj_read
-            .get_body_module()
-            .map(|body| body.get_damage_state())
+        let Some((body_damage_type, obj_id, position)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
+                let body_damage_type = obj_read.get_body_module().map(|body| body.get_damage_state())?;
+                Some((
+                    body_damage_type,
+                    obj_read.get_id(),
+                    obj_read.get_position().clone(),
+                ))
+            })
+            .flatten()
         else {
             return Ok(());
         };
-
-        let obj_id = obj_read.get_id();
-        let position = obj_read.get_position().clone();
-        drop(obj_read);
 
         self.fire_reaction_weapon(body_damage_type, obj_id, &position);
 
@@ -688,31 +669,19 @@ impl UpdateModuleInterface for FireWeaponWhenDamagedBehavior {
             return UPDATE_SLEEP_FOREVER; // Matches C++ lines 202-206
         }
 
-        let object = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(obj) => obj,
-            None => return UPDATE_SLEEP_FOREVER,
-        };
-
-        let obj_read = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return UPDATE_SLEEP_FOREVER,
-        };
-
-        let Some(body_damage_type) = obj_read
-            .get_body_module()
-            .map(|body| body.get_damage_state())
+        let Some((body_damage_type, obj_id, position)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
+                let body_damage_type = obj_read.get_body_module().map(|body| body.get_damage_state())?;
+                Some((
+                    body_damage_type,
+                    obj_read.get_id(),
+                    obj_read.get_position().clone(),
+                ))
+            })
+            .flatten()
         else {
-            return UPDATE_SLEEP_NONE;
+            return UPDATE_SLEEP_FOREVER;
         };
-
-        let obj_id = obj_read.get_id();
-        let position = obj_read.get_position().clone();
-        drop(obj_read);
 
         self.fire_continuous_weapon(body_damage_type, obj_id, &position);
 
@@ -732,19 +701,14 @@ impl UpgradeModuleInterface for FireWeaponWhenDamagedBehavior {
             return false;
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return false;
-        };
-        let Ok(mut obj_guard) = obj_arc.write() else {
-            return false;
-        };
         let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
-        let upgraded = self.upgrade_mux.attempt_upgrade(mask, &mut obj_guard);
+        let Some(upgraded) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
+                self.upgrade_mux.attempt_upgrade(mask, obj_guard)
+            })
+        else {
+            return false;
+        };
         if upgraded {
             self.set_wake_frame(UPDATE_SLEEP_NONE);
         }
@@ -790,14 +754,9 @@ impl Snapshotable for FireWeaponWhenDamagedBehavior {
             .xfer(xfer)
             .map_err(|e| format!("Failed to xfer upgrade mux: {}", e))?;
 
-        let object_id = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
-        .unwrap_or(crate::common::INVALID_ID);
+        let object_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| guard.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
 
         Self::xfer_weapon_option(
             xfer,

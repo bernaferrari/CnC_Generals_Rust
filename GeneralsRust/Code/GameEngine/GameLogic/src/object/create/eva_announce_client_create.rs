@@ -95,19 +95,16 @@ impl EvaAnnounceClientCreate {
         let Some(local_player) = list.get_player(player_index as i32) else {
             return true;
         };
-
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        let Some(owner_player) = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+            if !object_guard.is_visible_to_player(player_index as UnsignedInt) {
+                return None;
+            }
+            object_guard.get_controlling_player()
+        }) else {
             return false;
         };
-        let Ok(object_guard) = object_arc.read() else {
-            return false;
-        };
 
-        if !object_guard.is_visible_to_player(player_index as UnsignedInt) {
-            return false;
-        }
-
-        let Some(owner_player) = object_guard.get_controlling_player() else {
+        let Some(owner_player) = owner_player else {
             return true;
         };
         let Ok(local_guard) = local_player.read() else {

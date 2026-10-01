@@ -783,11 +783,11 @@ impl StealthController {
                 obj.set_status(ObjectStatusMaskType::DISGUISED, true);
                 obj.set_model_condition_state(crate::common::ModelConditionFlags::DISGUISED);
                 if let Some(player) = obj.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
+                    let _ = crate::player::with_player_mut(player, |player_guard| {
                         player_guard
                             .get_academy_stats_mut()
                             .record_vehicle_disguised();
-                    }
+                    });
                 }
             });
         } else {
@@ -1024,10 +1024,10 @@ impl StealthController {
             return;
         };
         for player in list.iter() {
-            let is_enemy = match (player.read(), self_player.read()) {
-                (Ok(other), Ok(mine)) => other.get_relationship(&mine) == Relationship::Enemies,
-                _ => false,
-            };
+            let is_enemy = crate::player::with_player(self_player, |mine| {
+                player.get_relationship(mine) == Relationship::Enemies
+            })
+            .unwrap_or(false);
             if !is_enemy {
                 continue;
             }
@@ -1343,7 +1343,7 @@ impl StealthController {
         };
 
         let mut has_black_market = false;
-        if let Ok(player_guard) = player.read() {
+        let _ = crate::player::with_player(player, |player_guard| {
             let _ = player_guard.iterate_object_ids(|object_id| {
                 if has_black_market {
                     return Ok(());
@@ -1368,7 +1368,7 @@ impl StealthController {
                 }
                 return Ok(());
             });
-        }
+        });
 
         has_black_market
     }

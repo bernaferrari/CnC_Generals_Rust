@@ -3,8 +3,8 @@
 // Ported to Rust
 
 use crate::helpers::{TheGameClient, TheGameLogic, TheParticleSystemManager};
-use crate::object::ObjectArcExt;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::ThePlayerList;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -232,16 +232,19 @@ impl LaserUpdateInterface for LaserUpdateModule {
         parent_bone_name: String,
         size_delta_frames: i32,
     ) {
-        let parent_arc = parent_id.and_then(TheGameLogic::find_object_by_id);
-        let target_arc = target_id.and_then(TheGameLogic::find_object_by_id);
-        let parent_guard = parent_arc.as_ref().and_then(|arc| arc.read().ok());
-        let target_guard = target_arc.as_ref().and_then(|arc| arc.read().ok());
         let start_pos = start_pos.map(Coord3D::from_array);
         let end_pos = end_pos.map(Coord3D::from_array);
+        // Copy each endpoint before the other id is checked out.
+        let parent = parent_id.and_then(|id| {
+            OBJECT_REGISTRY.with_object(id, laser_anchor_from_object)
+        });
+        let target = target_id.and_then(|id| {
+            OBJECT_REGISTRY.with_object(id, laser_anchor_from_object)
+        });
 
-        self.update.init_laser(
-            parent_guard.as_deref(),
-            target_guard.as_deref(),
+        self.update.init_laser_anchored(
+            parent,
+            target,
             start_pos.as_ref(),
             end_pos.as_ref(),
             parent_bone_name,
@@ -353,6 +356,30 @@ impl Snapshotable for LaserUpdateModule {
     }
 }
 
+
+/// Fields `init_laser` reads off a parent or target.
+/// Copied out of the registry so two object ids are never checked out together.
+#[derive(Clone, Copy)]
+pub struct LaserAnchor {
+    pub drawable_id: Option<DrawableId>,
+    pub position: Coord3D,
+    pub locally_visible: bool,
+}
+
+pub fn laser_anchor_from_object(obj: &Object) -> LaserAnchor {
+    let local_index = ThePlayerList()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(-1);
+    let shroud = obj.get_shrouded_status(local_index);
+    LaserAnchor {
+        drawable_id: obj.get_drawable().map(|drawable| drawable.get_id()),
+        position: *obj.get_position(),
+        locally_visible: (shroud as u8) <= (ObjectShroudStatus::PartialClear as u8),
+    }
+}
+
 impl LaserUpdate {
     pub fn new(thing: ThingId, module_data: LaserUpdateModuleData) -> Self {
         Self {
@@ -385,6 +412,25 @@ impl LaserUpdate {
         parent_bone_name: String,
         size_delta_frames: i32,
     ) {
+        self.init_laser_anchored(
+            parent.map(laser_anchor_from_object),
+            target.map(laser_anchor_from_object),
+            start_pos,
+            end_pos,
+            parent_bone_name,
+            size_delta_frames,
+        );
+    }
+
+    pub fn init_laser_anchored(
+        &mut self,
+        parent: Option<LaserAnchor>,
+        target: Option<LaserAnchor>,
+        start_pos: Option<&Coord3D>,
+        end_pos: Option<&Coord3D>,
+        parent_bone_name: String,
+        size_delta_frames: i32,
+    ) {
         let now = TheGameLogic::get_frame();
 
         if size_delta_frames > 0 {
@@ -402,9 +448,9 @@ impl LaserUpdate {
         self.parent_bone_name = parent_bone_name;
 
         // Record IDs if we have them, then figure out starting points
-        if let Some(parent_obj) = parent {
-            if let Some(drawable) = parent_obj.get_drawable() {
-                self.parent_id = Some(drawable.get_id());
+        if let Some(parent_anchor) = parent {
+            if let Some(drawable_id) = parent_anchor.drawable_id {
+                self.parent_id = Some(drawable_id);
             }
             self.update_start_pos();
         } else if let Some(pos) = start_pos {
@@ -416,12 +462,12 @@ impl LaserUpdate {
         }
 
         // Handle target/end position
-        if let Some(target_obj) = target {
+        if let Some(target_anchor) = target {
             if end_pos.is_none() {
-                if let Some(drawable) = target_obj.get_drawable() {
-                    self.target_id = Some(drawable.get_id());
+                if let Some(drawable_id) = target_anchor.drawable_id {
+                    self.target_id = Some(drawable_id);
                 }
-                self.end_pos = *target_obj.get_position();
+                self.end_pos = target_anchor.position;
             }
         }
 
@@ -434,13 +480,13 @@ impl LaserUpdate {
         }
 
         // Create particle systems once, then always reposition existing IDs.
-        self.create_particle_systems(parent);
+        self.create_particle_systems(parent.map(|anchor| anchor.locally_visible));
         self.reposition_particle_systems();
 
         // C++ LaserUpdate.cpp:347-366 — parentless beams use the start/end
         // midpoint so frustum culling has a real world point.
-        let pos_to_use = if let Some(parent_obj) = parent {
-            *parent_obj.get_position()
+        let pos_to_use = if let Some(parent_anchor) = parent {
+            parent_anchor.position
         } else {
             Coord3D {
                 x: (self.start_pos.x + self.end_pos.x) * 0.5,
@@ -469,12 +515,13 @@ impl LaserUpdate {
         if self.thing != 0 {
             client.set_drawable_position(self.thing, pos);
         }
-        if let Some(object) = TheGameLogic::find_object_by_id(self.thing) {
-            if let Ok(guard) = object.read() {
-                if let Some(drawable) = guard.get_drawable() {
-                    client.set_drawable_position(drawable.get_id(), pos);
-                }
-            }
+        let drawable_id = OBJECT_REGISTRY
+            .with_object(self.thing, |guard| {
+                guard.get_drawable().map(|drawable| drawable.get_id())
+            })
+            .flatten();
+        if let Some(drawable_id) = drawable_id {
+            client.set_drawable_position(drawable_id, pos);
         }
     }
 
@@ -551,11 +598,12 @@ impl LaserUpdate {
 
         let target_drawable =
             TheGameClient::get().and_then(|client| client.get_drawable_arc(target_id));
-        let target_dead = target_drawable
+        let target_object_id = target_drawable
             .as_ref()
-            .and_then(|drawable| drawable.read().ok())
-            .and_then(|drawable_guard| drawable_guard.get_object())
-            .and_then(|object| object.read().ok().map(|guard| guard.is_effectively_dead()))
+            .map(|drawable| drawable.get_object_id())
+            .filter(|id| *id != crate::object::INVALID_ID);
+        let target_dead = target_object_id
+            .and_then(|id| OBJECT_REGISTRY.with_object(id, |guard| guard.is_effectively_dead()))
             .unwrap_or(false);
 
         if target_drawable.is_none() || target_dead {
@@ -624,41 +672,26 @@ impl LaserUpdate {
     }
 
     pub fn get_current_laser_radius(&self) -> f32 {
-        let Some(object) = TheGameLogic::find_object_by_id(self.thing) else {
+        let Some(width) = OBJECT_REGISTRY
+            .with_object(self.thing, |object_guard| {
+                object_guard
+                    .get_drawable()
+                    .and_then(|drawable| drawable.get_laser_template_width())
+            })
+            .flatten()
+        else {
             return 0.0;
         };
-
-        if let Ok(object_guard) = object.read() {
-            let Some(drawable) = object_guard.get_drawable() else {
-                return 0.0;
-            };
-
-            if let Some(width) = drawable.get_laser_template_width() {
-                return width * self.current_width_scalar;
-            }
-        }
-
-        0.0
+        width * self.current_width_scalar
     }
 
-    fn create_particle_systems(&mut self, parent: Option<&Object>) {
+    fn create_particle_systems(&mut self, parent_locally_visible: Option<bool>) {
         // C++ LaserUpdate.cpp:288 — last-day NULL check; create once.
         if self.particle_system_id.is_some() {
             return;
         }
 
-        let local_visible = parent
-            .and_then(|parent_obj| {
-                let local_index = ThePlayerList()
-                    .read()
-                    .ok()
-                    .map(|list| list.get_local_player_index())
-                    .unwrap_or(-1);
-                let shroud = parent_obj.get_shrouded_status(local_index);
-                Some((shroud as u8) <= (ObjectShroudStatus::PartialClear as u8))
-            })
-            .unwrap_or(true);
-        if !local_visible {
+        if !parent_locally_visible.unwrap_or(true) {
             return;
         }
 

@@ -341,10 +341,11 @@ impl CommandButton {
         let Some(team) = target_obj.get_team() else {
             return false;
         };
-        let Ok(team_guard) = team.read() else {
+        let Some(relationship) = crate::team::factory_access::with_team(team, |team_guard| {
+            source_player.get_relationship_with_team(team_guard)
+        }) else {
             return false;
         };
-        let relationship = source_player.get_relationship_with_team(&team_guard);
         self.is_valid_relationship_target(relationship)
     }
 

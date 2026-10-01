@@ -930,8 +930,7 @@ impl TunnelContain {
         }
 
         let id = self.owner_object_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        (if crate::helpers::TheGameLogic::find_object_by_id(id) || crate::object::registry::OBJECT_REGISTRY.contains(id) { Some(id) } else { None })
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
 }

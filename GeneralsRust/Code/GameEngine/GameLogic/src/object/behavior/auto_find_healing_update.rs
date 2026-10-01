@@ -88,54 +88,45 @@ impl AutoFindHealingUpdate {
 
 impl UpdateModuleInterface for AutoFindHealingUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return UpdateSleepTime::None;
-        };
-        let Ok(obj) = object_arc.read() else {
-            return UpdateSleepTime::None;
-        };
-
-        let is_human_player = if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                player_guard.get_player_type() == PlayerType::Human
+        }
+        let human = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            if let Some(player) = obj.get_controlling_player() {
+                crate::player::with_player(player, |player_guard| {
+                    player_guard.get_player_type() == PlayerType::Human
+                })
+                .unwrap_or(false)
             } else {
                 false
             }
-        } else {
-            false
-        };
-        if is_human_player {
+        });
+        if human != Some(false) {
             return UpdateSleepTime::None;
         }
-
         if self.next_scan_frames > 0 {
             self.next_scan_frames -= 1;
             return UpdateSleepTime::None;
         }
         self.next_scan_frames = self.module_data.scan_frames as i32;
-
-        let Some(ai) = obj.get_ai_update_interface() else {
-            return UpdateSleepTime::None;
-        };
-        if !ai.is_idle() {
+        let ready = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            let Some(ai) = obj.get_ai_update_interface() else {
+                return false;
+            };
+            if !ai.is_idle() {
+                return false;
+            }
+            let Some(body) = obj.get_body_module() else {
+                return false;
+            };
+            body.get_health() <= body.get_max_health() * self.module_data.never_heal
+        });
+        if ready != Some(true) {
             return UpdateSleepTime::None;
         }
-
-        let Some(body) = obj.get_body_module() else {
-            return UpdateSleepTime::None;
-        };
-
-        if body.get_health() > body.get_max_health() * self.module_data.never_heal {
-            return UpdateSleepTime::None;
-        }
-
-        let target = self.scan_closest_target(&*obj);
-        drop(obj);
+        let target = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| self.scan_closest_target(obj))
+            .flatten();
         if let Some(target) = target {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner| {
                 owner.ai_pending_heal = Some(target);

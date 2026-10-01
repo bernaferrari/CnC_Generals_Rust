@@ -597,7 +597,6 @@ impl StealthDetectorUpdate {
             return;
         }
         let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         else {
             return;
         };
@@ -655,7 +654,6 @@ impl StealthDetectorUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 let self_id = obj.get_id();
@@ -869,7 +867,6 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Check if effectively dead (C++ lines 128-129)

@@ -249,16 +249,11 @@ pub(super) fn resolve_player_name_token(raw: &str) -> String {
             if !crate::scripting::core::is_generals_challenge_campaign() {
                 raw.to_string()
             } else {
-                player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_local_player().cloned())
-                    .and_then(|p| {
-                        p.read()
-                            .ok()
-                            .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-                    })
-                    .unwrap_or_else(|| raw.to_string())
+                crate::player::with_local_player(|p| {
+                    NameKeyGenerator::key_to_name(p.get_player_name_key())
+                })
+                .flatten()
+                .unwrap_or_else(|| raw.to_string())
             }
         }
         THIS_PLAYER => get_script_engine()
@@ -269,16 +264,11 @@ pub(super) fn resolve_player_name_token(raw: &str) -> String {
                     .and_then(|e| e.get_current_player_name().map(|s| s.to_string()))
             })
             .unwrap_or_else(|| raw.to_string()),
-        LOCAL_PLAYER => player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|p| {
-                p.read()
-                    .ok()
-                    .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-            })
-            .unwrap_or_else(|| raw.to_string()),
+        LOCAL_PLAYER => crate::player::with_local_player(|p| {
+            NameKeyGenerator::key_to_name(p.get_player_name_key())
+        })
+        .flatten()
+        .unwrap_or_else(|| raw.to_string()),
         _ => raw.to_string(),
     }
 }
@@ -323,12 +313,11 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
             if !crate::scripting::core::is_generals_challenge_campaign() {
                 return raw.to_string();
             }
-            player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned())
-                .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
-                .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
+            crate::player::with_local_player(|p| p.get_default_team_id())
+                .flatten()
+                .and_then(|team_id| {
+                    crate::team::factory_access::with_team(team_id, |t| t.get_name().to_string())
+                })
                 .unwrap_or_else(|| raw.to_string())
         }
         _ => raw.to_string(),
@@ -338,7 +327,7 @@ pub(super) fn resolve_team_name_token(raw: &str) -> String {
 pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<u32> {
     let resolved_team = resolve_team_name_token(team_name);
     let factory = get_team_factory();
-    let team_arc = factory
+    let team_id = factory
         .lock()
         .map_err(|_| GameLogicError::Threading("Failed to lock TeamFactory".to_string()))?
         .find_team(&resolved_team)
@@ -346,11 +335,9 @@ pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<u32>
             GameLogicError::Configuration(format!("Team '{}' not found", resolved_team))
         })?;
 
-    let members = team_arc
-        .read()
-        .map_err(|_| GameLogicError::Threading("Failed to read Team".to_string()))?
-        .get_members()
-        .to_vec();
+    let members =
+        crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec())
+            .ok_or_else(|| GameLogicError::Threading("Failed to read Team".to_string()))?;
 
     let ai_store = the_ai();
     let group_id = {

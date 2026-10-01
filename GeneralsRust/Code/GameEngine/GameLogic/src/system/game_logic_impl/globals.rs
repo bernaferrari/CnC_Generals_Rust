@@ -152,13 +152,9 @@ struct GameLogicEnergyOwnerCallbacks;
 impl EnergyOwnerCallbacks for GameLogicEnergyOwnerCallbacks {
     fn on_power_brown_out_change(&self, player: PlayerHandle, brown_out: bool) {
         let player_id = player.value() as PlayerIndex;
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(player_id) {
-                if let Ok(mut guard) = player_arc.write() {
-                    let _ = guard.on_power_brown_out_change(brown_out);
-                }
-            }
-        }
+        let _ = crate::player::with_player_mut(player_id, |guard| {
+            let _ = guard.on_power_brown_out_change(brown_out);
+        });
     }
 }
 

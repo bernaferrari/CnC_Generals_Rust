@@ -564,11 +564,7 @@ impl DumbProjectileBehavior {
         object_id: ObjectID,
         module_data: Arc<DumbProjectileBehaviorModuleData>,
     ) -> Self {
-        let object_id = object
-            .read()
-            .map(|obj| obj.get_id())
-            .unwrap_or(OBJECT_INVALID_ID);
-        Self::construct_with_object(object_id, module_data, Some(object))
+        Self::construct_with_object(object_id, module_data, Some(object_id))
     }
 
     pub fn from_module_thing(
@@ -585,9 +581,9 @@ impl DumbProjectileBehavior {
             .ok_or_else(|| "DumbProjectileBehavior requires an owning object".to_string())?;
 
         let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY
-            .get_object(object_id)
-            .ok_or_else(|| format!("DumbProjectileBehavior missing object {}", object_id))?;
+        if !OBJECT_REGISTRY.contains(object_id) {
+            return Err(format!("DumbProjectileBehavior missing object {}", object_id).into());
+        }
 
         Ok(Self::new_from_object(object_id, module_data))
     }
@@ -634,9 +630,11 @@ impl DumbProjectileBehavior {
         if id == OBJECT_INVALID_ID {
             return Err("DumbProjectileBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY
-            .get_object(id)
-            .ok_or_else(|| "DumbProjectileBehavior owning object not found".into())
+        if OBJECT_REGISTRY.contains(id) {
+            Ok(id)
+        } else {
+            Err("DumbProjectileBehavior owning object not found".into())
+        }
     }
 
     fn get_current_frame(&self) -> UnsignedInt {
@@ -882,12 +880,12 @@ impl DumbProjectileBehavior {
             let _ = fx.do_fx_obj_ids(other_id, None, None);
         }
         let _ = OBJECT_REGISTRY.with_object(self.object_id, |projectile_guard| {
-            if let Some(player_arc) = projectile_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player_arc.write() {
+            if let Some(player_index) = projectile_guard.get_controlling_player() {
+                let _ = crate::player::with_player_mut(player_index, |player_guard| {
                     player_guard
                         .get_academy_stats_mut()
                         .record_cleared_garrisoned_building();
-                }
+                });
             }
         });
         let _ = TheGameLogic::destroy_object_by_id(self.owner_object_id());
@@ -1218,21 +1216,15 @@ pub(crate) fn dispatch_dumb_projectile_handle_collision(
     if dual_world_registry_unavailable() {
         return false;
     }
-    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id)
-        .or_else(|| OBJECT_REGISTRY.get_object(object_id))
-    else {
-        return false;
-    };
-    let handle = {
-        let Ok(obj) = obj_arc.try_read() else {
-            return false;
-        };
+    let Some(handle) = OBJECT_REGISTRY.with_object(object_id, |obj| {
         obj.behavior_modules().into_iter().find(|handle| {
             handle.with_module(|module| {
                 module.as_any().is::<DumbProjectileBehavior>()
                     || module.as_any().is::<DumbProjectileBehaviorModule>()
             })
         })
+    }) else {
+        return false;
     };
     let Some(handle) = handle else {
         return false;

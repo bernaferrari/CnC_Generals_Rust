@@ -583,8 +583,8 @@ impl TeamPrototype {
                     list.find_player_by_name(owner_name)
                         .or_else(|| list.get_neutral_player())
                 }
+                .map(|player| player.get_player_index())
             })
-            .and_then(|player| player.read().ok().map(|p| p.get_player_index()))
             .unwrap_or(-1)
     }
 
@@ -597,11 +597,8 @@ impl TeamPrototype {
         let owner_name = player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_player(index).cloned())
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
+            .and_then(|list| {
+                list.get_player(index)
                     .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
             })
             .unwrap_or_default();

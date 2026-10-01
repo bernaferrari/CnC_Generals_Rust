@@ -11,18 +11,19 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::draw::draw_module::RGBColor;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{INVALID_ID as OBJECT_INVALID_ID, Object as GameObject};
 use crate::path::PATHFIND_CELL_SIZE_F;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Wave 374: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
+    OBJECT_REGISTRY.is_empty()
 }
 
 const MAX_SQUIRRELLINESS: Real = 1.0;
@@ -243,6 +244,100 @@ impl MobMemberSlavedUpdate {
         params.int_value = max_shots_to_fire;
         let _ = ai.execute_command(&params);
     }
+
+    /// C++ clears firing bits when the mob member is on the player weapon upgrade.
+    fn clear_player_upgrade_weapon_flags(obj: &GameObject) {
+        let Some(drawable) = obj.get_drawable() else {
+            return;
+        };
+        let upgrade = crate::common::ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE;
+        let has_upgrade = drawable
+            .read()
+            .ok()
+            .map(|draw| draw.get_model_conditions().contains(upgrade))
+            .unwrap_or(false);
+        if has_upgrade {
+            let clear = crate::common::ModelConditionFlags::RELOADING_A
+                | crate::common::ModelConditionFlags::BETWEEN_FIRING_SHOTS_A
+                | crate::common::ModelConditionFlags::PREATTACK_A
+                | crate::common::ModelConditionFlags::FIRING_A
+                | crate::common::ModelConditionFlags::USING_WEAPON_A;
+            if let Ok(mut draw) = drawable.write() {
+                draw.clear_model_condition_flags(clear);
+            }
+        }
+    }
+
+    /// `may_spawn_self_task_ai` checks the parent out again, so the leader
+    /// must already be back in the registry before this runs.
+    fn master_may_spawn_self_task(master_id: ObjectID, ratio: Real) -> bool {
+        use crate::object::behavior::spawn_behavior::{
+            SpawnBehaviorInterface, SpawnBehaviorModule,
+        };
+        let Some(handles) =
+            OBJECT_REGISTRY.with_object(master_id, |master| master.behavior_modules())
+        else {
+            return false;
+        };
+        for handle in handles {
+            if let Some(allowed) =
+                handle.with_module_downcast::<SpawnBehaviorModule, _, _>(|module| {
+                    module.behavior_mut().may_spawn_self_task_ai(ratio)
+                })
+            {
+                return allowed;
+            }
+        }
+        false
+    }
+
+    fn command_catch_up(
+        &mut self,
+        master_is_moving: bool,
+        master_path_dist: Real,
+        my_path_dist: Real,
+        master_pos: &Coord3D,
+        master_goal: &Coord3D,
+    ) -> bool {
+        let object_id = self.object_id;
+        OBJECT_REGISTRY
+            .with_object_mut(object_id, |obj| {
+                let Some(my_ai) = obj.get_ai_update_interface_mut() else {
+                    return false;
+                };
+                if master_is_moving {
+                    if master_path_dist > my_path_dist {
+                        my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
+                    } else {
+                        my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
+                    }
+                    if master_goal.length() < 1.0 {
+                        Self::ai_move_to_position(
+                            my_ai,
+                            master_pos,
+                            false,
+                            CommandSourceType::FromAi,
+                        );
+                    } else {
+                        let my_goal = my_ai.get_goal_position().unwrap_or(Coord3D::ZERO);
+                        let delta = my_goal - *master_goal;
+                        if delta.length() > 5.0 * PATHFIND_CELL_SIZE_F {
+                            Self::ai_move_to_position(
+                                my_ai,
+                                master_goal,
+                                false,
+                                CommandSourceType::FromAi,
+                            );
+                        }
+                    }
+                } else {
+                    my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
+                    Self::ai_move_to_position(my_ai, master_pos, false, CommandSourceType::FromAi);
+                }
+                true
+            })
+            .unwrap_or(false)
+    }
 }
 
 impl UpdateModuleInterface for MobMemberSlavedUpdate {
@@ -252,174 +347,140 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return UpdateSleepTime::None,
-        };
-
-        let mut obj_guard = match obj_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::None,
-        };
-
-        let master_arc = match crate::helpers::TheGameLogic::find_object_by_id(self.mob_leader) {
-            Some(master) => master,
-            None => {
-                self.stop_slaved_effects(&mut obj_guard);
-                drop(obj_guard);
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    obj_guard.kill(None, None);
-                }
-                return UpdateSleepTime::None;
-            }
-        };
-
-        let master_guard = match master_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::None,
-        };
-
-        if obj_guard.get_ai_update_interface().is_none() {
-            return UpdateSleepTime::None;
+        struct LeaderView {
+            has_ai: bool,
+            has_drawable: bool,
+            victim_id: Option<ObjectID>,
+            path_dist: Real,
+            pos: Coord3D,
+            goal: Coord3D,
+            is_moving: bool,
+            has_spawn: bool,
         }
-        if master_guard.get_ai_update_interface().is_none() {
-            return UpdateSleepTime::None;
+        struct MemberView {
+            path_dist: Real,
+            pos: Coord3D,
+            is_moving: bool,
+            victim_id: Option<ObjectID>,
         }
-        if obj_guard.get_drawable().is_none() || master_guard.get_drawable().is_none() {
+
+        if self.object_id == crate::common::INVALID_ID || !OBJECT_REGISTRY.contains(self.object_id)
+        {
             return UpdateSleepTime::None;
         }
 
-        if let Some(drawable) = obj_guard.get_drawable() {
-            let upgrade = crate::common::ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE;
-            let has_upgrade = drawable
-                .read()
-                .ok()
-                .map(|draw| draw.get_model_conditions().contains(upgrade))
-                .unwrap_or(false);
-            if has_upgrade {
-                let clear = crate::common::ModelConditionFlags::RELOADING_A
-                    | crate::common::ModelConditionFlags::BETWEEN_FIRING_SHOTS_A
-                    | crate::common::ModelConditionFlags::PREATTACK_A
-                    | crate::common::ModelConditionFlags::FIRING_A
-                    | crate::common::ModelConditionFlags::USING_WEAPON_A;
-                if let Ok(mut draw) = drawable.write() {
-                    draw.clear_model_condition_flags(clear);
-                }
-            }
-        }
-
-
-        self.frames_to_wait += 1;
-        if self.frames_to_wait < 16 {
-            return UpdateSleepTime::None;
-        }
-        self.frames_to_wait = 0;
-
-        let mut has_loco = false;
-        if let Some(ai) = obj_guard.get_ai_update_interface() {
-            ai.with_cur_locomotor(&mut |_| has_loco = true);
-        }
-        if !has_loco {
+        let leader_id = self.mob_leader;
+        if !OBJECT_REGISTRY.contains(leader_id) {
+            let object_id = self.object_id;
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                self.stop_slaved_effects(obj);
+                obj.kill(None, None);
+            });
             return UpdateSleepTime::None;
         }
 
-        let victim_id = obj_guard.get_current_victim_id();
-        let master_victim_id = master_guard.get_current_victim_id();
-
-        if let Some(master_victim_id) = master_victim_id {
-            self.primary_victim_id = master_victim_id;
-        }
-
-        let master_path_dist_to_goal = master_guard
-            .get_ai_update_interface()
-            .map(Self::ai_goal_distance)
-            .unwrap_or(0.0);
-        let my_path_dist_to_goal = obj_guard
-            .get_ai_update_interface()
-            .map(Self::ai_goal_distance)
-            .unwrap_or(0.0);
-
-        let catch_up_radius_sq =
-            Self::distance_squared(obj_guard.get_position(), master_guard.get_position());
-        let master_is_moving = master_guard
-            .get_ai_update_interface()
-            .map(|ai| ai.is_moving())
-            .unwrap_or(false);
-        let my_is_moving = obj_guard
-            .get_ai_update_interface()
-            .map(|ai| ai.is_moving())
-            .unwrap_or(false);
-
-        let master_pos = *master_guard.get_position();
-        let master_goal = master_guard
-            .get_ai_update_interface()
-            .and_then(|ai| ai.get_goal_position())
-            .unwrap_or(Coord3D::ZERO);
-
-        let data = &self.module_data;
-        let catch_up = catch_up_radius_sq > (data.must_catch_up_radius as Real).powi(2);
-        let self_task = !catch_up
-            && !my_is_moving
-            && master_guard
+        // Copy the leader before checking this member out. One id at a time.
+        let Some(leader) = OBJECT_REGISTRY.with_object(leader_id, |master| LeaderView {
+            has_ai: master.get_ai_update_interface().is_some(),
+            has_drawable: master.get_drawable().is_some(),
+            victim_id: master.get_current_victim_id(),
+            path_dist: master
+                .get_ai_update_interface()
+                .map(Self::ai_goal_distance)
+                .unwrap_or(0.0),
+            pos: *master.get_position(),
+            goal: master
+                .get_ai_update_interface()
+                .and_then(|ai| ai.get_goal_position())
+                .unwrap_or(Coord3D::ZERO),
+            is_moving: master
+                .get_ai_update_interface()
+                .map(|ai| ai.is_moving())
+                .unwrap_or(false),
+            has_spawn: master
                 .with_spawn_behavior_full_interface(|_| ())
-                .is_some();
-        drop(obj_guard);
-        drop(master_guard);
+                .is_some(),
+        }) else {
+            return UpdateSleepTime::None;
+        };
+
+        let object_id = self.object_id;
+        let member = match OBJECT_REGISTRY.with_object_mut(object_id, |obj| -> Option<MemberView> {
+            if obj.get_ai_update_interface().is_none()
+                || !leader.has_ai
+                || obj.get_drawable().is_none()
+                || !leader.has_drawable
+            {
+                return None;
+            }
+
+            Self::clear_player_upgrade_weapon_flags(obj);
+
+            self.frames_to_wait += 1;
+            if self.frames_to_wait < 16 {
+                return None;
+            }
+            self.frames_to_wait = 0;
+
+            let mut has_loco = false;
+            if let Some(ai) = obj.get_ai_update_interface() {
+                ai.with_cur_locomotor(&mut |_| has_loco = true);
+            }
+            if !has_loco {
+                return None;
+            }
+
+            if let Some(master_victim_id) = leader.victim_id {
+                self.primary_victim_id = master_victim_id;
+            }
+
+            Some(MemberView {
+                path_dist: obj
+                    .get_ai_update_interface()
+                    .map(Self::ai_goal_distance)
+                    .unwrap_or(0.0),
+                pos: *obj.get_position(),
+                is_moving: obj
+                    .get_ai_update_interface()
+                    .map(|ai| ai.is_moving())
+                    .unwrap_or(false),
+                victim_id: obj.get_current_victim_id(),
+            })
+        }) {
+            Some(Some(view)) => view,
+            _ => return UpdateSleepTime::None,
+        };
+
+        let must_catch_up_radius = self.module_data.must_catch_up_radius;
+        let bail_time = self.module_data.catch_up_crisis_bail_time;
+        let catch_up_radius_sq = Self::distance_squared(&member.pos, &leader.pos);
+        let catch_up = catch_up_radius_sq > (must_catch_up_radius as Real).powi(2);
+        let self_task = !catch_up && !member.is_moving && leader.has_spawn;
 
         if catch_up {
-            if master_is_moving {
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    return UpdateSleepTime::None;
-                };
-                let Some(my_ai) = obj_guard.get_ai_update_interface_mut() else {
-                    return UpdateSleepTime::None;
-                };
-                if master_path_dist_to_goal > my_path_dist_to_goal {
-                    my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
-                } else {
-                    my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
-                }
-
-                if master_goal.length() < 1.0 {
-                    Self::ai_move_to_position(my_ai, &master_pos, false, CommandSourceType::FromAi);
-                } else {
-                    let my_goal = my_ai.get_goal_position().unwrap_or(Coord3D::ZERO);
-                    let delta = my_goal - master_goal;
-                    if delta.length() > 5.0 * PATHFIND_CELL_SIZE_F {
-                        Self::ai_move_to_position(
-                            my_ai,
-                            &master_goal,
-                            false,
-                            CommandSourceType::FromAi,
-                        );
-                    }
-                }
-            } else {
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    return UpdateSleepTime::None;
-                };
-                let Some(my_ai) = obj_guard.get_ai_update_interface_mut() else {
-                    return UpdateSleepTime::None;
-                };
-                my_ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
-                Self::ai_move_to_position(my_ai, &master_pos, false, CommandSourceType::FromAi);
+            if !self.command_catch_up(
+                leader.is_moving,
+                leader.path_dist,
+                member.path_dist,
+                &leader.pos,
+                &leader.goal,
+            ) {
+                return UpdateSleepTime::None;
             }
 
-            if catch_up_radius_sq > (data.must_catch_up_radius as Real * 3.0).powi(2) {
+            if catch_up_radius_sq > (must_catch_up_radius as Real * 3.0).powi(2) {
                 self.catch_up_crisis_timer += 1;
-                if self.catch_up_crisis_timer > data.catch_up_crisis_bail_time {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
-                        obj_guard.kill(None, None);
-                    }
+                if self.catch_up_crisis_timer > bail_time {
+                    let object_id = self.object_id;
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                        obj.kill(None, None);
+                    });
                     return UpdateSleepTime::None;
-                } else if self.catch_up_crisis_timer > data.catch_up_crisis_bail_time / 3 {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
-                        if let Some(my_ai) = obj_guard.get_ai_update_interface_mut() {
+                } else if self.catch_up_crisis_timer > bail_time / 3 {
+                    let object_id = self.object_id;
+                    let master_pos = leader.pos;
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                        if let Some(my_ai) = obj.get_ai_update_interface_mut() {
                             Self::ai_move_to_position(
                                 my_ai,
                                 &master_pos,
@@ -427,10 +488,10 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
                                 CommandSourceType::FromAi,
                             );
                         }
-                    }
+                    });
                 }
             }
-        } else if my_is_moving {
+        } else if member.is_moving {
             self.catch_up_crisis_timer = 0;
             let set = match crate::GameLogicRandomValue!(0, 10) {
                 1 => Some(crate::common::LocomotorSetType::Wander),
@@ -439,61 +500,58 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
                 _ => None,
             };
             if let Some(set) = set {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if let Some(my_ai) = obj_guard.get_ai_update_interface_mut() {
+                let object_id = self.object_id;
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                    if let Some(my_ai) = obj.get_ai_update_interface_mut() {
                         my_ai.choose_locomotor_set(set);
                     }
-                }
+                });
             }
         } else if self_task {
             self.catch_up_crisis_timer = 0;
 
-            let master_is_idle = master_arc
-                .read()
-                .ok()
-                .and_then(|g| g.get_ai_update_interface().map(|ai| ai.is_idle()))
+            let master_is_idle = OBJECT_REGISTRY
+                .with_object(leader_id, |master| {
+                    master
+                        .get_ai_update_interface()
+                        .map(|ai| ai.is_idle())
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false);
             if master_is_idle {
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    if let Some(my_ai) = obj_guard.get_ai_update_interface_mut() {
+                let object_id = self.object_id;
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                    if let Some(my_ai) = obj.get_ai_update_interface_mut() {
                         Self::ai_idle(my_ai, CommandSourceType::FromAi);
                     }
-                }
+                });
                 self.primary_victim_id = OBJECT_INVALID_ID;
                 return UpdateSleepTime::None;
             }
 
-            let may_self_task = master_arc
-                .read()
-                .ok()
-                .and_then(|g| {
-                    g.with_spawn_behavior_full_interface(|spawn_behavior| {
-                        spawn_behavior.may_spawn_self_task_ai(self.squirrelliness_ratio)
-                    })
-                })
-                .unwrap_or(false);
-            let mut victim_id = victim_id;
+            let ratio = self.squirrelliness_ratio;
+            let may_self_task = Self::master_may_spawn_self_task(leader_id, ratio);
+            let mut victim_id = member.victim_id;
             if may_self_task {
-                let not_from_ai = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|g| {
-                        g.get_ai_update_interface()
+                let object_id = self.object_id;
+                let not_from_ai = OBJECT_REGISTRY
+                    .with_object(object_id, |obj| {
+                        obj.get_ai_update_interface()
                             .map(|ai| ai.get_last_command_source() != CommandSourceType::FromAi)
+                            .unwrap_or(false)
                     })
                     .unwrap_or(false);
                 if not_from_ai {
-                    let new_target_id = obj_arc
-                        .write()
-                        .ok()
-                        .and_then(|mut g| {
-                            g.get_ai_update_interface_mut()
+                    let new_target_id = OBJECT_REGISTRY
+                        .with_object_mut(object_id, |obj| {
+                            obj.get_ai_update_interface_mut()
                                 .map(|ai| ai.get_next_mood_target_id(false, false))
+                                .unwrap_or(OBJECT_INVALID_ID)
                         })
                         .unwrap_or(OBJECT_INVALID_ID);
                     if new_target_id != OBJECT_INVALID_ID && victim_id != Some(new_target_id) {
-                        if let Ok(mut obj_guard) = obj_arc.write() {
-                            if let Some(my_ai) = obj_guard.get_ai_update_interface_mut() {
+                        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                            if let Some(my_ai) = obj.get_ai_update_interface_mut() {
                                 Self::ai_attack_object(
                                     my_ai,
                                     new_target_id,
@@ -501,7 +559,7 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
                                     CommandSourceType::FromAi,
                                 );
                             }
-                        }
+                        });
                         victim_id = Some(new_target_id);
                         self.is_self_tasking = true;
                     }
@@ -510,18 +568,20 @@ impl UpdateModuleInterface for MobMemberSlavedUpdate {
 
             if victim_id.is_none() {
                 if self.primary_victim_id != OBJECT_INVALID_ID
-                    && crate::helpers::TheGameLogic::find_object_by_id(self.primary_victim_id).is_some()
+                    && OBJECT_REGISTRY.contains(self.primary_victim_id)
                 {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
-                        if let Some(my_ai) = obj_guard.get_ai_update_interface_mut() {
+                    let primary = self.primary_victim_id;
+                    let object_id = self.object_id;
+                    let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                        if let Some(my_ai) = obj.get_ai_update_interface_mut() {
                             Self::ai_attack_object(
                                 my_ai,
-                                self.primary_victim_id,
+                                primary,
                                 999,
                                 CommandSourceType::FromAi,
                             );
                         }
-                    }
+                    });
                 }
                 self.is_self_tasking = false;
             }
@@ -567,13 +627,14 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
             return Ok(());
         }
 
-        let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
-        else {
+        if OBJECT_REGISTRY
+            .with_object(master_id, |master| {
+                self.start_slaved_effects(master);
+            })
+            .is_none()
+        {
             return Ok(());
-        };
-        let master_guard = master.read().map_err(|_| "slaver lock poisoned")?;
-        self.start_slaved_effects(&*master_guard);
+        }
         Ok(())
     }
 
@@ -590,15 +651,11 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
             return Ok(());
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut obj_guard) = obj_arc.write() {
-                self.stop_slaved_effects(&mut obj_guard);
-            }
+        let object_id = self.object_id;
+        if object_id != crate::common::INVALID_ID {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                self.stop_slaved_effects(obj);
+            });
         }
         Ok(())
     }
@@ -612,18 +669,14 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
             return Ok(());
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut obj_guard) = obj_arc.write() {
-                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+        let object_id = self.object_id;
+        if object_id != crate::common::INVALID_ID {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
                     // C++ AIUpdateInterface::aiGoProne(damageInfo, FromAI).
                     ai.ai_go_prone(damage_info, CommandSourceType::FromAi);
                 }
-            }
+            });
         }
         Ok(())
     }

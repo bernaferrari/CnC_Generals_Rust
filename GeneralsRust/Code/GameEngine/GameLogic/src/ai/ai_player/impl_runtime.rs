@@ -11,11 +11,7 @@ impl AIPlayer {
     /// structureTimer → readyToBuildStructure; buildDelay throttles processBaseBuilding
     /// to every `BUILD_DELAY_RECHECK_FRAMES` (2s), shortcut when structure completes.
     pub(super) fn do_base_building(&mut self) -> Result<(), AiError> {
-        let can_build_base = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| p.read().ok().map(|g| g.get_can_build_base()))
+        let can_build_base = crate::player::with_player(self.player_id as i32, |g| g.get_can_build_base())
             .unwrap_or(true);
         if !can_build_base {
             return Ok(());
@@ -251,12 +247,7 @@ impl AIPlayer {
     }
 
     pub(super) fn is_skirmish_ai_player(&self) -> bool {
-        player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai()))
-            .unwrap_or(false)
+        crate::player::with_player(self.player_id as i32, |g| g.is_skirmish_ai()).unwrap_or(false)
     }
 
     /// C++ `AIPlayer::checkQueuedTeams` (AIPlayer.cpp).
@@ -387,11 +378,9 @@ impl AIPlayer {
     /// teamTimer → readyToBuildTeam; teamDelay throttles queueUnits + processTeamBuilding
     /// to every `TEAM_DELAY_RECHECK_FRAMES` (5s), shortcut when unit/building completes.
     pub(super) fn do_team_building(&mut self) -> Result<(), AiError> {
-        let can_build_units = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| p.read().ok().map(|g| g.get_can_build_units()))
+        let can_build_units = crate::player::with_player(self.player_id as i32, |g| {
+            g.get_can_build_units()
+        })
             .unwrap_or(true);
         if !can_build_units {
             return Ok(());
@@ -440,7 +429,7 @@ impl AIPlayer {
         // C++: if (!getSciencePurchasePoints()) return; before sideInfo walk.
         let purchase_points_early = self
             .get_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_science_purchase_points()))
+            .and_then(|p| crate::player::with_player(p, |g| g.get_science_purchase_points()))
             .unwrap_or(0);
         if purchase_points_early <= 0 {
             return Ok(());
@@ -449,13 +438,13 @@ impl AIPlayer {
         // Find the AiSideInfo for our player's side
         // C++ AIPlayer.cpp:2917-2926
         let player_side = {
-            let Some(player_arc) = self.get_player() else {
+            let Some(player_index) = self.get_player() else {
                 return Ok(());
             };
-            let Ok(player_guard) = player_arc.read() else {
+            let Some(side) = crate::player::with_player(player_index, |g| g.get_side().clone()) else {
                 return Ok(());
             };
-            player_guard.get_side().clone()
+            side
         };
 
         // Get side info from AI data
@@ -501,14 +490,14 @@ impl AIPlayer {
 
         // SKILLS: purchase sciences from the selected skillset
         // C++ AIPlayer.cpp:2951-2977
-        let Some(player_arc) = self.get_player() else {
+        let Some(player_index) = self.get_player() else {
             return Ok(());
         };
         let purchase_points = {
-            let Ok(player_guard) = player_arc.read() else {
+            let Some(points) = crate::player::with_player(player_index, |g| g.get_science_purchase_points()) else {
                 return Ok(());
             };
-            player_guard.get_science_purchase_points()
+            points
         };
         if purchase_points <= 0 {
             return Ok(());
@@ -532,16 +521,18 @@ impl AIPlayer {
                 continue;
             }
             let (capable, purchased) = {
-                let Ok(mut player_guard) = player_arc.write() else {
+                let Some(pair) = crate::player::with_player_mut(player_index, |player_guard| {
+                    let capable = player_guard.is_capable_of_purchasing_science(science);
+                    if !capable {
+                        (false, false)
+                    } else {
+                        let purchased = player_guard.attempt_to_purchase_science(science);
+                        (true, purchased)
+                    }
+                }) else {
                     break;
                 };
-                let capable = player_guard.is_capable_of_purchasing_science(science);
-                if !capable {
-                    (false, false)
-                } else {
-                    let purchased = player_guard.attempt_to_purchase_science(science);
-                    (true, purchased)
-                }
+                pair
             };
             if capable && purchased {
                 // Successfully purchased a science from the skillset

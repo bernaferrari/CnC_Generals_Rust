@@ -108,14 +108,16 @@ impl RadiusDecalUpdate {
 
         self.delivery_decal.clear();
 
-        let owner_index = (if self.object_id == crate::common::INVALID_ID {
+        let owner_index = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
-        .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |o| {
+                    o.get_controlling_player()
+                        .and_then(|player| player.read().ok().map(|p| p.get_player_index()))
+                })
+                .flatten()
+        };
         let local_index = ThePlayerList()
             .read()
             .ok()
@@ -139,21 +141,16 @@ impl RadiusDecalUpdate {
             }
         }
         self.sleeping = decal_is_empty(&self.delivery_decal);
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
-                let now = crate::helpers::TheGameLogic::get_frame();
-                let wake_frame = if self.sleeping {
-                    UpdateSleepTime::Forever.to_u32()
-                } else {
-                    now.saturating_add(1)
-                };
+        if self.object_id != crate::common::INVALID_ID {
+            let now = crate::helpers::TheGameLogic::get_frame();
+            let wake_frame = if self.sleeping {
+                UpdateSleepTime::Forever.to_u32()
+            } else {
+                now.saturating_add(1)
+            };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
                 obj.reschedule_named_update("RadiusDecalUpdate", wake_frame);
-            }
+            });
         }
     }
 
@@ -171,18 +168,13 @@ impl RadiusDecalUpdate {
 
         self.delivery_decal.clear();
         self.sleeping = true;
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
+        if self.object_id != crate::common::INVALID_ID {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
                 obj.reschedule_named_update(
                     "RadiusDecalUpdate",
                     UpdateSleepTime::Forever.to_u32(),
                 );
-            }
+            });
         }
     }
 }
@@ -194,19 +186,16 @@ impl UpdateModuleInterface for RadiusDecalUpdate {
             return UPDATE_SLEEP_FOREVER;
         }
         if self.kill_when_no_longer_attacking {
-            let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
+            let Some(attacking) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+                crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                    obj.get_status_bits().test(ObjectStatusTypes::IsAttacking)
+                })
             }) else {
                 return UPDATE_SLEEP_FOREVER;
             };
-            let Ok(obj) = obj_arc.read() else {
-                return UPDATE_SLEEP_FOREVER;
-            };
-            if !obj.get_status_bits().test(ObjectStatusTypes::IsAttacking) {
-                drop(obj);
+            if !attacking {
                 self.delivery_decal.clear();
                 self.sleeping = true;
                 return UPDATE_SLEEP_FOREVER;

@@ -1809,12 +1809,11 @@ impl UnitAIUpdate {
         if surrendered {
             self.surrendered_frames_left = self.surrender_duration_frames;
             self.surrendered_player_index = to_object_id.and_then(|id| {
-                let obj = crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))?;
-                let guard = obj.read().ok()?;
-                guard
-                    .get_controlling_player_id()
-                    .map(|idx| idx as PlayerIndex)
+                crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
+                    guard
+                        .get_controlling_player_id()
+                        .map(|idx| idx as PlayerIndex)
+                })?
             });
         } else {
             self.surrendered_frames_left = 0;
@@ -2020,27 +2019,26 @@ impl UnitAIUpdate {
         let max_range = guard.engagement_range;
         if use_existing_target {
             if let Some(existing_id) = guard.attack_target {
-                if let Some(existing_arc) =
-                    crate::object::registry::OBJECT_REGISTRY.get_object(existing_id)
-                {
-                    if let Ok(existing_guard) = existing_arc.read() {
-                        let relationship = guard
-                            .base_arc()
-                            .read()
-                            .ok()
-                            .map(|base| base.relationship_to(&existing_guard))
-                            .unwrap_or(Relationship::Neutral);
-                        if relationship == Relationship::Enemies {
-                            let target_pos = *existing_guard.get_position();
-                            let self_pos = guard.get_position();
-                            let dx = target_pos.x - self_pos.x;
-                            let dy = target_pos.y - self_pos.y;
-                            let dist = (dx * dx + dy * dy).sqrt();
-                            if dist <= max_range && guard.can_detect_target(&existing_guard, dist) {
-                                return existing_id;
-                            }
-                        }
+                let keep = crate::object::registry::OBJECT_REGISTRY.with_object(existing_id, |existing_guard| {
+                    let relationship = guard
+                        .base_arc()
+                        .read()
+                        .ok()
+                        .map(|base| base.relationship_to(existing_guard))
+                        .unwrap_or(Relationship::Neutral);
+                    if relationship == Relationship::Enemies {
+                        let target_pos = *existing_guard.get_position();
+                        let self_pos = guard.get_position();
+                        let dx = target_pos.x - self_pos.x;
+                        let dy = target_pos.y - self_pos.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        dist <= max_range && guard.can_detect_target(existing_guard, dist)
+                    } else {
+                        false
                     }
+                });
+                if keep == Some(true) {
+                    return existing_id;
                 }
             }
         }

@@ -205,7 +205,6 @@ impl StickyBombUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut obj) = obj_arc.write() {
                 obj.set_producer(target);
@@ -379,9 +378,7 @@ impl StickyBombUpdate {
                 (if self.object_id == crate::common::INVALID_ID {
                     None
                 } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 }),
             ) {
                 let blast = {
@@ -480,9 +477,7 @@ impl StickyBombUpdate {
                 if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
                     None
                 } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
+                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 }) {
                     if let Ok(obj) = object_arc.read() {
                         if obj.is_kind_of(KindOf::BoobyTrap) {
@@ -497,7 +492,6 @@ impl StickyBombUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut obj) = object_arc.write() {
                 obj.kill(None, None);
@@ -529,11 +523,7 @@ impl UpdateModuleInterface for StickyBombUpdate {
                     let object_arc = if self.object_id == crate::common::INVALID_ID {
                         None
                     } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || {
-                                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                            },
-                        )
+                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                     };
                     if dead {
                         if let Some(object_arc) = object_arc {
@@ -572,7 +562,6 @@ impl UpdateModuleInterface for StickyBombUpdate {
                 None
             } else {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) {
                 if let Ok(obj) = obj_arc.read() {
                     if let Some(sound) = obj.get_template().get_per_unit_sound("UnitBombPing") {
@@ -613,7 +602,6 @@ impl BehaviorModuleInterface for StickyBombUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return Ok(());
         };

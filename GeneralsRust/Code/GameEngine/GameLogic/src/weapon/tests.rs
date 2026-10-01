@@ -808,16 +808,13 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
         Some(0),
         "source must resolve to the playable owner used by the kill-score path"
     );
-    let lost_before = player
-        .read()
-        .unwrap()
-        .get_score_keeper()
-        .get_total_units_lost();
-    let destroyed_before = player
-        .read()
-        .unwrap()
-        .get_score_keeper()
-        .get_total_units_destroyed();
+    let (lost_before, destroyed_before) = crate::player::with_player(0, |player| {
+        (
+            player.get_score_keeper().get_total_units_lost(),
+            player.get_score_keeper().get_total_units_destroyed(),
+        )
+    })
+    .expect("playable owner");
 
     let mut weapon = create_test_weapon();
     let template = Arc::make_mut(&mut weapon.template);
@@ -869,18 +866,23 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
         Some(source_dead.3),
         "self-sourced damage must retain the actual source template"
     );
-    let score = player.read().unwrap();
+    let (lost_after, destroyed_after) = crate::player::with_player(0, |score| {
+        (
+            score.get_score_keeper().get_total_units_lost(),
+            score.get_score_keeper().get_total_units_destroyed(),
+        )
+    })
+    .expect("playable owner");
     assert_eq!(
-        score.get_score_keeper().get_total_units_lost(),
+        lost_after,
         lost_before + 1,
         "self-kill must record exactly one playable owner loss"
     );
     assert_eq!(
-        score.get_score_keeper().get_total_units_destroyed(),
+        destroyed_after,
         destroyed_before,
         "self-kill must not award attacker destruction credit"
     );
-    drop(score);
 
     let (health, destroyed) = crate::object::registry::OBJECT_REGISTRY
         .with_object(target, |target| (target.get_health(), target.is_destroyed()))

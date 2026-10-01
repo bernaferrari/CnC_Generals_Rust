@@ -333,10 +333,8 @@ impl Team {
         // Fall back to controlling player's relationship with that team.
         if let Some(my_player_id) = self.get_controlling_player_id() {
             if let Ok(players) = player_list().read() {
-                if let Some(my_player_arc) = players.get_player(my_player_id as Int).cloned() {
-                    if let Ok(my_player) = my_player_arc.read() {
-                        return my_player.get_relationship_with_team(that_team);
-                    }
+                if let Some(my_player) = players.get_player(my_player_id as Int) {
+                    return my_player.get_relationship_with_team(that_team);
                 }
             }
         }
@@ -355,15 +353,11 @@ impl Team {
 
         if let Some(my_player_id) = self.get_controlling_player_id() {
             if let Ok(players) = player_list().read() {
-                if let (Some(my_player_arc), Some(that_player_arc)) = (
-                    players.get_player(my_player_id as Int).cloned(),
-                    players.get_player(player_index).cloned(),
+                if let (Some(my_player), Some(that_player)) = (
+                    players.get_player(my_player_id as Int),
+                    players.get_player(player_index),
                 ) {
-                    if let (Ok(my_player), Ok(that_player)) =
-                        (my_player_arc.read(), that_player_arc.read())
-                    {
-                        return my_player.get_relationship(&that_player);
-                    }
+                    return my_player.get_relationship(that_player);
                 }
             }
         }

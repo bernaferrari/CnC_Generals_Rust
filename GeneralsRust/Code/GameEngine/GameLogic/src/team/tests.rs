@@ -1009,16 +1009,13 @@ mod tests {
     fn init_team_links_prototype_onto_owning_player_list() {
         let owner = "HqFslr2Owner";
         let key = NameKeyGenerator::name_to_key(owner);
-        let player_arc = {
+        {
             let mut player = crate::player::Player::new(91);
             player.set_player_name_key(key);
-            Arc::new(RwLock::new(player))
-        };
-        {
             let Ok(mut list) = player_list().write() else {
                 return;
             };
-            list.add_player(Arc::clone(&player_arc));
+            list.add_player(player);
         }
 
         let mut factory = TeamFactory::new();
@@ -1031,22 +1028,28 @@ mod tests {
             )
             .expect("prototype");
         {
-            let player = player_arc.read().expect("player");
-            assert!(
+            let linked = crate::player::with_player(91, |player| {
                 player
                     .get_player_team_prototypes()
                     .iter()
-                    .any(|existing| Arc::ptr_eq(existing, &proto)),
+                    .any(|existing| Arc::ptr_eq(existing, &proto))
+            })
+            .unwrap_or(false);
+            assert!(
+                linked,
                 "init_team must add the prototype to the owning player list"
             );
         }
         factory.reset();
-        let player = player_arc.read().expect("player");
-        assert!(
-            !player
+        let linked = crate::player::with_player(91, |player| {
+            player
                 .get_player_team_prototypes()
                 .iter()
-                .any(|existing| Arc::ptr_eq(existing, &proto)),
+                .any(|existing| Arc::ptr_eq(existing, &proto))
+        })
+        .unwrap_or(false);
+        assert!(
+            !linked,
             "factory reset must unlink the prototype from the owning player"
         );
     }

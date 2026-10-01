@@ -43,30 +43,24 @@ impl ScriptCondition for TeamAllUnitsDestroyedCondition {
         // In C++: Check if all team members are dead/gone
         let team_factory = get_team_factory();
         if let Ok(mut factory) = team_factory.lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    // Team is destroyed if it has no members or all members are dead
-                    if team.get_member_count() == 0 {
-                        return Ok(true);
-                    }
-
-                    // Check if all members are destroyed
-                    let members = team.get_members().to_vec();
-                    drop(team); // Drop team guard before getting obj_manager
-
-                    if let Ok(manager) = get_object_manager().read() {
-                        for &member_id in &members {
-                            if let Some(obj_arc) = manager.get_object(member_id) {
-                                if let Ok(obj) = obj_arc.read() {
-                                    if !obj.is_destroyed() {
-                                        return Ok(false); // At least one member alive
-                                    }
-                                }
-                            }
-                        }
-                        return Ok(true); // All members destroyed
+            if let Some(team_id) = factory.find_team(&team_name) {
+                let Some(members) = crate::team::factory_access::with_team(team_id, |team| {
+                    team.get_members().to_vec()
+                }) else {
+                    return Ok(false);
+                };
+                if members.is_empty() {
+                    return Ok(true);
+                }
+                for &member_id in &members {
+                    let alive = OBJECT_REGISTRY
+                        .with_object(member_id, |obj| !obj.is_destroyed())
+                        .unwrap_or(false);
+                    if alive {
+                        return Ok(false);
                     }
                 }
+                return Ok(true);
             }
         }
         Ok(false)
@@ -114,25 +108,23 @@ impl ScriptCondition for UnitsInFormationCondition {
         // In C++: Calculate spread of team positions
         let team_factory = get_team_factory();
         if let Ok(mut factory) = team_factory.lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(team) = team_arc.read() {
-                    let members = team.get_members();
-                    if members.is_empty() {
-                        return Ok(false);
-                    }
-
-                    // Calculate center of mass
-                    let member_ids = members.to_vec();
-                    drop(team); // Drop team guard before getting obj_manager
-
-                    if let Ok(manager) = get_object_manager().read() {
+            if let Some(team_id) = factory.find_team(&team_name) {
+                let Some(member_ids) = crate::team::factory_access::with_team(team_id, |team| {
+                    team.get_members().to_vec()
+                }) else {
+                    return Ok(false);
+                };
+                if member_ids.is_empty() {
+                    return Ok(false);
+                }
+                {
                         let mut positions = Vec::new();
                         for &member_id in &member_ids {
-                            if let Some(obj_arc) = manager.get_object(member_id) {
-                                if let Ok(obj) = obj_arc.read() {
-                                    let pos = obj.get_position();
-                                    positions.push((pos.x, pos.y));
-                                }
+                            if let Some((x, y)) = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                                let pos = obj.get_position();
+                                (pos.x, pos.y)
+                            }) {
+                                positions.push((x, y));
                             }
                         }
 
@@ -209,15 +201,10 @@ impl ScriptCondition for TeamDestroyedCondition {
         let mut guard = factory.lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
         })?;
-        match guard.find_team(&team_name) {
-            Some(team_arc) => {
-                let team = team_arc.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to read team: {}", e))
-                })?;
-                Ok(!team.has_any_objects())
-            }
-            None => Ok(false),
-        }
+        let Some(team_id) = guard.find_team(&team_name) else {
+            return Ok(false);
+        };
+        Ok(crate::team::factory_access::with_team(team_id, |team| !team.has_any_objects()).unwrap_or(false))
     }
 
     fn name(&self) -> &str {
@@ -262,11 +249,9 @@ impl ScriptCondition for TeamHasUnitsCondition {
         let guard = factory.lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
         })?;
-        for team_arc in guard.find_team_instances(&team_name) {
-            let team = team_arc
-                .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
-            if team.has_any_units() {
+        for team_id in guard.find_team_instances(&team_name) {
+            let has = crate::team::factory_access::with_team(team_id, |team| team.has_any_units()).unwrap_or(false);
+            if has {
                 return Ok(true);
             }
         }
@@ -315,11 +300,8 @@ impl ScriptCondition for TeamStateIsCondition {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
         })?;
         match guard.find_team(&team_name) {
-            Some(team_arc) => {
-                let team = team_arc.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to read team: {}", e))
-                })?;
-                Ok(team.get_state().str() == state_name)
+            Some(team_id) => {
+                Ok(crate::team::factory_access::with_team(team_id, |team| team.get_state().str() == state_name).unwrap_or(false))
             }
             None => Ok(false),
         }
@@ -387,35 +369,32 @@ impl ScriptCondition for TeamOwnedByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
+            drop(player);
 
-        let team_name = match parameters.get("team") {
-            Some(ScriptValue::Team(n)) => n.clone(),
-            Some(ScriptValue::String(n)) => n.clone(),
-            _ => {
-                return Err(GameLogicError::Configuration(
-                    "Missing 'team' parameter".to_string(),
-                ));
+            let team_name = match parameters.get("team") {
+                Some(ScriptValue::Team(n)) => n.clone(),
+                Some(ScriptValue::String(n)) => n.clone(),
+                _ => {
+                    return Err(GameLogicError::Configuration(
+                        "Missing 'team' parameter".to_string(),
+                    ));
+                }
+            };
+            let factory = get_team_factory();
+            let mut guard = factory.lock().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
+            })?;
+            match guard.find_team(&team_name) {
+                Some(team_id) => {
+                    Ok(crate::team::factory_access::with_team(team_id, |team| team.get_controlling_player_id() == Some(player_id)).unwrap_or(false))
+                }
+                None => Ok(false),
             }
-        };
-        let factory = get_team_factory();
-        let mut guard = factory.lock().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
-        })?;
-        match guard.find_team(&team_name) {
-            Some(team_arc) => {
-                let team = team_arc.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to read team: {}", e))
-                })?;
-                Ok(team.get_controlling_player_id() == Some(player_id))
-            }
-            None => Ok(false),
-        }
-    }
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "team_owned_by_player"
@@ -453,59 +432,58 @@ impl ScriptCondition for TeamDiscoveredCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_index = player.get_player_index();
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_index = player.get_player_index();
+            drop(player);
 
-        let team_name = match parameters.get("team") {
-            Some(ScriptValue::Team(n)) => n.clone(),
-            Some(ScriptValue::String(n)) => n.clone(),
-            _ => {
-                return Err(GameLogicError::Configuration(
-                    "Missing 'team' parameter".to_string(),
-                ));
-            }
-        };
-        let factory = get_team_factory();
-        let mut guard = factory.lock().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
-        })?;
-        let team_arc = match guard.find_team(&team_name) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+            let team_name = match parameters.get("team") {
+                Some(ScriptValue::Team(n)) => n.clone(),
+                Some(ScriptValue::String(n)) => n.clone(),
+                _ => {
+                    return Err(GameLogicError::Configuration(
+                        "Missing 'team' parameter".to_string(),
+                    ));
+                }
+            };
+            let factory = get_team_factory();
+            let mut guard = factory.lock().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
+            })?;
+            let team_arc = match guard.find_team(&team_name) {
+                Some(arc) => arc,
+                None => return Ok(false),
+            };
+            let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
-        for &member_id in team.get_members() {
-            let visible = OBJECT_REGISTRY
-                .with_object(member_id, |obj| {
-                    if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
-                        return false;
-                    }
-                    let status = obj.get_status_bits();
-                    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
-                        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
-                        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
-                    {
-                        return false;
-                    }
-                    matches!(
-                        obj.get_shrouded_status(player_index),
-                        crate::common::ObjectShroudStatus::Clear
-                            | crate::common::ObjectShroudStatus::PartialClear
-                    )
-                })
-                .unwrap_or(false);
-            if visible {
-                return Ok(true);
+            for &member_id in team.get_members() {
+                let visible = OBJECT_REGISTRY
+                    .with_object(member_id, |obj| {
+                        if obj.is_disabled_by_type(crate::common::DisabledType::Held) {
+                            return false;
+                        }
+                        let status = obj.get_status_bits();
+                        if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                            && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                            && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                        {
+                            return false;
+                        }
+                        matches!(
+                            obj.get_shrouded_status(player_index),
+                            crate::common::ObjectShroudStatus::Clear
+                                | crate::common::ObjectShroudStatus::PartialClear
+                        )
+                    })
+                    .unwrap_or(false);
+                if visible {
+                    return Ok(true);
+                }
             }
-        }
-        Ok(false)
-    }
+            Ok(false)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "team_discovered"
@@ -550,11 +528,8 @@ impl ScriptCondition for TeamCreatedCondition {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
         })?;
         match guard.find_team(&team_name) {
-            Some(team_arc) => {
-                let team = team_arc.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to read team: {}", e))
-                })?;
-                Ok(team.is_created())
+            Some(team_id) => {
+                Ok(crate::team::factory_access::with_team(team_id, |team| team.is_created()).unwrap_or(false))
             }
             None => Ok(false),
         }
@@ -619,9 +594,8 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+        let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
         let members = team.get_members();
         let mut inside_count = 0u32;
@@ -706,9 +680,8 @@ impl ScriptCondition for TeamInsideAreaEntirelyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+        let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
         let members = team.get_members();
         if members.is_empty() {
@@ -825,9 +798,8 @@ impl ScriptCondition for TeamAllHasObjectStatusCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+        let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
         for &member_id in team.get_members() {
             let ok = OBJECT_REGISTRY
@@ -894,9 +866,8 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+        let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
         for &member_id in team.get_members() {
             match OBJECT_REGISTRY.with_object(member_id, |obj| {
@@ -955,9 +926,8 @@ impl ScriptCondition for TeamEnteredAreaEntirelyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+        let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
         let members = team.get_members();
         if members.is_empty() {
@@ -1021,9 +991,8 @@ impl ScriptCondition for TeamEnteredAreaPartiallyCondition {
             Some(arc) => arc,
             None => return Ok(false),
         };
-        let team = team_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+        let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
 
         let area_tracker = get_area_tracker();
         let objects_in_area = area_tracker

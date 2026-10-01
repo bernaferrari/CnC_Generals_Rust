@@ -64,39 +64,29 @@ impl CashHackSpecialPower {
             return true;
         }
 
-        let player_list = crate::player::player_list();
-        let Ok(list_guard) = player_list.read() else {
-            return false;
-        };
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex) else {
-            return false;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return false;
-        };
+        crate::player::with_player_mut(player_id as PlayerIndex, |player_guard| {
+            if !player_guard
+                .get_money_mut()
+                .subtract_money(self.data.base.cost)
+            {
+                return false;
+            }
 
-        if !player_guard
-            .get_money_mut()
-            .subtract_money(self.data.base.cost)
-        {
-            return false;
-        }
+            if self.data.base.cost > 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_spent(self.data.base.cost as u32);
+            }
 
-        if self.data.base.cost > 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_spent(self.data.base.cost as u32);
-        }
-
-        true
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn get_player_money(&self, player_id: ObjectID) -> Option<Int> {
-        let player_list = crate::player::player_list();
-        let list_guard = player_list.read().ok()?;
-        let player_arc = list_guard.get_player(player_id as PlayerIndex)?;
-        let player_guard = player_arc.read().ok()?;
-        Some(player_guard.get_money().get_money())
+        crate::player::with_player(player_id as PlayerIndex, |player_guard| {
+            player_guard.get_money().get_money()
+        })
     }
 
     fn check_prerequisites(&self, player_id: ObjectID) -> Bool {
@@ -143,28 +133,30 @@ impl CashHackSpecialPower {
         let manager = get_player_money_manager()?;
         let mgr = manager.read().ok()?;
 
-        let list = player_list().read().ok()?;
-        let me = list.get_player(player_id as Int)?;
-
-        let mut best_enemy: Option<(ObjectID, Int)> = None;
-        let mut best_other: Option<(ObjectID, Int)> = None;
+        let me_index = player_id as crate::player::PlayerIndex;
 
         for other_id in 0..crate::common::MAX_PLAYER_COUNT as ObjectID {
             if other_id == player_id {
                 continue;
             }
-            let Some(them) = list.get_player(other_id as Int) else {
+            if player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(other_id as Int))
+                .is_none()
+            {
                 continue;
-            };
+            }
             let money = mgr.get_money(other_id);
             if money <= 0 {
                 continue;
             }
 
-            let rel = match (me.read(), them.read()) {
-                (Ok(me_guard), Ok(them_guard)) => me_guard.get_relationship(&them_guard),
-                _ => Relationship::Neutral,
-            };
+            let rel = crate::player::with_player(other_id as crate::player::PlayerIndex, |them_guard| {
+                crate::player::with_player(me_index, |me_guard| me_guard.get_relationship(them_guard))
+            })
+            .flatten()
+            .unwrap_or(Relationship::Neutral);
 
             match rel {
                 Relationship::Enemies => {

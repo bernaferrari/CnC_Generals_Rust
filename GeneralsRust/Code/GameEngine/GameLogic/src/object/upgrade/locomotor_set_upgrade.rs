@@ -131,20 +131,15 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
         }
         mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
 
-        // C++ LocomotorSetUpgrade::upgradeImplementation: getObject()->getAIUpdateInterface()
-        // Live host objects live on TheGameLogic (registry may be empty).
-        let object = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id));
-
-        let Some(object) = object else {
-            log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);
-            return false;
-        };
-
-        if let Ok(mut object_guard) = object.write() {
+        let applied = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             if let Some(ai) = object_guard.get_ai_update_interface_mut() {
                 let _ = ai.set_locomotor_upgrade(true);
             }
+            true
+        });
+        if applied.is_none() {
+            log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);
+            return false;
         }
 
         self.applied = true;

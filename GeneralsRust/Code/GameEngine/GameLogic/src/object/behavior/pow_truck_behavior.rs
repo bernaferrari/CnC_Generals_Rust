@@ -118,17 +118,18 @@ impl POWTruckBehavior {
     }
 
     fn get_object(&self) -> Option<ObjectID> {
-        // Wave 366: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        if crate::object::registry::OBJECT_REGISTRY.contains(id) {
+            Some(id)
+        } else {
+            None
+        }
     }
 
     fn load_surrendered_prisoner(
@@ -172,15 +173,13 @@ impl POWTruckBehavior {
             return;
         }
 
-        let Some(other) = TheGameLogic::find_object_by_id(other_id) else {
-            return;
-        };
-
-        let surrendered = other
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-            .map(|ai| ai.is_surrendered())
+        let surrendered = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| {
+                guard
+                    .get_ai_update_interface()
+                    .map(|ai| ai.is_surrendered())
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
         if surrendered {
@@ -294,11 +293,9 @@ impl ContainModuleInterface for POWTruckBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
-        };
+        }
 
         self.contain.on_containing(obj_id, was_selected)
     }
@@ -312,11 +309,9 @@ impl ContainModuleInterface for POWTruckBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
-        };
+        }
 
         self.contain.on_removing(obj_id)
     }
@@ -409,16 +404,13 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
             return Ok(false);
         }
 
-        let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
-            return Ok(false);
-        };
-        let surrendered = other
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-            .map(|ai| ai.is_surrendered())
+        let surrendered = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| {
+                guard
+                    .get_ai_update_interface()
+                    .map(|ai| ai.is_surrendered())
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
         if !surrendered {

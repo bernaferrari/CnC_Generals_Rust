@@ -557,7 +557,6 @@ impl SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })?;
         let obj = obj_arc.read().ok()?;
         let template = self.module_data.special_power_template.as_ref()?;
@@ -589,7 +588,6 @@ impl SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -848,7 +846,6 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             if self.status != GunshipStatus::Idle {
                 self.set_status(GunshipStatus::Idle);
@@ -1131,7 +1128,6 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -1187,7 +1183,6 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut gunship) = gunship_arc.write() {
                 if let Some(ai) = gunship.get_ai_update_interface() {
@@ -1300,7 +1295,6 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(gunship) = gunship_arc.read() {
                 if !gunship.is_disabled() {
@@ -1369,7 +1363,6 @@ impl BehaviorModuleInterface for SpectreGunshipUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return Ok(());
         };

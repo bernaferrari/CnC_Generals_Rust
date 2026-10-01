@@ -1151,18 +1151,16 @@ impl GameLogic {
 
         // For each player, update their visible objects
         if let Ok(player_list_guard) = player_list().read() {
-            for player_arc in player_list_guard.iter() {
-                if let Ok(player) = player_arc.read() {
-                    let player_id = player.get_player_index();
+            for player in player_list_guard.iter() {
+                let player_id = player.get_player_index();
 
-                    // In full implementation:
-                    // - Query ShroudManager for visible objects
-                    // - Update rendering visibility flags
-                    // - Handle stealth detection
-                    // - Update radar display
+                // In full implementation:
+                // - Query ShroudManager for visible objects
+                // - Update rendering visibility flags
+                // - Handle stealth detection
+                // - Update radar display
 
-                    trace!("Updated vision for player {}", player_id);
-                }
+                trace!("Updated vision for player {}", player_id);
             }
         }
 
@@ -1444,10 +1442,8 @@ impl GameLogic {
         if let Ok(list) = player_list().read() {
             let mut count = list.get_player_count() as i32;
             let _ = Xfer::xfer_int(&mut xfer, &mut count);
-            for player_arc in list.iter() {
-                if let Ok(player) = player_arc.read() {
-                    let _ = Snapshotable::crc(&*player, &mut xfer);
-                }
+            for player in list.iter() {
+                let _ = Snapshotable::crc(player, &mut xfer);
             }
         }
 

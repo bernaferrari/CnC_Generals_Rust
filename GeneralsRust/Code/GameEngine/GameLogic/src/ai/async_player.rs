@@ -8,7 +8,7 @@ use super::{ObjectId, PlayerId, Coord3D, Real};
 use crate::common::{KindOf, LOGICFRAMES_PER_SECOND};
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::player::player_list;
+use crate::player::{player_list, with_player};
 
 use std::collections::{HashMap, VecDeque, HashSet, BTreeMap};
 use std::sync::{Arc, RwLock, Mutex};
@@ -671,14 +671,10 @@ impl AsyncAiPlayer {
         let mut owned_positions = Vec::new();
         let mut known_enemies = HashMap::new();
 
-        let player_arc = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned());
-
-        if let Some(player) = player_arc.as_ref().and_then(|arc| arc.read().ok()) {
-            owned_objects.extend(player.get_all_objects());
-            for obj_id in &player.get_all_objects() {
+        let player_objects = with_player(self.player_id as i32, |player| player.get_all_objects());
+        if let Some(player_objects) = player_objects {
+            owned_objects.extend(player_objects.iter().copied());
+            for obj_id in &player_objects {
                 if let Some(pos) =
                     OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| *obj_guard.get_position())
                 {
@@ -701,14 +697,11 @@ impl AsyncAiPlayer {
                 return;
             }
 
-            let is_enemy = match player_arc.as_ref().and_then(|arc| arc.read().ok()) {
-                Some(player_guard) => {
-                    let list = player_list().read().ok();
-                    let other = list.and_then(|list| list.get_player(owner_id as i32)).and_then(|p| p.read().ok());
-                    matches!(other.as_ref().map(|p| player_guard.get_relationship(p)), Some(crate::common::Relationship::Enemies))
-                }
-                None => true,
-            };
+            let is_enemy = with_player(self.player_id as i32, |player_guard| {
+                with_player(owner_id as i32, |other| {
+                    player_guard.get_relationship(other) == crate::common::Relationship::Enemies
+                }).unwrap_or(false)
+            }).unwrap_or(true);
 
             if !is_enemy {
                 return;
@@ -821,14 +814,14 @@ impl AsyncAiPlayer {
         let mut context = self.context.write()
             .map_err(|e| GameLogicError::Threading(format!("Failed to write context: {}", e)))?;
         context.game_state = new_snapshot;
-        if let Some(player) = player_arc.and_then(|arc| arc.read().ok()) {
-            context.resources = ResourceState {
-                money: player.get_money().get_money(),
-                income_rate: player.get_money().get_income_rate(),
-                power: player.get_energy().get_power() as i32,
-                supply_used: 0,
-                supply_max: 0,
-            };
+        if let Some(resources) = with_player(self.player_id as i32, |player| ResourceState {
+            money: player.get_money().get_money(),
+            income_rate: player.get_money().get_income_rate(),
+            power: player.get_energy().get_power() as i32,
+            supply_used: 0,
+            supply_max: 0,
+        }) {
+            context.resources = resources;
         }
 
         Ok(())

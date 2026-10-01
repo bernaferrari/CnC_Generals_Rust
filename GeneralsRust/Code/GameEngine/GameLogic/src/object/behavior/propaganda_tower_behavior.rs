@@ -230,17 +230,12 @@ impl PropagandaTowerBehavior {
     }
 
     fn reschedule_self(&self) {
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        if let Ok(guard) = obj.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
             guard.reschedule_named_update(
                 "PropagandaTowerBehavior",
                 self.next_call_frame_and_phase,
             );
-        }
+        });
     }
 
     fn resolve_object(
@@ -254,9 +249,13 @@ impl PropagandaTowerBehavior {
         if self.object_id == crate::common::INVALID_ID {
             return Err("PropagandaTowerBehavior object not set".into());
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            .ok_or_else(|| "PropagandaTowerBehavior object not set".into())
+        if crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+        {
+            Ok(self.object_id)
+        } else {
+            Err("PropagandaTowerBehavior object not set".into())
+        }
     }
 
     fn handle_object_created(&mut self) {
@@ -426,13 +425,12 @@ impl PropagandaTowerBehavior {
                 self.module_data.pulse_fx.as_ref()
             };
             if let Some(fx) = fx {
-                if let Some(tower_arc) =
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                {
-                    let _ = fx.do_fx_obj(&tower_arc, None);
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.object_id,
+                    |tower_obj| {
+                        fx.do_fx_obj(tower_obj, None);
+                    },
+                );
             }
         }
 

@@ -488,7 +488,6 @@ impl WaveGuideUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -572,7 +571,6 @@ impl WaveGuideUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -637,7 +635,6 @@ impl WaveGuideUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -706,7 +703,6 @@ impl WaveGuideUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -764,7 +760,6 @@ impl WaveGuideUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -938,7 +933,6 @@ impl UpdateModuleInterface for WaveGuideUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return UpdateSleepTime::None;
         };

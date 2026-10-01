@@ -273,24 +273,17 @@ impl DemoTrapUpdate {
             return Ok(());
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let Some((under_construction, sold, me_id, me_pos)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |me| {
+                (
+                    me.test_status(ObjectStatusTypes::UnderConstruction),
+                    me.test_status(ObjectStatusTypes::Sold),
+                    me.get_id(),
+                    *me.get_position(),
+                )
+            })
+        else {
             return Ok(());
-        };
-        let (under_construction, sold, me_id, me_pos) = {
-            let Ok(me) = me_arc.read() else {
-                return Ok(());
-            };
-            (
-                me.test_status(ObjectStatusTypes::UnderConstruction),
-                me.test_status(ObjectStatusTypes::Sold),
-                me.get_id(),
-                *me.get_position(),
-            )
         };
 
         if !under_construction && !sold {
@@ -302,11 +295,9 @@ impl DemoTrapUpdate {
             });
         }
 
-        let mut me = me_arc
-            .write()
-            .map_err(|_| "demo trap lock poisoned".to_string())?;
-        me.kill(None, None);
-        drop(me);
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |me| me.kill(None, None))
+            .ok_or("demo trap lock poisoned")?;
         self.detonated = true;
         Ok(())
     }
@@ -323,38 +314,31 @@ impl UpdateModuleInterface for DemoTrapUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        let Some(status) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |me| {
+            (
+                me.test_status(ObjectStatusTypes::UnderConstruction)
+                    || me.test_status(ObjectStatusTypes::Sold),
+                me.is_effectively_dead(),
+                me.get_current_weapon().map(|(_weapon, slot)| slot),
+                *me.get_position(),
+            )
         }) else {
             return UPDATE_SLEEP_NONE;
         };
-        let Ok(me) = me_arc.read() else {
-            return UPDATE_SLEEP_NONE;
-        };
+        let (blocked, dead, weapon_slot, me_pos) = status;
 
-        if me.test_status(ObjectStatusTypes::UnderConstruction)
-            || me.test_status(ObjectStatusTypes::Sold)
-        {
+        if blocked {
             return UPDATE_SLEEP_NONE;
         }
 
-        if me.is_effectively_dead() {
+        if dead {
             if self.module_data.detonate_when_killed {
-                drop(me);
                 let _ = self.detonate();
             }
             return UPDATE_SLEEP_NONE;
         }
 
-        // Get the current weapon slot -- this determines what mode we're in.
-        let weapon_slot = me.get_current_weapon().map(|(_weapon, slot)| slot);
-
         if weapon_slot == Some(self.module_data.detonation_weapon_slot) {
-            // We've been externally triggered by the press of a command button.
-            drop(me);
             let _ = self.detonate();
             return UPDATE_SLEEP_NONE;
         }
@@ -375,7 +359,6 @@ impl UpdateModuleInterface for DemoTrapUpdate {
         self.next_scan_frames = self.module_data.scan_frames as i32;
 
         // Scan for a valid enemy in proximity range.
-        let me_pos = *me.get_position();
         let range = self.module_data.trigger_detonation_range;
 
         let candidates = if let Some(pm) = ThePartitionManager::get() {
@@ -574,29 +557,19 @@ impl BehaviorModuleInterface for DemoTrapUpdate {
             return Ok(());
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return Ok(());
-        };
-        let mut me = me_arc.write().unwrap();
-
-        me.set_weapon_set_flag(WeaponSetType::Veteran);
-
-        if self.module_data.defaults_to_proximity_mode {
-            me.set_weapon_lock(
-                self.module_data.proximity_mode_weapon_slot,
-                WeaponLockType::LockedTemporarily,
-            );
-        } else {
-            me.set_weapon_lock(
-                self.module_data.manual_mode_weapon_slot,
-                WeaponLockType::LockedTemporarily,
-            );
-        }
+        let proximity = self.module_data.defaults_to_proximity_mode;
+        let proximity_slot = self.module_data.proximity_mode_weapon_slot;
+        let manual_slot = self.module_data.manual_mode_weapon_slot;
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |me| {
+                me.set_weapon_set_flag(WeaponSetType::Veteran);
+                if proximity {
+                    me.set_weapon_lock(proximity_slot, WeaponLockType::LockedTemporarily);
+                } else {
+                    me.set_weapon_lock(manual_slot, WeaponLockType::LockedTemporarily);
+                }
+            })
+            .ok_or("Object lost")?;
         Ok(())
     }
 }
@@ -638,8 +611,11 @@ pub fn demo_trap_update_module_factory(
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(owner_id).expect("DemoTrapUpdate requires object");
-    let behavior = DemoTrapUpdate::new(object_id, module_data_arc.clone())
+    assert!(
+        crate::object::registry::OBJECT_REGISTRY.contains(owner_id),
+        "DemoTrapUpdate requires object"
+    );
+    let behavior = DemoTrapUpdate::new(owner_id, module_data_arc.clone())
         .expect("DemoTrapUpdate failed to initialize");
     let module_name = AsciiString::from("DemoTrapUpdate");
     Box::new(DemoTrapUpdateModule::new(

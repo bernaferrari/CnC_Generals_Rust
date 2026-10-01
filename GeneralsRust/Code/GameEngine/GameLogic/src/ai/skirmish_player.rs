@@ -15,7 +15,7 @@ use crate::object::special_power_types::SpecialPowerType as ObjectSpecialPowerTy
 use crate::object::*;
 use crate::object_manager::get_object_manager;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::player::{GameDifficulty, Player, player_list};
+use crate::player::{player_list, with_player, with_player_mut, GameDifficulty, Player};
 use crate::player::{PlayerType, ThePlayerList};
 use crate::team::{TeamPrototype, get_team_factory};
 use crate::terrain::get_terrain_logic;
@@ -85,14 +85,10 @@ impl AISkirmishPlayer {
         };
 
         // Turn on AI production by default for skirmish
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(player_id as i32) {
-                if let Ok(mut player_ref) = player_arc.write() {
-                    player_ref.set_can_build_units(true);
-                    player_ref.set_is_skirmish_ai(true);
-                }
-            }
-        }
+        let _ = with_player_mut(player_id as i32, |player_ref| {
+            player_ref.set_can_build_units(true);
+            player_ref.set_is_skirmish_ai(true);
+        });
 
         skirmish_player
     }
@@ -146,13 +142,13 @@ impl AISkirmishPlayer {
         self.base.set_base_center_set(false);
 
         let player_side = {
-            let Some(player_arc) = self.base.get_player() else {
+            let Some(player_idx) = self.base.get_player() else {
                 return;
             };
-            let Ok(guard) = player_arc.read() else {
+            let Some(side) = with_player(player_idx, |guard| guard.get_side().clone()) else {
                 return;
             };
-            guard.get_side().clone()
+            side
         };
 
         let mut build_list = None;
@@ -176,10 +172,10 @@ impl AISkirmishPlayer {
         };
 
         self.adjust_build_list(&mut build_list);
-        if let Some(player_arc) = self.base.get_player() {
-            if let Ok(mut guard) = player_arc.write() {
+        if let Some(player_idx) = self.base.get_player() {
+            let _ = with_player_mut(player_idx, |guard| {
                 guard.set_build_list(Some(build_list));
-            }
+            });
         }
 
         let _ = self.base.compute_center_and_radius_of_base();
@@ -210,13 +206,10 @@ impl AISkirmishPlayer {
             return;
         }
 
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
-
+        let Some((found, found_unbuilt)) = with_player_mut(player_idx, |player_guard| {
         let mut found = false;
         let mut found_unbuilt = false;
         let mut info_opt = player_guard.get_build_list_mut();
@@ -248,6 +241,10 @@ impl AISkirmishPlayer {
             }
             info_opt = info.get_next_mut();
         }
+        (found, found_unbuilt)
+        }) else {
+            return;
+        };
 
         if found_unbuilt {
             self.base.set_build_delay_frames(0);
@@ -273,12 +270,11 @@ impl AISkirmishPlayer {
     /// Resolve side `m_baseDefenseStructure1` and place via
     /// `buildAIBaseDefenseStructure`. No host residual fallbacks.
     pub fn build_ai_base_defense(&mut self, flank: bool) {
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let player_side = match player_arc.read() {
-            Ok(guard) => guard.get_side().clone(),
-            Err(_) => return,
+        let Some(player_side) = with_player(player_idx, |guard| guard.get_side().clone()) else {
+            return;
         };
         // C++ walks m_sideInfo until side match, then calls with that entry's
         // m_baseDefenseStructure1 (even if empty — template lookup fails fast).
@@ -308,22 +304,22 @@ impl AISkirmishPlayer {
             return;
         };
         let mp_start = {
-            let Some(player_arc) = self.base.get_player() else {
+            let Some(player_idx) = self.base.get_player() else {
                 return;
             };
-            let Ok(pg) = player_arc.read() else {
+            let Some(start) = with_player(player_idx, |pg| pg.get_mp_start_index() + 1) else {
                 return;
             };
-            pg.get_mp_start_index() + 1
+            start
         };
         let player_id = {
-            let Some(player_arc) = self.base.get_player() else {
+            let Some(player_idx) = self.base.get_player() else {
                 return;
             };
-            let Ok(pg) = player_arc.read() else {
+            let Some(id) = with_player(player_idx, |pg| pg.get_id() as ObjectID) else {
                 return;
             };
-            pg.get_id() as ObjectID
+            id
         };
 
         loop {
@@ -436,14 +432,14 @@ impl AISkirmishPlayer {
                 continue;
             }
 
-            if let Some(player_arc) = self.base.get_player() {
-                if let Ok(mut pg) = player_arc.write() {
+            if let Some(player_idx) = self.base.get_player() {
+                let _ = with_player_mut(player_idx, |pg| {
                     pg.add_to_priority_build_list(
                         crate::common::AsciiString::from(thing_name),
                         build_pos,
                         place_angle,
                     );
-                }
+                });
             }
             break;
         }
@@ -566,10 +562,10 @@ impl AISkirmishPlayer {
             power_type,
             ObjectSpecialPowerType::ClusterMines | ObjectSpecialPowerType::NukeClusterMines
         ) {
-            let Some(player_arc) = self.base.get_player() else {
+            let Some(player_idx) = self.base.get_player() else {
                 return false;
             };
-            let Ok(player_guard) = player_arc.read() else {
+            let Some(mp_start) = with_player(player_idx, |player_guard| player_guard.get_mp_start_index()) else {
                 return false;
             };
             let mode = GameLogicRandomValue(0, 2);
@@ -577,19 +573,19 @@ impl AISkirmishPlayer {
                 format!(
                     "{}{}",
                     SKIRMISH_FLANK,
-                    player_guard.get_mp_start_index() + 1
+                    mp_start + 1
                 )
             } else if mode == 2 {
                 format!(
                     "{}{}",
                     SKIRMISH_BACKDOOR,
-                    player_guard.get_mp_start_index() + 1
+                    mp_start + 1
                 )
             } else {
                 format!(
                     "{}{}",
                     SKIRMISH_CENTER,
-                    player_guard.get_mp_start_index() + 1
+                    mp_start + 1
                 )
             };
 
@@ -678,12 +674,11 @@ impl AISkirmishPlayer {
             .unwrap_or(crate::ai::ai_player::REBUILD_DELAY_SECONDS)
             * LOGICFRAMES_PER_SECOND;
 
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return;
-        };
+        let is_under_powered = self.is_under_powered();
+        let built = with_player_mut(player_idx, |player_guard| {
         let player_index = player_guard.get_id() as u32;
 
         let mut selected_plan = None;
@@ -696,7 +691,7 @@ impl AISkirmishPlayer {
         let mut power_loc = None;
         let mut power_angle = 0.0_f32;
         let mut power_under_construction = false;
-        let is_under_powered = self.is_under_powered();
+
 
         let mut info_opt = player_guard.get_build_list_mut();
         while let Some(info) = info_opt {
@@ -940,9 +935,11 @@ impl AISkirmishPlayer {
             }
         }
 
-        // Drop player lock before building.
-        drop(player_guard);
-        drop(player_arc);
+        (selected_name, selected_loc, selected_angle)
+        });
+        let Some((selected_name, selected_loc, selected_angle)) = built else {
+            return;
+        };
 
         if let (Some(name), Some(loc)) = (selected_name, selected_loc) {
             // C++ USE_DOZER: buildStructureWithDozer + arm structure timer on success.
@@ -979,10 +976,9 @@ impl AISkirmishPlayer {
     ///   if money < m_resourcesPoor: timer /= m_structuresPoorMod
     ///   if money > m_resourcesWealthy: timer /= m_structuresWealthyMod
     fn adjust_build_timer_for_wealth(&mut self) {
-        let current_money = self
-            .base
-            .get_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()));
+        let current_money = self.base.get_player().and_then(|idx| {
+            with_player(idx, |g| g.get_money().get_money())
+        });
         let Some(money) = current_money else {
             return;
         };
@@ -1056,10 +1052,9 @@ impl AISkirmishPlayer {
     ///   if money < m_resourcesPoor: timer /= m_teamsPoorMod
     ///   if money > m_resourcesWealthy: timer /= m_teamsWealthyMod
     fn adjust_team_timer_for_wealth(&mut self) {
-        let current_money = self
-            .base
-            .get_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()));
+        let current_money = self.base.get_player().and_then(|idx| {
+            with_player(idx, |g| g.get_money().get_money())
+        });
         let Some(money) = current_money else {
             return;
         };
@@ -1130,16 +1125,15 @@ impl AISkirmishPlayer {
 
     /// C++ `AISkirmishPlayer::doBaseBuilding`.
     fn do_base_building(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(can_build) = with_player(player_idx, |g| g.get_can_build_base()) else {
             return;
         };
-        if !player_guard.get_can_build_base() {
+        if !can_build {
             return;
         }
-        drop(player_guard);
 
         // C++ AISkirmishPlayer::doBaseBuilding:
         // if !ready: structureTimer--; <=0 → ready + buildDelay=0; clamp >3s.
@@ -1178,16 +1172,15 @@ impl AISkirmishPlayer {
 
     /// C++ `AISkirmishPlayer::doTeamBuilding`.
     fn do_team_building(&mut self) {
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(can_build) = with_player(player_idx, |g| g.get_can_build_units()) else {
             return;
         };
-        if !player_guard.get_can_build_units() {
+        if !can_build {
             return;
         }
-        drop(player_guard);
 
         if !self.base.is_ready_to_build_team() {
             let mut team_timer = self.base.get_team_timer();
@@ -1261,12 +1254,11 @@ impl AISkirmishPlayer {
             return;
         }
 
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return;
         };
-        let player_index = match player_arc.read() {
-            Ok(guard) => guard.get_player_index() as UnsignedInt,
-            Err(_) => return,
+        let Some(player_index) = with_player(player_idx, |guard| guard.get_player_index() as UnsignedInt) else {
+            return;
         };
 
         let obj_manager = get_object_manager();
@@ -1310,9 +1302,9 @@ impl AISkirmishPlayer {
             // C++: m_player->onStructureUndone(obj);
             //      TheAI->pathfinder()->removeObjectFromPathfindMap(obj);
             //      TheGameLogic->destroyObject(obj);
-            if let Ok(mut player_guard) = player_arc.write() {
+            let _ = with_player_mut(player_idx, |player_guard| {
                 player_guard.on_structure_undone_id(obj_id);
-            }
+            });
             let positions: Vec<Coord3D> = OBJECT_REGISTRY
                 .with_object(obj_id, |g| vec![*g.get_position()])
                 .unwrap_or_default();
@@ -1417,15 +1409,11 @@ impl AISkirmishPlayer {
         let mut initial: Vec<(String, Coord3D, f32)> = Vec::new();
         let mut rebuild_names: Vec<String> = Vec::new();
         {
-            let Some(player_arc) = self.base.get_player() else {
+            let Some(player_idx) = self.base.get_player() else {
                 return;
             };
-            let Ok(mut player_guard) = player_arc.write() else {
-                return;
-            };
-            let Some(mut entry) = player_guard.get_build_list_mut() else {
-                return;
-            };
+            let _ = with_player_mut(player_idx, |player_guard| {
+            if let Some(mut entry) = player_guard.get_build_list_mut() {
             loop {
                 let name = entry.get_template_name().to_string();
                 if !name.is_empty() && TheThingFactory::find_template(&name).is_some() {
@@ -1441,6 +1429,8 @@ impl AISkirmishPlayer {
                 };
                 entry = next;
             }
+            }
+            });
         }
 
         for (name, loc, angle) in initial {
@@ -1467,11 +1457,9 @@ impl AISkirmishPlayer {
             return -1;
         };
 
-        for player in player_list.iter() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard.get_player_type() == PlayerType::Human {
-                    return player_guard.get_player_index();
-                }
+        for player_guard in player_list.iter() {
+            if player_guard.get_player_type() == PlayerType::Human {
+                return player_guard.get_player_index();
             }
         }
 
@@ -1493,14 +1481,15 @@ impl AISkirmishPlayer {
         let Some(me_player) = self.base.get_player() else {
             return;
         };
-        let Ok(mut me_guard) = me_player.write() else {
+        let Some(me_index) = with_player(me_player, |me_guard| me_guard.get_player_index()) else {
             return;
         };
-        let me_index = me_guard.get_player_index();
-        let base_center = self
-            .base
-            .get_base_center()
-            .unwrap_or_else(|| self.get_enemy_base_center(&me_guard).unwrap_or_default());
+        let base_center = self.base.get_base_center().unwrap_or_else(|| {
+            with_player(me_player, |me_guard| {
+                self.get_enemy_base_center(me_guard).unwrap_or_default()
+            })
+            .unwrap_or_default()
+        });
 
         // C++: if current enemy exists and is not in bad shape, keep it.
         if let Some(enemy_index) = self.current_enemy {
@@ -1508,7 +1497,9 @@ impl AISkirmishPlayer {
                 !enemy_guard.has_any_units() || !enemy_guard.has_any_build_facility()
             });
             if in_bad_shape == Some(false) {
-                me_guard.set_current_enemy_player_index(Some(enemy_index));
+                let _ = with_player_mut(me_player, |me_guard| {
+                    me_guard.set_current_enemy_player_index(Some(enemy_index));
+                });
                 return;
             }
         }
@@ -1517,16 +1508,16 @@ impl AISkirmishPlayer {
             return;
         };
 
-        for player_arc in player_list.iter() {
-            let Ok(player_guard) = player_arc.read() else {
-                continue;
-            };
+        for player_guard in player_list.iter() {
 
             let Some(team_id) = player_guard.get_default_team_id() else {
                 continue;
             };
-            let enemy = crate::team::with_team(team_id, |team_guard| {
-                me_guard.get_relationship_with_team(team_guard) == Relationship::Enemies
+            let enemy = with_player(me_player, |me_guard| {
+                crate::team::with_team(team_id, |team_guard| {
+                    me_guard.get_relationship_with_team(team_guard) == Relationship::Enemies
+                })
+                .unwrap_or(false)
             })
             .unwrap_or(false);
             if !enemy {
@@ -1550,7 +1541,7 @@ impl AISkirmishPlayer {
                 .map(|(lo, hi)| {
                     Coord3D::new(lo.x + (hi.x - lo.x) * 0.5, lo.y + (hi.y - lo.y) * 0.5, 0.0)
                 })
-                .or_else(|| self.get_enemy_base_center(&player_guard))
+                .or_else(|| with_player(enemy_idx, |player_guard| self.get_enemy_base_center(player_guard)).flatten())
                 .unwrap_or(base_center);
             let dx = enemy_center.x - base_center.x;
             let dy = enemy_center.y - base_center.y;
@@ -1562,10 +1553,7 @@ impl AISkirmishPlayer {
 
             // C++: other skirmish AIs targeting this candidate / me.
             // Uses cached enemy index (Player::getCurrentEnemy → AI getAiEnemy).
-            for other_arc in player_list.iter() {
-                let Ok(other_guard) = other_arc.read() else {
-                    continue;
-                };
+            for other_guard in player_list.iter() {
                 if other_guard.get_player_index() == player_guard.get_player_index() {
                     continue;
                 }
@@ -1597,12 +1585,16 @@ impl AISkirmishPlayer {
             return;
         };
         if self.current_enemy == Some(best_index) {
-            me_guard.set_current_enemy_player_index(Some(best_index));
+            let _ = with_player_mut(me_player, |me_guard| {
+                me_guard.set_current_enemy_player_index(Some(best_index));
+            });
             return;
         }
 
         self.current_enemy = Some(best_index);
-        me_guard.set_current_enemy_player_index(Some(best_index));
+        let _ = with_player_mut(me_player, |me_guard| {
+            me_guard.set_current_enemy_player_index(Some(best_index));
+        });
         log::debug!(
             "AISkirmishPlayer acquiring target enemy player index {}",
             best_index
@@ -1659,13 +1651,10 @@ impl AISkirmishPlayer {
 
     /// Check if under powered
     fn is_under_powered(&self) -> bool {
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return false;
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return false;
-        };
-        player_guard.get_energy().is_low_power()
+        with_player(player_idx, |player_guard| player_guard.get_energy().is_low_power()).unwrap_or(false)
     }
 
     /// Check if any ready teams have finished moving to the rally point.
@@ -1698,13 +1687,12 @@ impl AISkirmishPlayer {
     /// Matches C++ AIPlayer wealth/poor threshold logic used throughout
     /// processBaseBuilding and doTeamBuilding.
     pub fn manage_economy(&mut self) -> EconomyDecision {
-        let Some(player_arc) = self.base.get_player() else {
+        let Some(player_idx) = self.base.get_player() else {
             return EconomyDecision::Maintain;
         };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(current_money) = with_player(player_idx, |player_guard| player_guard.get_money().get_money()) else {
             return EconomyDecision::Maintain;
         };
-        let current_money = player_guard.get_money().get_money();
 
         let ai_store = the_ai();let (poor, wealthy) = ai_store
             .read()

@@ -371,15 +371,15 @@ impl UpdateModuleInterface for LifetimeUpdate {
         }
 
         // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut guard) = object.write() {
-                guard.kill(None, None);
-            } else {
+        if self.object_id != crate::common::INVALID_ID
+            && crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+        {
+            if OBJECT_REGISTRY
+                .with_object_mut(self.object_id, |guard| {
+                    guard.kill(None, None);
+                })
+                .is_none()
+            {
                 return UpdateSleepTime::None;
             }
         }
@@ -535,9 +535,7 @@ pub fn lifetime_update_module_factory(
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("LifetimeUpdate requires a valid object");
-    let behavior = LifetimeUpdate::new(object_id, module_data_arc.clone())
+    let behavior = LifetimeUpdate::new(owner_id, module_data_arc.clone())
         .expect("Failed to create LifetimeUpdate");
     let module_name = AsciiString::from("LifetimeUpdate");
     Box::new(LifetimeUpdateModule::new(

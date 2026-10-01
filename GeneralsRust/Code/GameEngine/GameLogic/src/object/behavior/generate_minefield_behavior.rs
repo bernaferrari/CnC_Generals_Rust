@@ -8,14 +8,14 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, Coord3DExt, ModuleData, PathfindLayerEnum, Real, UpgradeMaskType,
+    AsciiString, Coord3D, Coord3DExt, ModuleData, ObjectID, PathfindLayerEnum, Real,
+    UpgradeMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
     UpdateModuleInterface, UpdateSleepTime, UpgradeModuleInterface,
 };
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{
     BehaviorModuleData, xfer_behavior_module_base_versions,
 };
@@ -27,8 +27,7 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType, PayloadTargetControlInterface,
 };
-use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Wave 386: host-only path has no dual-world factory objects.
 #[inline]
@@ -561,7 +560,6 @@ impl GenerateMinefieldBehavior {
             .as_ref()
             .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
             .ok_or("Invalid module data")?;
-        let object_id = object.read().map(|guard| guard.get_id()).unwrap_or(0);
         Ok(Self::new_from_config(object_id, specific_data.clone()))
     }
 
@@ -585,11 +583,9 @@ impl GenerateMinefieldBehavior {
 
             if let Some(upgrade) = upgrade {
                 let mask_bits = UpgradeMaskType::from_bits_retain(upgrade.mask().bits());
-                let has_upgrade = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .and_then(|obj| {
-                        obj.read()
-                            .ok()
-                            .map(|guard| guard.completed_upgrades().contains(mask_bits))
+                let has_upgrade = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.object_id, |owner| {
+                        owner.completed_upgrades().contains(mask_bits)
                     })
                     .unwrap_or(false);
 
@@ -619,6 +615,11 @@ impl GenerateMinefieldBehavior {
         self.state.target = position;
     }
 
+    fn owner_position(&self) -> Option<Coord3D> {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |owner| owner.get_position().clone())
+    }
+
     /// Get minefield target position
     pub fn get_minefield_target(&self) -> Option<Coord3D> {
         if let Some(target) = self.state.target {
@@ -630,8 +631,7 @@ impl GenerateMinefieldBehavior {
             return None;
         }
 
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_position().clone()))
+        self.owner_position()
     }
 
     /// Place mines in the minefield
@@ -651,10 +651,7 @@ impl GenerateMinefieldBehavior {
         let target = self
             .state
             .target
-            .or_else(|| {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .and_then(|obj| obj.read().ok().map(|guard| guard.get_position().clone()))
-            })
+            .or_else(|| self.owner_position())
             .unwrap_or(geometry.center);
         let mut placement_geometry = geometry.clone();
         placement_geometry.center = target;
@@ -989,13 +986,24 @@ impl GenerateMinefieldBehavior {
             return Err(BehaviorError::ObjectNotFound { id: self.object_id });
         }
 
-        let owner = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .ok_or(BehaviorError::ObjectNotFound { id: self.object_id })?;
-
-        let (owner_pos, owner_team) = owner
-            .read()
-            .map(|guard| (guard.get_position().clone(), guard.get_team()))
-            .map_err(|_| BehaviorError::ObjectNotFound { id: self.object_id })?;
+        let Some((owner_pos, team_id)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner| {
+                let owner_pos = owner.get_position().clone();
+                // C++ placeMines*: team is the controlling player's default team.
+                let team_id = owner
+                    .get_controlling_player()
+                    .and_then(|player_index| {
+                        crate::player::with_player(player_index, |player| {
+                            player.get_default_team_id()
+                        })
+                        .flatten()
+                    })
+                    .or_else(|| owner.get_team_id());
+                (owner_pos, team_id)
+            })
+        else {
+            return Err(BehaviorError::ObjectNotFound { id: self.object_id });
+        };
 
         // C++ lines 173-181: Check terrain validity
         // layer = TheTerrainLogic->getHighestLayerForDestination(&tmp)
@@ -1055,12 +1063,22 @@ impl GenerateMinefieldBehavior {
                 template: mine_template.to_string(),
             }
         })?;
-        let mine = if let Some(team) = owner_team.as_ref().and_then(|team| team.read().ok()) {
-            factory.new_object(template, &*team).map_err(|_| {
-                BehaviorError::MineTemplateNotFound {
-                    template: mine_template.to_string(),
+        let mine_id = if let Some(team_id) = team_id {
+            match crate::team::with_team(team_id, |team| {
+                factory.new_object(Arc::clone(&template), team)
+            }) {
+                Some(Ok(id)) => id,
+                Some(Err(_)) => {
+                    return Err(BehaviorError::MineTemplateNotFound {
+                        template: mine_template.to_string(),
+                    });
                 }
-            })?
+                None => factory
+                    .new_object_optional_team(template, None)
+                    .map_err(|_| BehaviorError::MineTemplateNotFound {
+                        template: mine_template.to_string(),
+                    })?,
+            }
         } else {
             factory
                 .new_object_optional_team(template, None)
@@ -1069,27 +1087,27 @@ impl GenerateMinefieldBehavior {
                 })?
         };
 
-        if let Ok(mut mine_guard) = mine.write() {
-            let _ = mine_guard.set_position(position);
-            let _ = mine_guard.set_orientation(orientation);
-            if let Ok(owner_guard) = owner.read() {
-                mine_guard.set_producer(Some(&owner_guard));
-            }
-        }
-
-        let mine_id = mine
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(INVALID_OBJECT_ID);
-
-        // C++ lines 204-212: Set scoot parameters for land mine interface
-        // Handled by the mine's own behavior modules
         if mine_id != INVALID_OBJECT_ID {
-            if let Ok(mut mine_guard) = mine.write() {
-                let behaviors = mine_guard.get_behavior_modules_mut();
-                for behavior in behaviors {
-                    if let Some(lmi) = behavior.get_land_mine_interface() {
-                        lmi.set_scoot_parms(&owner_pos, position);
+            // Pose and producer first. set_scoot_parms checks the mine back out, so the
+            // module handle has to be taken out of this checkout before it runs.
+            let modules =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(mine_id, |mine| {
+                    let _ = mine.set_position(position);
+                    let _ = mine.set_orientation(orientation);
+                    mine.set_producer_id(self.object_id);
+                    mine.behavior_modules()
+                });
+            if let Some(modules) = modules {
+                for module in modules {
+                    let applied = module.with_module_downcast::<
+                        crate::object::behavior::minefield_behavior::MinefieldBehaviorModule,
+                        _,
+                        _,
+                    >(|minefield| {
+                        // C++ lines 204-212: scoot from the producer position to the placement point.
+                        minefield.behavior_mut().set_scoot_parms(&owner_pos, position);
+                    });
+                    if applied.is_some() {
                         break;
                     }
                 }
@@ -1213,13 +1231,8 @@ impl GenerateMinefieldBehavior {
         // C++ lines 459-463:
         // Object *obj = TheGameLogic->findObjectByID(objID);
         // if (obj) { TheGameLogic->destroyObject(obj); }
-        if crate::object::registry::OBJECT_REGISTRY
-            .get_object(mine_id)
-            .is_some()
-        {
-            if let Some(mut mgr) = crate::object_manager::get_object_manager().write().ok() {
-                mgr.destroy_object(mine_id);
-            }
+        if crate::object::registry::OBJECT_REGISTRY.contains(mine_id) {
+            let _ = crate::helpers::TheGameLogic::destroy_object_by_id(mine_id);
         }
         Ok(())
     }
@@ -1553,7 +1566,7 @@ impl GenerateMinefieldBehaviorFactory {
         Box<dyn std::error::Error + Send + Sync>,
     > {
         Ok(Box::new(GenerateMinefieldBehavior::new(
-            thing,
+            object_id,
             module_data,
         )?))
     }

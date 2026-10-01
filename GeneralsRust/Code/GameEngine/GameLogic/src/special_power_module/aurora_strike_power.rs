@@ -112,39 +112,29 @@ impl AuroraStrikePower {
             return true;
         }
 
-        let player_list = crate::player::player_list();
-        let Ok(list_guard) = player_list.read() else {
-            return false;
-        };
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex) else {
-            return false;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return false;
-        };
+        crate::player::with_player_mut(player_id as PlayerIndex, |player_guard| {
+            if !player_guard
+                .get_money_mut()
+                .subtract_money(self.data.base.cost)
+            {
+                return false;
+            }
 
-        if !player_guard
-            .get_money_mut()
-            .subtract_money(self.data.base.cost)
-        {
-            return false;
-        }
+            if self.data.base.cost > 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_spent(self.data.base.cost as u32);
+            }
 
-        if self.data.base.cost > 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_spent(self.data.base.cost as u32);
-        }
-
-        true
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn get_player_money(&self, player_id: ObjectID) -> Option<Int> {
-        let player_list = crate::player::player_list();
-        let list_guard = player_list.read().ok()?;
-        let player_arc = list_guard.get_player(player_id as PlayerIndex)?;
-        let player_guard = player_arc.read().ok()?;
-        Some(player_guard.get_money().get_money())
+        crate::player::with_player(player_id as PlayerIndex, |player_guard| {
+            player_guard.get_money().get_money()
+        })
     }
 
     fn check_prerequisites(&self, player_id: ObjectID) -> Bool {
@@ -267,10 +257,8 @@ impl AuroraStrikePower {
             }
         }).ok_or_else(|| "owning object missing".to_string())?;
 
-        if let Some(obj) = created {
-            if let Ok(guard) = obj.read() {
-                self.active_bombers.push(guard.get_id());
-            }
+        if let Some(id) = created {
+            self.active_bombers.push(id);
         }
 
         Ok(())

@@ -103,55 +103,47 @@ impl FloatUpdate {
 
 impl UpdateModuleInterface for FloatUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let me_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return UPDATE_SLEEP_NONE,
-        };
-
-        if self.enabled {
-            let mut me = match me_arc.write() {
-                Ok(guard) => guard,
-                Err(_) => return UPDATE_SLEEP_NONE,
-            };
-            let mut pos = *me.get_position();
-
-            // C++ snaps Z to waterZ whenever a water handle exists, even if the
-            // ground is above the water. No handle leaves waterZ unwritten.
-            let mut water_z = f32::NAN;
-            if let Ok(terrain) = crate::terrain::get_terrain_logic().try_read() {
-                let _ = terrain.is_underwater(pos.x, pos.y, Some(&mut water_z), None);
-            }
-            if water_z.is_finite() {
-                pos.z = water_z;
-                let _ = me.set_position(&pos);
-            }
+        if self.object_id == crate::common::INVALID_ID {
+            return UPDATE_SLEEP_NONE;
         }
 
-        // Apply rocking motion to the drawable
-        let me = match me_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return UPDATE_SLEEP_NONE,
-        };
-        if let Some(draw) = me.get_drawable() {
-            let frame = TheGameLogic::get_frame() as f32;
-            let yaw_rocking = (frame * 0.0291).sin() * 0.05;
-            let pitch_rocking = (frame * 0.0515).sin() * 0.05;
+        if self.enabled {
+            let snapped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |me| {
+                let mut pos = *me.get_position();
+                let mut water_z = f32::NAN;
+                if let Ok(terrain) = crate::terrain::get_terrain_logic().try_read() {
+                    let _ = terrain.is_underwater(pos.x, pos.y, Some(&mut water_z), None);
+                }
+                if water_z.is_finite() {
+                    pos.z = water_z;
+                    let _ = me.set_position(&pos);
+                }
+            });
+            if snapped.is_none() {
+                return UPDATE_SLEEP_NONE;
+            }
+        } else if !crate::object::registry::OBJECT_REGISTRY.contains(self.object_id) {
+            return UPDATE_SLEEP_NONE;
+        }
 
-            let instance = draw.get_instance_matrix();
-            let z_rot = instance.x_axis.y.atan2(instance.x_axis.x);
+        let rocked = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |me| {
+            if let Some(draw) = me.get_drawable() {
+                let frame = TheGameLogic::get_frame() as f32;
+                let yaw_rocking = (frame * 0.0291).sin() * 0.05;
+                let pitch_rocking = (frame * 0.0515).sin() * 0.05;
 
-            // C++ Matrix3D::Get_Z_Rotation is atan2(Row[1][0], Row[0][0]).
-            // Rebuild identity, then Rotate_Z, Rotate_Y, Rotate_X.
-            let mut mx = Mat4::from_rotation_z(z_rot);
-            mx *= Mat4::from_rotation_y(yaw_rocking);
-            mx *= Mat4::from_rotation_x(pitch_rocking);
+                let instance = draw.get_instance_matrix();
+                let z_rot = instance.x_axis.y.atan2(instance.x_axis.x);
 
-            draw.set_instance_matrix(Some(&mx));
+                let mut mx = Mat4::from_rotation_z(z_rot);
+                mx *= Mat4::from_rotation_y(yaw_rocking);
+                mx *= Mat4::from_rotation_x(pitch_rocking);
+
+                draw.set_instance_matrix(Some(&mx));
+            }
+        });
+        if rocked.is_none() {
+            return UPDATE_SLEEP_NONE;
         }
 
         UPDATE_SLEEP_NONE

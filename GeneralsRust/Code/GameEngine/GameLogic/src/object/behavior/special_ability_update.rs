@@ -561,7 +561,6 @@ impl SpecialAbilityUpdate {
             return None;
         }
         crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     fn calc_sleep_time(&self) -> UpdateSleepTime {
@@ -1264,7 +1263,6 @@ impl SpecialAbilityUpdate {
 
                 if let Some(charge_id) = self.create_special_object() {
                     let module = TheGameLogic::find_object_by_id(charge_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(charge_id))
                         .and_then(|charge| {
                             charge
                                 .read()
@@ -1486,7 +1484,6 @@ impl SpecialAbilityUpdate {
                     };
                     if let Some(charge_id) = self.create_special_object() {
                         let module = TheGameLogic::find_object_by_id(charge_id)
-                            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(charge_id))
                             .and_then(|charge| {
                                 charge
                                     .read()

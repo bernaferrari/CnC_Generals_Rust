@@ -141,19 +141,21 @@ impl ProjectileStreamUpdate {
         let mut points = Vec::with_capacity(MAX_PROJECTILE_STREAM);
         let mut point_index = self.first_valid_index;
 
-        let owning_object = if self.owning_object != OBJECT_INVALID_ID {
-            TheGameLogic::find_object_by_id(self.owning_object)
+        let owning_id = if self.owning_object != OBJECT_INVALID_ID
+            && TheGameLogic::find_object_by_id(self.owning_object)
+        {
+            Some(self.owning_object)
         } else {
             None
         };
 
         while point_index != self.next_free_index {
             let projectile_id = self.projectile_ids[point_index as usize];
-            if let Some(projectile) = TheGameLogic::find_object_by_id(projectile_id) {
-                if let Ok(projectile_guard) = projectile.read() {
-                    let mut point = *projectile_guard.get_position();
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(projectile_id, |projectile_guard| {
+                let mut point = *projectile_guard.get_position();
 
-                    if let Some(owner) = owning_object.as_ref().and_then(|obj| obj.read().ok()) {
+                if let Some(owner_id) = owning_id {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
                         if owner.is_kind_of(crate::common::KindOf::Vehicle) {
                             let pos = owner.get_position();
                             let my_top = owner.get_geometry_info().get_max_height_above_position()
@@ -166,13 +168,13 @@ impl ProjectileStreamUpdate {
                                 point.z = point.z.max(my_top);
                             }
                         }
-                    }
-
-                    points.push(point);
-                } else {
-                    points.push(crate::common::Coord3D::origin());
+                    });
                 }
-            } else {
+                points.push(point);
+            });
+            if !crate::object::registry::OBJECT_REGISTRY.contains(projectile_id)
+                && !TheGameLogic::find_object_by_id(projectile_id)
+            {
                 points.push(crate::common::Coord3D::origin());
             }
 
@@ -188,19 +190,11 @@ impl ProjectileStreamUpdate {
         if stream_object_missing(self.object_id) {
             return;
         }
-
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut guard) = object.write() {
-                if let Err(err) = guard.set_position(new_position) {
-                    log::debug!("ProjectileStreamUpdate::set_position failed: {err}");
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            if let Err(err) = guard.set_position(new_position) {
+                log::debug!("ProjectileStreamUpdate::set_position failed: {err}");
             }
-        }
+        });
     }
 
     fn cull_front_of_list(&mut self) {
@@ -211,7 +205,7 @@ impl ProjectileStreamUpdate {
 
         while self.first_valid_index != self.next_free_index {
             let id = self.projectile_ids[self.first_valid_index as usize];
-            if TheGameLogic::find_object_by_id(id).is_some() {
+            if TheGameLogic::find_object_by_id(id) {
                 break;
             }
             self.first_valid_index = (self.first_valid_index + 1) % MAX_PROJECTILE_STREAM as i32;
@@ -225,7 +219,7 @@ impl ProjectileStreamUpdate {
 
         if self.first_valid_index == self.next_free_index && self.owning_object != OBJECT_INVALID_ID
         {
-            return TheGameLogic::find_object_by_id(self.owning_object).is_none();
+            return !TheGameLogic::find_object_by_id(self.owning_object);
         }
         false
     }
@@ -240,18 +234,11 @@ impl UpdateModuleInterface for ProjectileStreamUpdate {
         self.cull_front_of_list();
 
         if self.consider_dying() {
-            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            if let Some(id) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+                obj_guard.get_id()
             }) {
-                if let Ok(obj_guard) = obj.read() {
-                    let id = obj_guard.get_id();
-                    drop(obj_guard);
-                    if let Err(err) = TheGameLogic::destroy_object_by_id(id) {
-                        log::debug!("ProjectileStreamUpdate::destroy_object failed: {err}");
-                    }
+                if let Err(err) = TheGameLogic::destroy_object_by_id(id) {
+                    log::debug!("ProjectileStreamUpdate::destroy_object failed: {err}");
                 }
             }
         }
@@ -451,8 +438,9 @@ pub fn projectile_stream_update_module_factory(
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("ProjectileStreamUpdate requires object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("ProjectileStreamUpdate requires object");
+    }
     let behavior = ProjectileStreamUpdate::new(object_id, module_data_arc.clone())
         .expect("ProjectileStreamUpdate failed to initialize");
     let module_name = AsciiString::from("ProjectileStreamUpdate");

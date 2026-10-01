@@ -1750,16 +1750,12 @@ impl AIUpdateInterface {
         let Some(loco) = self.cur_locomotor.as_ref() else {
             return;
         };
-        let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+        let Some(physics) = OBJECT_REGISTRY.with_object(self.owner_object_id, |owner| owner.get_physics()) else {
             return;
         };
-        let Ok(owner) = obj.try_read() else {
+        let Some(physics) = physics else {
             return;
         };
-        let Some(physics) = owner.get_physics() else {
-            return;
-        };
-        drop(owner);
         if let Ok(mut phys) = physics.try_lock() {
             loco.apply_physics_options(&mut *phys);
         }
@@ -2582,13 +2578,9 @@ impl AIUpdateInterface {
             return;
         }
         let now = TheGameLogic::get_frame();
-        if let Some(object) = TheGameLogic::find_object_by_id(self.owner_object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_object_id))
-        {
-            if let Ok(guard) = object.read() {
-                guard.reschedule_ai_update(now.saturating_add(1));
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |guard| {
+            guard.reschedule_ai_update(now.saturating_add(1));
+        });
     }
 
     // -----------------------------------------------------------------------

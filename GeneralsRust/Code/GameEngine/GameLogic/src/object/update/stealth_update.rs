@@ -651,28 +651,21 @@ impl StealthUpdateController {
             let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
             for obj_id in &all_object_ids {
-                let enemy_obj = match OBJECT_REGISTRY.get_object(*obj_id) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                let enemy_guard = match enemy_obj.read() {
-                    Ok(v) => v,
-                    Err(_) => continue,
-                };
+                let _ = OBJECT_REGISTRY.with_object(*obj_id, |enemy_guard| {
                 if true {
                     // Skip if same team or not a unit
                     if enemy_guard.get_team_id() == self_team_id {
-                        continue;
+                        return;
                     }
 
                     if !enemy_guard.is_kind_of(KindOf::Unit) {
-                        continue;
+                        return;
                     }
 
                     // Check range
                     let distance = (*enemy_guard.get_position() - self_pos).length();
                     if distance > WAKEUP_RANGE {
-                        continue;
+                        return;
                     }
 
                     // Order idle unit to attack (C++ lines 902-909)
@@ -684,6 +677,7 @@ impl StealthUpdateController {
                         );
                     }
                 }
+                });
             }
         }
     }

@@ -5,19 +5,99 @@
 use super::physics_crush::check_for_overlap_collision;
 use super::{
     FLAG_ALLOW_COLLIDE_FORCE, INVALID_VEL_MAG, PhysicsBehaviorHandle, PhysicsBehaviorModuleData,
-    find_object,
 };
 use crate::common::{
-    Coord3D, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, ObjectStatusTypes, Real,
+    AsciiString, Coord3D, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID,
+    ObjectStatusTypes, Real,
 };
 use crate::helpers::{TheGameLogic, TheWeaponStore};
-use crate::modules::;
+use crate::modules::{AIUpdateInterface, PhysicsBehavior};
 use crate::object::Object as GameObject;
 use crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision;
+use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::global_data;
 
 const MIN_STIFF: Real = 0.01;
 const MAX_STIFF: Real = 0.99;
+
+struct SelfView {
+    contained_by: Option<ObjectID>,
+    pos: Coord3D,
+    parachuting: bool,
+    infantry: bool,
+    vehicle: bool,
+    name: AsciiString,
+    team: Option<crate::team::TeamID>,
+    /// `None` when the object has no AI.
+    ignored_obstacle: Option<ObjectID>,
+    dead: bool,
+    destroyed: bool,
+    above: bool,
+    center: Coord3D,
+    sphere_r: Real,
+    circle_r: Real,
+    dir: (Real, Real),
+}
+
+struct OtherView {
+    contained_by: Option<ObjectID>,
+    parachuting: bool,
+    unmanned: bool,
+    immobile: bool,
+    structure: bool,
+    /// `None` when the object has no AI.
+    ignored_obstacle: Option<ObjectID>,
+    /// `None` when the object has no physics.
+    physics_ignore: Option<ObjectID>,
+    center: Coord3D,
+    sphere_r: Real,
+    circle_r: Real,
+}
+
+fn self_view(obj: &GameObject) -> SelfView {
+    let pos = *obj.get_position();
+    let geom = obj.get_geometry_info();
+    SelfView {
+        contained_by: obj.get_contained_by(),
+        pos,
+        parachuting: obj.test_status(ObjectStatusTypes::Parachuting),
+        infantry: obj.is_kind_of(KindOf::Infantry),
+        vehicle: obj.is_kind_of(KindOf::Vehicle),
+        name: obj.get_name().clone(),
+        team: obj.get_team(),
+        ignored_obstacle: obj
+            .get_ai()
+            .map(AIUpdateInterface::get_ignored_obstacle_id),
+        dead: obj.is_effectively_dead(),
+        destroyed: obj.is_destroyed(),
+        above: obj.is_above_terrain(),
+        center: geom.get_center_position(&pos),
+        sphere_r: geom.get_bounding_sphere_radius(),
+        circle_r: geom.get_bounding_circle_radius(),
+        dir: obj.get_unit_direction_vector_2d(),
+    }
+}
+
+fn other_view(obj: &GameObject) -> OtherView {
+    let pos = *obj.get_position();
+    let geom = obj.get_geometry_info();
+    OtherView {
+        contained_by: obj.get_contained_by(),
+        parachuting: obj.test_status(ObjectStatusTypes::Parachuting),
+        unmanned: obj.is_disabled_by_type(DisabledType::DisabledUnmanned),
+        immobile: obj.is_kind_of(KindOf::Immobile),
+        structure: obj.is_kind_of(KindOf::Structure),
+        ignored_obstacle: obj
+            .get_ai()
+            .map(AIUpdateInterface::get_ignored_obstacle_id),
+        physics_ignore: obj
+            .get_physics()
+            .map(PhysicsBehavior::get_ignore_collisions_with),
+        center: geom.get_center_position(&pos),
+        sphere_r: geom.get_bounding_sphere_radius(),
+        circle_r: geom.get_bounding_circle_radius(),
+    }
+}
 
 /// C++ PhysicsBehavior::onCollide.
 pub(super) fn on_collide(
@@ -36,45 +116,32 @@ pub(super) fn on_collide(
         return;
     }
 
-    let Some(obj_arc) = find_object(object_id) else {
+    let Some(me) = OBJECT_REGISTRY.with_object(object_id, self_view) else {
         return;
     };
-    let Ok(obj) = obj_arc.try_read() else {
-        return;
-    };
-
-    let obj_contained_by = obj.get_contained_by();
 
     // other == null means collide with ground.
     if other_id == crate::common::INVALID_ID {
-        if let Some(container_id) = obj_contained_by {
-            let pos = *obj.get_position();
+        if let Some(container_id) = me.contained_by {
+            let pos = me.pos;
             let normal = Coord3D::new(0.0, 0.0, -1.0);
-            drop(obj);
-            if let Some(container) = find_object(container_id) {
-                if let Ok(mut container) = container.try_write() {
-                    container.on_collide(None, &pos, &normal);
-                }
-            }
+            // Self checkout has ended. Touch the container alone.
+            let _ = OBJECT_REGISTRY.with_object_mut(container_id, |container| {
+                container.on_collide(None, &pos, &normal);
+            });
         }
         return;
     }
 
-    let Some(other_arc) = find_object(other_id) else {
-        return;
-    };
-    let Ok(other) = other_arc.try_read() else {
+    let Some(them) = OBJECT_REGISTRY.with_object(other_id, other_view) else {
         return;
     };
 
-    let other_contained_by = other.get_contained_by();
-    if other_contained_by == Some(object_id) || obj_contained_by == Some(other_id) {
+    if them.contained_by == Some(object_id) || me.contained_by == Some(other_id) {
         return;
     }
 
-    if obj.test_status(ObjectStatusTypes::Parachuting)
-        && other.test_status(ObjectStatusTypes::Parachuting)
-    {
+    if me.parachuting && them.parachuting {
         return;
     }
 
@@ -82,98 +149,69 @@ pub(super) fn on_collide(
         return;
     }
 
-    if let Some(ai) = obj.get_ai() {
-        if let Ok(ai) = ai.try_lock() {
-            if ai.get_ignored_obstacle_id() == other_id {
-                // Infantry walking into an unmanned vehicle: recrew it.
-                if obj.is_kind_of(KindOf::Infantry)
-                    && other.is_disabled_by_type(DisabledType::DisabledUnmanned)
-                {
-                    let infantry_name = obj.get_name().clone();
-                    let infantry_team = obj.get_team();
-                    drop(ai);
-                    drop(obj);
-                    drop(other);
-                    if let Ok(mut other) = other_arc.try_write() {
-                        other.clear_disabled(DisabledType::DisabledUnmanned);
-                        other.set_captured(true);
-                        other.defect(infantry_team, 0);
-                    }
-                    let _ =
-                        crate::scripting::engine::transfer_object_name(&infantry_name, other_id);
-                    let _ = TheGameLogic::destroy_object_by_id(object_id);
-                }
-                return;
-            }
+    if me.ignored_obstacle == Some(other_id) {
+        // Infantry walking into an unmanned vehicle: recrew it.
+        if me.infantry && them.unmanned {
+            let _ = OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+                other.clear_disabled(DisabledType::DisabledUnmanned);
+                other.set_captured(true);
+                other.defect(me.team, 0);
+            });
+            let _ = crate::scripting::engine::transfer_object_name(&me.name, other_id);
+            let _ = TheGameLogic::destroy_object_by_id(object_id);
         }
-    }
-
-    if let Some(ai_other) = other.get_ai() {
-        if let Ok(ai_other) = ai_other.try_lock() {
-            if ai_other.get_ignored_obstacle_id() == object_id {
-                return;
-            }
-        }
-    }
-    if let Some(other_physics) = other.get_physics() {
-        if let Ok(phys) = other_physics.try_lock() {
-            if phys.get_ignore_collisions_with() == object_id {
-                return;
-            }
-        }
-    } else if !other.is_kind_of(KindOf::Immobile) {
         return;
     }
 
-    // Crush / overlap skip bounce. Need write on crushee for damage.
-    drop(other);
-    {
-        let Ok(mut other) = other_arc.try_write() else {
-            return;
-        };
-        if check_for_overlap_collision(handle, &obj, &mut other) {
+    if them.ignored_obstacle == Some(object_id) {
+        return;
+    }
+    if let Some(ignore) = them.physics_ignore {
+        if ignore == object_id {
             return;
         }
+    } else if !them.immobile {
+        return;
     }
-    let Ok(other) = other_arc.try_read() else {
+
+    // Crush reads the crusher and mutates the crushee together. Fields cannot
+    // be copied first: `can_crush_or_squish` needs both live objects. The two
+    // ids are checked out only for that call, then both are released.
+    let overlap = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+            check_for_overlap_collision(handle, obj, other)
+        })
+    });
+    match overlap {
+        Some(Some(false)) => {}
+        _ => return,
+    }
+
+    // Crushee may have taken damage. Re-read it alone before bounce math.
+    let Some(them) = OBJECT_REGISTRY.with_object(other_id, other_view) else {
         return;
     };
 
-    let other_immobile = other.is_kind_of(KindOf::Immobile);
+    // C++ may refuse bounce via AI::processCollision. This port has no
+    // process_collision hook, so dead/parachuting vs immobile still bounce.
+    let _ = me.dead;
 
-    // AI processCollision may refuse bounce. Dead/parachuting vs immobile still bounce.
-    // The dyn AIUpdateInterface has no process_collision; default is allow force
-    // (C++ returns true unless the locomotor refuses). Ignored-obstacle is handled above.
-    if obj.get_ai().is_some()
-        && !((obj.is_effectively_dead() || obj.test_status(ObjectStatusTypes::Parachuting))
-            && other_immobile)
-    {
-        // Continue — apply bounce unless collide force is off.
-    }
-
-    let us_center = obj
-        .get_geometry_info()
-        .get_center_position(obj.get_position());
-    let them_center = other
-        .get_geometry_info()
-        .get_center_position(other.get_position());
     let mut delta = Coord3D::new(
-        them_center.x - us_center.x,
-        them_center.y - us_center.y,
-        them_center.z - us_center.z,
+        them.center.x - me.center.x,
+        them.center.y - me.center.y,
+        them.center.z - me.center.z,
     );
-
-    let (us_radius, them_radius, dist_sqr) = if obj.is_above_terrain() {
+    let (us_radius, them_radius, dist_sqr) = if me.above {
         (
-            obj.get_geometry_info().get_bounding_sphere_radius(),
-            other.get_geometry_info().get_bounding_sphere_radius(),
+            me.sphere_r,
+            them.sphere_r,
             delta.x * delta.x + delta.y * delta.y + delta.z * delta.z,
         )
     } else {
         delta.z = 0.0;
         (
-            obj.get_geometry_info().get_bounding_circle_radius(),
-            other.get_geometry_info().get_bounding_circle_radius(),
+            me.circle_r,
+            them.circle_r,
             delta.x * delta.x + delta.y * delta.y,
         )
     };
@@ -194,33 +232,33 @@ pub(super) fn on_collide(
         return;
     }
 
+    let cargo_extra = handle.lookup_cargo_mass();
     let mut factor;
-    if other_immobile && !obj.is_destroyed() {
-        if obj.test_status(ObjectStatusTypes::Parachuting) {
+    if them.immobile && !me.destroyed {
+        if me.parachuting {
             let mut bounce_id = object_id;
-            let mut walk = obj.get_contained_by();
+            let mut walk = me.contained_by;
             while let Some(container_id) = walk {
                 bounce_id = container_id;
-                walk = find_object(container_id)
-                    .and_then(|c| c.try_read().ok().and_then(|g| g.get_contained_by()));
+                walk = OBJECT_REGISTRY
+                    .with_object(container_id, |container| container.get_contained_by())
+                    .flatten();
             }
             let bounce_out = us_radius * 0.1;
-            drop(obj);
-            drop(other);
-            if let Some(bounce_arc) = find_object(bounce_id) {
-                if let Ok(mut bounce) = bounce_arc.try_write() {
-                    let mut tmp = *bounce.get_position();
-                    tmp.x -= bounce_out * delta.x / dist;
-                    tmp.y -= bounce_out * delta.y / dist;
-                    let _ = bounce.set_position(&tmp);
-                    if bounce_id == object_id {
-                        // `handle` already is this object's physics mutex.
-                        //  would lock that same Arc again.
-                        crate::modules::PhysicsBehavior::scrub_velocity_2d(handle, 0.0);
-                    } else if let Some(phys) = bounce.get_physics() {
+            let _ = OBJECT_REGISTRY.with_object_mut(bounce_id, |bounce| {
+                let mut tmp = *bounce.get_position();
+                tmp.x -= bounce_out * delta.x / dist;
+                tmp.y -= bounce_out * delta.y / dist;
+                let _ = bounce.set_position(&tmp);
+                if bounce_id != object_id {
+                    if let Some(phys) = bounce.get_physics_mut() {
                         phys.scrub_velocity_2d(0.0);
                     }
                 }
+            });
+            if bounce_id == object_id {
+                // Handle is this object's physics. Do not checkout it again.
+                PhysicsBehavior::scrub_velocity_2d(handle, 0.0);
             }
             return;
         }
@@ -234,32 +272,34 @@ pub(super) fn on_collide(
         if mag < min_bounce {
             mag = min_bounce;
         }
-        factor = -mag * handle.mass_with_cargo(Some(&obj)) * stiffness;
+        factor = -mag * (handle.state.mass + cargo_extra) * stiffness;
 
         let rubble_h = global_data::read_safe()
             .map(|data| data.default_structure_rubble_height)
             .unwrap_or(1.0);
-        if delta.z < 0.0 && obj.get_position().z >= rubble_h {
-            if other.is_kind_of(KindOf::Structure) {
-                if obj.is_kind_of(KindOf::Vehicle) {
-                    fire_crash_weapon(
-                        module_data
-                            .vehicle_crashes_into_building_weapon_template
-                            .as_str(),
-                        &obj,
-                    );
+        if delta.z < 0.0 && me.pos.z >= rubble_h {
+            if them.structure {
+                if me.vehicle {
+                    let _ = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                        fire_crash_weapon(
+                            module_data
+                                .vehicle_crashes_into_building_weapon_template
+                                .as_str(),
+                            obj,
+                        );
+                    });
                 }
-                drop(obj);
-                drop(other);
                 let _ = TheGameLogic::destroy_object_by_id(object_id);
                 return;
-            } else if obj.is_kind_of(KindOf::Vehicle) {
-                fire_crash_weapon(
-                    module_data
-                        .vehicle_crashes_into_non_building_weapon_template
-                        .as_str(),
-                    &obj,
-                );
+            } else if me.vehicle {
+                let _ = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                    fire_crash_weapon(
+                        module_data
+                            .vehicle_crashes_into_non_building_weapon_template
+                            .as_str(),
+                        obj,
+                    );
+                });
             }
         }
 
@@ -278,7 +318,7 @@ pub(super) fn on_collide(
         factor * delta.z / dist,
     );
     if force.x.is_finite() && force.y.is_finite() && force.z.is_finite() {
-        handle.apply_force_with_obj(&force, Some(&obj));
+        handle.apply_force_with_facing(&force, Some(me.dir), cargo_extra);
     }
 }
 

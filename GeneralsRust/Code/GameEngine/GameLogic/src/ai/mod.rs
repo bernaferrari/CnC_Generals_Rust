@@ -1735,7 +1735,7 @@ impl AI {
                             let player_index = me_guard
                                 .get_controlling_player()
                                 .and_then(|player| {
-                                    player.read().ok().map(|guard| guard.get_player_index())
+                                    crate::player::with_player(player, |guard| guard.get_player_index())
                                 })
                                 .unwrap_or(-1);
                             if target.get_shrouded_status(player_index)

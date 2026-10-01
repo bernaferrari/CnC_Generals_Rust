@@ -43,12 +43,9 @@ impl AIPlayer {
             let Ok(list) = player_list().read() else {
                 return Ok((false, false));
             };
-            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
                 return Ok((false, false));
-            };
-            let Ok(player_guard) = player_arc.read() else {
-                return Ok((false, false));
-            };
+                };
             for (thing_name, min_units, max_units) in
                 units.iter().map(|(name, min_units, max_units)| (name.as_str(), *min_units, *max_units))
             {
@@ -94,12 +91,9 @@ impl AIPlayer {
             let Ok(list) = player_list().read() else {
                 return Ok((false, false));
             };
-            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
                 return Ok((false, false));
-            };
-            let Ok(player_guard) = player_arc.read() else {
-                return Ok((false, false));
-            };
+                };
             player_guard.get_money().get_money() as i32
         };
         if money < cost {
@@ -188,12 +182,9 @@ impl AIPlayer {
             let Ok(list) = player_list().read() else {
                 return Ok(None);
             };
-            let Some(player_arc) = list.get_player(self.player_id as i32) else {
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
                 return Ok(None);
-            };
-            let Ok(player_guard) = player_arc.read() else {
-                return Ok(None);
-            };
+                };
             player_guard.get_all_objects()
         };
 
@@ -332,12 +323,10 @@ impl AIPlayer {
             team.priority_build = true;
             team.frame_started = TheGameLogic::get_frame();
             if let Ok(list) = player_list().read() {
-                if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                    if let Ok(pg) = player_arc.read() {
+                if let Some(pg) = list.get_player(self.player_id as i32) {
                         if let Some(dt) = pg.get_default_team_id() {
                             team.team_id = Some(dt);
                         }
-                    }
                 }
             }
             let team_name = team
@@ -564,27 +553,20 @@ impl AIPlayer {
     /// Prefer this player's current enemy, then first human, then any non-neutral.
     pub(super) fn get_skirmish_enemy_player_index(&self) -> i32 {
         if let Ok(list) = player_list().read() {
-            if let Some(me) = list.get_player(self.player_id as i32) {
-                if let Ok(mg) = me.read() {
+            if let Some(mg) = list.get_player(self.player_id as i32) {
                     if let Some(enemy_index) = mg.get_current_enemy_player_index() {
-                        if let Some(enemy) = list.get_player(enemy_index) {
-                            if let Ok(eg) = enemy.read() {
+                        if let Some(eg) = list.get_player(enemy_index) {
                                 if eg.get_player_type() != PlayerType::Neutral {
                                     return enemy_index;
                                 }
-                            }
                         }
                     }
-                }
             }
-            // C++ ScriptEngine residual: first human player.
             for i in 0..list.get_player_count() {
-                if let Some(p) = list.get_player(i as i32) {
-                    if let Ok(pg) = p.read() {
+                if let Some(pg) = list.get_player(i as i32) {
                         if pg.get_player_type() == PlayerType::Human {
                             return i as i32;
                         }
-                    }
                 }
             }
             for i in 0..list.get_player_count() {
@@ -592,12 +574,10 @@ impl AIPlayer {
                 if i == self.player_id as i32 {
                     continue;
                 }
-                if let Some(p) = list.get_player(i) {
-                    if let Ok(pg) = p.read() {
+                if let Some(pg) = list.get_player(i) {
                         if pg.get_player_type() != PlayerType::Neutral {
                             return i;
                         }
-                    }
                 }
             }
         }
@@ -630,16 +610,12 @@ impl AIPlayer {
             return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
         }
 
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_index).cloned())
-        else {
+        let Ok(list) = player_list().read() else {
             return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
-        };
-        let Ok(player_guard) = player_arc.read() else {
+            };
+            let Some(player_guard) = list.get_player(player_index) else {
             return Ok((Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(0.0, 0.0, 0.0)));
-        };
+            };
 
         let mut first_structure = true;
         let mut struct_min = Coord3D::new(0.0, 0.0, 0.0);
@@ -689,16 +665,12 @@ impl AIPlayer {
     /// Average of build-list entry locations (not live structures). Radius is
     /// max |dx|+geom*0.4 / |dy|+geom*0.4 Manhattan-as-axis-abs then hypot.
     pub fn compute_center_and_radius_of_base(&mut self) -> Result<(), AiError> {
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-        else {
+        let Ok(list) = player_list().read() else {
             return Ok(());
-        };
-        let Ok(player_guard) = player_arc.read() else {
+            };
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
             return Ok(());
-        };
+            };
 
         // Pass 1: centroid of valid build-list locations.
         let mut entries: Vec<(f32, f32, f32)> = Vec::new();
@@ -778,16 +750,12 @@ impl AIPlayer {
             return 0;
         }
 
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-        else {
+        let Ok(list) = player_list().read() else {
             return 0;
-        };
-        let Ok(player_guard) = player_arc.read() else {
+            };
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
             return 0;
-        };
+            };
         let mut count = 0;
         for obj_id in player_guard.get_all_objects() {
             let is_harvester = OBJECT_REGISTRY
@@ -814,16 +782,12 @@ impl AIPlayer {
         }
 
         let radius = radius.max(4.0 * PATHFIND_CELL_SIZE_F);
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_index).cloned())
-        else {
+        let Ok(list) = player_list().read() else {
             return Ok(0);
-        };
-        let Ok(player_guard) = player_arc.read() else {
+            };
+            let Some(player_guard) = list.get_player(player_index) else {
             return Ok(0);
-        };
+            };
 
         let mut cash = 0.0_f32;
         let rad_sqr = radius * radius;

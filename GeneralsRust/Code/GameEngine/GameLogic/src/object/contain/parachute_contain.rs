@@ -282,8 +282,7 @@ impl ParachuteContain {
 
     fn resolve_rider(&self) -> Option<ObjectID> {
         let id = self.first_rider_id()?;
-        TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        (if crate::helpers::TheGameLogic::find_object_by_id(id) || crate::object::registry::OBJECT_REGISTRY.contains(id) { Some(id) } else { None })
     }
 
     pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {

@@ -25,13 +25,14 @@ use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::special_power_interface_cast::module_special_power_interface;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Door states for building animations
 #[repr(i32)]
@@ -208,14 +209,27 @@ impl MissileLauncherBuildingUpdate {
         })
     }
 
-    fn switch_to_state(&mut self, dst: DoorStateType, obj: &mut GameObject) {
+    fn switch_to_state(&mut self, dst: DoorStateType) {
         if self.door_state == dst {
             return;
         }
 
+        let now = TheGameLogic::get_frame();
+        // Opening/Closing read the special-power ready frame, and that read
+        // re-enters this object. Capture it before the position checkout.
+        let ready_frame = match dst {
+            DoorStateType::Opening | DoorStateType::Closing => self.get_power_ready_frame(),
+            _ => 0,
+        };
+
+        let object_id = self.object_id;
+        // Copy the pose, then drop the checkout so FX can resolve other ids.
+        let Some(pos) = OBJECT_REGISTRY.with_object(object_id, |obj| *obj.get_position()) else {
+            return;
+        };
+
         let mut clr = ModelConditionFlags::empty();
         let mut set = ModelConditionFlags::empty();
-        let now = TheGameLogic::get_frame();
 
         match dst {
             DoorStateType::Closed => {
@@ -225,9 +239,9 @@ impl MissileLauncherBuildingUpdate {
                 clr.insert(MODELCONDITION_DOOR_1_WAITING_OPEN);
                 self.timeout_frame = 0;
                 self.timeout_state = DoorStateType::Closed;
-                if let Some(fx_name) = &self.module_data.closed_fx {
+                if let Some(fx_name) = self.module_data.closed_fx.clone() {
                     if let Some(fx) = TheFXList::get() {
-                        fx.do_fx_at_position(fx_name, obj.get_position());
+                        fx.do_fx_at_position(&fx_name, &pos);
                     }
                 }
                 self.stop_idle_audio();
@@ -239,7 +253,6 @@ impl MissileLauncherBuildingUpdate {
                 set.insert(MODELCONDITION_DOOR_1_OPENING);
 
                 // End it one frame before ready
-                let ready_frame = self.get_power_ready_frame();
                 self.timeout_frame = if ready_frame > 0 {
                     ready_frame - 1
                 } else {
@@ -247,9 +260,9 @@ impl MissileLauncherBuildingUpdate {
                 };
                 self.timeout_state = DoorStateType::Open;
 
-                if let Some(fx_name) = &self.module_data.opening_fx {
+                if let Some(fx_name) = self.module_data.opening_fx.clone() {
                     if let Some(fx) = TheFXList::get() {
-                        fx.do_fx_at_position(fx_name, obj.get_position());
+                        fx.do_fx_at_position(&fx_name, &pos);
                     }
                 }
                 self.stop_idle_audio();
@@ -262,12 +275,12 @@ impl MissileLauncherBuildingUpdate {
                 self.timeout_frame = 0;
                 self.timeout_state = DoorStateType::Open;
 
-                if let Some(fx_name) = &self.module_data.open_fx {
+                if let Some(fx_name) = self.module_data.open_fx.clone() {
                     if let Some(fx) = TheFXList::get() {
-                        fx.do_fx_at_position(fx_name, obj.get_position());
+                        fx.do_fx_at_position(&fx_name, &pos);
                     }
                 }
-                self.play_idle_audio(obj.get_id());
+                self.play_idle_audio(object_id);
             }
             DoorStateType::WaitingToClose => {
                 clr.insert(MODELCONDITION_DOOR_1_CLOSING);
@@ -277,9 +290,9 @@ impl MissileLauncherBuildingUpdate {
                 self.timeout_frame = now + self.module_data.door_wait_open_time;
                 self.timeout_state = DoorStateType::Closing;
 
-                if let Some(fx_name) = &self.module_data.waiting_to_close_fx {
+                if let Some(fx_name) = self.module_data.waiting_to_close_fx.clone() {
                     if let Some(fx) = TheFXList::get() {
-                        fx.do_fx_at_position(fx_name, obj.get_position());
+                        fx.do_fx_at_position(&fx_name, &pos);
                     }
                 }
                 self.stop_idle_audio();
@@ -292,7 +305,6 @@ impl MissileLauncherBuildingUpdate {
                 self.timeout_frame = now + self.module_data.door_closing_time;
 
                 // Adjust timeout if power recharges faster
-                let ready_frame = self.get_power_ready_frame();
                 let delta = if ready_frame > now {
                     ready_frame - now
                 } else {
@@ -303,9 +315,9 @@ impl MissileLauncherBuildingUpdate {
                 }
 
                 self.timeout_state = DoorStateType::Closed;
-                if let Some(fx_name) = &self.module_data.closing_fx {
+                if let Some(fx_name) = self.module_data.closing_fx.clone() {
                     if let Some(fx) = TheFXList::get() {
-                        fx.do_fx_at_position(fx_name, obj.get_position());
+                        fx.do_fx_at_position(&fx_name, &pos);
                     }
                 }
                 self.stop_idle_audio();
@@ -313,21 +325,55 @@ impl MissileLauncherBuildingUpdate {
         }
 
         self.door_state = dst;
-        if let Err(err) = obj.clear_and_set_model_condition_flags(clr, set) {
-            log::warn!(
-                "MissileLauncherBuildingUpdate: failed to update model conditions for object {}: {}",
-                obj.get_id(),
-                err
-            );
-        }
+        let timeout_frame = self.timeout_frame;
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            if let Err(err) = obj.clear_and_set_model_condition_flags(clr, set) {
+                log::warn!(
+                    "MissileLauncherBuildingUpdate: failed to update model conditions for object {}: {}",
+                    obj.get_id(),
+                    err
+                );
+            }
 
-        if self.timeout_frame > now {
-            if let Some(drawable) = obj.get_drawable() {
-                if let Ok(mut guard) = drawable.write() {
-                    guard.set_animation_loop_duration(self.timeout_frame - now);
+            if timeout_frame > now {
+                if let Some(drawable) = obj.get_drawable() {
+                    if let Ok(mut guard) = drawable.write() {
+                        guard.set_animation_loop_duration(timeout_frame - now);
+                    }
                 }
             }
-        }
+        });
+    }
+
+    /// Borrow the named special-power module without holding this object.
+    ///
+    /// `get_ready_frame` / `is_ready` look the owner up again. The handle is
+    /// copied out of the checkout first so that second id can resolve.
+    fn with_named_special_power<R>(
+        &self,
+        f: impl FnOnce(&dyn SpecialPowerModuleInterface) -> R,
+    ) -> Option<R> {
+        let template_name = self.module_data.special_power_template_name.clone();
+        // Copy the module handle out. get_ready_frame looks this object up again,
+        // and the launcher's own module mutex is already held by update.
+        let handle = OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            let mut matched = None;
+            for candidate in obj.behavior_modules() {
+                let name_matches = candidate
+                    .try_with_module(|module| {
+                        module_special_power_interface(module)
+                            .is_some_and(|sp| sp.get_power_name() == template_name)
+                    })
+                    .unwrap_or(false);
+                if name_matches {
+                    matched = Some(candidate);
+                    break;
+                }
+            }
+            matched
+        })??;
+
+        handle.with_module(|module| module_special_power_interface(module).map(|sp| f(sp)))
     }
 
     fn get_power_ready_frame(&self) -> u32 {
@@ -336,22 +382,12 @@ impl MissileLauncherBuildingUpdate {
             return 0;
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
-                if let Some(frame) = obj.with_special_power_module_interface_by_name(
-                    &self.module_data.special_power_template_name,
-                    |spm| spm.get_ready_frame(),
-                ) {
-                    return frame;
-                }
-            }
+        if self.object_id == crate::common::INVALID_ID {
+            return 0;
         }
-        0
+
+        self.with_named_special_power(|sp| sp.get_ready_frame())
+            .unwrap_or(0)
     }
 
     fn is_power_ready(&self) -> bool {
@@ -360,22 +396,12 @@ impl MissileLauncherBuildingUpdate {
             return false;
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
-                if let Some(is_ready) = obj.with_special_power_module_interface_by_name(
-                    &self.module_data.special_power_template_name,
-                    |spm| spm.is_ready(),
-                ) {
-                    return is_ready;
-                }
-            }
+        if self.object_id == crate::common::INVALID_ID {
+            return false;
         }
-        false
+
+        self.with_named_special_power(|sp| sp.is_ready())
+            .unwrap_or(false)
     }
 
     fn play_idle_audio(&mut self, object_id: ObjectID) {
@@ -407,57 +433,42 @@ impl UpdateModuleInterface for MissileLauncherBuildingUpdate {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return Ok(UPDATE_SLEEP_NONE),
-        };
+        let object_id = self.object_id;
+        if object_id == crate::common::INVALID_ID || !OBJECT_REGISTRY.contains(object_id) {
+            return Ok(UPDATE_SLEEP_NONE);
+        }
 
         let now = TheGameLogic::get_frame();
 
-        {
-            let obj = obj_arc.read().unwrap();
-            if obj.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION) {
-                return Ok(UPDATE_SLEEP_NONE);
-            }
+        let Some(under_construction) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            obj.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION)
+        }) else {
+            return Ok(UPDATE_SLEEP_NONE);
+        };
+        if under_construction {
+            return Ok(UPDATE_SLEEP_NONE);
         }
 
-        let has_special_power = if let Ok(obj) = obj_arc.read() {
-            obj.with_special_power_module_interface_by_name(
-                &self.module_data.special_power_template_name,
-                |_| true,
-            )
-            .unwrap_or(false)
+        // Ready frame is copied before door transitions. Those re-enter this id
+        // for FX, model flags, and another ready-frame read.
+        let Some(ready_frame) = self.with_named_special_power(|sp| sp.get_ready_frame()) else {
+            return Ok(UPDATE_SLEEP_NONE);
+        };
+        let when_to_start_opening = if ready_frame >= self.module_data.door_open_time {
+            ready_frame - self.module_data.door_open_time
         } else {
-            false
+            0
         };
 
-        if has_special_power {
-            let ready_frame = self.get_power_ready_frame();
-            let when_to_start_opening = if ready_frame >= self.module_data.door_open_time {
-                ready_frame - self.module_data.door_open_time
-            } else {
-                0
-            };
+        if self.timeout_frame != 0 && now > self.timeout_frame {
+            let next_state = self.timeout_state;
+            self.switch_to_state(next_state);
+        }
 
-            let mut obj = obj_arc.write().unwrap();
-
-            // Check timeouts
-            if self.timeout_frame != 0 && now > self.timeout_frame {
-                let next_state = self.timeout_state;
-                self.switch_to_state(next_state, &mut obj);
-            }
-
-            // State changes based on readiness
-            if self.door_state != DoorStateType::Open && self.is_power_ready() {
-                self.switch_to_state(DoorStateType::Open, &mut obj);
-            } else if self.door_state == DoorStateType::Closed && now >= when_to_start_opening {
-                self.switch_to_state(DoorStateType::Opening, &mut obj);
-            }
+        if self.door_state != DoorStateType::Open && self.is_power_ready() {
+            self.switch_to_state(DoorStateType::Open);
+        } else if self.door_state == DoorStateType::Closed && now >= when_to_start_opening {
+            self.switch_to_state(DoorStateType::Opening);
         }
 
         Ok(UPDATE_SLEEP_NONE)
@@ -490,19 +501,12 @@ impl SpecialPowerUpdateInterface for MissileLauncherBuildingUpdate {
         }
 
         // C++ version asserts template matches, but we'll assume it for now
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return false,
-        };
-
-        if let Ok(mut obj) = obj_arc.write() {
-            self.switch_to_state(DoorStateType::WaitingToClose, &mut obj);
+        if self.object_id == crate::common::INVALID_ID || !OBJECT_REGISTRY.contains(self.object_id)
+        {
+            return false;
         }
+
+        self.switch_to_state(DoorStateType::WaitingToClose);
         true
     }
 
@@ -563,7 +567,7 @@ impl MissileLauncherBuildingUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MissileLauncherBuildingUpdate::new(
-            thing,
+            object_id,
             module_data,
         )?))
     }

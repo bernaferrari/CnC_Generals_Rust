@@ -95,8 +95,10 @@ impl BridgeScaffoldBehavior {
         initial_object: Option<ObjectID>,
     ) -> Self {
         let initial_pos = match initial_object {
-            Some(object) => object.read().ok().map(|guard| *guard.get_position()),
-            None => {
+            Some(id) if id != OBJECT_INVALID_ID => {
+                OBJECT_REGISTRY.with_object(id, |guard| *guard.get_position())
+            }
+            _ => {
                 if object_id == OBJECT_INVALID_ID {
                     None
                 } else {
@@ -135,12 +137,7 @@ impl BridgeScaffoldBehavior {
         object_id: ObjectID,
         module_data: Arc<BridgeScaffoldBehaviorModuleData>,
     ) -> Self {
-        let object_id = object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(OBJECT_INVALID_ID);
-
-        Self::construct_with_object_id(object_id, module_data, Some(object.clone()))
+        Self::construct_with_object_id(object_id, module_data, Some(object_id))
     }
 
     pub fn from_module_thing(
@@ -157,9 +154,11 @@ impl BridgeScaffoldBehavior {
             .ok_or_else(|| "BridgeScaffoldBehavior requires an owning object".to_string())?;
 
         let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY.get_object(object_id).ok_or_else(|| {
-            format!("BridgeScaffoldBehavior requires object {object_id} to exist")
-        })?;
+        if !OBJECT_REGISTRY.contains(object_id) {
+            return Err(
+                format!("BridgeScaffoldBehavior requires object {object_id} to exist").into(),
+            );
+        }
 
         Ok(Self::new_from_object_handle(object_id, module_data))
     }
@@ -248,9 +247,10 @@ impl BridgeScaffoldBehavior {
         if id == OBJECT_INVALID_ID {
             return Err("BridgeScaffoldBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY
-            .get_object(id)
-            .ok_or_else(|| "owning object not found".into())
+        if !OBJECT_REGISTRY.contains(id) {
+            return Err("owning object not found".into());
+        }
+        Ok(id)
     }
 }
 

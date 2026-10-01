@@ -59,12 +59,8 @@ pub(super) fn check_for_overlap_collision(
     let Some(body) = crushee.get_body_module() else {
         return true;
     };
-    let Ok(body) = body.try_lock() else {
-        return true;
-    };
-    let front_crushed = body.get_front_crushed();
-    let back_crushed = body.get_back_crushed();
-    drop(body);
+    let front_crushed = crate::modules::BodyModuleInterface::get_front_crushed(body);
+    let back_crushed = crate::modules::BodyModuleInterface::get_back_crushed(body);
 
     if front_crushed && back_crushed {
         return true;

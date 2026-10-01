@@ -145,12 +145,8 @@ impl ResourceWorld for LiveResourceWorld {
         let is_ai_player = query_guard
             .get_controlling_player_id()
             .and_then(|player_id| {
-                let Ok(list) = crate::player::ThePlayerList().read() else {
-                    return None;
-                };
-                list.get_player(player_id as i32).cloned()
+                crate::player::with_player(player_id as i32, |player| player.is_skirmish_ai())
             })
-            .and_then(|player| player.read().ok().map(|guard| guard.is_skirmish_ai()))
             .unwrap_or(false);
 
         supply_truck.get_warehouse_scan_distance(is_ai_player)

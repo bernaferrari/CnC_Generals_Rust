@@ -185,9 +185,8 @@ async fn set_player_resource_sets_money() {
 
     action.execute(&params, &test_context()).await.unwrap();
 
-    let list = player_list().read().unwrap();
-    let player = list.get_player(0).unwrap().read().unwrap();
-    assert_eq!(player.get_money().get_money(), 1200);
+    let money = crate::player::with_player(0, |player| player.get_money().get_money()).unwrap();
+    assert_eq!(money, 1200);
 }
 
 #[tokio::test]
@@ -212,9 +211,8 @@ async fn add_player_resource_updates_money_and_ignores_unknown_resources() {
     params.insert("amount".to_string(), ScriptValue::Int(999));
     action.execute(&params, &test_context()).await.unwrap();
 
-    let list = player_list().read().unwrap();
-    let player = list.get_player(0).unwrap().read().unwrap();
-    assert_eq!(player.get_money().get_money(), 800);
+    let money = crate::player::with_player(0, |player| player.get_money().get_money()).unwrap();
+    assert_eq!(money, 800);
 }
 
 #[tokio::test]
@@ -244,10 +242,15 @@ async fn named_money_actions_update_money_without_reentrant_deposit() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
-    let player = list.get_player(0).unwrap().read().unwrap();
-    assert_eq!(player.get_money().get_money(), 1200);
-    assert_eq!(player.get_score_keeper().get_total_money_spent(), 750);
+    let (money, spent) = crate::player::with_player(0, |player| {
+        (
+            player.get_money().get_money(),
+            player.get_score_keeper().get_total_money_spent(),
+        )
+    })
+    .unwrap();
+    assert_eq!(money, 1200);
+    assert_eq!(spent, 750);
 }
 
 #[tokio::test]
@@ -263,10 +266,15 @@ async fn indexed_player_add_money_spends_only_available_money() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
-    let player = list.get_player(0).unwrap().read().unwrap();
-    assert_eq!(player.get_money().get_money(), 0);
-    assert_eq!(player.get_score_keeper().get_total_money_spent(), 300);
+    let (money, spent) = crate::player::with_player(0, |player| {
+        (
+            player.get_money().get_money(),
+            player.get_score_keeper().get_total_money_spent(),
+        )
+    })
+    .unwrap();
+    assert_eq!(money, 0);
+    assert_eq!(spent, 300);
 }
 
 #[tokio::test]
@@ -371,11 +379,18 @@ async fn set_team_alliance_sets_one_way_player_relationship() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
-    let player0 = list.get_player(0).unwrap().read().unwrap();
-    let player1 = list.get_player(1).unwrap().read().unwrap();
-    assert_eq!(player0.get_relationship(&player1), Relationship::Enemies);
-    assert_eq!(player1.get_relationship(&player0), Relationship::Neutral);
+    let rel_01 = crate::player::with_player(0, |player0| {
+        crate::player::with_player(1, |player1| player0.get_relationship(player1))
+    })
+    .flatten()
+    .unwrap();
+    let rel_10 = crate::player::with_player(1, |player1| {
+        crate::player::with_player(0, |player0| player1.get_relationship(player0))
+    })
+    .flatten()
+    .unwrap();
+    assert_eq!(rel_01, Relationship::Enemies);
+    assert_eq!(rel_10, Relationship::Neutral);
 }
 
 #[tokio::test]
@@ -402,11 +417,13 @@ async fn destroy_building_queues_object_manager_removal() {
         .await
         .unwrap();
 
-    let manager = get_object_manager();
-    let mut manager = manager.write().unwrap();
-    assert!(manager.get_object(700).is_some());
-    manager.update(0).unwrap();
-    assert!(manager.get_object(700).is_none());
+    assert!(crate::object::registry::OBJECT_REGISTRY
+        .with_object(700, |_| ())
+        .is_some());
+    get_object_manager().write().unwrap().update(0).unwrap();
+    assert!(crate::object::registry::OBJECT_REGISTRY
+        .with_object(700, |_| ())
+        .is_none());
 }
 
 #[tokio::test]
@@ -435,8 +452,6 @@ async fn spawn_reinforcements_creates_grid_formation() {
     };
     assert_eq!(ids.len(), 6);
 
-    let manager = get_object_manager();
-    let manager = manager.read().unwrap();
     let expected = [
         Coord3D::new(100.0, 200.0, 0.0),
         Coord3D::new(112.0, 200.0, 0.0),
@@ -450,9 +465,10 @@ async fn spawn_reinforcements_creates_grid_formation() {
         let ScriptValue::ObjectId(object_id) = value else {
             panic!("expected object id");
         };
-        let object = manager.get_object(*object_id).expect("created object");
-        let object = object.read().unwrap();
-        assert_eq!(*object.get_position(), *expected_pos);
+        let pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(*object_id, |object| *object.get_position())
+            .expect("created object");
+        assert_eq!(pos, *expected_pos);
     }
 }
 
@@ -479,12 +495,11 @@ async fn give_special_power_initializes_player_ready_timer() {
     let template = find_or_create_special_power_template(&AsciiString::from("TestScriptPower"));
     assert_eq!(template.get_name(), "TestScriptPower");
 
-    let list = player_list().read().unwrap();
-    let mut player = list.get_player(0).unwrap().write().unwrap();
-    assert_eq!(
-        player.get_or_start_special_power_ready_frame(&template),
-        expected_frame
-    );
+    let frame = crate::player::with_player_mut(0, |player| {
+        player.get_or_start_special_power_ready_frame(&template)
+    })
+    .unwrap();
+    assert_eq!(frame, expected_frame);
 }
 
 #[tokio::test]
@@ -543,9 +558,8 @@ async fn player_hunt_sets_player_hunt_flag() {
         .await
         .unwrap();
 
-    let list = player_list().read().unwrap();
-    let player = list.get_player(0).unwrap();
-    assert!(player.read().unwrap().get_units_should_hunt());
+    let hunt = crate::player::with_player(0, |player| player.get_units_should_hunt()).unwrap();
+    assert!(hunt);
 }
 
 #[tokio::test]

@@ -78,7 +78,7 @@ where
                                 .get_player(owner_id as i32)
                                 .cloned()
                                 .and_then(|owner_arc| {
-                                    owner_arc.read().ok().map(|owner| {
+                                    Some(owner_arc).map(|owner| {
                                         owner.get_player_type() != PlayerType::Neutral
                                             && !owner.is_player_observer()
                                             && !player.is_allied_with_player(&owner)
@@ -122,7 +122,8 @@ fn is_player_recently_under_attack(player: &crate::player::Player, window_frames
         if !player.get_attacked_by(index as i32) {
             continue;
         }
-        if let Ok(other_player) = player_arc.read() {
+        let other_player = player_arc;
+{
             if other_player.get_player_type() != PlayerType::Neutral
                 && !other_player.is_player_observer()
             {
@@ -203,23 +204,23 @@ impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
             None => return Ok(false),
         };
         let power_name = get_str_param(parameters, "power_name")?;
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        let Some(store) = get_special_power_store() else {
-            return Ok(false);
-        };
-        let Some(template) = store.find_special_power_template(power_name.as_str()) else {
-            return Ok(false);
-        };
+            let Some(store) = get_special_power_store() else {
+                return Ok(false);
+            };
+            let Some(template) = store.find_special_power_template(power_name.as_str()) else {
+                return Ok(false);
+            };
 
-        if player_has_ready_special_power(&player, template) {
-            return Ok(true);
-        }
+            if player_has_ready_special_power(&player, template) {
+                return Ok(true);
+            }
 
-        Ok(false)
-    }
+            Ok(false)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_special_power_ready"
@@ -263,42 +264,42 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
             return Ok(false);
         };
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        let Some(store) = get_special_power_store() else {
-            return Ok(false);
-        };
-        let Some(template) = store.find_special_power_template(power_name.as_str()) else {
-            return Ok(false);
-        };
+            let Some(store) = get_special_power_store() else {
+                return Ok(false);
+            };
+            let Some(template) = store.find_special_power_template(power_name.as_str()) else {
+                return Ok(false);
+            };
 
-        Ok(OBJECT_REGISTRY
-            .with_object(source_id, |obj| {
-                if obj.is_destroyed()
-                    || obj.is_effectively_dead()
-                    || obj.is_disabled()
-                    || obj
-                        .get_status_bits()
-                        .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
-                {
-                    return false;
-                }
-                if obj.get_special_power_module(template.get_id()).is_none() {
-                    return false;
-                }
+            Ok(OBJECT_REGISTRY
+                .with_object(source_id, |obj| {
+                    if obj.is_destroyed()
+                        || obj.is_effectively_dead()
+                        || obj.is_disabled()
+                        || obj
+                            .get_status_bits()
+                            .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                    {
+                        return false;
+                    }
+                    if obj.get_special_power_module(template.get_id()).is_none() {
+                        return false;
+                    }
 
-                obj.with_special_power_module_interface_by_name(template.get_name(), |module| {
-                    let required_science = template.get_required_science();
-                    (required_science == crate::common::science::SCIENCE_INVALID
-                        || player.has_science(required_science))
-                        && module.is_ready()
+                    obj.with_special_power_module_interface_by_name(template.get_name(), |module| {
+                        let required_science = template.get_required_science();
+                        (required_science == crate::common::science::SCIENCE_INVALID
+                            || player.has_science(required_science))
+                            && module.is_ready()
+                    })
+                    .unwrap_or(false)
                 })
-                .unwrap_or(false)
-            })
-            .unwrap_or(false))
-    }
+                .unwrap_or(false))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_special_power_ready_from_named"
@@ -344,9 +345,8 @@ impl ScriptCondition for SkirmishCommandButtonReadyCondition {
 
         let teams = factory_guard.find_team_instances(&team_name);
         for team_arc in &teams {
-            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc
-                .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+            let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
             if !team.has_any_objects() {
                 return Ok(false);
             }
@@ -396,12 +396,12 @@ impl ScriptCondition for SkirmishEasyAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(player.get_player_type() == PlayerType::Computer
-            && player.get_player_difficulty() == GameDifficulty::Easy)
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(player.get_player_type() == PlayerType::Computer
+                && player.get_player_difficulty() == GameDifficulty::Easy)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_easy_ai"
@@ -434,12 +434,12 @@ impl ScriptCondition for SkirmishMediumAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(player.get_player_type() == PlayerType::Computer
-            && player.get_player_difficulty() == GameDifficulty::Normal)
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(player.get_player_type() == PlayerType::Computer
+                && player.get_player_difficulty() == GameDifficulty::Normal)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_medium_ai"
@@ -472,12 +472,12 @@ impl ScriptCondition for SkirmishHardAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(player.get_player_type() == PlayerType::Computer
-            && player.get_player_difficulty() == GameDifficulty::Hard)
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(player.get_player_type() == PlayerType::Computer
+                && player.get_player_difficulty() == GameDifficulty::Hard)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_hard_ai"
@@ -510,11 +510,11 @@ impl ScriptCondition for SkirmishPlayerIsAiCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(player.get_player_type() == PlayerType::Computer)
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(player.get_player_type() == PlayerType::Computer)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_player_is_ai"
@@ -550,12 +550,12 @@ impl ScriptCondition for SkirmishHasEnoughMoneyCondition {
         let amount = super::super::actions::get_int_param(parameters, "amount")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let money = player.get_money().count_money() as i64;
-        Ok(perform_comparison(money, &comparison, amount))
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let money = player.get_money().count_money() as i64;
+            Ok(perform_comparison(money, &comparison, amount))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_has_enough_money"
@@ -593,29 +593,29 @@ impl ScriptCondition for SkirmishNeedsSupplyCondition {
             None => return Ok(false),
         };
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_player_index() as u32;
-        let money = player.get_money().count_money();
-        let is_skirmish_ai = player.is_skirmish_ai();
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_player_index() as u32;
+            let money = player.get_money().count_money();
+            let is_skirmish_ai = player.is_skirmish_ai();
+            drop(player);
 
-        if is_skirmish_ai {
-            if let Some(result) = with_ai_integration_mut(|manager| {
-                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                    IntegratedAiPlayer::Standard(ai) => !ai.is_supply_source_safe(2000),
-                    IntegratedAiPlayer::Skirmish(ai) => !ai.is_supply_source_safe(2000),
+            if is_skirmish_ai {
+                if let Some(result) = with_ai_integration_mut(|manager| {
+                    manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                        IntegratedAiPlayer::Standard(ai) => !ai.is_supply_source_safe(2000),
+                        IntegratedAiPlayer::Skirmish(ai) => !ai.is_supply_source_safe(2000),
+                    })
                 })
-            })
-            .flatten()
-            {
-                return Ok(result);
+                .flatten()
+                {
+                    return Ok(result);
+                }
             }
-        }
 
-        Ok(money < 2000)
-    }
+            Ok(money < 2000)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_needs_supply"
@@ -656,33 +656,33 @@ impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
 
-        drop(player); // release lock before accessing object manager
+            drop(player); // release lock before accessing object manager
 
-        let manager = get_object_manager();
-        let mgr = manager.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
-        })?;
-        let owned = mgr.get_objects_owned_by_player(player_id);
+            let manager = get_object_manager();
+            let mgr = manager.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+            })?;
+            let owned = mgr.get_objects_owned_by_player(player_id);
 
-        let mut destroyed_count: i64 = 0;
-        for obj_id in &owned {
-            let destroyed = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj| {
-                    obj.is_kind_of(KindOf::Structure) && obj.is_destroyed()
-                })
-                .unwrap_or(false);
-            if destroyed {
-                destroyed_count += 1;
+            let mut destroyed_count: i64 = 0;
+            for obj_id in &owned {
+                let destroyed = OBJECT_REGISTRY
+                    .with_object(*obj_id, |obj| {
+                        obj.is_kind_of(KindOf::Structure) && obj.is_destroyed()
+                    })
+                    .unwrap_or(false);
+                if destroyed {
+                    destroyed_count += 1;
+                }
             }
-        }
 
-        Ok(perform_comparison(destroyed_count, &comparison, count))
-    }
+            Ok(perform_comparison(destroyed_count, &comparison, count))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_buildings_destroyed"
@@ -727,34 +727,34 @@ impl ScriptCondition for SkirmishUnitsDestroyedCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
 
-        drop(player);
+            drop(player);
 
-        let manager = get_object_manager();
-        let mgr = manager.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
-        })?;
-        let owned = mgr.get_objects_owned_by_player(player_id);
+            let manager = get_object_manager();
+            let mgr = manager.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+            })?;
+            let owned = mgr.get_objects_owned_by_player(player_id);
 
-        let mut destroyed_count: i64 = 0;
-        for obj_id in &owned {
-            let destroyed = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj| {
-                    // Count units that are not structures
-                    !obj.is_kind_of(KindOf::Structure) && obj.is_destroyed()
-                })
-                .unwrap_or(false);
-            if destroyed {
-                destroyed_count += 1;
+            let mut destroyed_count: i64 = 0;
+            for obj_id in &owned {
+                let destroyed = OBJECT_REGISTRY
+                    .with_object(*obj_id, |obj| {
+                        // Count units that are not structures
+                        !obj.is_kind_of(KindOf::Structure) && obj.is_destroyed()
+                    })
+                    .unwrap_or(false);
+                if destroyed {
+                    destroyed_count += 1;
+                }
             }
-        }
 
-        Ok(perform_comparison(destroyed_count, &comparison, count))
-    }
+            Ok(perform_comparison(destroyed_count, &comparison, count))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_units_destroyed"
@@ -798,35 +798,35 @@ impl ScriptCondition for SkirmishEnemyInAreaCondition {
         };
         let area_name = get_str_param(parameters, "area")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
 
-        drop(player);
+            drop(player);
 
-        let tracker = get_area_tracker();
-        let objects = tracker.get_objects_in_area(&area_name)?;
+            let tracker = get_area_tracker();
+            let objects = tracker.get_objects_in_area(&area_name)?;
 
-        for obj_id in &objects {
-            let is_enemy = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj| {
-                    // Skip effectively dead or destroyed objects
-                    if obj.is_effectively_dead() || obj.is_destroyed() {
-                        return false;
-                    }
-                    // Check if this object is controlled by a different (enemy) player
-                    obj.get_controlling_player_id()
-                        .map(|owner_id| owner_id != player_id)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            if is_enemy {
-                return Ok(true);
+            for obj_id in &objects {
+                let is_enemy = OBJECT_REGISTRY
+                    .with_object(*obj_id, |obj| {
+                        // Skip effectively dead or destroyed objects
+                        if obj.is_effectively_dead() || obj.is_destroyed() {
+                            return false;
+                        }
+                        // Check if this object is controlled by a different (enemy) player
+                        obj.get_controlling_player_id()
+                            .map(|owner_id| owner_id != player_id)
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false);
+                if is_enemy {
+                    return Ok(true);
+                }
             }
-        }
-        Ok(false)
-    }
+            Ok(false)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_enemy_in_area"
@@ -872,9 +872,8 @@ impl ScriptCondition for SkirmishAllUnitsGarrisonedCondition {
         }
 
         for team_arc in &teams {
-            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc
-                .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+            let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
             let members = team.get_members();
             if members.is_empty() {
                 continue;
@@ -929,26 +928,26 @@ impl ScriptCondition for SkirmishBaseUnderAttackCondition {
             Some(player) => player,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        if is_player_recently_under_attack(&player, 90) {
-            return Ok(true);
-        }
+            if is_player_recently_under_attack(&player, 90) {
+                return Ok(true);
+            }
 
-        if has_hostile_object_near_owned_objects(&player, 250.0, |obj| {
-            obj.is_kind_of(KindOf::Structure)
-        }) {
-            return Ok(true);
-        }
+            if has_hostile_object_near_owned_objects(&player, 250.0, |obj| {
+                obj.is_kind_of(KindOf::Structure)
+            }) {
+                return Ok(true);
+            }
 
-        Ok(has_hostile_object_near_owned_objects(
-            &player,
-            250.0,
-            |_| true,
-        ))
-    }
+            Ok(has_hostile_object_near_owned_objects(
+                &player,
+                250.0,
+                |_| true,
+            ))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_base_under_attack"
@@ -981,37 +980,37 @@ impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
             Some(player) => player,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_player_index() as u32;
-        let is_skirmish_ai = player.is_skirmish_ai();
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_player_index() as u32;
+            let is_skirmish_ai = player.is_skirmish_ai();
 
-        if is_skirmish_ai {
-            if let Some(result) = with_ai_integration_mut(|manager| {
-                manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
-                    IntegratedAiPlayer::Standard(ai) => ai.is_supply_source_attacked(),
-                    IntegratedAiPlayer::Skirmish(ai) => ai.is_supply_source_attacked(),
+            if is_skirmish_ai {
+                if let Some(result) = with_ai_integration_mut(|manager| {
+                    manager.with_ai_player_mut(player_id, |ai_player| match ai_player {
+                        IntegratedAiPlayer::Standard(ai) => ai.is_supply_source_attacked(),
+                        IntegratedAiPlayer::Skirmish(ai) => ai.is_supply_source_attacked(),
+                    })
                 })
-            })
-            .flatten()
-            {
-                return Ok(result);
+                .flatten()
+                {
+                    return Ok(result);
+                }
             }
-        }
 
-        Ok(has_hostile_object_near_owned_objects(
-            &player,
-            120.0,
-            |obj| {
-                obj.is_kind_of(KindOf::SupplySource)
-                    || obj.is_kind_of(KindOf::ResourceNode)
-                    || obj.is_kind_of(KindOf::FSSupplyCenter)
-                    || obj.is_kind_of(KindOf::FSSupplyDropzone)
-                    || obj.is_kind_of(KindOf::Refinery)
-            },
-        ))
-    }
+            Ok(has_hostile_object_near_owned_objects(
+                &player,
+                120.0,
+                |obj| {
+                    obj.is_kind_of(KindOf::SupplySource)
+                        || obj.is_kind_of(KindOf::ResourceNode)
+                        || obj.is_kind_of(KindOf::FSSupplyCenter)
+                        || obj.is_kind_of(KindOf::FSSupplyDropzone)
+                        || obj.is_kind_of(KindOf::Refinery)
+                },
+            ))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_supply_source_attacked"
@@ -1046,15 +1045,15 @@ impl ScriptCondition for SkirmishCanBuildCondition {
         };
         let object_name = get_str_param(parameters, "object_name")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let Some(template) = TheThingFactory::find_template(object_name.as_str()) else {
-            return Ok(false);
-        };
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let Some(template) = TheThingFactory::find_template(object_name.as_str()) else {
+                return Ok(false);
+            };
 
-        Ok(player.can_build_template(template.as_ref()))
-    }
+            Ok(player.can_build_template(template.as_ref()))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_can_build"
@@ -1087,16 +1086,16 @@ impl ScriptCondition for SkirmishCanReinforceCondition {
             Some(player) => player,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        Ok(player.is_skirmish_ai()
-            && !player.is_defeated()
-            && player.get_current_enemy_player_index().is_some()
-            && (player.get_can_build_units() || player.get_can_build_base())
-            && player.get_money().count_money() > 0)
-    }
+            Ok(player.is_skirmish_ai()
+                && !player.is_defeated()
+                && player.get_current_enemy_player_index().is_some()
+                && (player.get_can_build_units() || player.get_can_build_base())
+                && player.get_money().count_money() > 0)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_can_reinforce"
@@ -1144,9 +1143,8 @@ impl ScriptCondition for SkirmishTeamNearPositionCondition {
 
         let teams = factory_guard.find_team_instances(&team_name);
         for team_arc in &teams {
-            let team: std::sync::RwLockReadGuard<'_, crate::team::Team> = team_arc
-                .read()
-                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+            let team_id = team_arc;
+let team_missing = crate::team::factory_access::with_team(team_id, |team| {
             for &member_id in team.get_members() {
                 let near = OBJECT_REGISTRY
                     .with_object(member_id, |obj| {
@@ -1206,21 +1204,21 @@ impl ScriptCondition for SkirmishPlayerHasScienceCondition {
         };
         let science_name = get_str_param(parameters, "science")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        // Use the science store to look up the science type by name
-        let science_store = game_engine::common::rts::get_science_store();
-        let has_it = if let Some(store) = science_store {
-            let science_type = store.get_science_from_internal_name(&science_name);
-            player.has_science(science_type)
-        } else {
-            false
-        };
+            // Use the science store to look up the science type by name
+            let science_store = game_engine::common::rts::get_science_store();
+            let has_it = if let Some(store) = science_store {
+                let science_type = store.get_science_from_internal_name(&science_name);
+                player.has_science(science_type)
+            } else {
+                false
+            };
 
-        Ok(has_it)
-    }
+            Ok(has_it)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_player_has_science"
@@ -1255,15 +1253,15 @@ impl ScriptCondition for SkirmishPlayerHasUpgradeCondition {
         };
         let upgrade_name = get_str_param(parameters, "upgrade")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        // Check the upgrade bitmask
-        let mask_bit = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
-        let completed_mask = player.get_completed_upgrade_mask();
-        Ok(completed_mask.bits() & mask_bit.bits() != 0)
-    }
+            // Check the upgrade bitmask
+            let mask_bit = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
+            let completed_mask = player.get_completed_upgrade_mask();
+            Ok(completed_mask.bits() & mask_bit.bits() != 0)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_player_has_upgrade"
@@ -1304,35 +1302,35 @@ impl ScriptCondition for SkirmishStructureCountCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
 
-        drop(player);
+            drop(player);
 
-        let manager = get_object_manager();
-        let mgr = manager.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
-        })?;
-        let owned = mgr.get_objects_owned_by_player(player_id);
+            let manager = get_object_manager();
+            let mgr = manager.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+            })?;
+            let owned = mgr.get_objects_owned_by_player(player_id);
 
-        let mut structure_count: i64 = 0;
-        for obj_id in &owned {
-            let is_structure = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj| {
-                    obj.is_kind_of(KindOf::Structure)
-                        && !obj.is_destroyed()
-                        && !obj.is_effectively_dead()
-                })
-                .unwrap_or(false);
-            if is_structure {
-                structure_count += 1;
+            let mut structure_count: i64 = 0;
+            for obj_id in &owned {
+                let is_structure = OBJECT_REGISTRY
+                    .with_object(*obj_id, |obj| {
+                        obj.is_kind_of(KindOf::Structure)
+                            && !obj.is_destroyed()
+                            && !obj.is_effectively_dead()
+                    })
+                    .unwrap_or(false);
+                if is_structure {
+                    structure_count += 1;
+                }
             }
-        }
 
-        Ok(perform_comparison(structure_count, &comparison, count))
-    }
+            Ok(perform_comparison(structure_count, &comparison, count))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_structure_count"
@@ -1377,36 +1375,36 @@ impl ScriptCondition for SkirmishUnitCountCondition {
         let count = super::super::actions::get_int_param(parameters, "count")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
 
-        drop(player);
+            drop(player);
 
-        let manager = get_object_manager();
-        let mgr = manager.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to read object manager: {}", e))
-        })?;
-        let owned = mgr.get_objects_owned_by_player(player_id);
+            let manager = get_object_manager();
+            let mgr = manager.read().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to read object manager: {}", e))
+            })?;
+            let owned = mgr.get_objects_owned_by_player(player_id);
 
-        let mut unit_count: i64 = 0;
-        for obj_id in &owned {
-            let is_unit = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj| {
-                    // Count non-structure, living objects
-                    !obj.is_kind_of(KindOf::Structure)
-                        && !obj.is_destroyed()
-                        && !obj.is_effectively_dead()
-                })
-                .unwrap_or(false);
-            if is_unit {
-                unit_count += 1;
+            let mut unit_count: i64 = 0;
+            for obj_id in &owned {
+                let is_unit = OBJECT_REGISTRY
+                    .with_object(*obj_id, |obj| {
+                        // Count non-structure, living objects
+                        !obj.is_kind_of(KindOf::Structure)
+                            && !obj.is_destroyed()
+                            && !obj.is_effectively_dead()
+                    })
+                    .unwrap_or(false);
+                if is_unit {
+                    unit_count += 1;
+                }
             }
-        }
 
-        Ok(perform_comparison(unit_count, &comparison, count))
-    }
+            Ok(perform_comparison(unit_count, &comparison, count))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_unit_count"
@@ -1443,11 +1441,11 @@ impl ScriptCondition for SkirmishPlayerDefeatedCondition {
             Some(p) => p,
             None => return Ok(true), // Non-existent player is defeated
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(player.is_defeated())
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(player.is_defeated())
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_player_defeated"
@@ -1481,41 +1479,42 @@ impl ScriptCondition for SkirmishAlliedWithHumanCondition {
             None => return Ok(false),
         };
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_mask = player.get_player_mask();
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_mask = player.get_player_mask();
+            drop(player);
 
-        // Iterate all players to find any human player that shares an alliance
-        let list = player_list();
-        let guard = list
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player list: {}", e)))?;
+            // Iterate all players to find any human player that shares an alliance
+            let list = player_list();
+            let guard = list
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read player list: {}", e)))?;
 
-        for i in 0..guard.get_player_count() {
-            if let Some(other_arc) = guard.get_player(i as i32) {
-                // Skip same player
-                if Arc::ptr_eq(&player_arc, &other_arc) {
-                    continue;
-                }
-                if let Ok(other) = other_arc.read() {
-                    if other.get_player_type() != PlayerType::Human {
+            for i in 0..guard.get_player_count() {
+                if let Some(other_arc) = guard.get_player(i as i32) {
+                    // Skip same player
+                    if Arc::ptr_eq(&player_arc, &other_arc) {
                         continue;
                     }
-                    // Simple alliance check: if their player masks overlap,
-                    // they are on the same team. For full alliance checking we'd
-                    // need the diplomacy system, but same team = allied in skirmish.
-                    let other_mask = other.get_player_mask();
-                    if player_mask.bits() & other_mask.bits() != 0 {
-                        return Ok(true);
+                    let other = other_arc;
+    {
+                        if other.get_player_type() != PlayerType::Human {
+                            continue;
+                        }
+                        // Simple alliance check: if their player masks overlap,
+                        // they are on the same team. For full alliance checking we'd
+                        // need the diplomacy system, but same team = allied in skirmish.
+                        let other_mask = other.get_player_mask();
+                        if player_mask.bits() & other_mask.bits() != 0 {
+                            return Ok(true);
+                        }
                     }
                 }
             }
-        }
 
-        Ok(false)
-    }
+            Ok(false)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_allied_with_human"
@@ -1550,21 +1549,21 @@ impl ScriptCondition for SkirmishEnemyNearBaseCondition {
         };
         let radius = super::super::actions::get_float_param(parameters, "radius")? as f32;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        if has_hostile_object_near_owned_objects(&player, radius, |obj| {
-            obj.is_kind_of(KindOf::Structure)
-        }) {
-            return Ok(true);
-        }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            if has_hostile_object_near_owned_objects(&player, radius, |obj| {
+                obj.is_kind_of(KindOf::Structure)
+            }) {
+                return Ok(true);
+            }
 
-        Ok(has_hostile_object_near_owned_objects(
-            &player,
-            radius,
-            |_| true,
-        ))
-    }
+            Ok(has_hostile_object_near_owned_objects(
+                &player,
+                radius,
+                |_| true,
+            ))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "skirmish_enemy_near_base"

@@ -90,12 +90,7 @@ impl BridgeTowerBehavior {
         object_id: ObjectID,
         module_data: Arc<BridgeTowerBehaviorModuleData>,
     ) -> Self {
-        let object_id = object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(OBJECT_INVALID_ID);
-
-        Self::construct_with_object_id(object_id, module_data, Some(object))
+        Self::construct_with_object_id(object_id, module_data, Some(object_id))
     }
 
     pub fn from_module_thing(
@@ -112,9 +107,9 @@ impl BridgeTowerBehavior {
             .ok_or_else(|| "BridgeTowerBehavior requires an owning object".to_string())?;
 
         let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY
-            .get_object(object_id)
-            .ok_or_else(|| format!("BridgeTowerBehavior requires object {object_id} to exist"))?;
+        if !OBJECT_REGISTRY.contains(object_id) {
+            return Err(format!("BridgeTowerBehavior requires object {object_id} to exist").into());
+        }
 
         Ok(Self::new_from_object_handle(object_id, module_data))
     }
@@ -161,9 +156,10 @@ impl BridgeTowerBehavior {
         if id == OBJECT_INVALID_ID {
             return Err("BridgeTowerBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY
-            .get_object(id)
-            .ok_or_else(|| "owning object not found".into())
+        if !OBJECT_REGISTRY.contains(id) {
+            return Err("owning object not found".into());
+        }
+        Ok(id)
     }
 
     fn get_bridge_object(&self) -> Option<ObjectID> {
@@ -172,10 +168,10 @@ impl BridgeTowerBehavior {
             return None;
         }
 
-        if self.bridge_id == OBJECT_INVALID_ID {
+        if self.bridge_id == OBJECT_INVALID_ID || !OBJECT_REGISTRY.contains(self.bridge_id) {
             None
         } else {
-            OBJECT_REGISTRY.get_object(self.bridge_id)
+            Some(self.bridge_id)
         }
     }
 
@@ -193,12 +189,12 @@ impl BridgeTowerBehavior {
         &self,
         bridge_object: ObjectID,
     ) -> Result<Vec<(BridgeTowerType, ObjectID)>, Box<dyn std::error::Error + Send + Sync>> {
-        let bridge_read = bridge_object
-            .read()
-            .map_err(|e| format!("bridge lock poisoned: {}", e))?;
+        let module_handles = OBJECT_REGISTRY
+            .with_object(bridge_object, |bridge_read| bridge_read.behavior_modules())
+            .ok_or_else(|| format!("bridge {bridge_object} not registered"))?;
         let mut ids: Option<[ObjectID; BRIDGE_MAX_TOWERS]> = None;
 
-        for handle in bridge_read.behavior_modules() {
+        for handle in module_handles {
             handle.with_module(|module| {
                 if let Some(bridge) = module.get_bridge_control_interface() {
                     ids = Some(bridge.tower_ids());
@@ -273,23 +269,25 @@ impl BridgeTowerBehavior {
             result.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
         }
 
-        let mut bridge_write = bridge_object
-            .write()
-            .map_err(|e| format!("bridge lock poisoned: {}", e))?;
-        if let Some(body) = bridge_write.get_body_module() {
-            let max_health = body.get_max_health();
-            if max_health > 0.0 {
-                let mut bridge_damage = DamageInfo::new();
-                bridge_damage.input.source_id = self.object_id;
-                bridge_damage.input.damage_type = damage_info.input.damage_type;
-                bridge_damage.input.damage_status_type = damage_info.input.damage_status_type;
-                bridge_damage.input.damage_fx_override = damage_info.input.damage_fx_override;
-                bridge_damage.input.death_type = damage_info.input.death_type;
-                bridge_damage.input.amount = damage_percentage * max_health;
-                bridge_damage.sync_from_input();
-                bridge_write.attempt_damage(&mut bridge_damage)?;
+        let bridge_id = bridge_object;
+        let bridge_result = OBJECT_REGISTRY.with_object_mut(bridge_id, |bridge_write| {
+            if let Some(body) = bridge_write.get_body_module() {
+                let max_health = body.get_max_health();
+                if max_health > 0.0 {
+                    let mut bridge_damage = DamageInfo::new();
+                    bridge_damage.input.source_id = self.object_id;
+                    bridge_damage.input.damage_type = damage_info.input.damage_type;
+                    bridge_damage.input.damage_status_type = damage_info.input.damage_status_type;
+                    bridge_damage.input.damage_fx_override = damage_info.input.damage_fx_override;
+                    bridge_damage.input.death_type = damage_info.input.death_type;
+                    bridge_damage.input.amount = damage_percentage * max_health;
+                    bridge_damage.sync_from_input();
+                    bridge_write.attempt_damage(&mut bridge_damage)?;
+                }
             }
-        }
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        });
+        bridge_result.ok_or_else(|| format!("bridge {bridge_id} not registered"))??;
 
         Ok(())
     }
@@ -342,16 +340,18 @@ impl BridgeTowerBehavior {
                     }
                 }
 
-                let mut bridge_write = bridge_object
-                    .write()
-                    .map_err(|e| format!("bridge lock poisoned: {}", e))?;
-                if let Some(body) = bridge_write.get_body_module() {
-                    let max_health = body.get_max_health();
-                    if max_health > 0.0 {
-                        let amount = healing_percentage * max_health;
-                        bridge_write.attempt_healing(amount, Some(source_guard))?;
+                let bridge_id = bridge_object;
+                let bridge_result = OBJECT_REGISTRY.with_object_mut(bridge_id, |bridge_write| {
+                    if let Some(body) = bridge_write.get_body_module() {
+                        let max_health = body.get_max_health();
+                        if max_health > 0.0 {
+                            let amount = healing_percentage * max_health;
+                            bridge_write.attempt_healing(amount, Some(source_guard))?;
+                        }
                     }
-                }
+                    Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+                });
+                bridge_result.ok_or_else(|| format!("bridge {bridge_id} not registered"))??;
 
                 Ok(())
             },
@@ -417,9 +417,7 @@ impl BridgeTowerBehaviorInterface for BridgeTowerBehavior {
     fn set_bridge(&mut self, bridge: Option<ObjectID>) {
         self.bridge_id = bridge
             .map(|b| {
-                b.read()
-                    .map(|guard| guard.get_id())
-                    .unwrap_or(OBJECT_INVALID_ID)
+                *b
             })
             .unwrap_or(OBJECT_INVALID_ID);
     }
@@ -518,10 +516,13 @@ impl DieModuleInterface for BridgeTowerBehavior {
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(bridge_object) = self.get_bridge_object() {
-            if let Ok(mut bridge_write) = bridge_object.write() {
-                bridge_write.kill(None, None);
-            } else {
-                return Err("BridgeTowerBehavior: bridge lock poisoned".into());
+            if OBJECT_REGISTRY
+                .with_object_mut(bridge_object, |bridge_write| {
+                    bridge_write.kill(None, None);
+                })
+                .is_none()
+            {
+                return Err("BridgeTowerBehavior: bridge not registered".into());
             }
         }
         Ok(())

@@ -241,15 +241,13 @@ impl ScriptCondition for NamedOwnedByPlayerCondition {
         }
 
         let unit_name = get_str_param(parameters, "unit_name")?;
-        let player_arc = match get_player_arc(parameters, "player")? {
-            Some(p) => p,
-            None => return Ok(false),
+        let Some(player_index) = get_player_arc(parameters, "player")? else {
+            return Ok(false);
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
-        drop(player);
+        let Some(player_id) = crate::player::with_player(player_index, |player| player.get_id() as u32)
+        else {
+            return Ok(false);
+        };
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,
@@ -388,16 +386,14 @@ impl ScriptCondition for NamedDiscoveredCondition {
             return Ok(false);
         }
 
-        let unit_name = get_str_param(parameters, "unit_name")?;
-        let player_arc = match get_player_arc(parameters, "player")? {
-            Some(p) => p,
-            None => return Ok(false),
+        let Some(player_index) = get_player_arc(parameters, "player")? else {
+            return Ok(false);
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_index = player.get_player_index();
-        drop(player);
+        let Some(player_index) =
+            crate::player::with_player(player_index, |player| player.get_player_index())
+        else {
+            return Ok(false);
+        };
 
         let object_id = match lookup_named_object_id(&unit_name)? {
             Some(id) => id,

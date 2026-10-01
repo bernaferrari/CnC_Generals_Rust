@@ -182,7 +182,6 @@ impl TensileFormationUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -239,7 +238,6 @@ impl TensileFormationUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -291,7 +289,6 @@ impl TensileFormationUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -355,7 +352,6 @@ impl UpdateModuleInterface for TensileFormationUpdate {
                 None
             } else {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) else {
                 return UpdateSleepTime::Frames(30);
             };
@@ -392,7 +388,6 @@ impl UpdateModuleInterface for TensileFormationUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return UPDATE_SLEEP_NONE;
         };

@@ -468,7 +468,7 @@ impl DynamicShroudClearingRangeUpdate {
             .get_dynamic_shroud_clearing_range_update_config()
             .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
         Self::new_with_data(
-            object,
+            object_id,
             Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
                 config, 0,
             )),
@@ -498,11 +498,9 @@ impl DynamicShroudClearingRangeUpdate {
         let done_forever_frame = TheGameLogic::get_frame() + state_countdown as u32;
 
         // Get native clearing range from object
-        let native_clearing_range = if let Ok(obj) = object.read() {
-            obj.get_shroud_clearing_range()
-        } else {
-            200.0 // Sensible default
-        };
+        let native_clearing_range = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.get_shroud_clearing_range())
+            .unwrap_or(200.0);
 
         // Initialize grid decals
         let mut grid_decals = Vec::with_capacity(GRID_FX_DECAL_COUNT);
@@ -540,7 +538,7 @@ impl DynamicShroudClearingRangeUpdate {
             .get_dynamic_shroud_clearing_range_update_config()
             .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
         Self::new_with_data(
-            object,
+            object_id,
             Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
                 config,
                 module_data.get_module_tag_name_key(),
@@ -555,14 +553,11 @@ impl DynamicShroudClearingRangeUpdate {
             return;
         }
 
-        let owner_index = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
-        .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+        let owner_index = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |o| {
+            o.get_controlling_player()
+        }).flatten().and_then(|index| {
+            crate::player::with_player(index, |p| p.get_player_index())
+        });
         let local_index = ThePlayerList()
             .read()
             .ok()
@@ -581,9 +576,11 @@ impl DynamicShroudClearingRangeUpdate {
             if !created.is_empty() {
                 created.set_position(*pos);
                 if template.color == 0 {
-                    if let (Some(owner), Ok(list)) = (owner_index, ThePlayerList().read()) {
-                        if let Some(player) = list.get_player(owner).and_then(|p| p.read().ok()) {
-                            created.color = player.get_player_color().to_argb_u32();
+                    if let Some(owner) = owner_index {
+                        if let Some(color) = crate::player::with_player(owner, |player| {
+                            player.get_player_color().to_argb_u32()
+                        }) {
+                            created.color = color;
                         }
                     }
                 }
@@ -606,18 +603,9 @@ impl DynamicShroudClearingRangeUpdate {
             return;
         }
 
-        let center = if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj) = obj_arc.read() {
-                *obj.get_position()
-            } else {
-                return;
-            }
-        } else {
+        let Some(center) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| *obj.get_position())
+        else {
             return;
         };
 
@@ -659,21 +647,15 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
 
         // Create decals on first update
         if !self.decals_created {
-            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(obj) = obj_arc.read() {
-                    let pos = *obj.get_position();
-                    self.create_grid_decals(
-                        &self.module_data.grid_decal_template.clone(),
-                        100.0,
-                        &pos,
-                    );
-                    self.decals_created = true;
-                }
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |obj| *obj.get_position())
+            {
+                self.create_grid_decals(
+                    &self.module_data.grid_decal_template.clone(),
+                    100.0,
+                    &pos,
+                );
+                self.decals_created = true;
             }
         }
 
@@ -734,16 +716,10 @@ impl UpdateModuleInterface for DynamicShroudClearingRangeUpdate {
             self.change_interval_countdown = interval;
 
             // Apply range to object
-            if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut obj) = obj_arc.write() {
-                    obj.set_shroud_clearing_range(self.current_clearing_range);
-                }
-            }
+            let range = self.current_clearing_range;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                obj.set_shroud_clearing_range(range);
+            });
 
             // Transition to sleeping when done
             if self.state == DSCRUState::DoneForever {

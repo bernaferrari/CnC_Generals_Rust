@@ -863,18 +863,18 @@ impl Object {
 
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
         let is_enclosing = if container_id != INVALID_ID {
-            if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
+            if crate::helpers::TheGameLogic::find_object_by_id(container_id)
+                || crate::object::registry::OBJECT_REGISTRY.contains(container_id)
             {
-                if let Ok(guard) = container.try_read() {
-                    if let Some(contain) = guard.get_contain() {
-                        contain.is_enclosing_container_for(self)
-                    } else {
-                        true
-                    }
-                } else {
-                    true
-                }
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(container_id, |guard| {
+                        if let Some(contain) = guard.get_contain() {
+                            contain.is_enclosing_container_for(self)
+                        } else {
+                            true
+                        }
+                    })
+                    .unwrap_or(true)
             } else {
                 true
             }
@@ -982,12 +982,10 @@ impl Object {
             SlotLook::Riders(rider_ids) => {
                 count = 0;
                 for rider_id in rider_ids {
-                    if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                    if let Some(slots) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(rider_id, |rider_guard| rider_guard.get_transport_slot_count())
                     {
-                        if let Ok(rider_guard) = rider.try_read() {
-                            count += rider_guard.get_transport_slot_count();
-                        }
+                        count += slots;
                     }
                 }
             }

@@ -42,9 +42,13 @@ impl ScriptCondition for PlayerAliveCondition {
 
         // Check actual player state using player_list
         let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
+        let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
             if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(player_guard) = player_arc.read() {
+                let player_guard = player_arc;
+{
                     // Player is alive if not defeated
                     return Ok(!player_guard.is_defeated());
                 }
@@ -88,9 +92,13 @@ impl ScriptCondition for PlayerDefeatedCondition {
 
         // Check actual player defeated state
         let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
+        let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
             if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(player_guard) = player_arc.read() {
+                let player_guard = player_arc;
+{
                     return Ok(player_guard.is_defeated());
                 }
             }
@@ -140,9 +148,13 @@ impl ScriptCondition for PlayerHasResourceCondition {
         );
 
         let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
+        let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
             if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(player_guard) = player_arc.read() {
+                let player_guard = player_arc;
+{
                     if crate::scripting::actions::is_money_resource(&resource_type) {
                         let player_money = player_guard.get_money().get_money() as i64;
                         return Ok(player_money >= amount);
@@ -211,11 +223,8 @@ impl ScriptCondition for PlayerHasUnitsCondition {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    let __base_arc = obj_guard.base();
-                    let Ok(base_guard) = __base_arc.read() else {
-                        return _ObjFlow::Cont;
-                    };
-                    if base_guard.is_destroyed() {
+                    let base_guard = obj_guard;
+if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
@@ -308,11 +317,8 @@ impl ScriptCondition for PlayerHasBuildingsCondition {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    let __base_arc = obj_guard.base();
-                    let Ok(base_guard) = __base_arc.read() else {
-                        return _ObjFlow::Cont;
-                    };
-                    if base_guard.is_destroyed() {
+                    let base_guard = obj_guard;
+if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
@@ -393,9 +399,7 @@ impl ScriptCondition for PlayersAlliedCondition {
         let Some(p2) = list.get_player(player2 as i32) else {
             return Ok(false);
         };
-        let (Ok(p1_guard), Ok(p2_guard)) = (p1.read(), p2.read()) else {
-            return Ok(false);
-        };
+        let (p1_guard, p2_guard) = (p1, p2);
 
         let rel = p1_guard.get_relationship(&p2_guard);
         Ok(matches!(rel, crate::common::Relationship::Allies))
@@ -442,9 +446,7 @@ impl ScriptCondition for PlayerHasTechnologyCondition {
         let Some(player_arc) = list.get_player(player as i32) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
+        let player_guard = player_arc;
         let Some(store) = get_science_store() else {
             return Ok(false);
         };
@@ -492,13 +494,9 @@ impl ScriptCondition for PlayerHasUpgradeCondition {
         let Some(player_arc) = list.get_player(player as i32) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
+        let player_guard = player_arc;
         let upgrade_center = get_upgrade_center();
-        let Ok(center) = upgrade_center.read() else {
-            return Ok(false);
-        };
+        let Ok(center) = upgrade_center.read() else { return Ok(false); };
         let Some(template) = center.find_upgrade(upgrade.as_str()) else {
             return Ok(false);
         };
@@ -550,9 +548,7 @@ impl ScriptCondition for SpecialPowerAvailableCondition {
         let Some(registry_lock) = crate::special_power_module::get_power_registry() else {
             return Ok(false);
         };
-        let Ok(registry) = registry_lock.read() else {
-            return Ok(false);
-        };
+        let Ok(registry) = registry_lock.read() else { return Ok(false); };
 
         let power_name_lower = power_name.to_ascii_lowercase();
         for power in registry.get_all_powers() {
@@ -606,9 +602,13 @@ impl ScriptCondition for ResourcesExceedCondition {
         // Get actual player resources (money)
         // In C++: pPlayer->Get_Money() > amount
         let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
+        let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
             if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(player_guard) = player_arc.read() {
+                let player_guard = player_arc;
+{
                     let player_money = player_guard.get_money().get_money() as i64;
                     return Ok(player_money > amount);
                 }
@@ -662,8 +662,8 @@ impl ScriptCondition for StructureBuiltCondition {
         if let Ok(manager) = obj_manager.read() {
             let owned_objects = manager.get_objects_owned_by_player(player as u32);
             for obj_id in owned_objects {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    let (template_name, base_arc) = match obj_arc.read() {
+                if let Some(obj_arc) = /*slot*/ OBJECT_REGISTRY.with_object(obj_id) {
+                    let (template_name, base_arc) = match obj_Ok(arc) {
                         Ok(obj) => (
                             obj.template.as_ref().map(|t| t.get_name().to_string()),
                             Some(obj.base()),
@@ -671,7 +671,8 @@ impl ScriptCondition for StructureBuiltCondition {
                         Err(_) => (None, None),
                     };
                     if let (Some(template_name), Some(base_arc)) = (template_name, base_arc) {
-                        if let Ok(base) = base_arc.read() {
+                        let base = base_arc;
+{
                             // Check if it's a structure and matches the building type
                             if template_name.eq_ignore_ascii_case(&building_type) {
                                 use crate::common::KindOf;
@@ -733,8 +734,7 @@ impl ScriptCondition for UnitTypeCountExceedsCondition {
         if let Ok(manager) = obj_manager.read() {
             let owned_objects = manager.get_objects_owned_by_player(player as u32);
             for obj_id in owned_objects {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj) = obj_arc.read() {
+                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
                         if let Some(template) = &obj.template {
                             if template.get_name().eq_ignore_ascii_case(&unit_type) {
                                 actual_count += 1;
@@ -787,9 +787,13 @@ impl ScriptCondition for PlayerWonCondition {
         // a player is considered "won" if they are still active and all other
         // non-observer, non-neutral players are defeated.
         let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
+        let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
             if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(player_guard) = player_arc.read() {
+                let player_guard = player_arc;
+{
                     if player_guard.is_defeated()
                         || player_guard.is_player_observer()
                         || player_guard.get_player_type() == PlayerType::Neutral
@@ -801,9 +805,7 @@ impl ScriptCondition for PlayerWonCondition {
                     drop(player_guard);
 
                     for other_arc in list.iter() {
-                        let Ok(other_guard) = other_arc.read() else {
-                            continue;
-                        };
+                        let other_guard = other_arc;
                         if other_guard.get_player_index() == this_player_index {
                             continue;
                         }
@@ -860,11 +862,16 @@ impl ScriptCondition for AlliesWithTeamCondition {
         // Check player relationship
         // In C++: pPlayer1->Get_Relationship(pPlayer2) == ALLIES
         let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
+        let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
             if let Some(p1_arc) = list.get_player(player1 as i32) {
-                if let Ok(p1) = p1_arc.read() {
+                let p1 = p1_arc;
+{
                     if let Some(p2_arc) = list.get_player(player2 as i32) {
-                        if let Ok(p2) = p2_arc.read() {
+                        let p2 = p2_arc;
+{
                             return Ok(p1.is_allied_with_player(&p2));
                         }
                     }
@@ -916,9 +923,7 @@ impl ScriptCondition for ResearchCompleteCondition {
         let Some(player_arc) = list.get_player(player as i32) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
+        let player_guard = player_arc;
         let Some(store) = get_science_store() else {
             return Ok(false);
         };
@@ -975,9 +980,7 @@ impl ScriptCondition for SpecialPowerReadyCondition {
         let Some(registry_lock) = crate::special_power_module::get_power_registry() else {
             return Ok(false);
         };
-        let Ok(registry) = registry_lock.read() else {
-            return Ok(false);
-        };
+        let Ok(registry) = registry_lock.read() else { return Ok(false); };
 
         let power_name_lower = power_name.to_ascii_lowercase();
         for power in registry.get_all_powers() {
@@ -1036,11 +1039,11 @@ impl ScriptCondition for PlayerAllDestroyedCondition {
             Some(p) => p,
             None => return Ok(true), // Non-existent player is all destroyed
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(!player.has_any_objects())
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(!player.has_any_objects())
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_all_destroyed"
@@ -1076,12 +1079,12 @@ impl ScriptCondition for PlayerHasCreditsCondition {
         let credits = crate::scripting::actions::get_int_param(parameters, "credits")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let money = player.get_money().count_money() as i64;
-        Ok(perform_comparison(credits, &comparison, money))
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let money = player.get_money().count_money() as i64;
+            Ok(perform_comparison(credits, &comparison, money))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_has_credits"
@@ -1118,11 +1121,11 @@ impl ScriptCondition for PlayerHasPowerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        Ok(player.get_energy().has_sufficient_power())
-    }
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            Ok(player.get_energy().has_sufficient_power())
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_has_power"
@@ -1191,32 +1194,32 @@ impl ScriptCondition for BuiltByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_id = player.get_id() as u32;
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_id = player.get_id() as u32;
+            drop(player);
 
-        let object_type = get_str_param(parameters, "object_type")?;
+            let object_type = get_str_param(parameters, "object_type")?;
 
-        // Search all objects for matching type owned by player
-        // Host path: empty dual-world registry → no object residual.
-        if OBJECT_REGISTRY.is_empty() {
-            return Ok(false);
-        }
-        let mut found = false;
-        OBJECT_REGISTRY.with_each(|_id, obj| {
-            if found || obj.is_effectively_dead() {
-                return;
+            // Search all objects for matching type owned by player
+            // Host path: empty dual-world registry → no object residual.
+            if OBJECT_REGISTRY.is_empty() {
+                return Ok(false);
             }
-            if obj.get_controlling_player_id() == Some(player_id)
-                && obj.get_template_name() == object_type
-            {
-                found = true;
-            }
-        });
-        Ok(found)
-    }
+            let mut found = false;
+            OBJECT_REGISTRY.with_each(|_id, obj| {
+                if found || obj.is_effectively_dead() {
+                    return;
+                }
+                if obj.get_controlling_player_id() == Some(player_id)
+                    && obj.get_template_name() == object_type
+                {
+                    found = true;
+                }
+            });
+            Ok(found)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "built_by_player"
@@ -1541,23 +1544,23 @@ impl ScriptCondition for PlayerBuiltUpgradeCondition {
         };
         let upgrade_name = get_str_param(parameters, "upgrade")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_index = player.get_player_index() as usize;
-        let completed_mask = player.get_completed_upgrade_mask();
-        let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
-        let mask_bits = crate::common::UpgradeMaskType::from_bits_retain(upgrade_mask.to_bits());
-        let has_upgrade = completed_mask.intersects(mask_bits);
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_index = player.get_player_index() as usize;
+            let completed_mask = player.get_completed_upgrade_mask();
+            let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
+            let mask_bits = crate::common::UpgradeMaskType::from_bits_retain(upgrade_mask.to_bits());
+            let has_upgrade = completed_mask.intersects(mask_bits);
+            drop(player);
 
-        let engine_hit = with_script_engine_mut(|engine| {
-            engine.is_upgrade_complete(player_index, &upgrade_name, true, crate::common::INVALID_ID)
-        })
-        .unwrap_or(false);
+            let engine_hit = with_script_engine_mut(|engine| {
+                engine.is_upgrade_complete(player_index, &upgrade_name, true, crate::common::INVALID_ID)
+            })
+            .unwrap_or(false);
 
-        Ok(engine_hit || has_upgrade)
-    }
+            Ok(engine_hit || has_upgrade)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_built_upgrade"
@@ -1595,23 +1598,23 @@ impl ScriptCondition for PlayerBuiltUpgradeFromNamedCondition {
             return Ok(false);
         };
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_index = player.get_player_index() as usize;
-        let completed_mask = player.get_completed_upgrade_mask();
-        let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
-        let mask_bits = crate::common::UpgradeMaskType::from_bits_retain(upgrade_mask.to_bits());
-        let has_upgrade = completed_mask.intersects(mask_bits);
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_index = player.get_player_index() as usize;
+            let completed_mask = player.get_completed_upgrade_mask();
+            let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
+            let mask_bits = crate::common::UpgradeMaskType::from_bits_retain(upgrade_mask.to_bits());
+            let has_upgrade = completed_mask.intersects(mask_bits);
+            drop(player);
 
-        let engine_hit = with_script_engine_mut(|engine| {
-            engine.is_upgrade_complete(player_index, &upgrade_name, true, source_id)
-        })
-        .unwrap_or(false);
+            let engine_hit = with_script_engine_mut(|engine| {
+                engine.is_upgrade_complete(player_index, &upgrade_name, true, source_id)
+            })
+            .unwrap_or(false);
 
-        Ok(engine_hit || has_upgrade)
-    }
+            Ok(engine_hit || has_upgrade)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_built_upgrade_from_named"
@@ -1649,28 +1652,28 @@ impl ScriptCondition for PlayerAcquiredScienceCondition {
         };
         let science_name = get_str_param(parameters, "science")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        let Some(store) = get_science_store() else {
-            return Ok(false);
-        };
-        let science = store.get_science_from_internal_name(science_name.as_str());
-        if science == SCIENCE_INVALID {
-            return Ok(false);
-        }
+            let Some(store) = get_science_store() else {
+                return Ok(false);
+            };
+            let science = store.get_science_from_internal_name(science_name.as_str());
+            if science == SCIENCE_INVALID {
+                return Ok(false);
+            }
 
-        let player_index = player.get_player_index() as usize;
-        drop(player);
+            let player_index = player.get_player_index() as usize;
+            drop(player);
 
-        Ok(
-            with_script_engine_mut(|engine| {
-                engine.is_science_acquired(player_index, science, true)
-            })
-            .unwrap_or(false),
-        )
-    }
+            Ok(
+                with_script_engine_mut(|engine| {
+                    engine.is_science_acquired(player_index, science, true)
+                })
+                .unwrap_or(false),
+            )
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_acquired_science"
@@ -1704,20 +1707,20 @@ impl ScriptCondition for PlayerCanPurchaseScienceCondition {
         };
         let science_name = get_str_param(parameters, "science")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        let Some(store) = get_science_store() else {
-            return Ok(false);
-        };
-        let science = store.get_science_from_internal_name(science_name.as_str());
-        if science == SCIENCE_INVALID {
-            return Ok(false);
-        }
+            let Some(store) = get_science_store() else {
+                return Ok(false);
+            };
+            let science = store.get_science_from_internal_name(science_name.as_str());
+            if science == SCIENCE_INVALID {
+                return Ok(false);
+            }
 
-        Ok(player.is_capable_of_purchasing_science(science))
-    }
+            Ok(player.is_capable_of_purchasing_science(science))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_can_purchase_science"
@@ -1751,12 +1754,12 @@ impl ScriptCondition for PlayerHasSciencePurchasePointsCondition {
         };
         let points = crate::scripting::actions::get_int_param(parameters, "points")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        Ok((player.get_science_purchase_points() as i64) >= points)
-    }
+            Ok((player.get_science_purchase_points() as i64) >= points)
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_has_science_purchase_points"
@@ -1791,17 +1794,17 @@ impl ScriptCondition for PlayerPowerComparePercentCondition {
         let percent = crate::scripting::actions::get_int_param(parameters, "percent")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        let ratio = player.get_energy().supply_ratio();
-        Ok(perform_comparison(
-            (ratio * 100.0) as i64,
-            &comparison,
-            percent as i64,
-        ))
-    }
+            let ratio = player.get_energy().supply_ratio();
+            Ok(perform_comparison(
+                (ratio * 100.0) as i64,
+                &comparison,
+                percent as i64,
+            ))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_power_compare_percent"
@@ -1840,14 +1843,14 @@ impl ScriptCondition for PlayerExcessPowerCompareValueCondition {
         let kwh = crate::scripting::actions::get_int_param(parameters, "kwh")?;
         let comparison = get_str_param(parameters, "comparison")?;
 
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
 
-        let energy = player.get_energy();
-        let actual_kwh = energy.production() - energy.consumption();
-        Ok(perform_comparison(actual_kwh as i64, &comparison, kwh))
-    }
+            let energy = player.get_energy();
+            let actual_kwh = energy.production() - energy.consumption();
+            Ok(perform_comparison(actual_kwh as i64, &comparison, kwh))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "player_excess_power_compare_value"
@@ -1920,7 +1923,7 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
                                 let owner = {
                                     let player = obj_guard.get_controlling_player();
                                     player
-                                        .and_then(|p| p.read().ok().map(|g| g.get_player_index()))
+                                        .and_then(|p| Some(p).map(|g| g.get_player_index()))
                                         .unwrap_or(-1)
                                 };
                                 if owner != player_index {

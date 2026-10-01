@@ -33,13 +33,9 @@ impl AIPlayer {
             (DEFAULT_TEAM_SECONDS, DEFAULT_STRUCTURE_SECONDS)
         };
 
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(player_id as i32).cloned() {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_can_build_units(false);
-                }
-            }
-        }
+        let _ = crate::player::with_player_mut(player_id as i32, |player_guard| {
+            player_guard.set_can_build_units(false);
+        });
 
         // C++ AIPlayer::AIPlayer: m_difficulty = TheScriptEngine->getGlobalDifficulty().
         let difficulty = get_script_engine()
@@ -203,17 +199,16 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some(player_arc) = self.get_player_arc() else {
+        let Some(player_index) = self.get_player_arc() else {
             return Ok(());
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(());
-        };
+        let object_ids = crate::player::with_player(player_index, |player_guard| player_guard.get_all_objects())
+            .unwrap_or_default();
 
         let mut total_strength = 0.0f32;
         let mut counts: HashMap<String, i32> = HashMap::new();
 
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let Some(kind) = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     if obj_guard.is_destroyed() || obj_guard.is_effectively_dead() {
@@ -263,10 +258,7 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some(player_arc) = self.get_player_arc() else {
-            return Ok(());
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(player_index) = self.get_player_arc() else {
             return Ok(());
         };
 
@@ -310,21 +302,21 @@ impl AIPlayer {
                 if owner_id as u32 == self.player_id {
                     continue;
                 }
-                if let Some(owner_arc) = player_list()
+                let owner_neutral = player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.get_player(owner_id as i32).cloned())
-                {
-                    if let Ok(owner_guard) = owner_arc.read() {
-                        if owner_guard.get_player_type() == PlayerType::Neutral {
-                            continue;
-                        }
-                    }
+                    .and_then(|list| list.get_player(owner_id as i32).map(|g| g.get_player_type() == PlayerType::Neutral))
+                    .unwrap_or(false);
+                if owner_neutral {
+                    continue;
                 }
                 let Ok(target_team) = target_team_arc.read() else {
                     continue;
                 };
-                if player_guard.get_relationship_with_team(&target_team) != Relationship::Enemies {
+                let enemy = crate::player::with_player(player_index, |player_guard| {
+                    player_guard.get_relationship_with_team(&target_team) == Relationship::Enemies
+                }).unwrap_or(false);
+                if !enemy {
                     continue;
                 }
 
@@ -448,10 +440,7 @@ impl AIPlayer {
             return false;
         }
 
-        let Some(player_arc) = self.get_player_arc() else {
-            return true;
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(player_index) = self.get_player_arc() else {
             return true;
         };
         let Some(partition) = ThePartitionManager::get() else {
@@ -480,7 +469,9 @@ impl AIPlayer {
                     .get_team()
                     .and_then(|team_arc| {
                         team_arc.read().ok().map(|team| {
-                            player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                            crate::player::with_player(player_index, |player_guard| {
+                                player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                            }).unwrap_or(false)
                         })
                     })
                     .unwrap_or(false);
@@ -544,8 +535,7 @@ impl AIPlayer {
         // Snapshot original build list BEFORE factory prepends (C++ keeps old head ptr).
         let mut original_entries: Vec<(String, Coord3D, Real, bool)> = Vec::new();
         if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(pg) = player_arc.read() {
+            if let Some(pg) = list.get_player(self.player_id as i32) {
                     let mut cur = pg.get_build_list();
                     while let Some(node) = cur {
                         let name = node.get_template_name().to_string();
@@ -559,19 +549,14 @@ impl AIPlayer {
                         }
                         cur = node.get_next();
                     }
-                }
             }
         }
 
         // Add any factories placed to the build list (C++ ProductionUpdateInterface).
         // C++ addToBuildList prepends — new entries are NOT in original_entries.
         if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                let owned: Vec<ObjectID> = player_arc
-                    .read()
-                    .ok()
-                    .map(|g| g.get_all_objects())
-                    .unwrap_or_default();
+            if let Some(pg) = list.get_player(self.player_id as i32) {
+                let owned: Vec<ObjectID> = pg.get_all_objects();
                 drop(list);
                 for obj_id in owned {
                     let Some((template_name, pos, angle)) = OBJECT_REGISTRY
@@ -610,18 +595,14 @@ impl AIPlayer {
                     else {
                         continue;
                     };
-                    if let Ok(list) = player_list().read() {
-                        if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                            if let Ok(mut pg) = player_arc.write() {
+                    let _ = crate::player::with_player_mut(self.player_id as i32, |pg| {
                                 pg.add_to_build_list(
                                     obj_id,
                                     AsciiString::from(template_name.as_str()),
                                     pos,
                                     angle,
                                 );
-                            }
-                        }
-                    }
+                    });
                 }
             }
         }
@@ -639,9 +620,7 @@ impl AIPlayer {
                 initial.push((name, loc, ang));
             } else {
                 // C++ info->incrementNumRebuilds on the live node.
-                if let Ok(list) = player_list().read() {
-                    if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                        if let Ok(mut pg) = player_arc.write() {
+                let _ = crate::player::with_player_mut(self.player_id as i32, |pg| {
                             if let Some(info) = pg.get_build_list_mut() {
                                 let mut cur = Some(&mut *info);
                                 while let Some(node) = cur {
@@ -655,9 +634,7 @@ impl AIPlayer {
                                     cur = node.get_next_mut();
                                 }
                             }
-                        }
-                    }
-                }
+                });
             }
         }
         for (name, loc, ang) in initial {

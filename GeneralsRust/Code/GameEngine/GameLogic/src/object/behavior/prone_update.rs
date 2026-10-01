@@ -103,35 +103,23 @@ impl ProneUpdate {
 
     /// Start prone visual and gameplay effects
     fn start_prone_effects(&self) {
-        if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut me) = me_arc.write() {
-                // Set NO_ATTACK status so unit can't fire while prone
-                me.set_status(ObjectStatusMaskType::NO_ATTACK, true);
-                me.set_model_condition_state(ModelConditionFlags::PRONE);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |me| {
+            me.set_status(ObjectStatusMaskType::NO_ATTACK, true);
+            me.set_model_condition_state(ModelConditionFlags::PRONE);
+        });
     }
 
     /// Stop prone visual and gameplay effects
     fn stop_prone_effects(&self) -> bool {
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if self.object_id == crate::common::INVALID_ID {
+            return true;
+        }
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |me| {
+            me.set_status(ObjectStatusMaskType::NO_ATTACK, false);
+            me.clear_model_condition_state(ModelConditionFlags::PRONE);
         }) else {
             return true;
         };
-        let Ok(mut me) = me_arc.write() else {
-            return false;
-        };
-        me.set_status(ObjectStatusMaskType::NO_ATTACK, false);
-        me.clear_model_condition_state(ModelConditionFlags::PRONE);
         true
     }
 }

@@ -416,7 +416,6 @@ impl StructureCollapseUpdate {
                 None
             } else {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
             }) else {
                 return;
             };
@@ -456,7 +455,6 @@ impl StructureCollapseUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return;
         };
@@ -500,7 +498,6 @@ impl StructureCollapseUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object_arc.read() {
                 self.next_call_frame_and_phase = current_frame.saturating_add(1);
@@ -527,7 +524,6 @@ impl UpdateModuleInterface for StructureCollapseUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return UpdateSleepTime::Forever;
         };
@@ -661,7 +657,6 @@ impl DieModuleInterface for StructureCollapseUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return Ok(());
         };

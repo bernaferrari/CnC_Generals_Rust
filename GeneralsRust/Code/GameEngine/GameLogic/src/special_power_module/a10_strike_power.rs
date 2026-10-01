@@ -212,10 +212,8 @@ impl A10StrikePower {
             })
             .ok_or_else(|| "A10 strike requires an owning object".to_string())?;
 
-        if let Some(obj) = created {
-            if let Ok(guard) = obj.read() {
-                self.active_aircraft.push(guard.get_id());
-            }
+        if let Some(id) = created {
+            self.active_aircraft.push(id);
         }
 
         self.strike_active = true;

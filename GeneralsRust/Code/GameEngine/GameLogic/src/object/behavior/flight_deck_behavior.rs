@@ -2131,11 +2131,11 @@ impl ModuleExitInterface for FlightDeckBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+        {
             return Ok(());
-        };
+        }
 
         if matches!(
             door,
@@ -2144,11 +2144,7 @@ impl ModuleExitInterface for FlightDeckBehavior {
             return Ok(());
         }
 
-        let object_id = obj
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(INVALID_OBJECT_ID);
-        let _ = self.process_object_exit(object_id);
+        let _ = self.process_object_exit(obj_id);
         Ok(())
     }
 

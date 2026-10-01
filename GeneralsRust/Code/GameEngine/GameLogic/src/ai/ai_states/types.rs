@@ -185,11 +185,10 @@ fn want_to_squish_target(context: &AIStateMachineContext) -> bool {
 
             let is_computer = owner
                 .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|guard| guard.get_player_type() == PlayerType::Computer)
+                .and_then(|player_idx| {
+                    crate::player::with_player(player_idx, |guard| {
+                        guard.get_player_type() == PlayerType::Computer
+                    })
                 })
                 .unwrap_or(false);
             if !is_computer {

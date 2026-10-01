@@ -453,17 +453,11 @@ impl StealthDetectorController {
         let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
 
         for obj_id in &all_object_ids {
-            let obj_ref = match OBJECT_REGISTRY.get_object(*obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_ref.read() else {
-                continue;
-            };
+            let _ = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
 
             // Skip if dead (lines 184-185)
             if obj_guard.is_effectively_dead() {
-                continue;
+                return;
             }
 
             let target_id = obj_guard.get_id();
@@ -471,7 +465,7 @@ impl StealthDetectorController {
 
             // Skip self
             if target_id == self.object_id {
-                continue;
+                return;
             }
 
             // Check if target has stealth module (line 187)
@@ -487,7 +481,7 @@ impl StealthDetectorController {
                     self.data.extra_detect_kindof,
                     self.data.extra_detect_kindof_not,
                 ) {
-                    continue;
+                    return;
                 }
 
                 // Check relationship - must be enemy or neutral (line 167)
@@ -498,7 +492,7 @@ impl StealthDetectorController {
                 // Check if in range
                 let distance = (*obj_guard.get_position() - self_pos).length();
                 if distance > detection_range {
-                    continue;
+                    return;
                 }
 
                 found_someone = true;
@@ -610,6 +604,7 @@ impl StealthDetectorController {
                     drop(obj_guard);
                 }
             }
+            });
         }
 
         // Play IR effects and sounds (lines 338-397)

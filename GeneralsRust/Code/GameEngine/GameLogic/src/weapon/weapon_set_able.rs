@@ -560,10 +560,11 @@ fn spawn_slave_result(
     pos: &Coord3D,
     command_source: CommandSourceType,
 ) -> Option<CanAttackResult> {
-    let source_arc = crate::helpers::TheGameLogic::find_object_by_id(source_obj)?;
-    let source_guard = source_arc.read().ok()?;
-    let spawn_mod = source_guard.get_spawn_behavior_interface_public()?;
-    drop(source_guard);
+    let spawn_mod = crate::object::registry::OBJECT_REGISTRY
+        .with_object(source_obj, |source_guard| {
+            source_guard.get_spawn_behavior_interface_public()
+        })
+        .flatten()?;
     let mut spawn_guard = spawn_mod.lock().ok()?;
 
     // C++ WeaponSet.cpp:741-744 + SpawnBehavior.cpp:424-432: victim may be
@@ -577,7 +578,6 @@ fn spawn_slave_result(
         return spawn_slave_ground_result(ids, attack_type, pos, command_source);
     };
 
-    let victim_arc = crate::helpers::TheGameLogic::find_object_by_id(target_id)?;
     // Snapshot the slave ids and release the spawn-module guard before the
     // per-slave weapon checks (drop-first discipline, matching the ground
     // branch above): the checks re-enter object/spawn-behavior state and must
@@ -588,17 +588,21 @@ fn spawn_slave_result(
         .filter_map(|i| spawn.get_spawn_object(i))
         .collect();
     drop(spawn_guard);
-    let victim_guard = victim_arc.read().ok()?;
+    if !crate::object::registry::OBJECT_REGISTRY.contains(target_id) {
+        return None;
+    }
     let mut invalid_shot = false;
     for spawn_id in ids {
-        let result = crate::object::registry::OBJECT_REGISTRY.with_object(spawn_id, |slave| {
-            slave.get_able_to_use_weapon_against_target(
-                attack_type,
-                &victim_guard,
-                pos,
-                command_source,
-            )
-        });
+        let result = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |victim_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(spawn_id, |slave| {
+                slave.get_able_to_use_weapon_against_target(
+                    attack_type,
+                    victim_guard,
+                    pos,
+                    command_source,
+                )
+            })
+        }).flatten();
         match result {
             Some(CanAttackResult::Possible) | Some(CanAttackResult::PossibleAfterMoving) => {
                 return result;

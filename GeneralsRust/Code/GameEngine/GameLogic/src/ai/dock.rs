@@ -1128,8 +1128,11 @@ impl AIDockProcessDockState {
         let drone_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
             owner_guard
                 .get_controlling_player()
-                .and_then(|player| player.read().ok())
-                .map(|player_guard| player_guard.find_drone_id_by_producer_id(owner_id))
+                .and_then(|player| {
+                    crate::player::with_player(player, |player_guard| {
+                        player_guard.find_drone_id_by_producer_id(owner_id)
+                    })
+                })
         }).flatten().flatten();
         if drone_id.is_some() {
             self.drone_id = drone_id;

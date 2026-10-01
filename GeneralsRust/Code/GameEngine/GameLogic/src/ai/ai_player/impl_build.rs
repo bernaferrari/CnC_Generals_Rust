@@ -34,45 +34,37 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some(player_arc) = self.get_player_arc() else {
+        let Some(player_index) = self.get_player_arc() else {
             return Ok(());
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(());
-        };
-
-        if player_guard.has_upgrade_in_production(upgrade.as_ref()) {
-            log::debug!(
-                "already has upgrade {} queued.  Ignoring request.",
-                upgrade_name
-            );
-            return Ok(());
-        }
-        if player_guard.has_upgrade_complete(upgrade.as_ref()) {
-            log::debug!(
-                "already has upgrade {} completed.  Ignoring request.",
-                upgrade_name
-            );
-            return Ok(());
-        }
-
-        let can_afford = with_upgrade_center(|center| {
-            center.can_afford_upgrade(&player_guard, upgrade.as_ref(), false)
-        });
-        if !can_afford {
-            log::debug!(
-                "lacks money to build upgrade {} at this time.  Ignoring request.",
-                upgrade_name
-            );
-            return Ok(());
-        }
-
         let Some(control_bar) = get_control_bar_bridge() else {
             return Ok(());
         };
-
-        // C++ walks build list (not all objects) for factory order parity.
-        let factory_ids: Vec<ObjectID> = {
+        let factory_ids = crate::player::with_player(player_index, |player_guard| {
+            if player_guard.has_upgrade_in_production(upgrade.as_ref()) {
+                log::debug!(
+                    "already has upgrade {} queued.  Ignoring request.",
+                    upgrade_name
+                );
+                return None;
+            }
+            if player_guard.has_upgrade_complete(upgrade.as_ref()) {
+                log::debug!(
+                    "already has upgrade {} completed.  Ignoring request.",
+                    upgrade_name
+                );
+                return None;
+            }
+            let can_afford = with_upgrade_center(|center| {
+                center.can_afford_upgrade(player_guard, upgrade.as_ref(), false)
+            });
+            if !can_afford {
+                log::debug!(
+                    "lacks money to build upgrade {} at this time.  Ignoring request.",
+                    upgrade_name
+                );
+                return None;
+            }
             let mut ids = Vec::new();
             let mut cur = player_guard.get_build_list();
             while let Some(info) = cur {
@@ -82,9 +74,11 @@ impl AIPlayer {
                 }
                 cur = info.get_next();
             }
-            ids
+            Some(ids)
+        });
+        let Some(factory_ids) = factory_ids.flatten() else {
+            return Ok(());
         };
-        drop(player_guard);
 
         for object_id in factory_ids {
             let Some(command_set_name) = OBJECT_REGISTRY
@@ -229,10 +223,10 @@ impl AIPlayer {
         let mut final_loc = placement;
         final_loc.z = 0.0; // build list locations are ground relative
 
-        if let Some(player_arc) = self.get_player_arc() {
-            if let Ok(mut pg) = player_arc.write() {
+        if let Some(player_index) = self.get_player_arc() {
+            let _ = crate::player::with_player_mut(player_index, |pg| {
                 pg.add_to_priority_build_list(AsciiString::from(thing_name), final_loc, angle);
-            }
+            });
         }
         self.current_warehouse_id = Some(warehouse_id);
         Ok(())
@@ -312,10 +306,10 @@ impl AIPlayer {
             return Ok(());
         };
         new_pos.z = 0.0;
-        if let Some(player_arc) = self.get_player_arc() {
-            if let Ok(mut pg) = player_arc.write() {
+        if let Some(player_index) = self.get_player_arc() {
+            let _ = crate::player::with_player_mut(player_index, |pg| {
                 pg.add_to_priority_build_list(AsciiString::from(thing_name), new_pos, angle);
-            }
+            });
         }
         Ok(())
     }
@@ -330,8 +324,7 @@ impl AIPlayer {
             return None;
         }
 
-        let player_arc = self.get_player_arc()?;
-        let player_guard = player_arc.read().ok()?;
+        let player_index = self.get_player_arc()?;
         let base_center = self
             .get_base_center()
             .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
@@ -387,7 +380,10 @@ impl AIPlayer {
                     .get_team_id()
                     .and_then(|team_id| {
                         crate::team::with_team(team_id, |team| {
-                            player_guard.get_relationship_with_team(team) == Relationship::Enemies
+                            crate::player::with_player(player_index, |player_guard| {
+                                player_guard.get_relationship_with_team(team) == Relationship::Enemies
+                            })
+                            .unwrap_or(false)
                         })
                     })
                     .unwrap_or(false);
@@ -862,13 +858,7 @@ impl AIPlayer {
             return Ok(());
         }
 
-        let Some(player_arc) = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-        else {
-            return Ok(());
-        };
+        let player_index = self.player_id as i32;
 
         // Pass 1: exact objectID match on build list.
         // Do NOT call check_for_supply_center while holding player write —
@@ -877,9 +867,7 @@ impl AIPlayer {
         let mut matched = false;
         let mut script_name = String::new();
         {
-            let Ok(mut player_guard) = player_arc.write() else {
-                return Ok(());
-            };
+            if crate::player::with_player_mut(player_index, |player_guard| {
             if let Some(info) = player_guard.get_build_list_mut() {
                 let mut current = Some(&mut *info);
                 while let Some(node) = current {
@@ -922,6 +910,8 @@ impl AIPlayer {
                     }
                     current = node.get_next_mut();
                 }
+            }).is_none() {
+                return Ok(());
             }
         }
         if matched {
@@ -944,9 +934,7 @@ impl AIPlayer {
             .with_object(structure_id, |g| g.get_template_name().to_string())
             .unwrap_or_default();
         {
-            let Ok(mut player_guard) = player_arc.write() else {
-                return Ok(());
-            };
+            if crate::player::with_player_mut(player_index, |player_guard| {
             if let Some(info) = player_guard.get_build_list_mut() {
                 let mut current = Some(&mut *info);
                 while let Some(node) = current {
@@ -992,6 +980,9 @@ impl AIPlayer {
                     }
                     current = node.get_next_mut();
                 }
+            }
+            }).is_none() {
+                return Ok(());
             }
         }
 

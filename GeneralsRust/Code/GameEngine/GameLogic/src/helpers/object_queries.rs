@@ -1140,6 +1140,42 @@ fn object_can_repair(candidate: &crate::object::Object) -> bool {
     false
 }
 
+
+fn teams_are_enemies(local_team: Option<crate::team::TeamID>, obj_team: Option<crate::team::TeamID>) -> bool {
+    let (Some(local_team), Some(obj_team)) = (local_team, obj_team) else {
+        return local_team.is_none();
+    };
+    if local_team == obj_team {
+        return false;
+    }
+    crate::team::factory_access::with_team(local_team, |team_guard| {
+        crate::team::factory_access::with_team(obj_team, |obj_team_guard| {
+            team_guard.get_relationship(obj_team_guard) == crate::common::Relationship::Enemies
+        })
+        .unwrap_or(false)
+    })
+    .unwrap_or(true)
+}
+
+fn teams_are_allies(local_team: Option<crate::team::TeamID>, obj_team: Option<crate::team::TeamID>) -> bool {
+    let (Some(local_team), Some(obj_team)) = (local_team, obj_team) else {
+        return local_team.is_none();
+    };
+    if local_team == obj_team {
+        return true;
+    }
+    crate::team::factory_access::with_team(local_team, |team_guard| {
+        crate::team::factory_access::with_team(obj_team, |obj_team_guard| {
+            matches!(
+                team_guard.get_relationship(obj_team_guard),
+                crate::common::Relationship::Allies
+            )
+        })
+        .unwrap_or(false)
+    })
+    .unwrap_or(true)
+}
+
 impl crate::special_power_module::integration::PartitionManagerInterface
     for ThePartitionManagerBridge
 {
@@ -1163,8 +1199,10 @@ impl crate::special_power_module::integration::PartitionManagerInterface
             let local_team = crate::player::player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player().cloned())
-                .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()));
+                .and_then(|list| {
+                    list.get_local_player()
+                        .and_then(|player| player.get_default_team_id())
+                });
             results.retain(|id| {
                 crate::object::registry::OBJECT_REGISTRY
                     .with_object(*id, |obj| match filter {
@@ -1183,38 +1221,10 @@ impl crate::special_power_module::integration::PartitionManagerInterface
                             obj.is_kind_of(crate::common::KindOf::Aircraft)
                         }
                         crate::special_power_module::integration::ObjectFilter::Enemy => {
-                            let Some(team_arc) = local_team.as_ref() else {
-                                return true;
-                            };
-                            let Ok(team_guard) = team_arc.read() else {
-                                return true;
-                            };
-                            let Some(obj_team) = obj.get_team() else {
-                                return false;
-                            };
-                            let Ok(obj_team_guard) = obj_team.read() else {
-                                return false;
-                            };
-                            team_guard.get_relationship(&obj_team_guard)
-                                == crate::common::Relationship::Enemies
+                            teams_are_enemies(local_team, obj.get_team())
                         }
                         crate::special_power_module::integration::ObjectFilter::Friendly => {
-                            let Some(team_arc) = local_team.as_ref() else {
-                                return true;
-                            };
-                            let Ok(team_guard) = team_arc.read() else {
-                                return true;
-                            };
-                            let Some(obj_team) = obj.get_team() else {
-                                return false;
-                            };
-                            let Ok(obj_team_guard) = obj_team.read() else {
-                                return false;
-                            };
-                            matches!(
-                                team_guard.get_relationship(&obj_team_guard),
-                                crate::common::Relationship::Allies
-                            )
+                            teams_are_allies(local_team, obj.get_team())
                         }
                     })
                     .unwrap_or(false)

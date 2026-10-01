@@ -90,22 +90,16 @@ impl ProductionUpdate {
 
         let should_set =
             self.is_producing || self.current_entry.is_some() || !self.production_queue.is_empty();
-        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return;
-        };
-        let Ok(mut guard) = object.write() else {
-            return;
-        };
-        if should_set {
-            guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
-        } else {
-            guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
         }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            if should_set {
+                guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+            } else {
+                guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+            }
+        });
     }
 
     pub fn new(
@@ -162,43 +156,39 @@ impl UpdateModuleInterface for ProductionUpdate {
         if self.is_producing && !self.is_paused {
             if current_frame >= self.current_production_end_frame {
                 if let Some(entry) = self.current_entry.take() {
-                    if let Some(factory_object) = (if self.object_id == crate::common::INVALID_ID {
-                        None
-                    } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
-                        )
-                    }) {
-                        if let Ok(factory_guard) = factory_object.read() {
-                            let factory_pos = *factory_guard.get_position();
-                            if let Some(team_arc) = factory_guard.get_team() {
-                                if let Some(template) =
-                                    TheThingFactory::find_template(entry.template_name.as_str())
-                                {
-                                    if let Ok(team_guard) = team_arc.read() {
-                                        if let Ok(factory) = TheThingFactory::get() {
-                                            if let Ok(new_object) =
-                                                factory.new_object(template, &*team_guard)
-                                            {
-                                                if let Ok(mut new_guard) = new_object.write() {
-                                                    let spawn_pos = crate::common::Coord3D::new(
-                                                        factory_pos.x + 5.0,
-                                                        factory_pos.y,
-                                                        factory_pos.z,
-                                                    );
-                                                    let _ = new_guard.set_position(&spawn_pos);
-                                                    new_guard.set_producer(Some(&*factory_guard));
+                    if self.object_id != crate::common::INVALID_ID {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            self.object_id,
+                            |factory_guard| {
+                                let factory_pos = *factory_guard.get_position();
+                                if let Some(team_arc) = factory_guard.get_team() {
+                                    if let Some(template) = TheThingFactory::find_template(
+                                        entry.template_name.as_str(),
+                                    ) {
+                                        if let Ok(team_guard) = team_arc.read() {
+                                            if let Ok(factory) = TheThingFactory::get() {
+                                                if let Ok(new_object) =
+                                                    factory.new_object(template, &*team_guard)
+                                                {
+                                                    if let Ok(mut new_guard) = new_object.write() {
+                                                        let spawn_pos = crate::common::Coord3D::new(
+                                                            factory_pos.x + 5.0,
+                                                            factory_pos.y,
+                                                            factory_pos.z,
+                                                        );
+                                                        let _ = new_guard.set_position(&spawn_pos);
+                                                        new_guard
+                                                            .set_producer(Some(factory_guard));
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
-                            }
-                        }
+                            },
+                        );
                     }
                 }
-                self.is_producing = false;
-                self.sync_actively_constructing_flag();
             }
         }
 
@@ -247,28 +237,20 @@ impl ProductionUpdateInterface for ProductionUpdate {
         let Some(template) = crate::helpers::TheThingFactory::find_template(template_name) else {
             return false;
         };
-
-        let parking_full = if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(guard) = object.read() {
-                guard
-                    .with_parking_place_behavior(|parking_place| {
-                        parking_place.should_reserve_door_when_queued(template.as_ref())
-                            && !parking_place.has_available_space_for(template.as_ref())
-                    })
-                    .unwrap_or(false)
-            } else {
-                false
-            }
-        } else {
+        let parking_full = if self.object_id == crate::common::INVALID_ID {
             false
+        } else {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| {
+                    guard
+                        .with_parking_place_behavior(|parking_place| {
+                            parking_place.should_reserve_door_when_queued(template.as_ref())
+                                && !parking_place.has_available_space_for(template.as_ref())
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false)
         };
-        if parking_full {
-            return false;
         }
 
         true
@@ -392,18 +374,11 @@ impl ProductionUpdateInterface for ProductionUpdate {
         if dual_world_registry_unavailable() {
             return;
         }
-
-        if hold_it {
-            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut guard) = object.write() {
+        if hold_it && self.object_id != crate::common::INVALID_ID {
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
                     guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
-                }
-            }
+                });
         }
     }
 }

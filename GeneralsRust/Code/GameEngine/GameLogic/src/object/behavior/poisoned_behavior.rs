@@ -11,7 +11,6 @@ use crate::damage::{BodyDamageType, DamageInfo, DamageType, DeathType};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::drawable::TintStatus;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -20,7 +19,7 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
 };
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Wave 377: host-only path has no dual-world factory objects.
 #[inline]
@@ -128,18 +127,12 @@ impl PoisonedBehavior {
             UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
         };
         self.next_call_frame_and_phase = wake_frame;
-        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return;
-        };
-        let Ok(object) = object.read() else {
-            return;
-        };
-        object.reschedule_named_update("PoisonedBehavior", wake_frame);
+        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object| {
+            object.reschedule_named_update("PoisonedBehavior", wake_frame);
+        });
     }
 
     fn set_poison_tint(&self, enabled: bool) {
@@ -148,28 +141,22 @@ impl PoisonedBehavior {
             return;
         }
 
-        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return;
-        };
-        let Ok(object) = object.read() else {
-            return;
-        };
-        let Some(drawable) = object.get_drawable() else {
-            return;
-        };
-        let Ok(mut drawable) = drawable.write() else {
-            return;
-        };
-        if enabled {
-            drawable.set_tint_status(TintStatus::POISONED);
-        } else {
-            drawable.clear_tint_status(TintStatus::POISONED);
         }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object| {
+            let Some(drawable) = object.get_drawable() else {
+                return;
+            };
+            let Ok(mut drawable) = drawable.write() else {
+                return;
+            };
+            if enabled {
+                drawable.set_tint_status(TintStatus::POISONED);
+            } else {
+                drawable.clear_tint_status(TintStatus::POISONED);
+            }
+        });
     }
 
     fn start_poisoned_effects(&mut self, damage_info: &DamageInfo) {
@@ -242,34 +229,23 @@ impl UpdateModuleInterface for PoisonedBehavior {
             );
             damage.input.damage_fx_override = DamageType::Poison;
 
-            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut obj) = object.write() {
-                    let _ = obj.attempt_damage(&mut damage);
-                }
+            if self.object_id != crate::common::INVALID_ID {
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                        let _ = obj.attempt_damage(&mut damage);
+                    });
             }
             // C++ always arms the next tick after the attempt, even if the body is missing.
             self.poison_damage_frame = now + self.module_data.poison_damage_interval;
         }
 
         if self.poison_overall_stop_frame != 0 && now >= self.poison_overall_stop_frame {
-            let owner = if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            };
-            let should_stop = match owner {
-                Some(object) => object
-                    .read()
-                    .ok()
-                    .is_some_and(|object| !object.is_effectively_dead()),
-                None => false,
-            };
+            // Read liveness, then drop the checkout before stop (tint + wake
+            // check the same id out again).
+            let should_stop = self.object_id != crate::common::INVALID_ID
+                && crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.object_id, |object| !object.is_effectively_dead())
+                    .unwrap_or(false);
             if should_stop {
                 self.stop_poisoned_effects();
             }
@@ -433,13 +409,12 @@ mod tests {
     use super::*;
 
     fn test_behavior() -> PoisonedBehavior {
-        let object = Arc::new(RwLock::new(GameObject::new_test(9501, 100.0)));
         let data = Arc::new(PoisonedBehaviorModuleData {
             poison_damage_interval: 5,
             poison_duration: 20,
             ..PoisonedBehaviorModuleData::default()
         });
-        PoisonedBehavior::new(object_id, data)
+        PoisonedBehavior::new(9501, data)
     }
 
     #[test]

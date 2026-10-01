@@ -261,38 +261,39 @@ impl CollisionSystem {
             return Ok(false);
         }
 
-        let Some(obj_a) = OBJECT_REGISTRY.get_object(id_a) else {
+        if !OBJECT_REGISTRY.contains(id_a) || !OBJECT_REGISTRY.contains(id_b) {
             return Ok(false);
-        };
-        let Some(obj_b) = OBJECT_REGISTRY.get_object(id_b) else {
-            return Ok(false);
-        };
+        }
 
-        self.handle_ai_collision(&obj_a, &obj_b);
+        self.handle_ai_collision(id_a, id_b);
 
-        // C++ processContactList always calls Object::onCollide on both sides
-        // unless OBJECT_STATUS_NO_COLLISIONS. wouldLikeToCollideWith is not a gate.
         let loc = Coord3D::new(cinfo.loc.x, cinfo.loc.y, cinfo.loc.z);
         let normal = Coord3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
-        let _ = COLLISION_MANAGER.handle_collision(id_a, Some(&obj_b), &loc, &normal);
+        let _ = OBJECT_REGISTRY.with_object(id_b, |obj_b| {
+            let _ = COLLISION_MANAGER.handle_collision(id_a, Some(obj_b), &loc, &normal);
+        });
         let inv_normal = Coord3D::new(-normal.x, -normal.y, -normal.z);
-        let _ = COLLISION_MANAGER.handle_collision(id_b, Some(&obj_a), &loc, &inv_normal);
+        let _ = OBJECT_REGISTRY.with_object(id_a, |obj_a| {
+            let _ = COLLISION_MANAGER.handle_collision(id_b, Some(obj_a), &loc, &inv_normal);
+        });
 
-        if let Some(cfg) = self.object_configs.get(&id_a) {
-            let mut a_handle = obj_a.clone();
-            let _ = self
-                .response_handler
-                .apply_response(&mut a_handle, &obj_b, &cinfo, Some(cfg));
+        if let Some(cfg) = self.object_configs.get(&id_a).cloned() {
+            let _ = OBJECT_REGISTRY.with_object_mut(id_a, |obj_a| {
+                let _ = self
+                    .response_handler
+                    .apply_response(obj_a, obj_a, &cinfo, Some(&cfg));
+            });
         }
-        if let Some(cfg) = self.object_configs.get(&id_b) {
-            let mut b_handle = obj_b.clone();
+        if let Some(cfg) = self.object_configs.get(&id_b).cloned() {
             let inv = CollideLocAndNormal {
                 loc: cinfo.loc,
                 normal: Coord3D::new(-cinfo.normal.x, -cinfo.normal.y, -cinfo.normal.z),
             };
-            let _ = self
-                .response_handler
-                .apply_response(&mut b_handle, &obj_a, &inv, Some(cfg));
+            let _ = OBJECT_REGISTRY.with_object_mut(id_b, |obj_b| {
+                let _ = self
+                    .response_handler
+                    .apply_response(obj_b, obj_b, &inv, Some(&cfg));
+            });
         }
 
         Ok(true)

@@ -1072,7 +1072,7 @@ impl AIGroup {
                         let has_science = obj_ref
                             .get_controlling_player()
                             .and_then(|player| {
-                                player.read().ok().map(|p| p.has_science(required_science))
+                                crate::player::with_player(player, |p| p.has_science(required_science))
                             })
                             .unwrap_or(false);
                         if !has_science {
@@ -1848,16 +1848,16 @@ impl AIGroup {
                     let Some(player) = obj_ref.get_controlling_player() else {
                         return false;
                     };
-                    let Ok(player_guard) = player.read() else {
-                        return false;
-                    };
-                    upgrade_center
-                        .read()
-                        .ok()
-                        .map(|center| {
-                            center.can_afford_upgrade(&player_guard, upgrade.as_ref(), false)
-                        })
-                        .unwrap_or(false)
+                    crate::player::with_player(player, |player_guard| {
+                        upgrade_center
+                            .read()
+                            .ok()
+                            .map(|center| {
+                                center.can_afford_upgrade(player_guard, upgrade.as_ref(), false)
+                            })
+                            .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
                 })
                 .unwrap_or(false);
             if !can_queue {

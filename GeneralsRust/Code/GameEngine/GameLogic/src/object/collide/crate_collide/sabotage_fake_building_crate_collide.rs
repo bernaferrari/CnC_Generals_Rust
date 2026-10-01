@@ -13,8 +13,7 @@ fn resolve_crate_object(
     if id == crate::common::INVALID_ID {
         return None;
     }
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    (if crate::helpers::TheGameLogic::find_object_by_id(id) || crate::object::registry::OBJECT_REGISTRY.contains(id) { Some(id) } else { None })
 }
 
 use crate::common::*;
@@ -373,8 +372,7 @@ impl LegacyCollideAdapter for SabotageFakeBuildingCrateCollide {
 
         if SabotageFakeBuildingCrateCollide::is_valid_to_execute(self, other_id)? {
             let success = SabotageFakeBuildingCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+            if let Some(other) = (if crate::helpers::TheGameLogic::find_object_by_id(other_id) || crate::object::registry::OBJECT_REGISTRY.contains(other_id) { Some(other_id) } else { None })
             {
                 self.base
                     .finish_execution_attempt(&other, success)

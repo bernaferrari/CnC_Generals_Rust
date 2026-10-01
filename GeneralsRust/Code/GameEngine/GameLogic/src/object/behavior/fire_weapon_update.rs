@@ -262,40 +262,24 @@ impl FireWeaponUpdate {
             return false;
         }
 
-        // Get object reference
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return false,
-        };
-
-        let obj = match obj_arc.read() {
-            Ok(o) => o,
-            Err(_) => return false,
-        };
-
-        // Don't fire if under construction
-        if obj.test_status(crate::common::ObjectStatusTypes::UnderConstruction) {
-            return false;
-        }
-
-        // Check exclusive weapon delay
-        if self.module_data.exclusive_weapon_delay > 0 {
-            let current_frame = Self::get_current_frame();
-            let last_shot_frame = obj.get_last_shot_fired_frame();
-
-            let ready_frame =
-                last_shot_frame.wrapping_add(self.module_data.exclusive_weapon_delay);
-            if current_frame < ready_frame {
+        let Some(ok) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            if obj.test_status(crate::common::ObjectStatusTypes::UnderConstruction) {
                 return false;
             }
-        }
-
-        true
+            if self.module_data.exclusive_weapon_delay > 0 {
+                let current_frame = Self::get_current_frame();
+                let last_shot_frame = obj.get_last_shot_fired_frame();
+                let ready_frame =
+                    last_shot_frame.wrapping_add(self.module_data.exclusive_weapon_delay);
+                if current_frame < ready_frame {
+                    return false;
+                }
+            }
+            true
+        }) else {
+            return false;
+        };
+        ok
     }
 
     /// Get current game frame
@@ -325,21 +309,13 @@ impl UpdateModuleInterface for FireWeaponUpdate {
         // If weapon is ready, shoot it at our own position
         // Matches C++ line 105-108: if( isOkayToFire() ) { m_weapon->forceFireWeapon(...) }
         if self.is_okay_to_fire() {
-            if let Some(ref mut weapon) = self.weapon {
-                // Get object reference
-                if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
+            if let Some(weapon) = &mut self.weapon {
+                if let Some((obj_id, obj_pos)) =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                        (obj.get_id(), *obj.get_position())
                     })
-                }) {
-                    if let Ok(obj) = obj_arc.read() {
-                        let obj_id = obj.get_id();
-                        let obj_pos = *obj.get_position();
-                        drop(obj);
-                        let _ = weapon.force_fire_weapon(obj_id, &obj_pos);
-                    }
+                {
+                    let _ = weapon.force_fire_weapon(obj_id, &obj_pos);
                 }
             }
         }

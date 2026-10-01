@@ -186,37 +186,28 @@ impl DockUpdateInterface for PrisonDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(self.base.owner_id()) {
             return Ok(false);
-        };
-        let mut docker_guard = obj.write().map_err(|_| "Failed to lock docker")?;
-        if let Some(contain) = docker_guard.get_contain() {
-            if contain.get_contained_count() == 0 {
-                return Ok(false);
-            }
         }
-
-        let ai = docker_guard.get_ai_update_interface_mut().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "PrisonDockUpdate requires POW truck AI",
-            )
-        })?;
-
-        let Some(prison) = TheGameLogic::find_object_by_id(self.base.owner_id()) else {
-            return Ok(false);
-        };
-
-        let pow_ai = ai
-            .get_pow_truck_ai_update_interface()
-            .ok_or_else(|| {
+        let result = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |docker_guard| -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+            if let Some(contain) = docker_guard.get_contain() {
+                if contain.get_contained_count() == 0 {
+                    return Ok(false);
+                }
+            }
+            let ai = docker_guard.get_ai_update_interface_mut().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "PrisonDockUpdate requires POW truck AI",
+                )
+            })?;
+            let pow_ai = ai.get_pow_truck_ai_update_interface().ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::Other, "POW truck AI interface missing")
             })?;
-        pow_ai.unload_prisoners_to_prison(prison.read().ok().map(|g| g.get_id()).unwrap_or(0));
-
-        Ok(false)
+            pow_ai.unload_prisoners_to_prison(self.base.owner_id());
+            Ok(false)
+        });
+        result.unwrap_or(Ok(false))
     }
 
     fn get_exit_position(

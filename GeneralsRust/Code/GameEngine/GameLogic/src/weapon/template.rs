@@ -911,8 +911,8 @@ impl WeaponTemplate {
                 specific_barrel_to_use,
             )?;
 
-            if let Some(player_arc) = owning_player {
-                if let Ok(player_guard) = player_arc.read() {
+            if let Some(player_index) = owning_player {
+                let _ = crate::player::with_player(player_index, |player_guard| {
                     if player_guard.get_num_battle_plans_active() > 0 {
                         crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                             projectile_id,
@@ -921,7 +921,7 @@ impl WeaponTemplate {
                             },
                         );
                     }
-                }
+                });
             }
 
             let exhaust = self.get_projectile_exhaust(source_veterancy);

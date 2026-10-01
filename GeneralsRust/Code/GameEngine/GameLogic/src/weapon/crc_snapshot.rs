@@ -227,7 +227,7 @@ impl Snapshotable for Weapon {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         if self.projectile_stream_id != INVALID_OBJECT_ID
-            && crate::helpers::TheGameLogic::find_object_by_id(self.projectile_stream_id).is_none()
+            && !crate::helpers::TheGameLogic::find_object_by_id(self.projectile_stream_id)
         {
             self.projectile_stream_id = INVALID_OBJECT_ID;
         }

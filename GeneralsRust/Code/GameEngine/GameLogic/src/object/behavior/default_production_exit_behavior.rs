@@ -135,35 +135,39 @@ impl DefaultProductionExitBehavior {
             return Ok(());
         }
 
-        let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some((transform, exit_angle, layer)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+                (
+                    owner.get_transform_matrix(),
+                    owner.get_orientation(),
+                    owner.get_layer(),
+                )
+            })
+        else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return Ok(());
-        };
-
-        let transform = owner_guard.get_transform_matrix();
-        let exit_angle = owner_guard.get_orientation();
-        let layer = owner_guard.get_layer();
-        drop(owner_guard);
 
         let mut create_point = self.transform_point(&self.data.unit_create_point, &transform);
         if let Some(terrain) = TheTerrainLogic::get() {
             create_point.z = terrain.get_layer_height(create_point.x, create_point.y, layer);
         }
 
-        {
-            let mut guard = new_obj.write().map_err(|_| "Failed to lock new object")?;
-            guard.set_position(&create_point)?;
-            guard.set_orientation(exit_angle)?;
-            guard.set_layer(layer);
-        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(new_obj, |guard| {
+                guard.set_position(&create_point)?;
+                guard.set_orientation(exit_angle)?;
+                guard.set_layer(layer);
+                Ok::<(), String>(())
+            })
+            .ok_or("Failed to lock new object")??;
 
         let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.add_object_to_map(
-                        new_obj.read().map(|obj| obj.get_id()).unwrap_or(INVALID_ID),
+                        crate::object::registry::OBJECT_REGISTRY
+                            .with_object(new_obj, |obj| obj.get_id())
+                            .unwrap_or(INVALID_ID),
                         &[create_point],
                         false,
                     );
@@ -175,7 +179,7 @@ impl DefaultProductionExitBehavior {
         let natural_rally = self.get_natural_rally_point(&transform, true);
         exit_path.push(natural_rally);
 
-        if let Ok(mut guard) = new_obj.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
             if let Some(ai) = guard.get_ai_update_interface_mut() {
                 if self.rally_point_exists {
                     if ai.is_doing_ground_movement() {
@@ -194,7 +198,7 @@ impl DefaultProductionExitBehavior {
                 params.obj = Some(self.owner_id);
                 let _ = ai.execute_command(&params);
             }
-        }
+        });
 
         Ok(())
     }
@@ -252,13 +256,11 @@ impl ModuleExitInterface for DefaultProductionExitBehavior {
         obj_id: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
-        };
+        }
 
-        self.exit_object_via_door_internal(&obj, door)
+        self.exit_object_via_door_internal(obj_id, door)
             .map_err(|e| e.into())
     }
 

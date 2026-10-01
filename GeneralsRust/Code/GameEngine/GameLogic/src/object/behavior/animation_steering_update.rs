@@ -86,86 +86,77 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
         // C++ AnimationSteeringUpdate::update (AnimationSteeringUpdate.cpp:46-112)
         // always returns UPDATE_SLEEP_NONE, even when physics/drawable are null.
         // Missing owner lookup is the same early-out: still wake next frame.
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return UpdateSleepTime::None;
-        };
-        let Ok(object_guard) = object_arc.read() else {
-            return UpdateSleepTime::None;
-        };
+        let sleep = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+            let Some(physics) = object_guard.get_physics() else {
+                return UpdateSleepTime::None;
+            };
+            let Some(drawable_arc) = object_guard.get_drawable() else {
+                return UpdateSleepTime::None;
+            };
 
-        let Some(physics) = object_guard.get_physics() else {
-            return UpdateSleepTime::None;
-        };
-        let Some(drawable_arc) = object_guard.get_drawable() else {
-            return UpdateSleepTime::None;
-        };
-
-        let now = TheGameLogic::get_frame();
-        if now < self.next_transition_frame {
-            return UpdateSleepTime::None;
-        }
-
-        let current_turn = physics.get_turning();
-
-        let turn_state = if current_turn < 0.0 {
-            ModelConditionFlags::CenterToRight
-        } else if current_turn > 0.0 {
-            ModelConditionFlags::CenterToLeft
-        } else {
-            ModelConditionFlags::Invalid
-        };
-
-        let mut drawable_guard = match drawable_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::None,
-        };
-
-        if self.current_turn_anim == ModelConditionFlags::Invalid {
-            if turn_state == ModelConditionFlags::CenterToRight {
-                drawable_guard.set_model_condition_state(ModelConditionFlags::CenterToRight);
-                self.next_transition_frame = now + self.module_data.transition_frames;
-                self.current_turn_anim = ModelConditionFlags::CenterToRight;
-            } else if turn_state == ModelConditionFlags::CenterToLeft {
-                drawable_guard.set_model_condition_state(ModelConditionFlags::CenterToLeft);
-                self.next_transition_frame = now + self.module_data.transition_frames;
-                self.current_turn_anim = ModelConditionFlags::CenterToLeft;
+            let now = TheGameLogic::get_frame();
+            if now < self.next_transition_frame {
+                return UpdateSleepTime::None;
             }
-        } else if self.current_turn_anim == ModelConditionFlags::CenterToRight {
-            if turn_state != ModelConditionFlags::CenterToRight {
-                drawable_guard.clear_and_set_model_condition_state(
-                    ModelConditionFlags::CenterToRight,
-                    ModelConditionFlags::RightToCenter,
-                );
-                self.next_transition_frame = now + self.module_data.transition_frames;
-                self.current_turn_anim = ModelConditionFlags::RightToCenter;
-            }
-        } else if self.current_turn_anim == ModelConditionFlags::CenterToLeft {
-            if turn_state != ModelConditionFlags::CenterToLeft {
-                drawable_guard.clear_and_set_model_condition_state(
-                    ModelConditionFlags::CenterToLeft,
-                    ModelConditionFlags::LeftToCenter,
-                );
-                self.next_transition_frame = now + self.module_data.transition_frames;
-                self.current_turn_anim = ModelConditionFlags::LeftToCenter;
-            }
-        } else if self.current_turn_anim == ModelConditionFlags::LeftToCenter
-            || self.current_turn_anim == ModelConditionFlags::RightToCenter
-        {
-            if turn_state == ModelConditionFlags::Invalid {
-                drawable_guard.clear_model_condition_flags(
-                    ModelConditionFlags::LeftToCenter | ModelConditionFlags::RightToCenter,
-                );
-                self.next_transition_frame = now;
-                self.current_turn_anim = ModelConditionFlags::Invalid;
-            }
-        }
 
-        UpdateSleepTime::None
+            let current_turn = physics.get_turning();
+
+            let turn_state = if current_turn < 0.0 {
+                ModelConditionFlags::CenterToRight
+            } else if current_turn > 0.0 {
+                ModelConditionFlags::CenterToLeft
+            } else {
+                ModelConditionFlags::Invalid
+            };
+
+            let mut drawable_guard = match drawable_arc.write() {
+                Ok(guard) => guard,
+                Err(_) => return UpdateSleepTime::None,
+            };
+
+            if self.current_turn_anim == ModelConditionFlags::Invalid {
+                if turn_state == ModelConditionFlags::CenterToRight {
+                    drawable_guard.set_model_condition_state(ModelConditionFlags::CenterToRight);
+                    self.next_transition_frame = now + self.module_data.transition_frames;
+                    self.current_turn_anim = ModelConditionFlags::CenterToRight;
+                } else if turn_state == ModelConditionFlags::CenterToLeft {
+                    drawable_guard.set_model_condition_state(ModelConditionFlags::CenterToLeft);
+                    self.next_transition_frame = now + self.module_data.transition_frames;
+                    self.current_turn_anim = ModelConditionFlags::CenterToLeft;
+                }
+            } else if self.current_turn_anim == ModelConditionFlags::CenterToRight {
+                if turn_state != ModelConditionFlags::CenterToRight {
+                    drawable_guard.clear_and_set_model_condition_state(
+                        ModelConditionFlags::CenterToRight,
+                        ModelConditionFlags::RightToCenter,
+                    );
+                    self.next_transition_frame = now + self.module_data.transition_frames;
+                    self.current_turn_anim = ModelConditionFlags::RightToCenter;
+                }
+            } else if self.current_turn_anim == ModelConditionFlags::CenterToLeft {
+                if turn_state != ModelConditionFlags::CenterToLeft {
+                    drawable_guard.clear_and_set_model_condition_state(
+                        ModelConditionFlags::CenterToLeft,
+                        ModelConditionFlags::LeftToCenter,
+                    );
+                    self.next_transition_frame = now + self.module_data.transition_frames;
+                    self.current_turn_anim = ModelConditionFlags::LeftToCenter;
+                }
+            } else if self.current_turn_anim == ModelConditionFlags::LeftToCenter
+                || self.current_turn_anim == ModelConditionFlags::RightToCenter
+            {
+                if turn_state == ModelConditionFlags::Invalid {
+                    drawable_guard.clear_model_condition_flags(
+                        ModelConditionFlags::LeftToCenter | ModelConditionFlags::RightToCenter,
+                    );
+                    self.next_transition_frame = now;
+                    self.current_turn_anim = ModelConditionFlags::Invalid;
+                }
+            }
+
+            UpdateSleepTime::None
+        });
+        sleep.unwrap_or(UpdateSleepTime::None)
     }
 }
 

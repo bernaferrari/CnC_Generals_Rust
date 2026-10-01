@@ -100,9 +100,7 @@ impl ScriptCondition for MultiplayerPlayerDefeatCondition {
         let Some(local_player_arc) = players.get_local_player().cloned() else {
             return Ok(false);
         };
-        let Ok(local_player) = local_player_arc.read() else {
-            return Ok(false);
-        };
+        let local_player = local_player_arc;
         let local_defeat = local_player.is_defeated() || local_player.is_player_dead();
         if !local_defeat || local_player.is_player_observer() {
             return Ok(false);
@@ -110,13 +108,11 @@ impl ScriptCondition for MultiplayerPlayerDefeatCondition {
         // C++ isLocalDefeat() && !isLocalAlliedDefeat(): true only if an ally still lives.
         let local_index = local_player.get_player_index();
         drop(local_player);
-        let Some(local_again) = players.get_local_player().and_then(|p| p.read().ok()) else {
+        let Some(local_again) = players.get_local_player().and_then(|p| Some(p)) else {
             return Ok(false);
         };
         for player_arc in players.iter() {
-            let Ok(other) = player_arc.read() else {
-                continue;
-            };
+            let other = player_arc;
             if other.get_player_index() == local_index {
                 continue;
             }

@@ -247,17 +247,16 @@ impl IntegratedBehaviorSystem {
             ));
         }
 
-        let thing = crate::object::registry::OBJECT_REGISTRY
-            .get_object(object.get_id())
-            .ok_or_else(|| {
-                crate::GameLogicError::Configuration(
-                    "Object not registered for legacy adapter".to_string(),
-                )
-            })?;
+        let id = object.get_id();
+        if !crate::object::registry::OBJECT_REGISTRY.contains(id) {
+            return Err(crate::GameLogicError::Configuration(
+                "Object not registered for legacy adapter".to_string(),
+            ));
+        }
 
         let behavior = self
             .legacy_registry
-            .create_behavior(behavior_name, thing, module_data)
+            .create_behavior(behavior_name, id, module_data)
             .map_err(|e| {
                 crate::GameLogicError::Configuration(format!(
                     "Legacy behavior create failed: {}",

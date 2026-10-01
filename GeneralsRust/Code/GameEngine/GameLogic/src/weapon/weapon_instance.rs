@@ -1173,18 +1173,14 @@ impl Weapon {
                 Ok(factory) => factory,
                 Err(_) => return,
             };
-            let stream_obj = match crate::team::with_team(team_id, |team_guard| {
+            let stream_id = match crate::team::with_team(team_id, |team_guard| {
                 factory.new_object(template, team_guard)
             }) {
-                Some(Ok(obj)) => obj,
+                Some(Ok(id)) => id,
                 _ => return,
             };
 
-            self.projectile_stream_id = stream_obj
-                .read()
-                .ok()
-                .map(|guard| guard.get_id())
-                .unwrap_or(INVALID_OBJECT_ID);
+            self.projectile_stream_id = stream_id;
         }
 
         let stream_id = self.projectile_stream_id;

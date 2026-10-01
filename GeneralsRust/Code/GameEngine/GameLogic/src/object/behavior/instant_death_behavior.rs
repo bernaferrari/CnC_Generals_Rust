@@ -1,11 +1,13 @@
 //! Port of `GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Behavior/InstantDeathBehavior.cpp`.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 
-use crate::common::{GameLogicRandomValue, ModuleData, TheFXListStore, TheObjectCreationListStore};
+use crate::common::{
+    GameLogicRandomValue, ModuleData, ObjectID, TheFXListStore, TheObjectCreationListStore,
+};
 use crate::damage::DamageInfo;
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{TheGameLogic, TheWeaponStore};
@@ -205,23 +207,19 @@ impl DieModuleInterface for InstantDeathBehavior {
             ai.mark_as_dead();
         }
 
-        let object_arc = self.base.get_object();
-
-        if let Some(ref object_arc) = object_arc {
-            if !self.base.module_data.fx.is_empty() {
-                let idx =
-                    GameLogicRandomValue(0, self.base.module_data.fx.len() as i32 - 1) as usize;
-                if let Some(fx) = self.base.module_data.fx.get(idx) {
-                    let _ = fx.do_fx_obj(object_arc, None);
-                }
+        // Owner is already checked out by DieModuleWrapper::on_die. A nested
+        // registry lookup of this id returns None, so FX/OCL use `object`.
+        if !self.base.module_data.fx.is_empty() {
+            let idx = GameLogicRandomValue(0, self.base.module_data.fx.len() as i32 - 1) as usize;
+            if let Some(fx) = self.base.module_data.fx.get(idx) {
+                let _ = fx.do_fx_obj(object, None);
             }
+        }
 
-            if !self.base.module_data.ocls.is_empty() {
-                let idx =
-                    GameLogicRandomValue(0, self.base.module_data.ocls.len() as i32 - 1) as usize;
-                if let Some(ocl) = self.base.module_data.ocls.get(idx) {
-                    let _ = ObjectCreationList::create(ocl, object_arc, None);
-                }
+        if !self.base.module_data.ocls.is_empty() {
+            let idx = GameLogicRandomValue(0, self.base.module_data.ocls.len() as i32 - 1) as usize;
+            if let Some(ocl) = self.base.module_data.ocls.get(idx) {
+                let _ = ObjectCreationList::create(ocl, object, None);
             }
         }
 

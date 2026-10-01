@@ -245,10 +245,8 @@ impl Drawable {
             return;
         }
         let mut adjusted = recoil_angle;
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(guard) = obj.read() {
-                adjusted -= guard.get_orientation();
-            }
+        if let Some(orient) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| guard.get_orientation()) {
+            adjusted -= orient;
         }
         adjusted += std::f32::consts::PI;
         let loco = self

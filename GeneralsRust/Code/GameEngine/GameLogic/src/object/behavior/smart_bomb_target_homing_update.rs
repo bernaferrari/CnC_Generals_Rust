@@ -121,7 +121,6 @@ impl UpdateModuleInterface for SmartBombTargetHomingUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             Some(arc) => arc,
             None => return UPDATE_SLEEP_NONE,

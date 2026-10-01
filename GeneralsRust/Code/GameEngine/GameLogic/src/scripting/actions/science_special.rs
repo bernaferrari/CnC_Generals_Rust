@@ -314,15 +314,13 @@ impl ScriptAction for PlayerGrantScienceAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        if let Ok(list) = player_list().read() {
-            let index = player as i32;
-            if let Some(player_arc) = list.get_player(index) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.grant_science(science_type);
-                }
-            } else {
-                log::warn!("PlayerGrantScienceAction: player {} not found", player);
-            }
+        let index = player as i32;
+        if crate::player::with_player_mut(index, |player_guard| {
+            player_guard.grant_science(science_type);
+        })
+        .is_none()
+        {
+            log::warn!("PlayerGrantScienceAction: player {} not found", player);
         }
 
         Ok(ScriptResult::Success(None))
@@ -372,26 +370,19 @@ impl ScriptAction for GiveSpecialPowerAction {
 
         let power_template =
             find_or_create_special_power_template(&AsciiString::from(power_name.as_str()));
-        let player_arc = player_list()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
-            .get_player(player as PlayerIndex)
-            .cloned();
-
-        let Some(player_arc) = player_arc else {
+        let ready_frame = TheGameLogic::get_frame();
+        if crate::player::with_player_mut(player as PlayerIndex, |player_guard| {
+            player_guard.express_special_power_ready_frame(&power_template, ready_frame);
+        })
+        .is_none()
+        {
             log::warn!(
                 "Cannot grant special power '{}' to missing player {}",
                 power_name,
                 player
             );
             return Ok(ScriptResult::Success(None));
-        };
-
-        let ready_frame = TheGameLogic::get_frame();
-        player_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?
-            .express_special_power_ready_frame(&power_template, ready_frame);
+        }
 
         Ok(ScriptResult::Success(None))
     }

@@ -113,37 +113,31 @@ impl AssistedTargetingUpdate {
         let Some(to_pos) = OBJECT_REGISTRY.with_object(to_id, |g| *g.get_position()) else {
             return;
         };
-
-        // C++ AssistedTargetingUpdate.cpp:96-97 — requires controlling player.
-        let team = if let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+        let team_id = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            me_arc
-                .read()
-                .ok()
-                .and_then(|me| me.get_controlling_player())
-                .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
-        } else {
-            None
+            OBJECT_REGISTRY
+                .with_object(self.object_id, |me| me.get_controlling_player())
+                .flatten()
+                .and_then(|player| {
+                    crate::player::with_player(player, |p| p.get_default_team_id()).flatten()
+                })
         };
 
-        let Some(team_arc) = team else {
-            return;
-        };
-        let Ok(team_guard) = team_arc.read() else {
+        let Some(team_id) = team_id else {
             return;
         };
 
         let Ok(factory) = TheThingFactory::get() else {
             return;
         };
-        let Ok(laser) = factory.new_object(Arc::clone(laser_template), &team_guard) else {
+        let Some(laser) = crate::team::factory_access::with_team(team_id, |team_guard| {
+            factory.new_object(Arc::clone(laser_template), team_guard).ok()
+        })
+        .flatten()
+        else {
             return;
         };
-        drop(team_guard);
 
         let laser_id = laser.read().ok().map(|guard| guard.get_id()).unwrap_or(0);
         let mut modules = Vec::new();
@@ -213,27 +207,21 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
             return false;
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+        let Some(ready) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            OBJECT_REGISTRY.with_object(self.object_id, |me| {
+                if !me.is_able_to_attack() {
+                    return false;
+                }
+                me.get_current_weapon()
+                    .map(|(weapon, _slot)| weapon.get_status() == WeaponStatus::ReadyToFire)
+                    .unwrap_or(false)
+            })
         }) else {
             return false;
         };
-        let Ok(me) = me_arc.read() else {
-            return false;
-        };
-
-        if !me.is_able_to_attack() {
-            return false;
-        }
-
-        // C++ checks the current weapon because assisted reload state is shared
-        // across this object's weapons.
-        me.get_current_weapon()
-            .map(|(weapon, _slot)| weapon.get_status() == WeaponStatus::ReadyToFire)
-            .unwrap_or(false)
+        ready
     }
 
     fn assist_attack(&mut self, requesting_object_id: ObjectID, victim_object_id: ObjectID) {
@@ -242,33 +230,32 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
             return;
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
+        let Some(me_id) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+            OBJECT_REGISTRY.with_object_mut(self.object_id, |me| {
+                if me.get_ai().is_none() {
+                    return None;
+                }
+                me.set_weapon_lock(
+                    self.module_data.weapon_slot,
+                    WeaponLockType::LockedTemporarily,
+                );
+                let me_id = me.get_id();
+                let mut params =
+                    AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromAi);
+                params.obj = Some(victim_object_id);
+                params.int_value = self.module_data.clip_size;
+                if let Some(ai) = me.get_ai_mut() {
+                    let _ = ai.execute_command(&params);
+                }
+                Some(me_id)
+            })
+        })
+        .flatten()
+        else {
             return;
         };
-        let Ok(mut me) = me_arc.write() else {
-            return;
-        };
-        if me.get_ai().is_none() {
-            return;
-        }
-        me.set_weapon_lock(
-            self.module_data.weapon_slot,
-            WeaponLockType::LockedTemporarily,
-        );
-        let me_id = me.get_id();
-        let mut params =
-            AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromAi);
-        params.obj = Some(victim_object_id);
-        params.int_value = self.module_data.clip_size;
-        if let Some(ai) = me.get_ai_mut() {
-            let _ = ai.execute_command(&params);
-        }
-        drop(me);
 
         let laser_from_assisted = self.laser_from_assisted.clone();
         let laser_to_target = self.laser_to_target.clone();

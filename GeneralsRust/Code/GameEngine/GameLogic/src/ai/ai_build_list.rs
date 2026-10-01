@@ -12,7 +12,7 @@ use std::sync::{Arc, RwLock};
 use glam::Vec3;
 use crate::common::*;
 use crate::ai::*;
-use crate::player::{player_list, PlayerType};
+use crate::player::{player_list, with_player, PlayerType};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::upgrade::center::get_upgrade_center;
 
@@ -631,24 +631,17 @@ impl AIBuildList {
     /// Update resource planning for a player
     fn update_resource_planning(&mut self, player_id: u32, current_frame: u32) -> Result<(), AiError> {
         let planning = self.resource_planning.entry(player_id).or_default();
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(player_id as i32) {
-                if let Ok(player_guard) = player_arc.read() {
-                    planning.current_resources.insert(
-                        "Money".to_string(),
-                        player_guard.get_money().get_money() as i32,
-                    );
-                    planning.current_resources.insert(
-                        "Power".to_string(),
-                        player_guard.get_energy().get_power() as i32,
-                    );
-                    planning.resource_income.insert(
-                        "Money".to_string(),
-                        player_guard.get_money().get_income_rate(),
-                    );
-                    planning.resource_expenses.insert("Money".to_string(), 0.0);
-                }
-            }
+        if let Some((money, power, income)) = with_player(player_id as i32, |player| {
+            (
+                player.get_money().get_money() as i32,
+                player.get_energy().get_power() as i32,
+                player.get_money().get_income_rate(),
+            )
+        }) {
+            planning.current_resources.insert("Money".to_string(), money);
+            planning.current_resources.insert("Power".to_string(), power);
+            planning.resource_income.insert("Money".to_string(), income);
+            planning.resource_expenses.insert("Money".to_string(), 0.0);
         }
         
         // Calculate projected resources (30 seconds ahead)
@@ -878,12 +871,10 @@ impl AIBuildList {
                     }
                 }
                 BuildCondition::PowerShortage(needed) => {
-                    let shortage = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(player_id as i32).cloned())
-                        .and_then(|player| player.read().ok().map(|guard| guard.get_energy().is_low_power()))
-                        .unwrap_or(false);
+                    let shortage = with_player(player_id as i32, |player| {
+                        player.get_energy().is_low_power()
+                    })
+                    .unwrap_or(false);
                     if shortage != *needed {
                         return Ok(false);
                     }
@@ -1100,11 +1091,7 @@ impl AIBuildList {
     // Helper methods (these would interface with the actual game systems)
 
     fn get_build_config_for_player(&self, player_id: u32) -> Result<&BuildListConfig, AiError> {
-        let side = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_id as i32).cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.get_side().clone()))
+        let side = with_player(player_id as i32, |player| player.get_side().clone())
             .unwrap_or_else(|| "USA".to_string());
         let candidates = [
             format!("{}_Turtle", side),
@@ -1138,13 +1125,10 @@ impl AIBuildList {
             return Ok(false);
         }
 
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
+        let Some(object_ids) = with_player(player_id as i32, |player| player.get_all_objects()) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let matches = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     (obj_guard.is_kind_of(KindOf::Structure)
@@ -1160,12 +1144,6 @@ impl AIBuildList {
     }
 
     fn player_has_upgrade(&self, upgrade: &str, player_id: u32) -> Result<bool, AiError> {
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
-            return Ok(false);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
         let center = get_upgrade_center();
         let Ok(center_guard) = center.read() else {
             return Ok(false);
@@ -1173,17 +1151,11 @@ impl AIBuildList {
         let Some(template) = center_guard.find_upgrade(upgrade) else {
             return Ok(false);
         };
-        Ok(player_guard.has_upgrade_complete(&template))
+        Ok(with_player(player_id as i32, |player| player.has_upgrade_complete(&template)).unwrap_or(false))
     }
 
     fn get_player_tech_level(&self, player_id: u32) -> Result<i32, AiError> {
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
-            return Ok(1);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(1);
-        };
-        let rank = player_guard.get_rank_level();
+        let rank = with_player(player_id as i32, |player| player.get_rank_level()).unwrap_or(1);
         Ok(rank.max(1))
     }
 
@@ -1193,15 +1165,12 @@ impl AIBuildList {
             return Ok(Vec3::new(0.0, 0.0, 0.0));
         }
 
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
-            return Ok(Vec3::new(0.0, 0.0, 0.0));
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) = with_player(player_id as i32, |player| player.get_all_objects()) else {
             return Ok(Vec3::new(0.0, 0.0, 0.0));
         };
         let mut sum = Coord3D::new(0.0, 0.0, 0.0);
         let mut count = 0.0;
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let Some(pos) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                 if !obj_guard.is_kind_of(KindOf::Structure)
                     && !obj_guard.is_kind_of(KindOf::Building)
@@ -1249,14 +1218,11 @@ impl AIBuildList {
             return Ok(Vec::new());
         }
 
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
-            return Ok(Vec::new());
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) = with_player(player_id as i32, |player| player.get_all_objects()) else {
             return Ok(Vec::new());
         };
         let mut builders = Vec::new();
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let idle_dozer = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     if !obj_guard.is_kind_of(KindOf::Dozer) {
@@ -1291,12 +1257,10 @@ impl AIBuildList {
                 if owner_id as u32 == player_id {
                     return None;
                 }
-                if let Some(player) = player_list().read().ok().and_then(|list| list.get_player(owner_id as i32).cloned()) {
-                    if let Ok(enemy_guard) = player.read() {
-                        if enemy_guard.get_player_type() == PlayerType::Neutral {
-                            return None;
-                        }
-                    }
+                if with_player(owner_id as i32, |player| player.get_player_type() == PlayerType::Neutral)
+                    .unwrap_or(false)
+                {
+                    return None;
                 }
                 if !(obj_guard.is_kind_of(KindOf::Vehicle)
                     || obj_guard.is_kind_of(KindOf::Infantry)
@@ -1338,12 +1302,10 @@ impl AIBuildList {
                 let Some(owner_id) = obj_guard.get_controlling_player_id() else {
                     return None;
                 };
-                if let Some(player) = player_list().read().ok().and_then(|list| list.get_player(owner_id as i32).cloned()) {
-                    if let Ok(owner_guard) = player.read() {
-                        if owner_guard.get_player_type() == PlayerType::Neutral {
-                            return None;
-                        }
-                    }
+                if with_player(owner_id as i32, |player| player.get_player_type() == PlayerType::Neutral)
+                    .unwrap_or(false)
+                {
+                    return None;
                 }
                 Some(owner_id as u32 == player_id)
             });
@@ -1367,14 +1329,11 @@ impl AIBuildList {
             return Ok(0);
         }
 
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
-            return Ok(0);
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) = with_player(player_id as i32, |player| player.get_all_objects()) else {
             return Ok(0);
         };
         let mut count = 0;
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let matches = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     if building_only {
@@ -1405,14 +1364,11 @@ impl AIBuildList {
             return Ok(0);
         }
 
-        let Some(player_arc) = player_list().read().ok().and_then(|list| list.get_player(player_id as i32).cloned()) else {
-            return Ok(0);
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) = with_player(player_id as i32, |player| player.get_all_objects()) else {
             return Ok(0);
         };
         let mut count = 0;
-        for obj_id in player_guard.get_all_objects() {
+        for obj_id in object_ids {
             let near = OBJECT_REGISTRY
                 .with_object(obj_id, |obj_guard| {
                     if !obj_guard.is_kind_of(KindOf::Structure)

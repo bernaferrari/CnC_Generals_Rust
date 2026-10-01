@@ -139,7 +139,7 @@ impl SpectreGunshipPower {
                     self.gunship_id = None;
                     return Ok(());
                 };
-                self.gunship_id = created.and_then(|h| h.read().ok().map(|o| o.get_id()));
+                self.gunship_id = created;
             } else {
                 log::debug!("Spectre gunship OCL '{}' not found", self.data.gunship_ocl);
                 self.gunship_id = None;

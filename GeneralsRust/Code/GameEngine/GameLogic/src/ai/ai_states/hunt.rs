@@ -228,11 +228,8 @@ impl AIState for AIHuntState {
                 let crate_id = owner.ai_fire_crate_id;
                 let units_should_hunt = owner
                     .get_controlling_player()
-                    .and_then(|player_arc| {
-                        player_arc
-                            .read()
-                            .ok()
-                            .map(|player| player.get_units_should_hunt())
+                    .and_then(|player_idx| {
+                        crate::player::with_player(player_idx, |player| player.get_units_should_hunt())
                     })
                     .unwrap_or(true);
                 Some((crate_id, units_should_hunt))

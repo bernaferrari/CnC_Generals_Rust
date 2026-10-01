@@ -1651,7 +1651,7 @@ impl JetAIUpdate {
             return None;
         }
 
-        OBJECT_REGISTRY.get_object(self.object_id)
+        None
     }
 
     fn get_object_id(&self) -> ObjectID {

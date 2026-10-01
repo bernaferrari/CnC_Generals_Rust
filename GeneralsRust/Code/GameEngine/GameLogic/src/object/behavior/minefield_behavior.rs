@@ -17,11 +17,11 @@ use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, DamageModuleInterface, DieModuleInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::Object as GameObject;
 use crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule;
 use crate::object::behavior::behavior_module::{
     BehaviorModuleData, LandMineInterface, xfer_update_module_base_state,
 };
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::weapon::{WeaponTemplate, with_weapon_store};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -30,7 +30,7 @@ use game_engine::common::thing::module::{
     Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
 };
 use game_engine::system::geometry::GeometryType;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Wave 410: host-only path has no dual-world factory objects.
 #[inline]
@@ -313,13 +313,14 @@ impl MinefieldBehavior {
         object_id: ObjectID,
         module_data: Arc<MinefieldBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let object_id = object.read().map_err(|_| "object lock poisoned")?.get_id();
-        if let Ok(mut object) = object.write() {
+        // C++ ctor: mines are not auto-acquirable. The object may not be
+        // registered yet when a factory builds the module off to the side.
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
             object.set_status(OBJECT_STATUS_NO_ATTACK_FROM_AI, true);
-        }
+        });
 
         Ok(Self {
-            object_id: object_id,
+            object_id,
             next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             next_death_check_frame: 0,
             scoot_frames_left: 0,
@@ -333,16 +334,6 @@ impl MinefieldBehavior {
             draining: false,
             module_data,
         })
-    }
-
-    fn owner(&self) -> Option<ObjectID> {
-        // Wave 410: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
     }
 
     fn current_frame() -> UnsignedInt {
@@ -371,19 +362,16 @@ impl MinefieldBehavior {
     }
 
     fn set_depleted_visuals(&self, depleted: Bool) {
-        let Some(owner) = self.owner() else {
-            return;
-        };
-        let Ok(mut object) = owner.write() else {
-            return;
-        };
-        if depleted {
-            object.set_model_condition_state(MODELCONDITION_RUBBLE);
-            object.set_status(OBJECT_STATUS_MASKED, true);
-        } else {
-            object.clear_model_condition_state(MODELCONDITION_RUBBLE);
-            object.clear_status(OBJECT_STATUS_MASKED);
-        }
+        let object_id = self.object_id;
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            if depleted {
+                object.set_model_condition_state(MODELCONDITION_RUBBLE);
+                object.set_status(OBJECT_STATUS_MASKED, true);
+            } else {
+                object.clear_model_condition_state(MODELCONDITION_RUBBLE);
+                object.clear_status(OBJECT_STATUS_MASKED);
+            }
+        });
     }
 
     fn detonate_once(
@@ -402,39 +390,42 @@ impl MinefieldBehavior {
 
         if !self.regenerates && self.virtual_mines_remaining == 0 {
             let _ = TheGameLogic::destroy_object_by_id(self.object_id);
-        } else if let Some(owner) = self.owner() {
+        } else {
             let percent =
                 self.virtual_mines_remaining as Real / self.module_data.num_virtual_mines as Real;
-            let (health, max_health) = owner
-                .read()
-                .ok()
-                .and_then(|object| {
+            let object_id = self.object_id;
+            let (health, max_health) = OBJECT_REGISTRY
+                .with_object(object_id, |object| {
                     object
                         .get_body_module()
                         .map(|body| (body.get_health(), body.get_max_health()))
                 })
+                .flatten()
                 .unwrap_or((0.0, 0.0));
             let desired = (percent * max_health).max(MIN_HEALTH);
             let amount = health - desired;
             if amount > 0.0 {
                 self.ignore_damage = true;
-                if let Ok(mut object) = owner.write() {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
                     let mut damage = DamageInfo::with_simple(
                         amount,
-                        self.object_id,
+                        object_id,
                         DamageType::Unresistable,
                         DeathType::None,
                     );
                     let _ = object.attempt_damage(&mut damage);
-                }
+                });
                 self.ignore_damage = false;
             }
         }
 
         self.set_depleted_visuals(self.virtual_mines_remaining == 0);
 
-        if let (Some(ocl), Some(owner)) = (&self.module_data.ocl, self.owner()) {
-            let _ = ObjectCreationList::create(ocl, &owner, None);
+        if let Some(ocl) = &self.module_data.ocl {
+            let object_id = self.object_id;
+            let _ = OBJECT_REGISTRY.with_object(object_id, |owner| {
+                let _ = ObjectCreationList::create(ocl, owner, None);
+            });
         }
 
         Ok(())
@@ -458,14 +449,15 @@ impl MinefieldBehavior {
             scoot_time = scoot_time.max(falling_time);
         }
 
-        let Some(owner) = self.owner() else {
+        let object_id = self.object_id;
+        if dual_world_registry_unavailable() || !OBJECT_REGISTRY.contains(object_id) {
             return Ok(());
-        };
+        }
 
         if scoot_time == 0 {
-            if let Ok(mut object) = owner.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
                 let _ = object.set_position(&end_on_ground);
-            }
+            });
             self.scoot_frames_left = 0;
             return Ok(());
         }
@@ -475,9 +467,9 @@ impl MinefieldBehavior {
         let dz = end_on_ground.z - start.z;
         let dist = (dx * dx + dy * dy).sqrt();
         if dist <= 0.1 && dz.abs() <= 0.1 {
-            if let Ok(mut object) = owner.write() {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
                 let _ = object.set_position(&end_on_ground);
-            }
+            });
             self.scoot_frames_left = 0;
             return Ok(());
         }
@@ -490,9 +482,9 @@ impl MinefieldBehavior {
         self.scoot_vel = Coord3D::new(dx_norm * speed, dy_norm * speed, 0.0);
         self.scoot_accel = Coord3D::new(-dx_norm * accel_mag, -dy_norm * accel_mag, gravity);
         self.scoot_frames_left = scoot_time;
-        if let Ok(mut object) = owner.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
             let _ = object.set_position(start);
-        }
+        });
         let sleep = self.calc_sleep_time();
         let now = crate::helpers::TheGameLogic::get_frame();
         self.next_call_frame_and_phase = match sleep {
@@ -500,13 +492,10 @@ impl MinefieldBehavior {
             UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
             UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
         };
-        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        {
-            if let Ok(guard) = object.read() {
-                guard.reschedule_named_update("MinefieldBehavior", self.next_call_frame_and_phase);
-            }
-        }
+        let wake = self.next_call_frame_and_phase;
+        let _ = OBJECT_REGISTRY.with_object(object_id, |object| {
+            object.reschedule_named_update("MinefieldBehavior", wake);
+        });
         Ok(())
     }
 
@@ -516,29 +505,27 @@ impl MinefieldBehavior {
             return Ok(());
         }
 
-        if let Some(owner) = self.owner() {
-            let amount = owner
-                .read()
-                .ok()
-                .and_then(|object| {
-                    object
-                        .get_body_module()
-                        .map(|body| body.get_health() - MIN_HEALTH)
-                })
-                .unwrap_or(0.0);
-            if amount > 0.0 {
-                self.ignore_damage = true;
-                if let Ok(mut object) = owner.write() {
-                    let mut damage = DamageInfo::with_simple(
-                        amount,
-                        self.object_id,
-                        DamageType::Unresistable,
-                        DeathType::None,
-                    );
-                    let _ = object.attempt_damage(&mut damage);
-                }
-                self.ignore_damage = false;
-            }
+        let object_id = self.object_id;
+        let amount = OBJECT_REGISTRY
+            .with_object(object_id, |object| {
+                object
+                    .get_body_module()
+                    .map(|body| body.get_health() - MIN_HEALTH)
+            })
+            .flatten()
+            .unwrap_or(0.0);
+        if amount > 0.0 {
+            self.ignore_damage = true;
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                let mut damage = DamageInfo::with_simple(
+                    amount,
+                    object_id,
+                    DamageType::Unresistable,
+                    DeathType::None,
+                );
+                let _ = object.attempt_damage(&mut damage);
+            });
+            self.ignore_damage = false;
         }
 
         self.virtual_mines_remaining = 0;
@@ -557,39 +544,37 @@ impl MinefieldBehavior {
         let now = Self::current_frame();
 
         if self.scoot_frames_left > 0 {
-            if let Some(owner) = self.owner() {
-                if let Ok(mut object) = owner.write() {
-                    let mut pos = *object.get_position();
-                    self.scoot_vel.x += self.scoot_accel.x;
-                    self.scoot_vel.y += self.scoot_accel.y;
-                    self.scoot_vel.z += self.scoot_accel.z;
-                    pos.x += self.scoot_vel.x;
-                    pos.y += self.scoot_vel.y;
-                    pos.z += self.scoot_vel.z;
+            let object_id = self.object_id;
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                let mut pos = *object.get_position();
+                self.scoot_vel.x += self.scoot_accel.x;
+                self.scoot_vel.y += self.scoot_accel.y;
+                self.scoot_vel.z += self.scoot_accel.z;
+                pos.x += self.scoot_vel.x;
+                pos.y += self.scoot_vel.y;
+                pos.z += self.scoot_vel.z;
 
-                    if let Some(terrain) = TheTerrainLogic::get() {
-                        let mut tmp = pos;
-                        tmp.z = 99999.0;
-                        let layer = terrain.get_highest_layer_for_destination(&tmp);
-                        object.set_layer(layer);
-                        let mut ground = terrain.get_layer_height(pos.x, pos.y, layer);
-                        if layer != PathfindLayerEnum::Ground {
-                            ground += 1.0;
-                        }
-                        if pos.z < ground || self.scoot_frames_left <= 1 {
-                            pos.z = ground;
-                        }
+                if let Some(terrain) = TheTerrainLogic::get() {
+                    let mut tmp = pos;
+                    tmp.z = 99999.0;
+                    let layer = terrain.get_highest_layer_for_destination(&tmp);
+                    object.set_layer(layer);
+                    let mut ground = terrain.get_layer_height(pos.x, pos.y, layer);
+                    if layer != PathfindLayerEnum::Ground {
+                        ground += 1.0;
                     }
-                    let _ = object.set_position(&pos);
+                    if pos.z < ground || self.scoot_frames_left <= 1 {
+                        pos.z = ground;
+                    }
                 }
-            }
+                let _ = object.set_position(&pos);
+            });
             self.scoot_frames_left = self.scoot_frames_left.saturating_sub(1);
         }
 
         for immune in &mut self.immunes {
             if immune.id != INVALID_ID
-                && (TheGameLogic::find_object_by_id(immune.id).is_none()
-                    || now > immune.collide_time + 2)
+                && (!OBJECT_REGISTRY.contains(immune.id) || now > immune.collide_time + 2)
             {
                 *immune = ImmuneInfo::default();
             }
@@ -600,20 +585,16 @@ impl MinefieldBehavior {
             && self.module_data.stops_regen_after_creator_dies
         {
             self.next_death_check_frame = now + self.module_data.creator_death_check_rate;
-            let producer_id = self
-                .owner()
-                .and_then(|owner| owner.read().ok().map(|object| object.get_producer_id()))
+            let object_id = self.object_id;
+            let producer_id = OBJECT_REGISTRY
+                .with_object(object_id, |object| object.get_producer_id())
                 .unwrap_or(INVALID_ID);
             // C++ only treats a *valid* producer as dead. INVALID_ID is not a dead creator,
             // so unowned/cleared fields keep regenerating.
             if producer_id != INVALID_ID {
-                let producer_dead = TheGameLogic::find_object_by_id(producer_id)
-                    .and_then(|producer| {
-                        producer
-                            .read()
-                            .ok()
-                            .map(|object| object.is_effectively_dead())
-                    })
+                // Producer is a different id. Read it only after the owner checkout ends.
+                let producer_dead = OBJECT_REGISTRY
+                    .with_object(producer_id, |producer| producer.is_effectively_dead())
                     .unwrap_or(true);
                 if producer_dead {
                     self.regenerates = false;
@@ -624,27 +605,25 @@ impl MinefieldBehavior {
         }
 
         if self.draining {
-            if let Some(owner) = self.owner() {
-                let max_health = owner
-                    .read()
-                    .ok()
-                    .and_then(|object| {
-                        object.get_body_module().map(|body| body.get_max_health())
-                    })
-                    .unwrap_or(0.0);
-                let amount = (max_health * self.module_data.health_percent_to_drain_per_second)
-                    / LOGICFRAMES_PER_SECOND as Real;
-                if amount > 0.0 {
-                    if let Ok(mut object) = owner.write() {
-                        let mut damage = DamageInfo::with_simple(
-                            amount,
-                            self.object_id,
-                            DamageType::Unresistable,
-                            DeathType::Normal,
-                        );
-                        let _ = object.attempt_damage(&mut damage);
-                    }
-                }
+            let object_id = self.object_id;
+            let max_health = OBJECT_REGISTRY
+                .with_object(object_id, |object| {
+                    object.get_body_module().map(|body| body.get_max_health())
+                })
+                .flatten()
+                .unwrap_or(0.0);
+            let amount = (max_health * self.module_data.health_percent_to_drain_per_second)
+                / LOGICFRAMES_PER_SECOND as Real;
+            if amount > 0.0 {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                    let mut damage = DamageInfo::with_simple(
+                        amount,
+                        object_id,
+                        DamageType::Unresistable,
+                        DeathType::Normal,
+                    );
+                    let _ = object.attempt_damage(&mut damage);
+                });
             }
         }
 
@@ -660,19 +639,37 @@ impl MinefieldBehavior {
         if self.virtual_mines_remaining == 0 {
             return;
         }
-        let Some(owner) = self.owner() else {
+        if !OBJECT_REGISTRY.contains(self.object_id) {
             return;
-        };
-        let Some(other) = TheGameLogic::find_object_by_id(other_id) else {
+        }
+
+        // Copy the collider first. Do not hold it while the mine is checked out.
+        let Some((other_pos, should_ignore_worker, clearing_mines, other_team, other_defector)) =
+            OBJECT_REGISTRY.with_object(other_id, |other| -> Option<_> {
+                if other.is_effectively_dead() {
+                    return None;
+                }
+                let worker =
+                    other.is_kind_of(KindOf::Infantry) && other.is_kind_of(KindOf::Dozer);
+                let clearing = other
+                    .get_ai()
+                    .map(|ai| {
+                        ai.is_clearing_mines() && ai.get_goal_object_id() != INVALID_ID
+                    })
+                    .unwrap_or(false);
+                Some((
+                    *other.get_position(),
+                    worker,
+                    clearing,
+                    other.get_team_id(),
+                    other.is_undetected_defector(),
+                ))
+            })
+            .flatten()
+        else {
             return;
         };
         let now = Self::current_frame();
-
-        if let Ok(other_guard) = other.read() {
-            if other_guard.is_effectively_dead() {
-                return;
-            }
-        }
 
         for immune in &mut self.immunes {
             if immune.id == other_id {
@@ -681,42 +678,45 @@ impl MinefieldBehavior {
             }
         }
 
-        let (
-            other_pos,
+        let object_id = self.object_id;
+        let Some((
             owner_pos,
             geom_type,
             major_radius,
             minor_radius,
-            should_ignore_worker,
-            clearing_mines,
-            relationship,
-        ) = {
-            let Ok(object) = owner.read() else {
-                return;
-            };
-            let Ok(other_object) = other.read() else {
-                return;
-            };
-            let worker =
-                other_object.is_kind_of(KindOf::Infantry) && other_object.is_kind_of(KindOf::Dozer);
-            let clearing = other_object
-                .get_ai()
-                .map(|ai| {
-                    ai.is_clearing_mines()
-                        && ai.get_goal_object_id() != crate::common::INVALID_ID
-                })
-                .unwrap_or(false);
+            mine_team,
+            mine_defector,
+        )) = OBJECT_REGISTRY.with_object(object_id, |object| {
             let geom = object.get_geometry_info();
             (
-                *other_object.get_position(),
                 *object.get_position(),
                 geom.get_geometry_type(),
                 (geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5,
                 (geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5,
-                worker,
-                clearing,
-                object.relationship_to(&other_object),
+                object.get_team_id(),
+                object.is_undetected_defector(),
             )
+        }) else {
+            return;
+        };
+
+        let relationship = match (mine_team, other_team) {
+            (Some(mine_team), Some(other_team)) => {
+                if mine_defector {
+                    Relationship::Neutral
+                } else if other_defector {
+                    Relationship::Allies
+                } else if mine_team == other_team {
+                    Relationship::Allies
+                } else {
+                    crate::team::with_team(mine_team, |mine| {
+                        crate::team::with_team(other_team, |other| mine.get_relationship(other))
+                    })
+                    .flatten()
+                    .unwrap_or(Relationship::Neutral)
+                }
+            }
+            _ => Relationship::Neutral,
         };
 
         if !self.module_data.workers_detonate && should_ignore_worker {
@@ -736,9 +736,9 @@ impl MinefieldBehavior {
             {
                 slot.id = other_id;
                 slot.collide_time = now;
-                if let Ok(object) = owner.read() {
+                let _ = OBJECT_REGISTRY.with_object(object_id, |object| {
                     object.reschedule_named_update("MinefieldBehavior", now.saturating_add(1));
-                }
+                });
             }
             return;
         }
@@ -778,19 +778,16 @@ impl MinefieldBehavior {
         }
 
         loop {
-            let Some(owner) = self.owner() else {
+            let object_id = self.object_id;
+            let Some((health, max_health, pos)) = OBJECT_REGISTRY.with_object(object_id, |object| {
+                let pos = *object.get_position();
+                object
+                    .get_body_module()
+                    .map(|body| (body.get_health(), body.get_max_health(), pos))
+                    .unwrap_or((0.0, 1.0, Coord3D::new(0.0, 0.0, 0.0)))
+            }) else {
                 return;
             };
-            let (health, max_health, pos) = owner
-                .read()
-                .ok()
-                .and_then(|object| {
-                    let pos = *object.get_position();
-                    object
-                        .get_body_module()
-                        .map(|body| (body.get_health(), body.get_max_health(), pos))
-                })
-                .unwrap_or((0.0, 1.0, Coord3D::new(0.0, 0.0, 0.0)));
 
             let expected_f = self.module_data.num_virtual_mines as Real * health / max_health;
             let mut expected = if damage_info.input.damage_type == DamageType::Healing {
@@ -817,29 +814,27 @@ impl MinefieldBehavior {
         }
 
         if self.virtual_mines_remaining == 0 && self.regenerates {
-            if let Some(owner) = self.owner() {
-                if let Ok(mut object) = owner.write() {
-                    if let Some(body) = object.get_body_module_mut() {
-                        let health = body.get_health();
-                        if health < MIN_HEALTH {
-                            let _ = body.internal_change_health(MIN_HEALTH - health);
-                        }
+            let object_id = self.object_id;
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                if let Some(body) = object.get_body_module_mut() {
+                    let health = body.get_health();
+                    if health < MIN_HEALTH {
+                        let _ = body.internal_change_health(MIN_HEALTH - health);
                     }
                 }
-            }
+            });
         }
         self.set_depleted_visuals(self.virtual_mines_remaining == 0);
     }
 
     fn stop_owner_auto_heal(&self) {
-        let Some(owner) = self.owner() else {
-            return;
-        };
-        let Some(module) = owner
-            .read()
-            .ok()
-            .and_then(|object| object.find_update_module("AutoHealBehavior"))
-        else {
+        // Take the module handle out, then drop the owner checkout. stop_healing
+        // reschedules through the registry and must not see this id checked out.
+        let object_id = self.object_id;
+        let module = OBJECT_REGISTRY
+            .with_object(object_id, |object| object.find_update_module("AutoHealBehavior"))
+            .flatten();
+        let Some(module) = module else {
             return;
         };
         module.with_module_downcast::<AutoHealBehaviorModule, _, _>(|ahb| {
@@ -1116,7 +1111,7 @@ impl MinefieldBehaviorFactory {
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let _ = module_data;
         Ok(Box::new(MinefieldBehavior::new(
-            thing,
+            object_id,
             Arc::new(MinefieldBehaviorModuleData::default()),
         )?))
     }

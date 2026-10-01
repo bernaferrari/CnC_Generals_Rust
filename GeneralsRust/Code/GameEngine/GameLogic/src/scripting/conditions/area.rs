@@ -62,11 +62,8 @@ impl ScriptCondition for AreaClearCondition {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    let __base_arc = obj_guard.base();
-                    let Ok(base_guard) = __base_arc.read() else {
-                        return _ObjFlow::Cont;
-                    };
-                    if base_guard.is_destroyed() {
+                    let base_guard = obj_guard;
+if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
@@ -152,9 +149,7 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
         let Some(player_arc) = list.get_player(player_id as i32) else {
             return Ok(false);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
-        };
+        let player_guard = player_arc;
 
         let center = Coord3D::new(x as f32, y as f32, 0.0);
         let radius = radius as f32;
@@ -168,21 +163,19 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    let __base_arc = obj_guard.base();
-                    let Ok(base_guard) = __base_arc.read() else {
-                        return _ObjFlow::Cont;
-                    };
-                    if base_guard.is_destroyed() {
+                    let base_guard = obj_guard;
+if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
-                    let Some(owner_team) = base_guard.get_team() else {
+                    let Some(owner_team_id) = base_guard.get_team() else {
                         return _ObjFlow::Cont;
                     };
-                    let Ok(owner_team_guard) = owner_team.read() else {
+                    let Some(rel) = crate::team::factory_access::with_team(owner_team_id, |team| {
+                        player_guard.get_relationship_with_team(team)
+                    }) else {
                         return _ObjFlow::Cont;
                     };
-                    let rel = player_guard.get_relationship_with_team(&owner_team_guard);
                     match rel {
                         crate::common::Relationship::Enemies | crate::common::Relationship::Neutral => {
                             return _ObjFlow::Ret(Ok(false));
@@ -266,11 +259,8 @@ impl ScriptCondition for UnitsInAreaCondition {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                    let __base_arc = obj_guard.base();
-                    let Ok(base_guard) = __base_arc.read() else {
-                        return _ObjFlow::Cont;
-                    };
-                    if base_guard.is_destroyed() {
+                    let base_guard = obj_guard;
+if base_guard.is_destroyed() {
                         return _ObjFlow::Cont;
                     }
                     
@@ -354,8 +344,7 @@ impl ScriptCondition for PositionInAreaCondition {
             log::debug!("Checking position of object {}", obj_id);
             // Get object position from ObjectManager
             if let Ok(manager) = get_object_manager().read() {
-                if let Some(obj_arc) = manager.get_object(obj_id as u32) {
-                    if let Ok(obj) = obj_arc.read() {
+                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id as u32, |obj| {
                         let pos = obj.get_position();
                         (pos.x as f64, pos.y as f64)
                     } else {
@@ -443,20 +432,24 @@ impl ScriptCondition for NoEnemyUnitsInAreaCondition {
 
             // Check each object to see if it's an enemy
             for obj_id in objects_in_area {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj) = obj_arc.read() {
+                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
                         // Get object's controlling player
                         if let Some(obj_player_id) = obj.get_controlling_player_id() {
                             if obj_player_id != player as u32 {
                                 // Check if this player is an enemy
                                 let player_list_lock = player_list();
-                                if let Ok(list) = player_list_lock.read() {
+                                let Ok(list) = player_list_lock.read() else {
+    return Ok(false);
+};
+{
                                     if let Some(our_player_arc) = list.get_player(player as i32) {
-                                        if let Ok(our_player) = our_player_arc.read() {
+                                        let our_player = our_player_arc;
+{
                                             if let Some(their_player_arc) =
                                                 list.get_player(obj_player_id as i32)
                                             {
-                                                if let Ok(their_player) = their_player_arc.read() {
+                                                let their_player = their_player_arc;
+{
                                                     if our_player
                                                         .is_enemy_with_player(&their_player)
                                                     {
@@ -530,8 +523,7 @@ impl ScriptCondition for AnyUnitInAreaCondition {
 
             // Filter by player and unit type if specified
             for obj_id in objects_in_area {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj) = obj_arc.read() {
+                if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
                         if obj.is_destroyed() {
                             continue;
                         }
@@ -615,26 +607,26 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
             Some(p) => p,
             None => return Ok(false),
         };
-        let player = player_arc
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read player: {}", e)))?;
-        let player_mask = player.get_player_mask();
-        drop(player);
+        let player_index = player_arc;
+            return crate::player::list::with_player(player_index, |player| {
+            let player_mask = player.get_player_mask();
+            drop(player);
 
-        let object_id = match lookup_named_object_id(&building_name)? {
-            Some(id) => id,
-            None => return Ok(false),
-        };
-        Ok(OBJECT_REGISTRY
-            .with_object(object_id, |obj| {
-                let Some(contain) = obj.get_contain() else {
-                    return false;
-                };
-                let entered_mask = contain.get_player_who_entered();
-                !entered_mask.is_empty() && entered_mask == player_mask
-            })
-            .unwrap_or(false))
-    }
+            let object_id = match lookup_named_object_id(&building_name)? {
+                Some(id) => id,
+                None => return Ok(false),
+            };
+            Ok(OBJECT_REGISTRY
+                .with_object(object_id, |obj| {
+                    let Some(contain) = obj.get_contain() else {
+                        return false;
+                    };
+                    let entered_mask = contain.get_player_who_entered();
+                    !entered_mask.is_empty() && entered_mask == player_mask
+                })
+                .unwrap_or(false))
+                }).unwrap_or(Ok(false));
+}
 
     fn name(&self) -> &str {
         "building_entered_by_player"

@@ -59,18 +59,11 @@ impl DefectorSpecialPower {
         self.converted_units.clear();
         self.revert_frame = None;
 
-        let list = player_list()
-            .read()
-            .map_err(|_| "PlayerList lock poisoned".to_string())?;
-        let player = list
-            .get_player(player_id as Int)
-            .cloned()
-            .ok_or_else(|| format!("Invalid player id {}", player_id))?;
-        let new_team = player
-            .read()
-            .map_err(|_| "Player lock poisoned".to_string())?
-            .get_default_team()
-            .ok_or_else(|| format!("Player {} has no default team", player_id))?;
+        let new_team = crate::player::with_player(player_id as crate::player::PlayerIndex, |player| {
+            player.get_default_team_id()
+        })
+        .ok_or_else(|| format!("Invalid player id {}", player_id))?
+        .ok_or_else(|| format!("Player {} has no default team", player_id))?;
 
         let radius = targeting.radius.max(self.data.base.radius).max(0.0);
         let object_ids = crate::helpers::ThePartitionManager::get()
@@ -103,16 +96,15 @@ impl DefectorSpecialPower {
             let old_owner = crate::object::registry::OBJECT_REGISTRY
                 .with_object(object_id, |g| g.get_controlling_player())
                 .flatten();
-            let new_owner = new_team.read().ok().and_then(|team_guard| {
-                let idx = team_guard.get_controlling_player_id().unwrap_or(player_id) as Int;
-                list.get_player(idx).cloned()
+            let new_owner = crate::team::factory_access::with_team(new_team, |team_guard| {
+                team_guard.get_controlling_player_id().unwrap_or(player_id) as crate::player::PlayerIndex
             });
 
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
                 if self.data.duration > 0.0 {
-                    let _ = obj_write.set_temporary_team(Some(new_team.clone()));
+                    let _ = obj_write.set_temporary_team(Some(new_team));
                 } else {
-                    let _ = obj_write.set_team(Some(new_team.clone()));
+                    let _ = obj_write.set_team(Some(new_team));
                 }
                 obj_write.on_capture(old_owner, new_owner);
             });

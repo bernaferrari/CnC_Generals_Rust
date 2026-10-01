@@ -452,22 +452,15 @@ impl Unit {
         }
 
         for obj_id in &all_object_ids {
-            let obj = match crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let obj_guard = match obj.read() {
-                Ok(guard) => guard,
-                Err(_) => continue,
-            };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
 
             let obj_id = obj_guard.get_id();
             if obj_id == self_id {
-                continue;
+                return;
             }
 
             if !obj_guard.is_kind_of(KindOf::Unit) {
-                continue;
+                return;
             }
 
             if !matches!(
@@ -477,7 +470,7 @@ impl Unit {
                     .map(|guard| guard.relationship_to(&obj_guard)),
                 Some(Relationship::Enemies)
             ) {
-                continue;
+                return;
             }
 
             let obj_pos = *obj_guard.get_position();
@@ -486,7 +479,7 @@ impl Unit {
             let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
 
             if dist_to_center > max_distance {
-                continue;
+                return;
             }
 
             let self_pos = self.get_position();
@@ -495,11 +488,11 @@ impl Unit {
             let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
 
             if dist_to_self > vision_distance {
-                continue;
+                return;
             }
 
             if !self.can_detect_target(&obj_guard, dist_to_self) {
-                continue;
+                return;
             }
 
             let mut weighted_dist = dist_to_self;
@@ -519,6 +512,7 @@ impl Unit {
                 }
                 _ => closest = Some((obj_id, weighted_dist)),
             }
+            });
         }
 
         closest
@@ -546,24 +540,17 @@ impl Unit {
         let mut closest: Option<(ObjectID, Real)> = None;
 
         for obj_id in &all_object_ids {
-            let obj = match crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let obj_guard = match obj.read() {
-                Ok(guard) => guard,
-                Err(_) => continue,
-            };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
 
             let obj_id = obj_guard.get_id();
             if obj_id == self_id {
-                continue;
+                return;
             }
 
             let is_unit = obj_guard.is_kind_of(KindOf::Unit);
             let is_structure = obj_guard.is_kind_of(KindOf::Structure);
             if !is_unit && !is_structure {
-                continue;
+                return;
             }
 
             if !matches!(
@@ -573,7 +560,7 @@ impl Unit {
                     .map(|guard| guard.relationship_to(&obj_guard)),
                 Some(Relationship::Enemies)
             ) {
-                continue;
+                return;
             }
 
             let obj_pos = *obj_guard.get_position();
@@ -582,7 +569,7 @@ impl Unit {
             let dist_to_center = (dx_center * dx_center + dy_center * dy_center).sqrt();
 
             if dist_to_center > max_distance {
-                continue;
+                return;
             }
 
             let self_pos = self.get_position();
@@ -591,11 +578,11 @@ impl Unit {
             let dist_to_self = (dx_self * dx_self + dy_self * dy_self).sqrt();
 
             if dist_to_self > vision_distance {
-                continue;
+                return;
             }
 
             if !self.can_detect_target(&obj_guard, dist_to_self) {
-                continue;
+                return;
             }
 
             let mut weighted_dist = dist_to_self;
@@ -614,6 +601,7 @@ impl Unit {
                 }
                 _ => closest = Some((obj_id, weighted_dist)),
             }
+            });
         }
 
         closest

@@ -1350,17 +1350,13 @@ impl Weapon {
             let Ok(factory) = TheThingFactory::get() else {
                 return;
             };
-            let Ok(stream_obj) = crate::team::with_team(team_id, |team_guard| {
+            let Ok(stream_id) = crate::team::with_team(team_id, |team_guard| {
                 factory.new_object(template, team_guard)
             })
             .unwrap_or(Err("missing team".into())) else {
                 return;
             };
-            self.projectile_stream_id = stream_obj
-                .read()
-                .ok()
-                .map(|guard| guard.get_id())
-                .unwrap_or(INVALID_ID);
+            self.projectile_stream_id = stream_id;
         }
 
         let stream_id = self.projectile_stream_id;
@@ -1423,17 +1419,14 @@ impl Weapon {
         let Ok(factory) = TheThingFactory::get() else {
             return;
         };
-        let Ok(laser_arc) = crate::team::with_team(team_id, |team_guard| {
+        let Ok(laser_id) = crate::team::with_team(team_id, |team_guard| {
             factory.new_object(template, team_guard)
         })
         .unwrap_or(Err("missing team".into())) else {
             return;
         };
         let mut modules = Vec::new();
-        {
-            let Ok(mut laser_guard) = laser_arc.write() else {
-                return;
-            };
+        let positioned = OBJECT_REGISTRY.with_object_mut(laser_id, |laser_guard| {
             let _ = laser_guard.set_position(&source_pos);
             if let Some(drawable) = laser_guard.get_drawable() {
                 if let Ok(draw) = drawable.read() {
@@ -1443,6 +1436,9 @@ impl Weapon {
             if modules.is_empty() {
                 modules = laser_guard.client_update_modules();
             }
+        });
+        if positioned.is_none() {
+            return;
         }
 
         let mut end_pos = *victim_pos;
@@ -1480,23 +1476,25 @@ impl Weapon {
             return;
         }
 
-        let Some((player_arc, template_name, request_dist_sqr, requesting_pos)) =
+        let Some((player_index, template_name, request_dist_sqr, requesting_pos)) =
             OBJECT_REGISTRY.with_object(requesting_object_id, |requesting_guard| {
-                let player_arc = requesting_guard.get_controlling_player()?;
+                let player_index = requesting_guard.get_controlling_player()?;
                 let template_name = requesting_guard.get_template_name().to_string();
                 let request_dist_sqr = self.template.get_request_assist_range().powi(2);
                 let requesting_pos = *requesting_guard.get_position();
-                Some((player_arc, template_name, request_dist_sqr, requesting_pos))
+                Some((player_index, template_name, request_dist_sqr, requesting_pos))
             })
             .flatten()
         else {
             return;
         };
 
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) =
+            crate::player::with_player(player_index, |player_guard| player_guard.get_all_objects())
+        else {
             return;
         };
-        for object_id in player_guard.get_all_objects() {
+        for object_id in object_ids {
             if object_id == requesting_object_id {
                 continue;
             }

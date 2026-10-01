@@ -85,11 +85,9 @@ impl ModuleObjectTrait for AutoHealObjectHandle {
         if self.object_id == OBJECT_INVALID_ID {
             return;
         }
-        if let Some(arc) = OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(mut guard) = arc.write() {
-                guard.remove_upgrade_mask(mask_bits);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.remove_upgrade_mask(mask_bits);
+        });
     }
 }
 
@@ -777,11 +775,9 @@ impl AutoHealBehavior {
             if let Some(manager) = TheParticleSystemManager::get() {
                 if let Some(ps_id) = manager.create_particle_system(Some(radius_tmpl.name.as_str()))
                 {
-                    if let Some(obj) = behavior.get_object() {
-                        if let Ok(obj_read) = obj.read() {
-                            manager.set_particle_system_position(ps_id, obj_read.get_position());
-                        }
-                    }
+                    let _ = behavior.with_object(|obj_read| {
+                        manager.set_particle_system_position(ps_id, obj_read.get_position());
+                    });
                     behavior.radius_particle_system_id = ps_id;
                 }
             }
@@ -939,10 +935,10 @@ impl AutoHealBehavior {
         if obj_id == OBJECT_INVALID_ID {
             return Ok(());
         }
-        let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) else {
+        if !OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
-        };
-        self.pulse_heal_object(obj)
+        }
+        self.pulse_heal_object(obj_id)
     }
 
     /// Get the object this behavior belongs to
@@ -977,7 +973,7 @@ impl AutoHealBehavior {
         if id == OBJECT_INVALID_ID {
             return None;
         }
-        OBJECT_REGISTRY.get_object(id)
+        if OBJECT_REGISTRY.contains(id) { Some(id) } else { None }
     }
 
     /// Get current game frame
@@ -997,15 +993,9 @@ impl AutoHealBehavior {
             UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
             UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
         };
-        let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Ok(object) = object_arc.read() else {
-            return;
-        };
-        object.reschedule_named_update("AutoHealBehavior", wake_frame);
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |object| {
+            object.reschedule_named_update("AutoHealBehavior", wake_frame);
+        });
     }
 
     /// Last `setWakeFrame` requested by ctor / onDamage / update.
@@ -1265,48 +1255,43 @@ impl AutoHealBehavior {
                 continue;
             }
 
-            let Some(candidate) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-
-            let (is_friend, passes_kind, needs_heal) = {
-                let Ok(candidate_read) = candidate.read() else {
-                    continue;
-                };
-                if candidate_read.is_effectively_dead()
-                    || candidate_read.is_off_map() != healer_off_map
-                {
-                    continue;
-                }
-
-                let is_friend = candidate_read
-                    .get_team()
-                    .zip(healer_team.read().ok())
-                    .map(|(team, healer)| {
-                        team.read()
-                            .ok()
-                            .map(|team_guard| healer.get_relationship(&team_guard))
-                            .map(|rel| rel == crate::common::Relationship::Allies)
+            let heal_this = OBJECT_REGISTRY
+                .with_object(object_id, |candidate_read| {
+                    if candidate_read.is_effectively_dead()
+                        || candidate_read.is_off_map() != healer_off_map
+                    {
+                        return false;
+                    }
+                    let is_friend = candidate_read
+                        .get_team()
+                        .map(|team| {
+                            if team == healer_team {
+                                return true;
+                            }
+                            crate::team::factory_access::with_team(team, |team_guard| {
+                                crate::team::factory_access::with_team(healer_team, |healer| {
+                                    healer.get_relationship(team_guard)
+                                        == crate::common::Relationship::Allies
+                                })
+                                .unwrap_or(false)
+                            })
                             .unwrap_or(false)
-                    })
-                    .unwrap_or(false);
-
-                let passes_kind = object_matches_kind_mask(&candidate_read, kind_of)
-                    && !object_matches_kind_mask(&candidate_read, forbidden_kind_of);
-
-                let needs_heal = if let Some(body) = candidate_read.get_body_module() {
-                    body.get_health() < body.get_max_health()
-                } else {
-                    false
-                };
-
-                (is_friend, passes_kind, needs_heal)
-            };
-
-            if is_friend && passes_kind && needs_heal {
-                self.pulse_heal_object(candidate.clone())?;
+                        })
+                        .unwrap_or(false);
+                    let passes_kind = object_matches_kind_mask(candidate_read, kind_of)
+                        && !object_matches_kind_mask(candidate_read, forbidden_kind_of);
+                    let needs_heal = if let Some(body) = candidate_read.get_body_module() {
+                        body.get_health() < body.get_max_health()
+                    } else {
+                        false
+                    };
+                    is_friend && passes_kind && needs_heal
+                })
+                .unwrap_or(false);
+            if heal_this {
+                self.pulse_heal_object(object_id)?;
                 if single_burst {
-                    spawn_get_healed_world_icon(&candidate);
+                    spawn_get_healed_world_icon(object_id);
                 }
                 _healed_any = true;
             }

@@ -264,9 +264,9 @@ impl BunkerBusterBehavior {
             .as_object()
             .ok_or_else(|| "BunkerBusterBehavior requires an owning object".to_string())?;
         let object_id = module_object.get_object_id();
-        let object = crate::object::registry::OBJECT_REGISTRY
-            .get_object(object_id)
-            .ok_or_else(|| format!("BunkerBusterBehavior missing object {}", object_id))?;
+        if !crate::object::registry::OBJECT_REGISTRY.contains(object_id) {
+            return Err(format!("BunkerBusterBehavior missing object {}", object_id).into());
+        }
         Ok(Self {
             object_id: object_id,
             module_data,
@@ -300,102 +300,75 @@ impl BunkerBusterBehavior {
             return;
         }
 
-        let data = self.get_module_data();
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return;
-        };
-        let Ok(object_guard) = object_arc.read() else {
+        let Some((owner_id, player_index)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+                (object_guard.get_id(), object_guard.get_controlling_player())
+            })
+        else {
             return;
         };
 
-        // Check if upgrade is required and active
         if let Some(upgrade) = &self.upgrade_required_resolved {
-            let Some(player_arc) = object_guard.get_controlling_player() else {
+            let Some(player_index) = player_index else {
                 return;
             };
-            if let Ok(player_guard) = player_arc.read() {
-                if !player_guard.has_upgrade_complete(upgrade) {
-                    return;
-                }
-            };
-        }
-
-        // Find the target object
-        let target_arc = if self.victim_id != OBJECT_INVALID_ID {
-            TheGameLogic::find_object_by_id(self.victim_id)
-        } else {
-            None
-        };
-        let target_exists = target_arc.is_some();
-        let object_for_fx = target_arc.clone().unwrap_or_else(|| object_arc.clone());
-
-        if target_exists {
-            if let Some(target_arc) = target_arc.as_ref() {
-                if let Ok(mut target_guard) = target_arc.write() {
-                    if let Some(contain) = target_guard.get_contain_mut() {
-                        if contain.is_bustable() {
-                            let source_player_mask = object_guard
-                                .get_controlling_player()
-                                .and_then(|player| {
-                                    player.read().ok().map(|p| p.get_player_mask())
-                                })
-                                .unwrap_or_else(PlayerMaskType::none);
-
-                            if let Some(weapon_template) =
-                                data.occupant_damage_weapon_template.as_ref()
-                            {
-                                let mut damage_info = crate::damage::DamageInfo::with_simple(
-                                    BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
-                                    object_guard.get_id(),
-                                    crate::damage::DamageType::from_u32(
-                                        weapon_template.damage_type as u32,
-                                    ),
-                                    crate::damage::DeathType::from_u32(
-                                        weapon_template.death_type as u32,
-                                    ),
-                                );
-                                damage_info.input.source_player_mask = source_player_mask;
-                                damage_info.sync_from_input();
-                                let _ = contain
-                                    .harm_and_force_exit_all_contained(&mut damage_info);
-                            } else {
-                                let _ = contain.kill_all_contained();
-                            }
-                        }
-                    }
-                }
+            let allowed = crate::player::with_player(player_index, |player_guard| {
+                player_guard.has_upgrade_complete(upgrade)
+            })
+            .unwrap_or(false);
+            if !allowed {
+                return;
             }
         }
 
-        // Play detonation FX
-        if let Some(fx) = &data.detonation_fx {
-            let _ = fx.do_fx_obj(&object_for_fx, None);
+        let target_exists =
+            self.victim_id != OBJECT_INVALID_ID && crate::object::registry::OBJECT_REGISTRY.contains(self.victim_id);
+        let fx_id = if target_exists {
+            self.victim_id
+        } else {
+            owner_id
+        };
+
+        if target_exists {
+            let source_player_mask = player_index
+                .and_then(|player| {
+                    crate::player::with_player(player, |p| p.get_player_mask())
+                })
+                .unwrap_or_else(PlayerMaskType::none);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.victim_id, |target_guard| {
+                if let Some(contain) = target_guard.get_contain_mut() {
+                    if contain.is_bustable() {
+                        if let Some(weapon_template) = data.occupant_damage_weapon_template.as_ref()
+                        {
+                            let mut damage_info = crate::damage::DamageInfo::with_simple(
+                                BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
+                                owner_id,
+                                crate::damage::DamageType::from_u32(weapon_template.damage_type as u32),
+                                crate::damage::DeathType::from_u32(weapon_template.death_type as u32),
+                            );
+                            damage_info.input.source_player_mask = source_player_mask;
+                            damage_info.sync_from_input();
+                            let _ = contain.harm_and_force_exit_all_contained(&mut damage_info);
+                        } else {
+                            let _ = contain.kill_all_contained();
+                        }
+                    }
+                }
+            });
         }
 
-        // Add seismic simulation (if DO_SEISMIC_SIMULATIONS is defined)
-        // SeismicSimulationNode sim(
-        //   objectForFX->getPosition(),
-        //   modData->m_seismicEffectRadius,
-        //   modData->m_seismicEffectMagnitude,
-        //   &bunkerBusterHeavingEarthSeismicFilter );
-        // TheTerrainVisual->addSeismicSimulation( sim );
+        if let Some(fx) = &data.detonation_fx {
+            let _ = fx.do_fx_obj_ids(fx_id, None, None);
+        }
 
-        // Fire shockwave weapon
         if let Some(weapon_template) = &data.shockwave_weapon_template {
-            if let Ok(obj_guard) = object_for_fx.read() {
-                let position = *obj_guard.get_position();
+            if let Some((position, id)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(fx_id, |obj_guard| {
+                    (*obj_guard.get_position(), obj_guard.get_id())
+                })
+            {
                 let _ = crate::weapon::with_weapon_store(|store| {
-                    store.create_and_fire_temp_weapon(
-                        weapon_template,
-                        obj_guard.get_id(),
-                        None,
-                        Some(&position),
-                    )
+                    store.create_and_fire_temp_weapon(weapon_template, id, None, Some(&position))
                 });
             }
         }
@@ -413,18 +386,9 @@ impl BunkerBusterBehavior {
             return false;
         }
 
-        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return false;
-        };
-        let Ok(guard) = object.read() else {
-            return false;
-        };
-        guard.get_ai().is_some()
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| guard.get_ai().is_some())
+            .unwrap_or(false)
     }
 
     /// Check if object has missile killing self status
@@ -434,18 +398,11 @@ impl BunkerBusterBehavior {
             return false;
         }
 
-        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return false;
-        };
-        let Ok(guard) = object.read() else {
-            return false;
-        };
-        guard.test_status(ObjectStatusTypes::MissileKillingSelf)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                guard.test_status(ObjectStatusTypes::MissileKillingSelf)
+            })
+            .unwrap_or(false)
     }
 
     /// Get current victim from AI
@@ -455,15 +412,9 @@ impl BunkerBusterBehavior {
             return None;
         }
 
-        let object = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })?;
-        let guard = object.read().ok()?;
-        let ai = guard.get_ai()?;
-        ai.get_current_victim()
+        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            guard.get_ai().and_then(|ai| ai.get_current_victim())
+        })?
     }
 
     pub fn crc(
@@ -520,20 +471,10 @@ impl UpdateModuleInterface for BunkerBusterBehavior {
                 // const FXList *crashFX = modData->m_crashThroughBunkerFX;
                 // if ( getObject()->testStatus( OBJECT_STATUS_MISSILE_KILLING_SELF ) && crashFX )
                 if self.test_status_missile_killing_self() {
-                    if let (Some(fx), Some(object_arc)) = (
-                        crash_fx.as_ref(),
-                        (if self.object_id == crate::common::INVALID_ID {
-                            None
-                        } else {
-                            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                                || {
-                                    crate::object::registry::OBJECT_REGISTRY
-                                        .get_object(self.object_id)
-                                },
-                            )
-                        }),
-                    ) {
-                        let _ = fx.do_fx_obj(&object_arc, None);
+                    if let Some(fx) = crash_fx.as_ref() {
+                        if crate::object::registry::OBJECT_REGISTRY.contains(self.object_id) {
+                            let _ = fx.do_fx_obj_ids(self.object_id, None, None);
+                        }
                     }
                 }
             }

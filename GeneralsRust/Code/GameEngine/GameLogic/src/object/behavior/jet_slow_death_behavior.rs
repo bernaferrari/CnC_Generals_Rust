@@ -13,18 +13,18 @@ use crate::damage::DamageInfo;
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{TheAudio, TheFXListStore, TheObjectCreationListStore, TheTerrainLogic};
 use crate::modules::{
-    BehaviorModuleInterface, DieModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface,
-    UpdateSleepTime,
+    AIUpdateInterface, BehaviorModuleInterface, DieModuleInterface, PhysicsBehavior,
+    SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
+use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
 };
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct JetSlowDeathBehaviorModuleData {
@@ -331,6 +331,19 @@ pub struct JetSlowDeathBehavior {
     slow_death_activated: Bool,
 }
 
+fn shrubbery_collidee(object: &crate::object::Object) -> bool {
+    let Some(physics) = object.get_physics() else {
+        return false;
+    };
+    let tree_id = physics.get_last_collidee();
+    if tree_id == INVALID_ID {
+        return false;
+    }
+    OBJECT_REGISTRY
+        .with_object(tree_id, |tree| tree.is_kind_of(KindOf::Shrubbery))
+        .unwrap_or(false)
+}
+
 impl JetSlowDeathBehavior {
     pub fn new(
         object_id: ObjectID,
@@ -348,32 +361,35 @@ impl JetSlowDeathBehavior {
         }
     }
 
-    fn owner(&self) -> Option<ObjectID> {
-        (if self.object_id == crate::common::INVALID_ID {
+    fn owner_id(&self) -> Option<ObjectID> {
+        if self.object_id == INVALID_ID || !OBJECT_REGISTRY.contains(self.object_id) {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+            Some(self.object_id)
+        }
     }
 
-    fn do_fx(&self, fx: &Option<Arc<FXList>>, object: ObjectID) {
+    fn do_fx(&self, fx: &Option<Arc<FXList>>, object_id: ObjectID) {
         if let Some(fx) = fx {
-            let _ = fx.do_fx_obj(object, None);
+            let _ = fx.do_fx_obj_ids(object_id, None, None);
         }
     }
 
-    fn do_ocl(&self, ocl: &Option<Arc<ObjectCreationList>>, object: ObjectID) {
-        if let Some(ocl) = ocl {
-            let _ = ObjectCreationList::create(ocl, object, None);
-        }
+    fn do_ocl(&self, ocl: &Option<Arc<ObjectCreationList>>, object_id: ObjectID) {
+        let Some(ocl) = ocl else {
+            return;
+        };
+        let Some(position) =
+            OBJECT_REGISTRY.with_object(object_id, |object| *object.get_position())
+        else {
+            return;
+        };
+        let _ = ocl.create_at_position(&position, object_id);
     }
 
     fn destroy_owner(&self) {
-        if let Some(object) = self.owner() {
-            if let Ok(object) = object.read() {
-                let _ = TheGameLogic::destroy_object_by_id(object.get_id());
-            }
+        if let Some(object_id) = self.owner_id() {
+            let _ = TheGameLogic::destroy_object_by_id(object_id);
         }
     }
 
@@ -385,34 +401,17 @@ impl JetSlowDeathBehavior {
         self.death_loop_sound.set_playing_handle(0);
     }
 
-    fn hit_tree(&self, object: &GameObject) -> bool {
-        let Some(physics) = object.get_physics() else {
-            return false;
-        };
-        let tree_id = physics.get_last_collidee();
-        if tree_id == INVALID_ID {
-            return false;
-        }
-        TheGameLogic::find_object_by_id(tree_id)
-            .and_then(|tree| {
-                tree.read()
-                    .ok()
-                    .map(|tree| tree.is_kind_of(KindOf::Shrubbery))
-            })
-            .unwrap_or(false)
-    }
-
     fn begin_slow_death_internal(&mut self, _damage_info: &DamageInfo) {
         self.slow_death_activated = true;
         self.timer_death_frame = TheGameLogic::get_frame();
         self.roll_rate = self.module_data.roll_rate;
 
-        let Some(object) = self.owner() else {
+        let Some(object_id) = self.owner_id() else {
             return;
         };
 
-        self.do_fx(&self.module_data.fx_initial_death, &object);
-        self.do_ocl(&self.module_data.ocl_initial_death, &object);
+        self.do_fx(&self.module_data.fx_initial_death, object_id);
+        self.do_ocl(&self.module_data.ocl_initial_death, object_id);
 
         if !self
             .module_data
@@ -421,31 +420,24 @@ impl JetSlowDeathBehavior {
             .is_empty()
         {
             self.death_loop_sound = self.module_data.death_loop_sound.clone();
-            if let Ok(object_guard) = object.read() {
-                self.death_loop_sound.set_object_id(object_guard.get_id());
-            }
+            self.death_loop_sound.set_object_id(object_id);
             if let Some(audio) = TheAudio::get() {
                 let handle = audio.add_audio_event(&self.death_loop_sound);
                 self.death_loop_sound.set_playing_handle(handle);
             }
         }
 
-        let Ok(object_guard) = object.read() else {
-            return;
-        };
-        let Some(ai) = object_guard.get_ai_update_interface() else {
-            return;
-        };
-        let mut has_loco = false;
-        ai.with_cur_locomotor(&mut |loco| {
-            has_loco = true;
-            let gravity = -1.0;
-            loco.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));
-            loco.set_max_turn_rate(0.0);
+        let fall_how_fast = self.module_data.fall_how_fast;
+        let _ = OBJECT_REGISTRY.with_object(object_id, |object| {
+            let Some(ai) = object.get_ai_update_interface() else {
+                return;
+            };
+            ai.with_cur_locomotor(&mut |loco| {
+                let gravity = -1.0;
+                loco.set_max_lift(-gravity * (1.0 - fall_how_fast));
+                loco.set_max_turn_rate(0.0);
+            });
         });
-        if !has_loco {
-            return;
-        }
     }
 }
 
@@ -455,34 +447,33 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
             return Ok(UpdateSleepTime::None);
         }
 
-        let Some(object) = self.owner() else {
+        let Some(object_id) = self.owner_id() else {
             return Ok(UpdateSleepTime::Forever);
         };
 
-        {
-            if let Ok(mut object_guard) = object.write() {
-                if let Some(physics) = object_guard.get_physics_mut() {
-                    physics.set_roll_rate(self.roll_rate);
-                }
+        let roll_rate = self.roll_rate;
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            if let Some(physics) = object.get_physics_mut() {
+                physics.set_roll_rate(roll_rate);
             }
-        }
+        });
         self.roll_rate *= self.module_data.roll_rate_delta;
 
         if self.timer_on_ground_frame == 0 {
-            let (height, hit_tree) = {
-                let mut height = 1.0;
-                let mut hit_tree = false;
-                if let Ok(mut object_guard) = object.write() {
-                    let position = *object_guard.get_position();
+            let (height, hit_tree) = OBJECT_REGISTRY
+                .with_object_mut(object_id, |object| {
+                    let position = *object.get_position();
                     let layer = TheTerrainLogic::get()
                         .map(|terrain| terrain.get_layer_for_destination(&position))
                         .unwrap_or(PathfindLayerEnum::Ground);
-                    object_guard.set_layer(layer);
-                    height = if layer == PathfindLayerEnum::Ground {
-                        object_guard.get_height_above_terrain()
+                    object.set_layer(layer);
+                    let height = if layer == PathfindLayerEnum::Ground {
+                        object.get_height_above_terrain()
                     } else {
                         let layer_height = TheTerrainLogic::get()
-                            .map(|terrain| terrain.get_layer_height(position.x, position.y, layer))
+                            .map(|terrain| {
+                                terrain.get_layer_height(position.x, position.y, layer)
+                            })
                             .unwrap_or(position.z);
                         let height = position.z - layer_height;
                         if (0.0..=1.0).contains(&height) {
@@ -491,37 +482,37 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
                             height
                         }
                     };
-                    hit_tree = self.hit_tree(&object_guard);
-                }
-                (height, hit_tree)
-            };
+                    (height, shrubbery_collidee(object))
+                })
+                .unwrap_or((1.0, false));
 
             if height <= 0.0 || hit_tree {
                 self.stop_loop_sound();
-                self.do_fx(&self.module_data.fx_hit_ground, &object);
-                self.do_ocl(&self.module_data.ocl_hit_ground, &object);
+                self.do_fx(&self.module_data.fx_hit_ground, object_id);
+                self.do_ocl(&self.module_data.ocl_hit_ground, object_id);
                 self.timer_on_ground_frame = TheGameLogic::get_frame();
 
-                if let Ok(mut object_guard) = object.write() {
-                    if let Some(physics) = object_guard.get_physics_mut() {
-                        physics.set_pitch_rate(self.module_data.pitch_rate);
+                let pitch_rate = self.module_data.pitch_rate;
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                    if let Some(physics) = object.get_physics_mut() {
+                        physics.set_pitch_rate(pitch_rate);
                     }
-                }
+                });
             }
 
             if self.timer_death_frame != 0
                 && TheGameLogic::get_frame().saturating_sub(self.timer_death_frame)
                     >= self.module_data.delay_secondary_from_initial_death
             {
-                self.do_fx(&self.module_data.fx_secondary, &object);
-                self.do_ocl(&self.module_data.ocl_secondary, &object);
+                self.do_fx(&self.module_data.fx_secondary, object_id);
+                self.do_ocl(&self.module_data.ocl_secondary, object_id);
                 self.timer_death_frame = 0;
             }
         } else if TheGameLogic::get_frame().saturating_sub(self.timer_on_ground_frame)
             >= self.module_data.delay_final_blow_up_from_hit_ground
         {
-            self.do_fx(&self.module_data.fx_final_blow_up, &object);
-            self.do_ocl(&self.module_data.ocl_final_blow_up, &object);
+            self.do_fx(&self.module_data.fx_final_blow_up, object_id);
+            self.do_ocl(&self.module_data.ocl_final_blow_up, object_id);
             self.destroy_owner();
         }
 
@@ -534,14 +525,12 @@ impl DieModuleInterface for JetSlowDeathBehavior {
         &mut self,
         damage: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(object) = self.owner() else {
+        let Some(object_id) = self.owner_id() else {
             return Ok(());
         };
 
-        let ground_death = object
-            .read()
-            .ok()
-            .map(|object| {
+        let ground_death = OBJECT_REGISTRY
+            .with_object(object_id, |object| {
                 !object.is_significantly_above_terrain()
                     || object
                         .get_status_bits()
@@ -550,18 +539,18 @@ impl DieModuleInterface for JetSlowDeathBehavior {
             .unwrap_or(true);
 
         if ground_death {
-            self.do_fx(&self.module_data.fx_on_ground_death, &object);
-            self.do_ocl(&self.module_data.ocl_on_ground_death, &object);
+            self.do_fx(&self.module_data.fx_on_ground_death, object_id);
+            self.do_ocl(&self.module_data.ocl_on_ground_death, object_id);
             self.destroy_owner();
         } else {
             self.begin_slow_death_internal(damage);
         }
 
-        if let Ok(mut object) = object.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
             object.clear_status(ObjectStatusMaskType::from_status(
                 ObjectStatusTypes::DeckHeightOffset,
             ));
-        }
+        });
         Ok(())
     }
 }

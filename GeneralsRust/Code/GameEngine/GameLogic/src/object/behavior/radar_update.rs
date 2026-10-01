@@ -172,15 +172,10 @@ impl RadarUpdate {
         self.extend_done_frame = current_frame + self.module_data.radar_extend_time as UnsignedInt;
         self.radar_active = true;
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut object) = object.write() {
+        if self.object_id != crate::common::INVALID_ID {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |object| {
                 object.set_model_condition_state(ModelConditionFlags::RADAR_EXTENDING);
-            }
+            });
         }
     }
 
@@ -223,19 +218,17 @@ impl UpdateModuleInterface for RadarUpdate {
         }
 
         if current_frame > self.extend_done_frame {
-            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                let Ok(mut object) = object.write() else {
-                    return UpdateSleepTime::None;
-                };
-                let _ = object.clear_and_set_model_condition_flags(
-                    ModelConditionFlags::RADAR_EXTENDING,
-                    ModelConditionFlags::RADAR_UPGRADED,
-                );
+            if self.object_id != crate::common::INVALID_ID
+                && crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(self.object_id, |object| {
+                        let _ = object.clear_and_set_model_condition_flags(
+                            ModelConditionFlags::RADAR_EXTENDING,
+                            ModelConditionFlags::RADAR_UPGRADED,
+                        );
+                    })
+                    .is_none()
+            {
+                return UpdateSleepTime::None;
             }
 
             self.extend_complete = true;

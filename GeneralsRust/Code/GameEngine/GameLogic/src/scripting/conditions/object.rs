@@ -45,8 +45,7 @@ impl ScriptCondition for ObjectExistsCondition {
         // Check if object exists in ObjectManager
         let obj_manager = get_object_manager();
         if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_arc) = manager.get_object(object_id as u32) {
-                if let Ok(obj) = obj_arc.read() {
+            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
                     // Object exists and is not destroyed
                     return Ok(!obj.is_destroyed());
                 }
@@ -97,8 +96,7 @@ impl ScriptCondition for ObjectHealthCondition {
         // Get actual object health from ObjectManager
         let obj_manager = get_object_manager();
         let object_health = if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_arc) = manager.get_object(object_id as u32) {
-                if let Ok(obj) = obj_arc.read() {
+            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
                     (obj.get_health_percentage() * 100.0) as f64
                 } else {
                     0.0
@@ -177,11 +175,8 @@ impl ScriptCondition for ObjectInAreaCondition {
         };
         return OBJECT_REGISTRY
             .with_object(object_id as u32, |obj_guard| {
-                let __base_arc = obj_guard.base();
-                let Ok(base_guard) = __base_arc.read() else {
-                    return Ok(false);
-                };
-                if base_guard.is_destroyed() {
+                let base_guard = obj_guard;
+if base_guard.is_destroyed() {
                     return Ok(false);
                 }
 
@@ -245,21 +240,17 @@ impl ScriptCondition for ObjectNearObjectCondition {
             return Ok(false);
         };
 
-        let Some(obj1_arc) = manager.get_object(object1_id as u32) else {
+        let Some(obj1_arc) = /*slot*/ OBJECT_REGISTRY.with_object(object1_id as u32) else {
             return Ok(false);
         };
-        let Some(obj2_arc) = manager.get_object(object2_id as u32) else {
+        let Some(obj2_arc) = /*slot*/ OBJECT_REGISTRY.with_object(object2_id as u32) else {
             return Ok(false);
         };
-        let (Ok(obj1), Ok(obj2)) = (obj1_arc.read(), obj2_arc.read()) else {
+        let (Ok(obj1), Ok(obj2)) = (obj1_Ok(arc), obj2_Ok(arc)) else {
             return Ok(false);
         };
-        let __b1 = obj1.base();
-        let __b2 = obj2.base();
-        let (Ok(base1), Ok(base2)) = (__b1.read(), __b2.read()) else {
-            return Ok(false);
-        };
-        if base1.is_destroyed() || base2.is_destroyed() {
+        let (base1, base2) = (&obj1, &obj2);
+if base1.is_destroyed() || base2.is_destroyed() {
             return Ok(false);
         }
 
@@ -313,8 +304,7 @@ impl ScriptCondition for ObjectOwnedByPlayerCondition {
         // Check object ownership
         let obj_manager = get_object_manager();
         if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_arc) = manager.get_object(object_id as u32) {
-                if let Ok(obj) = obj_arc.read() {
+            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
                     if let Some(owner_id) = obj.get_controlling_player_id() {
                         return Ok(owner_id == player as u32);
                     }
@@ -366,8 +356,7 @@ impl ScriptCondition for BuildingDamagedCondition {
         // In C++: pObject->Get_Health() / pObject->Get_Max_Health() * 100
         let obj_manager = get_object_manager();
         if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_arc) = manager.get_object(object_id as u32) {
-                if let Ok(obj) = obj_arc.read() {
+            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
                     let current_health_percent = (obj.get_health_percentage() * 100.0) as f64;
                     return Ok(current_health_percent < health_percent);
                 }
@@ -422,8 +411,7 @@ impl ScriptCondition for UnitNearPositionCondition {
         // In C++: Calculate distance between object pos and target pos
         let obj_manager = get_object_manager();
         if let Ok(manager) = obj_manager.read() {
-            if let Some(obj_arc) = manager.get_object(object_id as u32) {
-                if let Ok(obj) = obj_arc.read() {
+            if let Some(obj_snapshot) = OBJECT_REGISTRY.with_object(object_id as u32, |obj| {
                     let pos = obj.get_position();
                     let object_x = pos.x as f64;
                     let object_y = pos.y as f64;
@@ -773,8 +761,10 @@ impl ScriptCondition for EnemySightedCondition {
                 "neutral" => true,
                 "friend" | "ally" => {
                     if let Some(ref src_arc) = source_player_arc {
-                        if let Ok(src_player) = src_arc.read() {
-                            if let Ok(tgt_player) = player.read() {
+                        let src_player = src_arc;
+{
+                            let tgt_player = player;
+{
                                 let rel = src_player.get_relationship(&tgt_player);
                                 matches!(rel, Relationship::Allies)
                             } else {
@@ -790,8 +780,10 @@ impl ScriptCondition for EnemySightedCondition {
                 _ => {
                     // "enemy" (default)
                     if let Some(ref src_arc) = source_player_arc {
-                        if let Ok(src_player) = src_arc.read() {
-                            if let Ok(tgt_player) = player.read() {
+                        let src_player = src_arc;
+{
+                            let tgt_player = player;
+{
                                 src_player.is_enemy_with_player(&tgt_player)
                             } else {
                                 false

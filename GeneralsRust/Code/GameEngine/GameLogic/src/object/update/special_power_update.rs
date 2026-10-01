@@ -79,21 +79,6 @@ impl SpecialPowerUpdateModule {
             return true;
         }
 
-        if let Some(obj_arc) = (if self.owner_object_id == 0 {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id as _).or_else(
-                || crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_object_id as _),
-            )
-        }) {
-            let Ok(obj_guard) = obj_arc.read() else {
-                return false;
-            };
-            return does_special_power_update_pass_science_test_for_object(
-                &obj_guard,
-                extra_required_science,
-            );
-        }
         OBJECT_REGISTRY
             .with_object(self.owner_object_id, |obj_guard| {
                 does_special_power_update_pass_science_test_for_object(

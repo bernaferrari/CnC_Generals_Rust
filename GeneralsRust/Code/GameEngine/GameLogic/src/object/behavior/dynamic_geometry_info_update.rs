@@ -341,15 +341,10 @@ impl DynamicGeometryInfoUpdate {
 
 impl UpdateModuleInterface for DynamicGeometryInfoUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if let Some(sleep) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            self.logic.update_step(obj)
         }) {
-            if let Ok(mut obj) = obj_arc.write() {
-                return self.logic.update_step(&mut obj);
-            }
+            return sleep;
         }
         UPDATE_SLEEP_NONE
     }

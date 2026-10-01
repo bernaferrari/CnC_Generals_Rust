@@ -336,8 +336,7 @@ impl OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = (if crate::helpers::TheGameLogic::find_object_by_id(obj_id) || crate::object::registry::OBJECT_REGISTRY.contains(obj_id) { Some(obj_id) } else { None })
         else {
             return Ok(());
         };
@@ -796,8 +795,7 @@ impl OverlordContain {
 
         // Get the first rider
         if let Some(&rider_id) = self.base.base.get_contained_object_ids().first() {
-            return TheGameLogic::find_object_by_id(rider_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id));
+            return (if crate::helpers::TheGameLogic::find_object_by_id(rider_id) || crate::object::registry::OBJECT_REGISTRY.contains(rider_id) { Some(rider_id) } else { None });
         }
 
         None // Or say no if they have no rider
@@ -810,8 +808,7 @@ impl OverlordContain {
         let Some(&rider_id) = self.base.base.get_contained_object_ids().first() else {
             return Ok(None);
         };
-        Ok(TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)))
+        Ok((if crate::helpers::TheGameLogic::find_object_by_id(rider_id) || crate::object::registry::OBJECT_REGISTRY.contains(rider_id) { Some(rider_id) } else { None }))
     }
 
     /// Run `f` against the redirected bunker contain module (read-only borrow).
@@ -1058,8 +1055,7 @@ impl ContainModuleInterface for OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = (if crate::helpers::TheGameLogic::find_object_by_id(obj_id) || crate::object::registry::OBJECT_REGISTRY.contains(obj_id) { Some(obj_id) } else { None })
         else {
             return Ok(());
         };
@@ -1085,8 +1081,7 @@ impl ContainModuleInterface for OverlordContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = (if crate::helpers::TheGameLogic::find_object_by_id(obj_id) || crate::object::registry::OBJECT_REGISTRY.contains(obj_id) { Some(obj_id) } else { None })
         else {
             return Ok(());
         };

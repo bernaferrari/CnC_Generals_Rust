@@ -181,8 +181,13 @@ impl PropagandaCenterBehavior {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        if crate::helpers::TheGameLogic::find_object_by_id(id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(id)
+        {
+            Some(id)
+        } else {
+            None
+        }
     }
 
     fn clear_brainwashing_subject_if_match(&mut self, object_id: ObjectID) {
@@ -397,11 +402,11 @@ impl ContainModuleInterface for PropagandaCenterBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !(crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(obj_id))
+        {
             return Ok(());
-        };
+        }
 
         self.prison_behavior.on_containing(obj_id, was_selected)
     }
@@ -415,15 +420,13 @@ impl ContainModuleInterface for PropagandaCenterBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !(crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(obj_id))
+        {
             return Ok(());
-        };
-
-        if let Ok(guard) = obj.read() {
-            self.clear_brainwashing_subject_if_match(guard.get_id());
         }
+
+        self.clear_brainwashing_subject_if_match(obj_id);
         self.prison_behavior.on_removing(obj_id)
     }
 

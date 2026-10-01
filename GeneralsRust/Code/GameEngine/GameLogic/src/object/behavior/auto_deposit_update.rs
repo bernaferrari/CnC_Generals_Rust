@@ -150,11 +150,9 @@ impl AutoDepositUpdate {
         let mut pos = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-            })
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |g| *g.get_position())
         })
-        .and_then(|obj| obj.read().ok().map(|g| *g.get_position()))
         .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
         pos.z += 10.0;
 
@@ -171,47 +169,36 @@ impl AutoDepositUpdate {
         }
 
         // Get controlling player
-        let object = match (if self.object_id == crate::common::INVALID_ID {
+        let player = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(obj) => obj,
-            None => return 0,
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |obj| obj.get_controlling_player())
+                .flatten()
         };
-
-        let obj_read = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return 0,
-        };
-
-        let player = match obj_read.get_controlling_player() {
-            Some(p) => p,
-            None => return 0, // Matches C++ line 198
-        };
-
-        // Loop through upgrade pairs. Matches C++ lines 201-215
-        let Ok(player_guard) = player.read() else {
+        let Some(player) = player else {
             return 0;
         };
-
-        let upgrade_center = get_upgrade_center();
-        let Ok(center_guard) = upgrade_center.read() else {
-            return 0;
-        };
-
-        // C++ caches the first findUpgrade in a function-local static, so later pairs
-        // never resolve their own template. Only the first pair can grant a boost.
-        if let Some(upgrade_pair) = self.module_data.upgrade_boost.first() {
-            if let Some(template) = center_guard.find_upgrade(upgrade_pair.upgrade_type.as_str()) {
-                if player_guard.has_upgrade_complete(&template) {
-                    return upgrade_pair.boost_amount;
+        let Some(has_first) = crate::player::with_player(player, |player_guard| {
+            let upgrade_center = get_upgrade_center();
+            let Ok(center_guard) = upgrade_center.read() else {
+                return None;
+            };
+            if let Some(upgrade_pair) = self.module_data.upgrade_boost.first() {
+                if let Some(template) = center_guard.find_upgrade(upgrade_pair.upgrade_type.as_str())
+                {
+                    if player_guard.has_upgrade_complete(&template) {
+                        return Some(upgrade_pair.boost_amount);
+                    }
                 }
             }
-        }
-
-        0 // Matches C++ line 217
+            Some(0)
+        })
+        .flatten()
+        else {
+            return 0;
+        };
+        has_first
     }
 }
 
@@ -237,38 +224,38 @@ impl UpdateModuleInterface for AutoDepositUpdate {
             // Schedule next deposit. Matches C++ line 134
             self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
 
-            let object = match (if self.object_id == crate::common::INVALID_ID {
+            let snapshot = if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                Some(obj) => obj,
-                None => return UpdateSleepTime::None,
+                crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
+                    if obj_read.is_neutral_controlled() || self.module_data.deposit_amount <= 0 {
+                        return None;
+                    }
+                    if obj_read.get_construction_percent() != CONSTRUCTION_COMPLETE {
+                        return None;
+                    }
+                    let player = obj_read.get_controlling_player();
+                    let mut display_money_base = true;
+                    if obj_read.is_stealthed()
+                        && !obj_read.is_locally_controlled()
+                        && !obj_read.is_detected()
+                    {
+                        display_money_base = false;
+                    }
+                    let mut pos = *obj_read.get_position();
+                    let is_structure = obj_read.is_kind_of(KindOf::Structure);
+                    let geom = obj_read.get_geometry_info();
+                    (player, display_money_base, pos, is_structure, geom)
+                })
             };
-
-            let obj_read = match object.read() {
-                Ok(guard) => guard,
-                Err(_) => return UpdateSleepTime::None,
+            let Some((player, mut display_money, mut pos, is_structure, geom)) = snapshot else {
+                return UpdateSleepTime::None;
             };
-
-            // Don't deposit if neutral or amount <= 0. Matches C++ lines 136-137
-            if obj_read.is_neutral_controlled() || self.module_data.deposit_amount <= 0 {
-                return UpdateSleepTime::None; // UPDATE_SLEEP_NONE
-            }
-
-            // Don't deposit unless construction is complete (`CONSTRUCTION_COMPLETE = -1`).
-            if obj_read.get_construction_percent() != CONSTRUCTION_COMPLETE {
-                return UpdateSleepTime::None; // UPDATE_SLEEP_NONE
-            }
-
-            // Calculate money amount with upgrades. Matches C++ line 143
             let money_amount = self.module_data.deposit_amount + self.get_upgraded_supply_boost();
-
-            // Deposit actual money if configured. Matches C++ lines 145-149
+            display_money = display_money && money_amount > 0;
             if self.module_data.is_actual_money {
-                if let Some(player) = obj_read.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
+                if let Some(player) = player {
+                    let _ = crate::player::with_player_mut(player, |player_guard| {
                         if money_amount > 0 {
                             let _ = player_guard.get_money_mut().deposit(money_amount as u32);
                         } else if money_amount < 0 {
@@ -281,36 +268,22 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                                 .get_score_keeper_mut()
                                 .add_money_earned(self.module_data.deposit_amount as u32);
                         }
-                    }
+                    });
                 }
             }
-
-            // Determine if we should display floating money text. Matches C++ lines 151-160
-            let mut display_money = money_amount > 0;
-            if obj_read.is_stealthed() {
-                // Only show for local player if detected. Matches C++ lines 154-159
-                if !obj_read.is_locally_controlled() && !obj_read.is_detected() {
-                    display_money = false;
-                }
-            }
-
-            // Display floating text. Matches C++ lines 162-188
             if display_money {
                 let text = format_add_cash(money_amount);
-                let mut pos = *obj_read.get_position();
                 pos.z += 10.0;
-
-                if obj_read.is_kind_of(KindOf::Structure) {
-                    let geom = obj_read.get_geometry_info();
+                if is_structure {
                     let width = ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5) * 0.3;
                     let depth = ((geom.bounds.max.y - geom.bounds.min.y).abs() * 0.5) * 0.3;
                     pos.x += game_client_random_value_real(-width, width);
                     pos.y += game_client_random_value_real(-depth, depth);
                 }
-
-                if let Some(player) = obj_read.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        let mut color = player_guard.get_player_color();
+                if let Some(player) = player {
+                    if let Some(mut color) =
+                        crate::player::with_player(player, |player_guard| player_guard.get_player_color())
+                    {
                         color.a |= 230;
                         let _ = TheInGameUI::add_floating_text(&text, &pos, color);
                     }

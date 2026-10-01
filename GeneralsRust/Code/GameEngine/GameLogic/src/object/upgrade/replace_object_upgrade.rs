@@ -196,8 +196,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             }
         }
 
-        // Retain constructor handle for Player::onStructureConstructionComplete constructor arg.
-        let constructor_arc = OBJECT_REGISTRY.get_object(self.object_id);
+        let constructor_present = OBJECT_REGISTRY.contains(self.object_id);
 
         if let Ok(mut manager) = get_object_manager().write() {
             manager.destroy_object(self.object_id);
@@ -279,9 +278,11 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             .and_then(|guard| guard.get_controlling_player());
         if let Some(player) = player {
             if let Ok(mut player_guard) = player.write() {
-                let builder_id = constructor_arc
-                    .as_ref()
-                    .and_then(|b| b.read().ok().map(|g| g.get_id()));
+                let builder_id = if constructor_present {
+                    Some(self.object_id)
+                } else {
+                    None
+                };
                 player_guard.on_structure_construction_complete_id(
                     builder_id,
                     replacement_id,

@@ -32,7 +32,6 @@ fn dual_world_registry_unavailable() -> bool {
 
 fn play_behavior_stealth_sound(object_id: ObjectID, stealth_on: bool) {
     let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-        .or_else(|| OBJECT_REGISTRY.get_object(object_id))
     else {
         return;
     };
@@ -349,7 +348,6 @@ impl StealthUpdate {
             return self.object_id;
         }
         if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
         {
             if let Ok(obj) = object.read() {
                 if let Some(contain) = obj.get_contain() {
@@ -411,7 +409,6 @@ impl StealthUpdate {
 
     fn order_idle_enemies_to_attack(&self) {
         let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
         else {
             return;
         };
@@ -477,7 +474,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Check OBJECT_STATUS_IS_FIRING_WEAPON status bit
@@ -500,7 +496,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Get velocity from physics module (C++ StealthUpdate.cpp:390)
@@ -526,7 +521,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 return obj
@@ -564,7 +558,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Get last damage timestamp from body module (C++ StealthUpdate.cpp:299-311)
@@ -602,7 +595,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 if let Some(contain) = obj.get_contain() {
@@ -641,7 +633,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Check OBJECT_STATUS_IS_USING_ABILITY status bit
@@ -664,7 +655,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -683,7 +673,6 @@ impl StealthUpdate {
                 }
 
                 let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
                 {
                     Some(a) => a,
                     None => return Ok(()),
@@ -754,7 +743,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Check distance to current attack target
@@ -783,7 +771,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj) = object.read() {
                 // Use last_distance_check_frame as current frame tracker
@@ -953,7 +940,6 @@ impl StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut obj) = object.write() {
                 if active {
@@ -1008,7 +994,6 @@ impl UpdateModuleInterface for StealthUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(mut obj) = object.write() {
                 // Increment frame counter

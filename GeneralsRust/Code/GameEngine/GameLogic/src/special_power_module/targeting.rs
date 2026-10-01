@@ -198,24 +198,23 @@ impl TargetValidator {
                 | SpecialPowerFlags::AFFECTS_ENEMY
                 | SpecialPowerFlags::AFFECTS_NEUTRAL,
         ) {
-            let local_player = crate::player::player_list()
+            let local_index = crate::player::player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player().cloned());
-            if let Some(local_player) = local_player {
-                let Ok(local_guard) = local_player.read() else {
-                    return false;
-                };
+                .map(|list| list.get_local_player_index());
+            if let Some(local_index) = local_index {
                 let relationship = if let Some(target_player) = obj_guard.get_controlling_player() {
-                    if let Ok(target_guard) = target_player.read() {
-                        if target_guard.get_player_index() == local_guard.get_player_index() {
-                            Relationship::Allies
-                        } else {
-                            local_guard.get_relationship(&target_guard)
-                        }
-                    } else {
-                        Relationship::Neutral
-                    }
+                    crate::player::with_player(local_index, |local_guard| {
+                        crate::player::with_player(target_player, |target_guard| {
+                            if target_guard.get_player_index() == local_guard.get_player_index() {
+                                Relationship::Allies
+                            } else {
+                                local_guard.get_relationship(target_guard)
+                            }
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(Relationship::Neutral)
                 } else {
                     Relationship::Neutral
                 };

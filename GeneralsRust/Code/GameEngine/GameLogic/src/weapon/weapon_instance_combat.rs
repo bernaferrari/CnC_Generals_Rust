@@ -172,24 +172,24 @@ impl Weapon {
         if dual_world_registry_unavailable() {
             return;
         }
-        let Some((player_arc, requesting_template, range, requesting_pos)) =
+        let Some((player_index, requesting_template, range, requesting_pos)) =
             crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, |requesting_guard| {
-                let player_arc = requesting_guard.get_controlling_player()?;
+                let player_index = requesting_guard.get_controlling_player()?;
                 let requesting_template = requesting_guard.get_template().clone();
                 let range = self.template.get_request_assist_range();
                 let requesting_pos = *requesting_guard.get_position();
-                Some((player_arc, requesting_template, range, requesting_pos))
+                Some((player_index, requesting_template, range, requesting_pos))
             })
             .flatten()
         else {
             return;
         };
 
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(object_ids) =
+            crate::player::with_player(player_index, |player_guard| player_guard.get_all_objects())
+        else {
             return;
         };
-        let object_ids = player_guard.get_all_objects();
-        drop(player_guard);
         for object_id in object_ids {
             if object_id == source_obj_id {
                 continue;
@@ -201,7 +201,7 @@ impl Weapon {
                     }
                     let dx = object_guard.get_position().x - requesting_pos.x;
                     let dy = object_guard.get_position().y - requesting_pos.y;
-                    if dx * dx + dy * dy > request_dist_sqr {
+                    if dx * dx + dy * dy > range * range {
                         return None;
                     }
                     Some(object_guard.get_behavior_modules())
@@ -270,8 +270,10 @@ impl Weapon {
         let damage_source_id = self.projectile_damage_source_id(source_obj_id);
         let mask_from = |id: ObjectId| {
             crate::object::registry::OBJECT_REGISTRY.with_object(id, |source| {
-                source.get_controlling_player().and_then(|player| {
-                    player.read().ok().map(|player_guard| player_guard.get_player_mask())
+                source.get_controlling_player().and_then(|player_index| {
+                    crate::player::with_player(player_index, |player_guard| {
+                        player_guard.get_player_mask()
+                    })
                 })
             })
         };
@@ -653,9 +655,9 @@ impl Weapon {
         if let Some(src_id) = source_id {
             if let Some(mask) =
                 crate::object::registry::OBJECT_REGISTRY.with_object(src_id, |src_guard| {
-                    src_guard
-                        .get_controlling_player()
-                        .and_then(|player| player.read().ok().map(|p| p.get_player_mask()))
+                    src_guard.get_controlling_player().and_then(|player_index| {
+                        crate::player::with_player(player_index, |p| p.get_player_mask())
+                    })
                 })
             {
                 if let Some(mask) = mask {
@@ -812,14 +814,9 @@ impl Weapon {
             return false; // Can't see if we can't access objects
         };
 
-        // Borrow-first: extract pose/vision under the manager lock (no Arc clone).
         let Some((source_pos, vision_range)) = obj_mgr.with_object(source_id, |src| {
             let pos = src.get_position().clone();
-            let vision = src
-                .base()
-                .read()
-                .map(|base| base.get_vision_range())
-                .unwrap_or(0.0);
+            let vision = src.get_vision_range();
             (pos, vision)
         }) else {
             return false; // Source not found / lock poisoned
@@ -881,19 +878,21 @@ impl Weapon {
         };
         drop(obj_mgr);
 
-        // Check team relationship
         match (source_team, target_team) {
-            (Some(source_team_lock), Some(target_team_lock)) => {
-                // Both have teams, check relationship
-                if let (Ok(source_t), Ok(target_t)) =
-                    (source_team_lock.read(), target_team_lock.read())
-                {
-                    let relationship = source_t.get_relationship(&target_t);
-                    // Only enemies can be targeted; not allies, friends, or self
-                    matches!(relationship, Relationship::Enemies)
-                } else {
-                    true // Lock error, assume enemy
+            (Some(source_team_id), Some(target_team_id)) => {
+                if source_team_id == target_team_id {
+                    return false;
                 }
+                crate::team::with_team(source_team_id, |source_t| {
+                    crate::team::with_team(target_team_id, |target_t| {
+                        matches!(
+                            source_t.get_relationship(target_t),
+                            Relationship::Enemies
+                        )
+                    })
+                    .unwrap_or(true)
+                })
+                .unwrap_or(true)
             }
             (None, None) => {
                 // Neither has a team - treat as enemies (can fire on neutral objects)
@@ -969,9 +968,7 @@ impl Weapon {
             TheObjectFactory::find_template(&self.template.projectile_name)
         {
             let mut owning_player = self.caller_player();
-            let mut projectile_team: Option<crate::team::TeamID> = self.caller_team.as_ref().and_then(|team| {
-                team.read().ok().map(|guard| guard.get_id())
-            });
+            let mut projectile_team: Option<crate::team::TeamID> = self.caller_team;
             let mut source_veterancy = self
                 .caller_veterancy
                 .unwrap_or(crate::common::VeterancyLevel::Regular);
@@ -1168,15 +1165,12 @@ impl Weapon {
 
         let factory = crate::helpers::TheThingFactory::get()
             .map_err(|e| WeaponError::SystemError(e.to_string()))?;
-        let laser_obj = crate::team::with_team(team_id, |team_guard| {
+        let laser_id = crate::team::with_team(team_id, |team_guard| {
             factory.new_object(template, team_guard)
         })
         .ok_or_else(|| WeaponError::SystemError("Source team lock failed".to_string()))?
         .map_err(|e| WeaponError::SystemError(e.to_string()))?;
 
-        let mut laser_guard = laser_obj
-            .write()
-            .map_err(|_| WeaponError::SystemError("Laser object lock failed".to_string()))?;
         // C++ Weapon.cpp:2442-2448. Start from the passed aim point. Raise
         // non-projectile, non-airborne victims by 10 so the beam is not in
         // their feet. Do not replace the aim point with getPosition().
@@ -1189,13 +1183,12 @@ impl Weapon {
                 end_pos.z += 10.0;
             }
         }
-        let _ = laser_guard.set_position(&source_pos);
-        let laser_id = laser_guard.get_id();
-
-        let _ = (damage_per_frame, duration);
-
-        let client_modules = laser_guard.client_update_modules();
-        drop(laser_guard);
+        let Some(client_modules) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(laser_id, |laser_guard| {
+            let _ = laser_guard.set_position(&source_pos);
+            laser_guard.client_update_modules()
+        }) else {
+            return Err(WeaponError::SystemError("Laser object lock failed".to_string()));
+        };
 
         let target_id_for_laser = target_obj_id.filter(|id| crate::object::registry::OBJECT_REGISTRY.contains(*id));
 
@@ -1468,16 +1461,9 @@ impl Weapon {
         let dealt = obj_mgr
             .with_object_mut(obj_id, |obj| -> Result<f32, WeaponError> {
                 let mut engine_damage_info = self.build_engine_damage_info(damage_info);
-                let __base_arc = obj.base();
-                if let Ok(mut base) = __base_arc.write() {
-                    base.attempt_damage(&mut engine_damage_info).map_err(|e| {
-                        WeaponError::SystemError(format!("Failed to apply damage: {}", e))
-                    })?;
-                } else {
-                    return Err(WeaponError::SystemError(
-                        "Failed to acquire base object lock".to_string(),
-                    ));
-                }
+                obj.attempt_damage(&mut engine_damage_info).map_err(|e| {
+                    WeaponError::SystemError(format!("Failed to apply damage: {}", e))
+                })?;
                 damage_info.output.actual_damage_dealt =
                     engine_damage_info.output.actual_damage_dealt;
                 damage_info.output.actual_damage_clipped =

@@ -310,17 +310,12 @@ impl DefaultCommandHandler {
             ));
         };
 
-        let list_lock = crate::player::player_list();
-        let Ok(list) = list_lock.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Player list unavailable"));
-        };
-        let Some(player) = list.get_player(player_index) else {
+
+        let Some(()) = crate::player::with_player_mut(player_index, |player| {
+            player.set_logical_retaliation_mode_enabled(enable);
+        }) else {
             return CommandExecutionResult::Failed(AsciiString::from("Player not found"));
         };
-        let Ok(mut guard) = player.write() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Failed to lock player"));
-        };
-        guard.set_logical_retaliation_mode_enabled(enable);
         CommandExecutionResult::Success
     }
 
@@ -345,18 +340,9 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         }
 
-        let list_lock = crate::player::player_list();
-        let Ok(list) = list_lock.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Player list unavailable"));
-        };
-        let Some(player) = list.get_player(context.player_id) else {
-            return CommandExecutionResult::Success;
-        };
-        let Ok(mut guard) = player.write() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Failed to lock player"));
-        };
-
-        let _ = guard.attempt_to_purchase_science(science);
+        let _ = crate::player::with_player_mut(context.player_id, |player| {
+            let _ = player.attempt_to_purchase_science(science);
+        });
         CommandExecutionResult::Success
     }
 

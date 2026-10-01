@@ -19,7 +19,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData};
 use log::warn;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Wave 307: host-only path has no dual-world factory objects.
 #[inline]
@@ -226,7 +226,7 @@ impl GrantStealthBehavior {
                 .ok_or("Invalid module data type for GrantStealthBehavior")?;
             data_ref.clone()
         };
-        Self::new_with_data(object, Arc::new(specific_data))
+        Self::new_with_data(object_id, Arc::new(specific_data))
     }
 
     pub fn new_with_data(
@@ -247,19 +247,21 @@ impl GrantStealthBehavior {
                 if let Some(system_id) =
                     manager.create_particle_system(Some(radius_tmpl.name.as_str()))
                 {
-                    if let Ok(obj_guard) = object.read() {
+                    let _ = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                         manager.set_particle_system_position(system_id, obj_guard.get_position());
-                    }
+                    });
                     behavior.radius_particle_system_id = system_id;
                 }
             }
         }
 
-        if let Ok(obj_guard) = object.read() {
-            let now = crate::helpers::TheGameLogic::get_frame();
+        if let Some(wake_frame) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            let now = TheGameLogic::get_frame();
             let wake_frame = now.saturating_add(1);
-            behavior.next_call_frame_and_phase = wake_frame;
             obj_guard.reschedule_named_update("GrantStealthBehavior", wake_frame);
+            wake_frame
+        }) {
+            behavior.next_call_frame_and_phase = wake_frame;
         }
 
         Ok(behavior)
@@ -273,20 +275,14 @@ impl GrantStealthBehavior {
             return;
         }
 
-        // Get self object for filtering (C++ line 162-163)
-        let Some(self_obj) = (if self.object_id == crate::common::INVALID_ID {
+        // C++ getObject(): missing grantor is a no-op.
+        let Some(self_id) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            OBJECT_REGISTRY.with_object(self.object_id, |obj| obj.get_id())
         }) else {
             return;
         };
-        let Ok(self_guard) = self_obj.read() else {
-            return;
-        };
-        let self_id = self_guard.get_id();
-        drop(self_guard);
 
         // Don't grant to self (C++ line 162-163)
         if target_id == self_id {
@@ -353,21 +349,20 @@ impl GrantStealthBehavior {
         }
 
         // Get self object
-        let Some(self_obj) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some((position, grantor_off_map, self_id)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |self_guard| {
+                (
+                    *self_guard.get_position(),
+                    self_guard.is_off_map(),
+                    self_guard.get_id(),
+                )
+            })
+        else {
             return;
         };
-        let Ok(self_guard) = self_obj.read() else {
-            return;
-        };
-
-        let position: Coord3D = *self_guard.get_position();
-        let grantor_off_map = self_guard.is_off_map();
-        drop(self_guard);
 
         // C++ lines 124-128: Setup scan filters
         // PartitionFilterRelationship relationship( self, PartitionFilterRelationship::ALLOW_ALLIES )
@@ -377,67 +372,50 @@ impl GrantStealthBehavior {
         // C++ lines 141-142: Query nearby objects within current_scan_radius
         // ObjectIterator *iter = ThePartitionManager->iterateObjectsInRange(
         //     self->getPosition(), m_currentScanRadius, FROM_CENTER_2D, filters )
-
-        // NOTE: Since we don't have PartitionManager fully integrated yet,
-        // Wave 307: empty dual-world residual.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-        // we'll use OBJECT_REGISTRY.get_all_object_ids() and filter manually
-        // This is less efficient but functionally equivalent for now
-        // Wave 307: empty dual-world residual.
-        if dual_world_registry_unavailable() {
-            return;
-        }
+        // Manual registry scan: partition filters are applied per object below.
         let all_object_ids = OBJECT_REGISTRY.get_all_object_ids();
+        let radius_sqr = self.current_scan_radius * self.current_scan_radius;
 
         // C++ lines 143-145: For each object, grant stealth
-        for obj_id in &all_object_ids {
-            let obj_arc = match OBJECT_REGISTRY.get_object(*obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
+        for obj_id in all_object_ids {
+            let eligible = OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    let obj_pos = obj_guard.get_position();
+                    // Check distance (C++ uses FROM_CENTER_2D - 2D distance only)
+                    let dx = obj_pos.x - position.x;
+                    let dy = obj_pos.y - position.y;
+                    let dist_sqr = dx * dx + dy * dy;
+                    if dist_sqr > radius_sqr {
+                        return false;
+                    }
 
-            let obj_id = obj_guard.get_id();
-            let obj_pos = obj_guard.get_position();
+                    // C++ line 125: PartitionFilterRelationship - ALLOW_ALLIES
+                    if !Self::is_allied_or_self(self_id, obj_guard) {
+                        return false;
+                    }
 
-            // Check distance (C++ uses FROM_CENTER_2D - 2D distance only)
-            let dx = obj_pos.x - position.x;
-            let dy = obj_pos.y - position.y;
-            let dist_sqr = dx * dx + dy * dy;
-            let radius_sqr = self.current_scan_radius * self.current_scan_radius;
+                    if obj_guard.is_off_map() != grantor_off_map {
+                        return false;
+                    }
 
-            if dist_sqr > radius_sqr {
-                continue;
+                    // C++ line 127: PartitionFilterAlive - check alive
+                    !obj_guard.is_effectively_dead()
+                })
+                .unwrap_or(false);
+            if eligible {
+                self.grant_stealth_to_object(obj_id);
             }
-
-            // C++ line 125: PartitionFilterRelationship - ALLOW_ALLIES
-            if !Self::is_allied_or_self(&self_obj, &obj_guard) {
-                continue;
-            }
-
-            if obj_guard.is_off_map() != grantor_off_map {
-                continue;
-            }
-
-            // C++ line 127: PartitionFilterAlive - check alive
-            if obj_guard.is_effectively_dead() {
-                continue;
-            }
-            drop(obj_guard);
-
-            self.grant_stealth_to_object(obj_id);
         }
     }
 
-    fn is_allied_or_self(self_obj: ObjectID, other: &GameObject) -> bool {
-        let Ok(self_guard) = self_obj.read() else {
-            return false;
-        };
-        matches!(self_guard.relationship_to(other), Relationship::Allies)
+    fn is_allied_or_self(self_id: ObjectID, other: &GameObject) -> bool {
+        // Same-id re-entry is false while `other` is checked out; self is skipped
+        // here and also rejected by grant_stealth_to_object.
+        OBJECT_REGISTRY
+            .with_object(self_id, |me| {
+                matches!(me.relationship_to(other), Relationship::Allies)
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -448,17 +426,13 @@ impl UpdateModuleInterface for GrantStealthBehavior {
             return UPDATE_SLEEP_FOREVER;
         }
 
-        let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if self.object_id == crate::common::INVALID_ID {
+            return UPDATE_SLEEP_FOREVER;
+        }
+        let Some((object_id, is_dead)) = OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+            (obj_guard.get_id(), obj_guard.is_effectively_dead())
         }) else {
             return UPDATE_SLEEP_FOREVER;
-        };
-        let (object_id, is_dead) = match object.read() {
-            Ok(obj_guard) => (obj_guard.get_id(), obj_guard.is_effectively_dead()),
-            Err(_) => return UPDATE_SLEEP_FOREVER,
         };
         if is_dead {
             return UPDATE_SLEEP_FOREVER;

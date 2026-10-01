@@ -125,67 +125,49 @@ impl AutoFindHealingUpdate {
 impl UpdateModuleInterface for AutoFindHealingUpdate {
     /// Main update loop. Matches C++ lines 78-123
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let object = match (if self.object_id == crate::common::INVALID_ID { None } else { crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)) }) {
-            Some(obj) => obj,
-            None => return 0, // UPDATE_SLEEP_NONE
-        };
-
-        let obj_read = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return 0,
-        };
-
-        // Only process AI-controlled units. Matches C++ lines 82-84
-        if let Some(player) = obj_read.get_controlling_player() {
-            let player_read = match player.read() {
-                Ok(guard) => guard,
-                Err(_) => return 0,
-            };
-
-            // Human players handle healing manually
-            if player_read.is_human() {
-                return 0; // UPDATE_SLEEP_NONE
-            }
+        if self.object_id == crate::common::INVALID_ID {
+            return 0;
         }
-
-        // Countdown timer optimization. Matches C++ lines 88-93
+        let proceed = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
+            if let Some(player) = obj_read.get_controlling_player() {
+                let human = crate::player::with_player(player, |p| p.is_human()).unwrap_or(true);
+                if human {
+                    return false;
+                }
+            }
+            true
+        });
+        let Some(true) = proceed else {
+            return 0;
+        };
         if self.next_scan_frames > 0 {
             self.next_scan_frames -= 1;
-            return 0; // UPDATE_SLEEP_NONE
+            return 0;
         }
         self.next_scan_frames = self.module_data.scan_frames as Int;
-
-        // Get AI interface. Matches C++ lines 95-96
-        let ai_available = obj_read.get_ai_update_interface().is_some();
-        if !ai_available {
-            return 0; // UPDATE_SLEEP_NONE
-        }
-
-        // Check health status. Matches C++ lines 98-104
-        if let Some(body) = obj_read.get_body_module() {
-            let health = body.get_health();
-            let max_health = body.get_max_health();
-
-            // If we're very healthy, don't bother looking for healing. Matches C++ lines 102-104
-            if health > max_health * self.module_data.never_heal {
-                return 0; // UPDATE_SLEEP_NONE
+        let should_scan = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_read| {
+            if obj_read.get_ai_update_interface().is_none() {
+                return false;
             }
-
-            // Check if we should heal despite being busy. Matches C++ lines 106-114
-            // For now, only heal if idle (C++ line 109)
-            // Future: Check if health > max_health * always_heal threshold (C++ lines 111-113)
-        }
-
-        // Periodic scanning (expensive). Matches C++ lines 116-122
-        drop(obj_read); // Release read lock before calling scan
-
-        if let Ok(obj_ref) = object.read() {
-            if let Some(heal_id) = self.scan_closest_target(&obj_ref) {
-                drop(obj_ref);
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner| {
-                    owner.ai_pending_heal = Some(heal_id);
-                });
+            if let Some(body) = obj_read.get_body_module() {
+                let health = body.get_health();
+                let max_health = body.get_max_health();
+                if health > max_health * self.module_data.never_heal {
+                    return false;
+                }
             }
+            true
+        });
+        if should_scan != Some(true) {
+            return 0;
+        }
+        let heal_id = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_ref| {
+            self.scan_closest_target(obj_ref)
+        }).flatten();
+        if let Some(heal_id) = heal_id {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner| {
+                owner.ai_pending_heal = Some(heal_id);
+            });
         }
 
         0 // UPDATE_SLEEP_NONE, matches C++ line 122

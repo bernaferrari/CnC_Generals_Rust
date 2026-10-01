@@ -239,7 +239,7 @@ impl ScriptAction for TeamGuardAction {
                 .unwrap_or(0.0);
             Coord3D::new(x_pos as f32, y_pos as f32, z)
         } else {
-            let Some(team_arc) = get_team_factory()
+            let Some(team_id) = get_team_factory()
                 .lock()
                 .ok()
                 .and_then(|mut guard| guard.find_team(&resolved_team))
@@ -248,11 +248,10 @@ impl ScriptAction for TeamGuardAction {
                 return Ok(ScriptResult::Success(None));
             };
 
-            let members = team_arc
-                .read()
-                .map_err(|_| GameLogicError::Threading("Failed to read Team".to_string()))?
-                .get_members()
-                .to_vec();
+            let members = crate::team::factory_access::with_team(team_id, |team| {
+                team.get_members().to_vec()
+            })
+            .ok_or_else(|| GameLogicError::Threading("Failed to read Team".to_string()))?;
             if members.is_empty() {
                 log::warn!("TeamGuardAction: team '{}' has no members", resolved_team);
                 return Ok(ScriptResult::Success(None));
@@ -516,7 +515,7 @@ impl ScriptAction for TeamGarrisonBuildingAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -608,7 +607,7 @@ impl ScriptAction for TeamExitBuildingAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -694,7 +693,7 @@ impl ScriptAction for TeamCaptureBuildingAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -708,34 +707,23 @@ impl ScriptAction for TeamCaptureBuildingAction {
         let mut issued = 0;
         if let Ok(mut factory) = get_object_factory().write() {
             for member_id in members {
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(member_id, |unit_guard| {
-                        let can = crate::object::registry::OBJECT_REGISTRY.with_object(building_id, |building_guard| {
-                            TheActionManager::can_capture_building(
-                                &unit_guard,
-                                building_guard,
-                                CommandSourceType::FromScript,
-                            )
-                        });
-                        if can != Some(true) {
-                            return _ObjFlow::Cont;
-                        }
-                        
-                        let Some(GameObjectInstance::Unit(unit)) = factory.get_object_mut(member_id) else {
-                            return _ObjFlow::Cont;
-                        };
-                        
-                        let _ = unit.give_capture_order(building_id, false);
-                        issued += 1;
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None | Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
-                    }
+                let allowed = OBJECT_REGISTRY.with_object(member_id, |unit_guard| {
+                    OBJECT_REGISTRY.with_object(building_id, |building_guard| {
+                        TheActionManager::can_capture_building(
+                            &unit_guard,
+                            building_guard,
+                            CommandSourceType::FromScript,
+                        )
+                    }) == Some(true)
+                });
+                if allowed != Some(true) {
+                    continue;
                 }
+                let Some(GameObjectInstance::Unit(unit)) = factory.get_object_mut(member_id) else {
+                    continue;
+                };
+                let _ = unit.give_capture_order(building_id, false);
+                issued += 1;
             }
         }
 
@@ -801,7 +789,7 @@ impl ScriptAction for TeamRepairAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team))
-            .and_then(|team_arc| team_arc.read().ok().map(|team| team.get_members().to_vec()))
+            .and_then(|team_id| crate::team::factory_access::with_team(team_id, |team| team.get_members().to_vec()))
             .unwrap_or_default();
 
         if members.is_empty() {
@@ -1003,7 +991,7 @@ impl ScriptAction for TeamSetStateAction {
 
         let resolved_team = resolve_team_name_token(&team_name);
         let factory = get_team_factory();
-        let Some(team_arc) = factory
+        let Some(team_id) = factory
             .lock()
             .ok()
             .and_then(|mut guard| guard.find_team(&resolved_team))
@@ -1012,9 +1000,9 @@ impl ScriptAction for TeamSetStateAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(mut team_guard) = team_arc.write() {
+        let _ = crate::team::factory_access::with_team_mut(team_id, |team_guard| {
             team_guard.set_state(AsciiString::from(state.as_str()));
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -1064,21 +1052,21 @@ impl ScriptAction for TeamDeleteAction {
 
         let resolved_team = resolve_team_name_token(&team_name);
         let factory = get_team_factory();
-        let team_arc = {
+        let team_id = {
             let mut guard = factory
                 .lock()
                 .map_err(|_| GameLogicError::Threading("Failed to lock TeamFactory".to_string()))?;
             guard.find_team(&resolved_team)
         };
 
-        let Some(team_arc) = team_arc else {
+        let Some(team_id) = team_id else {
             log::warn!("TeamDeleteAction: team '{}' not found", resolved_team);
             return Ok(ScriptResult::Success(None));
         };
 
-        let (team_id, members) = if let Ok(team_guard) = team_arc.read() {
+        let Some((team_id, members)) = crate::team::factory_access::with_team(team_id, |team_guard| {
             (team_guard.get_id(), team_guard.get_members().to_vec())
-        } else {
+        }) else {
             log::warn!("TeamDeleteAction: failed to read team '{}'", resolved_team);
             return Ok(ScriptResult::Success(None));
         };
@@ -1145,11 +1133,11 @@ impl ScriptAction for TeamFollowTeamAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_target))
-            .and_then(|team_arc| {
-                team_arc
-                    .read()
-                    .ok()
-                    .and_then(|team| team.get_members().first().copied())
+            .and_then(|team_id| {
+                crate::team::factory_access::with_team(team_id, |team| {
+                    team.get_members().first().copied()
+                })
+                .flatten()
             });
 
         let Some(target_id) = target_id else {
@@ -1215,12 +1203,12 @@ impl ScriptAction for TeamGuardInTunnelAction {
         log::info!("Team '{}' guarding in tunnel network", team_name);
 
         let resolved_team = resolve_team_name_token(&team_name);
-        let team_arc = get_team_factory()
+        let team_id = get_team_factory()
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&resolved_team));
 
-        let Some(team_arc) = team_arc else {
+        let Some(team_id) = team_id else {
             log::warn!(
                 "TeamGuardInTunnelAction: team '{}' not found",
                 resolved_team
@@ -1228,16 +1216,20 @@ impl ScriptAction for TeamGuardInTunnelAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let (members, controlling_player_id) = team_arc
-            .read()
-            .ok()
-            .map(|team| {
+        let Some((members, controlling_player_id)) =
+            crate::team::factory_access::with_team(team_id, |team| {
                 (
                     team.get_members().to_vec(),
                     team.get_controlling_player_id(),
                 )
             })
-            .unwrap_or_default();
+        else {
+            log::warn!(
+                "TeamGuardInTunnelAction: team '{}' has no members",
+                resolved_team
+            );
+            return Ok(ScriptResult::Success(None));
+        };
 
         if members.is_empty() {
             log::warn!(
@@ -1247,26 +1239,17 @@ impl ScriptAction for TeamGuardInTunnelAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        let player_arc = if let Some(player_id) = controlling_player_id {
-            player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(player_id as PlayerIndex).cloned())
-        } else {
-            None
-        };
-
-        let player_arc = player_arc.or_else(|| {
-            members.iter().find_map(|member_id| {
-                TheGameLogic::find_object_by_id(*member_id).and_then(|obj| {
-                    obj.read()
-                        .ok()
-                        .and_then(|guard| guard.get_controlling_player())
+        let player_index = controlling_player_id
+            .map(|id| id as PlayerIndex)
+            .or_else(|| {
+                members.iter().find_map(|member_id| {
+                    OBJECT_REGISTRY
+                        .with_object(*member_id, |guard| guard.get_controlling_player())
+                        .flatten()
                 })
-            })
-        });
+            });
 
-        let Some(player_arc) = player_arc else {
+        let Some(player_index) = player_index else {
             log::warn!(
                 "TeamGuardInTunnelAction: team '{}' has no controlling player",
                 resolved_team
@@ -1274,12 +1257,13 @@ impl ScriptAction for TeamGuardInTunnelAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let tunnel_ids = player_arc
-            .read()
-            .ok()
-            .and_then(|player| player.get_tunnel_system().cloned())
-            .and_then(|tracker| tracker.get_container_list().ok())
-            .unwrap_or_default();
+        let tunnel_ids = crate::player::with_player(player_index, |player| {
+            player
+                .get_tunnel_system()
+                .and_then(|tracker| tracker.get_container_list().ok())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
 
         if tunnel_ids.is_empty() {
             log::warn!(
@@ -1624,11 +1608,11 @@ impl ScriptAction for TeamFollowAction {
                 .and_then(|mut factory_guard| {
                     factory_guard.find_team(&resolve_team_name_token(&target))
                 })
-                .and_then(|team_arc| {
-                    team_arc
-                        .read()
-                        .ok()
-                        .and_then(|team| team.get_members().first().copied())
+                .and_then(|team_id| {
+                    crate::team::factory_access::with_team(team_id, |team| {
+                        team.get_members().first().copied()
+                    })
+                    .flatten()
                 })
         });
 

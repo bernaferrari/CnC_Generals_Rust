@@ -17,11 +17,10 @@ use crate::helpers::TheTerrainLogic;
 use crate::modules::{
     BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Module data for HeightDieUpdate.
 /// Matches C++ HeightDieUpdateModuleData fields from HeightDieUpdate.h
@@ -199,75 +198,55 @@ impl HeightDieUpdate {
 
 impl UpdateModuleInterface for HeightDieUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return UPDATE_SLEEP_NONE,
-        };
+        let object_id = self.object_id;
+        if object_id == crate::common::INVALID_ID {
+            return UPDATE_SLEEP_NONE;
+        }
+        if !crate::object::registry::OBJECT_REGISTRY.contains(object_id) {
+            return UPDATE_SLEEP_NONE;
+        }
 
-        // Matches C++ HeightDieUpdate.cpp:94-96
-        // Initialize earliest death frame on first call
         if self.earliest_death_frame == u32::MAX {
             let current_frame = TheGameLogic::get_frame();
             self.earliest_death_frame =
                 current_frame.wrapping_add(self.module_data.initial_delay);
         }
 
-        // If at least a one frame delay has been set, then stop for a while
-        // Matches C++ HeightDieUpdate.cpp:99-100
         let current_frame = TheGameLogic::get_frame();
         if self.earliest_death_frame > current_frame {
             return UPDATE_SLEEP_NONE;
         }
 
-        // Do nothing if we're contained within other objects ... like a transport
-        // Matches C++ HeightDieUpdate.cpp:103-112
-        let me = match obj_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => return UPDATE_SLEEP_NONE,
+        let Some((contained, pos0)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+            object_id,
+            |me| (me.get_contained_by().is_some(), *me.get_position()),
+        ) else {
+            return UPDATE_SLEEP_NONE;
         };
 
-        if me.get_contained_by().is_some() {
-            // Keep track of our last position even though we're not doing anything yet
-            self.last_position = *me.get_position();
+        if contained {
+            self.last_position = pos0;
             return UPDATE_SLEEP_NONE;
         }
 
-        // Get the module data
-        let d = &self.module_data;
-
-        // Get our current position. C++ line 118
-        let mut pos = *me.get_position();
-
-        // Drop read lock before potentially taking write lock
-        drop(me);
+        let d = self.module_data.clone();
+        let mut pos = pos0;
 
         let mut direction_ok = true;
         if !self.has_died {
-            // Matches C++ HeightDieUpdate.cpp:124-130
-            if d.only_when_moving_down {
-                if pos.z >= self.last_position.z {
-                    direction_ok = false;
-                }
+            if d.only_when_moving_down && pos.z >= self.last_position.z {
+                direction_ok = false;
             }
 
-            // Get the terrain height. C++ line 133
             let mut terrain_height_at_pos = 0.0;
             if let Some(terrain) = TheTerrainLogic::get() {
                 terrain_height_at_pos = terrain.get_ground_height(pos.x, pos.y, None);
             }
 
-            // If including structures, check for bridges and buildings
-            // Matches C++ HeightDieUpdate.cpp:136-145
             if d.target_height_includes_structures {
                 if let Some(terrain) = TheTerrainLogic::get() {
                     let layer = terrain.get_highest_layer_for_destination(&pos);
                     if layer != PathfindLayerEnum::Ground {
-                        // LAYER_GROUND = 0
                         let layer_height = terrain.get_layer_height(pos.x, pos.y, layer);
                         if layer_height > terrain_height_at_pos {
                             terrain_height_at_pos = layer_height;
@@ -276,31 +255,30 @@ impl UpdateModuleInterface for HeightDieUpdate {
                 }
             }
 
-            // Our target height to die at is by default the height specified in the INI
-            // entry above the terrain. C++ lines 148-152
             let mut target_height = terrain_height_at_pos + d.target_height_above_terrain;
 
-            // If we consider objects under us, find the tallest structure in range
-            // Matches C++ HeightDieUpdate.cpp:158-197
             if d.target_height_includes_structures {
-                // Scan all objects in the radius of our extent and find the tallest height
-                let me_ref = match obj_arc.read() {
-                    Ok(guard) => guard,
-                    Err(_) => return UPDATE_SLEEP_NONE,
+                let Some((range, my_id)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    object_id,
+                    |me_ref| {
+                        (
+                            me_ref.get_geometry_info().get_bounding_circle_radius(),
+                            me_ref.id(),
+                        )
+                    },
+                ) else {
+                    return UPDATE_SLEEP_NONE;
                 };
 
-                let range = me_ref.get_geometry_info().get_bounding_circle_radius();
-                let my_id = me_ref.id();
-
-                // Find tallest structure height
                 let mut tallest_height: Real = 0.0;
-
                 if let Some(partition) = ThePartitionManager::get() {
-                    let candidates = partition
-                        .get_objects_in_range_boundary_3d_from_object(&me_ref, range);
+                    let candidates = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(object_id, |me_ref| {
+                            partition.get_objects_in_range_boundary_3d_from_object(me_ref, range)
+                        })
+                        .unwrap_or_default();
 
                     for obj_id in candidates {
-                        // Ignore ourselves. C++ line 178-179
                         if obj_id == my_id {
                             continue;
                         }
@@ -325,51 +303,47 @@ impl UpdateModuleInterface for HeightDieUpdate {
                     }
                 }
 
-                // C++ lines 194-195
                 if tallest_height > d.target_height_above_terrain {
                     target_height = tallest_height + terrain_height_at_pos;
                 }
             }
 
-            // If we are below the target height ... DIE!
-            // Matches C++ HeightDieUpdate.cpp:200-222
             if pos.z < target_height && direction_ok {
-                // If we're supposed to snap us to the ground on death do so
-                // AND: even if we're not snapping to ground, be sure we don't go BELOW ground
-                if d.snap_to_ground_on_death || pos.z < terrain_height_at_pos {
+                let snap = d.snap_to_ground_on_death || pos.z < terrain_height_at_pos;
+                if snap {
                     pos.z = terrain_height_at_pos;
-                    if let Ok(mut obj_write) = obj_arc.write() {
-                        let _ = obj_write.set_position(&pos);
-                    }
                 }
-
-                if let Ok(mut obj_write) = obj_arc.write() {
-                    obj_write.kill(None, None);
+                // Same-id reentry is None while checked out. Only record death
+                // when kill actually ran on the registered object.
+                let killed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    object_id,
+                    |obj| {
+                        if snap {
+                            let _ = obj.set_position(&pos);
+                        }
+                        obj.kill(None, None);
+                    },
+                );
+                if killed.is_some() {
                     self.has_died = true;
                 }
             }
         }
 
-        // If our height is below the destroy attached particles height above the terrain, clean them up
-        // Matches C++ HeightDieUpdate.cpp:230-239
         if !self.particles_destroyed
             && pos.z < d.destroy_attached_particles_at_height
             && (self.has_died || direction_ok)
         {
-            // C++ HeightDieUpdate.cpp:234 — TheParticleSystemManager->destroyAttachedSystems(getObject())
-            if let Some(obj_guard) = obj_arc.read().ok() {
-                let obj_id = obj_guard.id();
-                drop(obj_guard);
+            // C++ destroyAttachedSystems(getObject()) — only once the owner is still registered.
+            if crate::object::registry::OBJECT_REGISTRY.contains(object_id) {
                 if let Some(ps_manager) = TheParticleSystemManager::get() {
-                    ps_manager.destroy_attached_systems(obj_id);
+                    ps_manager.destroy_attached_systems(object_id);
                 }
                 self.particles_destroyed = true;
             }
         }
 
-        // Save our current position as the last position we monitored. C++ line 242
         self.last_position = pos;
-
         UPDATE_SLEEP_NONE
     }
 }

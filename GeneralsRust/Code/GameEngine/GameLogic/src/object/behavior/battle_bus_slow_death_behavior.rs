@@ -590,13 +590,15 @@ impl BattleBusSlowDeathBehavior {
         if self.object_id == OBJECT_INVALID_ID {
             return Err("BattleBusSlowDeathBehavior missing owning object id".into());
         }
-        OBJECT_REGISTRY.get_object(self.object_id).ok_or_else(|| {
-            format!(
+        if OBJECT_REGISTRY.contains(self.object_id) {
+            Ok(self.object_id)
+        } else {
+            Err(format!(
                 "BattleBusSlowDeathBehavior object {} not registered",
                 self.object_id
             )
-            .into()
-        })
+            .into())
+        }
     }
     fn with_object<R>(&self, f: impl FnOnce(&GameObject) -> R) -> Option<R> {
         // Wave 414: empty dual-world → None.
@@ -782,16 +784,12 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
             }
 
             let now = TheGameLogic::get_frame();
-            if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            {
-                if let Ok(guard) = object.read() {
-                    guard.reschedule_named_update(
-                        "BattleBusSlowDeathBehavior",
-                        now.saturating_add(1),
-                    );
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                guard.reschedule_named_update(
+                    "BattleBusSlowDeathBehavior",
+                    now.saturating_add(1),
+                );
+            });
         } else {
             // C++ lines 159-163: If a real death, delegate to base SlowDeathBehavior
             self.is_in_first_death = false;

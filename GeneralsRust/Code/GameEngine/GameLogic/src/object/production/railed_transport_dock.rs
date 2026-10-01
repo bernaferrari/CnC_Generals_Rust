@@ -477,27 +477,29 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(false);
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+        {
             return Ok(false);
-        };
-        let docker_id = {
-            let docker_guard = obj.read().map_err(|_| "Failed to lock docker")?;
-            docker_guard.get_id()
-        };
+        }
+        let docker_id = obj_id;
 
         if self.docking_object_id != docker_id {
-            let Some(us) = TheGameLogic::find_object_by_id(self.base.owner_id()) else {
+            let owner_id = self.base.owner_id();
+            if !TheGameLogic::find_object_by_id(owner_id)
+                && !crate::object::registry::OBJECT_REGISTRY.contains(owner_id)
+            {
+                return Ok(false);
+            }
+            let Some(dock_pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |us_guard| *us_guard.get_position())
+            else {
                 return Ok(false);
             };
-            let dock_pos = {
-                let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
-                *us_guard.get_position()
-            };
-            let docker_pos = {
-                let docker_guard = obj.read().map_err(|_| "Failed to lock docker")?;
-                *docker_guard.get_position()
+            let Some(docker_pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |docker_guard| *docker_guard.get_position())
+            else {
+                return Ok(false);
             };
 
             let v = Coord3D::new(
@@ -510,14 +512,14 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             if mag <= self.data.tolerance_distance {
                 self.docking_object_id = docker_id;
 
-                if let Ok(mut docker_guard) = obj.write() {
-                    let _ = TheGameLogic::deselect_object(&*docker_guard, PLAYERMASK_ALL, true);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |docker_guard| {
+                    let _ = TheGameLogic::deselect_object(docker_guard, PLAYERMASK_ALL, true);
                     docker_guard.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
                     docker_guard.set_disabled(DisabledType::Held);
 
                     let angle = (dock_pos.y - docker_pos.y).atan2(dock_pos.x - docker_pos.x);
                     let _ = docker_guard.set_orientation(angle);
-                }
+                });
 
                 let duration = self.data.pull_inside_duration_frames;
                 if duration > 0 {
@@ -544,29 +546,37 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(false);
         }
 
-        let Some(us) = TheGameLogic::find_object_by_id(self.base.owner_id()) else {
+        let owner_id = self.base.owner_id();
+        if !TheGameLogic::find_object_by_id(owner_id)
+            && !crate::object::registry::OBJECT_REGISTRY.contains(owner_id)
+        {
             return Ok(false);
-        };
+        }
 
-        let has_contain = {
-            let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
-            us_guard.get_contain().is_some()
-        };
+        let has_contain = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |us_guard| us_guard.get_contain().is_some())
+            .unwrap_or(false);
 
         if !has_contain {
             return Ok(true);
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+        {
             return Ok(false);
-        };
-        let obj_guard = obj.read().map_err(|_| "Failed to lock docker")?;
-        let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
-        Ok(us_guard
-            .get_contain()
-            .map(|contain| contain.is_valid_container_for(&*obj_guard, true))
+        }
+        Ok(crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |us_guard| {
+                us_guard.get_contain().map(|contain| {
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(obj_id, |obj_guard| {
+                            contain.is_valid_container_for(obj_guard, true)
+                        })
+                        .unwrap_or(true)
+                })
+            })
+            .flatten()
             .unwrap_or(true))
     }
 

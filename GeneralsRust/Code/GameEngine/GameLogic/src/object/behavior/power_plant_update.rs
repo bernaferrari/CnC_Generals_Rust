@@ -127,13 +127,12 @@ impl PowerPlantUpdate {
         if extend {
             if !self.extended {
                 if self.object_id != crate::common::INVALID_ID {
-                    if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-                    {
-                        if let Ok(mut obj) = object.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.object_id,
+                        |obj| {
                             obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
-                        }
-                    }
+                        },
+                    );
                 }
                 self.extended = true;
                 let now = crate::helpers::TheGameLogic::get_frame();
@@ -146,17 +145,11 @@ impl PowerPlantUpdate {
             self.next_call_frame_and_phase = UPDATE_SLEEP_FOREVER.to_u32();
             self.reschedule_self();
 
-            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut obj) = object.write() {
-                    // Clear both upgrading and upgraded visual flags immediately
+            if self.object_id != crate::common::INVALID_ID {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                     obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
                     obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADED);
-                }
+                });
             }
         }
     }
@@ -165,14 +158,9 @@ impl PowerPlantUpdate {
         if self.object_id == crate::common::INVALID_ID {
             return;
         }
-        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        if let Ok(guard) = object.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
             guard.reschedule_named_update("PowerPlantUpdate", self.next_call_frame_and_phase);
-        }
+        });
     }
 
     /// Check if rods are extended
@@ -188,22 +176,16 @@ impl UpdateModuleInterface for PowerPlantUpdate {
             return UPDATE_SLEEP_FOREVER;
         }
 
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut obj) = object.write() {
+        if self.object_id != crate::common::INVALID_ID {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                 obj.clear_and_set_model_condition_flags(
                     ModelConditionFlags::POWER_PLANT_UPGRADING,
                     ModelConditionFlags::POWER_PLANT_UPGRADED,
                 );
-            }
+            });
         }
         self.extended = true;
         UPDATE_SLEEP_FOREVER
-    }
 }
 
 impl BehaviorModuleInterface for PowerPlantUpdate {

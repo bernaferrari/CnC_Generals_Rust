@@ -523,10 +523,10 @@ impl PartitionManager {
                     results.push(obj_id);
                     continue;
                 }
-                let Some(handle) = OBJECT_REGISTRY.get_object(obj_id) else {
-                    continue;
-                };
-                if filters.iter().all(|filter| filter.allow(&handle)) {
+                let allowed = OBJECT_REGISTRY
+                    .with_object(obj_id, |handle| filters.iter().all(|filter| filter.allow(handle)))
+                    .unwrap_or(false);
+                if allowed {
                     results.push(obj_id);
                 }
             }

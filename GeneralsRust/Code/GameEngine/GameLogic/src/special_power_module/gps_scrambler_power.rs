@@ -77,39 +77,29 @@ impl GpsScramblerPower {
             return true;
         }
 
-        let player_list = crate::player::player_list();
-        let Ok(list_guard) = player_list.read() else {
-            return false;
-        };
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex) else {
-            return false;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return false;
-        };
+        crate::player::with_player_mut(player_id as PlayerIndex, |player_guard| {
+            if !player_guard
+                .get_money_mut()
+                .subtract_money(self.data.base.cost)
+            {
+                return false;
+            }
 
-        if !player_guard
-            .get_money_mut()
-            .subtract_money(self.data.base.cost)
-        {
-            return false;
-        }
+            if self.data.base.cost > 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_spent(self.data.base.cost as u32);
+            }
 
-        if self.data.base.cost > 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_spent(self.data.base.cost as u32);
-        }
-
-        true
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn get_player_money(&self, player_id: ObjectID) -> Option<Int> {
-        let player_list = crate::player::player_list();
-        let list_guard = player_list.read().ok()?;
-        let player_arc = list_guard.get_player(player_id as PlayerIndex)?;
-        let player_guard = player_arc.read().ok()?;
-        Some(player_guard.get_money().get_money())
+        crate::player::with_player(player_id as PlayerIndex, |player_guard| {
+            player_guard.get_money().get_money()
+        })
     }
 
     fn check_prerequisites(&self, player_id: ObjectID) -> Bool {
@@ -138,33 +128,20 @@ impl GpsScramblerPower {
     fn apply_scrambling_effect(&mut self, activating_player_id: ObjectID) -> Result<(), String> {
         log::debug!("Applying GPS scrambling to enemy players");
 
-        let Ok(list) = player_list().read() else {
-            return Err("Failed to lock player list".to_string());
-        };
-        let Some(activating_player) = list.get_player(activating_player_id as Int) else {
-            return Err(format!(
-                "Activating player {} not found",
-                activating_player_id
-            ));
-        };
-
-        let Ok(activating_guard) = activating_player.read() else {
-            return Err("Failed to lock activating player".to_string());
-        };
-        let enemy_players = activating_guard.get_enemy_players();
-
-        drop(activating_guard);
+        let enemy_players = crate::player::with_player(
+            activating_player_id as crate::player::PlayerIndex,
+            |activating_guard| activating_guard.get_enemy_players(),
+        )
+        .ok_or_else(|| format!("Activating player {} not found", activating_player_id))?;
 
         for enemy_id in enemy_players {
-            let Some(enemy_player) = list.get_player(enemy_id) else {
-                continue;
-            };
-            let Ok(mut enemy_guard) = enemy_player.write() else {
-                continue;
-            };
-
-            enemy_guard.disable_radar();
-            self.affected_players.push(enemy_id as ObjectID);
+            if crate::player::with_player_mut(enemy_id, |enemy_guard| {
+                enemy_guard.disable_radar();
+            })
+            .is_some()
+            {
+                self.affected_players.push(enemy_id as ObjectID);
+            }
         }
 
         log::debug!(
@@ -179,15 +156,10 @@ impl GpsScramblerPower {
         if current_frame >= self.active_until_frame && !self.affected_players.is_empty() {
             log::debug!("GPS Scrambler effect ended, restoring radar");
 
-            if let Ok(list) = player_list().read() {
-                for player_id in self.affected_players.iter().copied() {
-                    let Some(player) = list.get_player(player_id as Int) else {
-                        continue;
-                    };
-                    if let Ok(mut guard) = player.write() {
-                        guard.enable_radar();
-                    }
-                }
+            for player_id in self.affected_players.iter().copied() {
+                let _ = crate::player::with_player_mut(player_id as crate::player::PlayerIndex, |guard| {
+                    guard.enable_radar();
+                });
             }
 
             self.affected_players.clear();

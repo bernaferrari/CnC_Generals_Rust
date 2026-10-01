@@ -582,10 +582,9 @@ impl ScriptAction for TeamCreateRadarEventAction {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
-            .and_then(|team| {
-                team.read()
-                    .ok()
-                    .and_then(|team| team.get_estimate_team_position())
+            .and_then(|team_id| {
+                crate::team::factory_access::with_team(team_id, |team| team.get_estimate_team_position())
+                    .flatten()
             })
         else {
             return Ok(ScriptResult::Success(None));
@@ -919,30 +918,26 @@ impl ScriptAction for RevealMapEntireAction {
         let list_guard = player_list
             .read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
+        let targets: Vec<u32> = if let Some(player) = list_guard.find_player_by_name(&player_name) {
+            vec![player.get_player_index() as u32]
+        } else {
+            list_guard
+                .iter()
+                .filter(|player| player.get_player_type() == PlayerType::Human)
+                .map(|player| player.get_player_index() as u32)
+                .collect()
+        };
+        drop(list_guard);
 
         let shroud_store = crate::system::shroud_manager::get_shroud_manager();
         let mut shroud_manager = shroud_store
             .lock()
             .map_err(|_| GameLogicError::Threading("Failed to lock ShroudManager".to_string()))?;
 
-        if let Some(player) = list_guard.find_player_by_name(&player_name) {
-            let player_guard = player
-                .read()
-                .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
+        for player_index in targets {
             shroud_manager
-                .reveal_map_for_player(player_guard.get_player_index() as u32)
+                .reveal_map_for_player(player_index)
                 .map_err(GameLogicError::Configuration)?;
-        } else {
-            for player in list_guard.iter() {
-                let player_guard = player
-                    .read()
-                    .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-                if player_guard.get_player_type() == PlayerType::Human {
-                    shroud_manager
-                        .reveal_map_for_player(player_guard.get_player_index() as u32)
-                        .map_err(GameLogicError::Configuration)?;
-                }
-            }
         }
 
         Ok(ScriptResult::Success(None))
@@ -991,30 +986,26 @@ impl ScriptAction for ShroudMapEntireAction {
         let list_guard = player_list
             .read()
             .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
+        let targets: Vec<u32> = if let Some(player) = list_guard.find_player_by_name(&player_name) {
+            vec![player.get_player_index() as u32]
+        } else {
+            list_guard
+                .iter()
+                .filter(|player| player.get_player_type() == PlayerType::Human)
+                .map(|player| player.get_player_index() as u32)
+                .collect()
+        };
+        drop(list_guard);
 
         let shroud_store = crate::system::shroud_manager::get_shroud_manager();
         let mut shroud_manager = shroud_store
             .lock()
             .map_err(|_| GameLogicError::Threading("Failed to lock ShroudManager".to_string()))?;
 
-        if let Some(player) = list_guard.find_player_by_name(&player_name) {
-            let player_guard = player
-                .read()
-                .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
+        for player_index in targets {
             shroud_manager
-                .shroud_map_for_player(player_guard.get_player_index() as u32)
+                .shroud_map_for_player(player_index)
                 .map_err(GameLogicError::Configuration)?;
-        } else {
-            for player in list_guard.iter() {
-                let player_guard = player
-                    .read()
-                    .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-                if player_guard.get_player_type() == PlayerType::Human {
-                    shroud_manager
-                        .shroud_map_for_player(player_guard.get_player_index() as u32)
-                        .map_err(GameLogicError::Configuration)?;
-                }
-            }
         }
 
         Ok(ScriptResult::Success(None))

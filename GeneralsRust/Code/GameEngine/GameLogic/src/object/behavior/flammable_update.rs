@@ -224,22 +224,18 @@ impl FlammableUpdate {
         let burned_delay = self.module_data.burned_delay;
         let aflame_damage_delay = self.module_data.aflame_damage_delay;
 
-        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut obj) = object_arc.try_write() {
-                obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
-                obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
-                if let Some(body) = obj.get_body_module_mut() {
-                    let _ = body.set_aflame(true);
-                }
-                self.needs_aflame_side_effects = false;
-            } else {
-                self.needs_aflame_side_effects = true;
-            }
+        if self.object_id != crate::common::INVALID_ID
+            && crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+        {
+            let applied =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                    obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
+                    obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
+                    if let Some(body) = obj.get_body_module_mut() {
+                        let _ = body.set_aflame(true);
+                    }
+                });
+            self.needs_aflame_side_effects = applied.is_none();
         }
         self.start_burning_sound();
 
@@ -312,15 +308,9 @@ impl FlammableUpdate {
             UpdateSleepTime::Forever => UpdateSleepTime::Forever.to_u32(),
             UpdateSleepTime::Frames(frames) => now.saturating_add(frames),
         };
-        let Some(object_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Ok(object) = object_arc.read() else {
-            return;
-        };
-        object.reschedule_named_update(module_name, wake_frame);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object| {
+            object.reschedule_named_update(module_name, wake_frame);
+        });
     }
 
     /// Delay `FireSpreadUpdate::startFireSpreading` would program when the
@@ -336,13 +326,18 @@ impl FlammableUpdate {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        let object_arc = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))?;
-        let object = object_arc.read().ok()?;
-        let is_aflame = object
-            .get_status_bits()
-            .contains(crate::common::ObjectStatusMaskType::AFLAME);
-        let fire_spread = object.find_update_module("FireSpreadUpdate")?;
+        let Some((is_aflame, fire_spread)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object| {
+                let is_aflame = object
+                    .get_status_bits()
+                    .contains(crate::common::ObjectStatusMaskType::AFLAME);
+                let fire_spread = object.find_update_module("FireSpreadUpdate")?;
+                Some((is_aflame, fire_spread))
+            })
+            .flatten()
+        else {
+            return None;
+        };
         fire_spread.try_with_module(|module| {
             module
                 .get_fire_spread_control_interface()
@@ -396,19 +391,13 @@ impl FlammableUpdate {
         }
         self.last_flame_damage_dealt = current_frame;
 
-        let owner = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id));
-        let can_ignite = match owner {
-            None => false,
-            Some(object_arc) => match object_arc.try_read() {
-                Ok(obj) => {
-                    let bits = obj.get_status_bits();
-                    !bits.contains(crate::common::ObjectStatusMaskType::AFLAME)
-                        && !bits.contains(crate::common::ObjectStatusMaskType::BURNED)
-                }
-                Err(_) => self.status == FlammabilityStatus::Normal,
-            },
-        };
+        let can_ignite = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                let bits = obj.get_status_bits();
+                !bits.contains(crate::common::ObjectStatusMaskType::AFLAME)
+                    && !bits.contains(crate::common::ObjectStatusMaskType::BURNED)
+            })
+            .unwrap_or(self.status == FlammabilityStatus::Normal);
         if can_ignite {
             self.flame_damage_limit -= damage_amount;
             if self.flame_damage_limit <= 0.0 {
@@ -438,28 +427,21 @@ impl FlammableUpdate {
             return;
         }
 
-        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut obj) = object_arc.write() {
-                let mut damage_info = DamageInfo::with_simple(
-                    self.module_data.aflame_damage_amount,
-                    self.object_id,
-                    DamageType::Flame,
-                    DeathType::Burned,
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            let mut damage_info = DamageInfo::with_simple(
+                self.module_data.aflame_damage_amount,
+                self.object_id,
+                DamageType::Flame,
+                DeathType::Burned,
+            );
+            if let Err(err) = obj.attempt_damage(&mut damage_info) {
+                log::debug!(
+                    "FlammableUpdate: aflame damage to object {} failed: {}",
+                    obj.get_id(),
+                    err
                 );
-                if let Err(err) = obj.attempt_damage(&mut damage_info) {
-                    log::debug!(
-                        "FlammableUpdate: aflame damage to object {} failed: {}",
-                        obj.get_id(),
-                        err
-                    );
-                }
             }
-        }
+        });
     }
 
     /// Calculate sleep time until next important event - C++ calcSleepTime()
@@ -486,24 +468,23 @@ impl FlammableUpdate {
     }
 
     fn apply_deferred_aflame_side_effects(&mut self) {
-        let Some(object_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        let Some(already_aflame) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                let bits = obj.get_status_bits();
+                if bits.contains(crate::common::ObjectStatusMaskType::AFLAME) {
+                    return true;
+                }
+                obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
+                obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
+                if let Some(body) = obj.get_body_module_mut() {
+                    let _ = body.set_aflame(true);
+                }
+                false
+            })
         else {
             return;
         };
-        let Ok(mut obj) = object_arc.try_write() else {
-            return;
-        };
-        let bits = obj.get_status_bits();
-        if bits.contains(crate::common::ObjectStatusMaskType::AFLAME) {
-            self.needs_aflame_side_effects = false;
-            return;
-        }
-        obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
-        obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
-        if let Some(body) = obj.get_body_module_mut() {
-            let _ = body.set_aflame(true);
-        }
+        let _ = already_aflame;
         self.needs_aflame_side_effects = false;
     }
 }
@@ -536,46 +517,40 @@ impl UpdateModuleInterface for FlammableUpdate {
 
         // Check burned timer (sets permanent burned status)
         if self.burned_end_frame > 0 && current_frame >= self.burned_end_frame {
-            if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut obj) = object_arc.write() {
+            let wrote =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                     obj.set_status(crate::common::ObjectStatusMaskType::BURNED, true);
                     obj.set_model_condition_state(crate::common::ModelConditionFlags::SMOLDERING);
-                    self.burned_end_frame = 0;
-                }
+                });
+            if wrote.is_some() {
+                self.burned_end_frame = 0;
             }
         }
 
         if self.aflame_end_frame > 0 && current_frame >= self.aflame_end_frame {
-            if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
+            let finished =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                    let is_burned = obj
+                        .get_status_bits()
+                        .contains(crate::common::ObjectStatusMaskType::BURNED);
+                    is_burned
+                });
+            let Some(is_burned) = finished else {
+                return self.calc_sleep_time();
+            };
+            self.status = if is_burned {
+                FlammabilityStatus::Burned
             } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                let Ok(mut obj) = object_arc.write() else {
-                    return self.calc_sleep_time();
-                };
-                let is_burned = obj
-                    .get_status_bits()
-                    .contains(crate::common::ObjectStatusMaskType::BURNED);
-                self.status = if is_burned {
-                    FlammabilityStatus::Burned
-                } else {
-                    FlammabilityStatus::Normal
-                };
+                FlammabilityStatus::Normal
+            };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                 obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, false);
                 obj.clear_model_condition_state(crate::common::ModelConditionFlags::Aflame);
                 if let Some(body) = obj.get_body_module_mut() {
                     let _ = body.set_aflame(false);
                 }
-                drop(obj);
-                self.stop_burning_sound();
-            }
+            });
+            self.stop_burning_sound();
         }
 
         self.calc_sleep_time()

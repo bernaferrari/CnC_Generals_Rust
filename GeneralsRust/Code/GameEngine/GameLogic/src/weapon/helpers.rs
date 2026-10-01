@@ -48,9 +48,9 @@ pub const INVALID_OBJECT_ID: ObjectId = 0;
 #[allow(dead_code)]
 pub(crate) fn get_player_index_for_object(object_id: ObjectId) -> Option<usize> {
     crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |source_guard| {
-        let player_arc = source_guard.get_controlling_player()?;
-        let player_guard = player_arc.read().ok()?;
-        Some(player_guard.get_player_index() as usize)
+        source_guard
+            .get_controlling_player()
+            .map(|player_index| player_index as usize)
     })?
 }
 

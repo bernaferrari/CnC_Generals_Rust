@@ -147,19 +147,10 @@ impl DeletionUpdate {
 impl UpdateModuleInterface for DeletionUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         // C++ destroys whenever the scheduled update is invoked; timing is owned by the scheduler.
-        if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if object.read().is_err() {
-                return UpdateSleepTime::None;
-            }
-            let id = object
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(self.object_id);
+        let present = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |object| {
+            object.get_id()
+        });
+        if let Some(id) = present {
             let _ = crate::helpers::TheGameLogic::destroy_object_by_id(id);
         }
         UpdateSleepTime::Forever

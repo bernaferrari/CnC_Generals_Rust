@@ -34,20 +34,16 @@ impl AIPlayer {
             return Ok(None);
         };
 
-        let Ok(list) = player_list().read() else {
+        let player_index = self.player_id as i32;
+        let Some(affordable) = crate::player::with_player(player_index, |player_guard| {
+            let cost = template.calc_cost_to_build(Some(player_guard));
+            player_guard.get_money().get_money() >= cost
+        }) else {
             return Ok(None);
         };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
+        if !affordable {
             return Ok(None);
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(None);
-        };
-
-        let cost = template.calc_cost_to_build(Some(&*player_guard));
-        if player_guard.get_money().get_money() < cost {
-            return Ok(None);
-        }
 
         let mut pos = location;
         if let Some(terrain) = TheTerrainLogic::get() {
@@ -274,9 +270,7 @@ impl AIPlayer {
         // + requested location so duplicate templates do not steal the stamp.
         // decrementNumRebuilds is done by caller in C++ processBaseBuilding; we
         // keep decrement here for solo process_base_building which does not.
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(mut pg) = player_arc.write() {
+        let _ = crate::player::with_player_mut(self.player_id as i32, |pg| {
                     if let Some(info) = pg.get_build_list_mut() {
                         // Pass 1: prefer location match (C++ pointer identity).
                         let mut best_loc: Option<Coord3D> = None;
@@ -332,9 +326,7 @@ impl AIPlayer {
                             }
                         }
                     }
-                }
-            }
-        }
+        });
 
         log::debug!(
             "AI dozer {} started building {} as {}",
@@ -416,9 +408,7 @@ impl AIPlayer {
 
         // Prefer matching build-list entry props first (before object exists fully).
         // C++ uses the BuildListInfo* argument — match by slot id or template+location.
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(pg) = player_arc.read() {
+        let _ = crate::player::with_player(self.player_id as i32, |pg| {
                     let mut best_dist = f32::MAX;
                     let mut fallback_done = false;
                     let mut cur = pg.get_build_list();
@@ -463,9 +453,7 @@ impl AIPlayer {
                         }
                         cur = node.get_next();
                     }
-                }
-            }
-        }
+        });
 
         let bldg_id = {
             let Ok(mut guard) = new_object.write() else {
@@ -506,9 +494,7 @@ impl AIPlayer {
 
         // Stamp build list entry: C++ stamps the BuildListInfo* passed in.
         // Prefer slot id hint, else template + requested location, else first free.
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(mut pg) = player_arc.write() {
+        let _ = crate::player::with_player_mut(self.player_id as i32, |pg| {
                     if let Some(info) = pg.get_build_list_mut() {
                         let mut best_loc: Option<Coord3D> = None;
                         let mut best_dist = f32::MAX;
@@ -575,9 +561,7 @@ impl AIPlayer {
                             }
                         }
                     }
-                }
-            }
-        }
+        });
         let _ = stamped;
 
         // C++ TheScriptEngine->addObjectToCache + runObjectScript
@@ -757,29 +741,13 @@ impl AIPlayer {
         }
 
         let mut busy_factory: Option<ObjectID> = None;
-        let Ok(list) = player_list().read() else {
-            return Ok(None);
-        };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return Ok(None);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(None);
-        };
-
-        // --- C++ path: iterate build list only (no full-object scan). ---
-        // Need mut build list to clear captured factory IDs like C++.
-        drop(player_guard);
-        drop(list);
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(mut player_guard) = player_arc.write() {
+        let mut early: Option<Result<Option<ObjectID>, AiError>> = None;
+        let _ = crate::player::with_player_mut(self.player_id as i32, |player_guard| {
                     if let Some(head) = player_guard.get_build_list_mut() {
                         let mut current = Some(&mut *head);
                         while let Some(info) = current {
                             let obj_id = info.get_object_id();
                             if obj_id != INVALID_ID {
-                                // C++: if factory->getControllingPlayer() != m_player → clear ID.
                                 let wrong_owner = OBJECT_REGISTRY
                                     .with_object(obj_id, |g| {
                                         g.get_controlling_player_id() != Some(self.player_id)
@@ -787,20 +755,31 @@ impl AIPlayer {
                                     .unwrap_or(false);
                                 if wrong_owner {
                                     info.set_object_id(INVALID_ID);
-                                } else if let Some(found) = self.factory_candidate(
-                                    obj_id,
-                                    thing_template,
-                                    busy_ok,
-                                    &mut busy_factory,
-                                )? {
-                                    return Ok(Some(found));
+                                } else {
+                                    match self.factory_candidate(
+                                        obj_id,
+                                        thing_template,
+                                        busy_ok,
+                                        &mut busy_factory,
+                                    ) {
+                                        Ok(Some(found)) => {
+                                            early = Some(Ok(Some(found)));
+                                            return;
+                                        }
+                                        Err(e) => {
+                                            early = Some(Err(e));
+                                            return;
+                                        }
+                                        Ok(None) => {}
+                                    }
                                 }
                             }
                             current = info.get_next_mut();
                         }
                     }
-                }
-            }
+        });
+        if let Some(result) = early {
+            return result;
         }
 
         Ok(busy_factory)
@@ -824,10 +803,7 @@ impl AIPlayer {
             let Ok(list) = player_list().read() else {
                 return Ok(false);
             };
-            let Some(player_arc) = list.get_player(self.player_id as i32) else {
-                return Ok(false);
-            };
-            let Ok(player_guard) = player_arc.read() else {
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
                 return Ok(false);
             };
             player_guard
@@ -894,11 +870,7 @@ impl AIPlayer {
         // C++: m_teamTimer = m_teamSeconds * LOGICFRAMES_PER_SECOND (0 is valid).
         let mut timer = (self.team_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
 
-        let money = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
+        let money = crate::player::with_player(self.player_id as i32, |g| g.get_money().get_money())
             .unwrap_or(0);
 
         let (poor, wealthy, poor_mod, wealthy_mod) = Self::team_wealth_params();
@@ -926,10 +898,7 @@ impl AIPlayer {
             let Ok(list) = player_list().read() else {
                 return Ok(false);
             };
-            let Some(player_arc) = list.get_player(self.player_id as i32) else {
-                return Ok(false);
-            };
-            let Ok(player_guard) = player_arc.read() else {
+            let Some(player_guard) = list.get_player(self.player_id as i32) else {
                 return Ok(false);
             };
             player_guard

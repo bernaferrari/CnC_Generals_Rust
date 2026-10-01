@@ -102,10 +102,10 @@ impl FireOCLAfterWeaponCooldownUpdate {
         let mut ocl_frames = (seconds * LOGICFRAMES_PER_SECOND as f32) as UnsignedInt;
         ocl_frames = ocl_frames.min(self.module_data.ocl_max_frames);
 
-        if let Ok(obj_guard) = obj.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj, |obj_guard| {
             let ctx = crate::object_creation_list::live_creation_context();
-            let _ = ocl.create_with_objects(&ctx, &*obj_guard, Some(&*obj_guard), ocl_frames);
-        }
+            let _ = ocl.create_with_objects(&ctx, obj_guard, Some(obj_guard), ocl_frames);
+        });
 
         self.reset_stats();
     }
@@ -113,8 +113,10 @@ impl FireOCLAfterWeaponCooldownUpdate {
     fn build_upgrade_mask(&self, obj: &GameObject) -> UpgradeMask {
         let mut mask = obj.completed_upgrades();
         if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                mask |= player_guard.get_completed_upgrade_mask();
+            if let Some(player_mask) =
+                crate::player::with_player(player, |player_guard| player_guard.get_completed_upgrade_mask())
+            {
+                mask |= player_mask;
             }
         }
         UpgradeMask::from_bits_retain(mask.bits())
@@ -123,38 +125,48 @@ impl FireOCLAfterWeaponCooldownUpdate {
 
 impl UpdateModuleInterface for FireOCLAfterWeaponCooldownUpdate {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+        {
             return Ok(UpdateSleepTime::Forever);
-        };
-        let Ok(obj) = obj_arc.read() else {
+        }
+        let Some((
+            has_slot_weapon,
+            last_shot_frame,
+            possible_next_shot_frame,
+            slot_matches,
+            has_current,
+            upgrade_mask,
+        )) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+            let has_slot_weapon = obj
+                .get_weapon_in_weapon_slot(self.module_data.weapon_slot)
+                .is_some();
+            let (has_current, slot_matches, last_shot_frame, possible_next_shot_frame) =
+                if let Some((weapon, slot)) = obj.get_current_weapon() {
+                    (
+                        true,
+                        slot == self.module_data.weapon_slot,
+                        weapon.get_last_shot_frame(),
+                        weapon.get_possible_next_shot_frame(),
+                    )
+                } else {
+                    (false, false, 0, 0)
+                };
+            let upgrade_mask = self.build_upgrade_mask(obj);
+            (
+                has_slot_weapon,
+                last_shot_frame,
+                possible_next_shot_frame,
+                slot_matches,
+                has_current,
+                upgrade_mask,
+            )
+        }) else {
             return Ok(UpdateSleepTime::None);
         };
 
-        let mut valid_this_frame = true;
+        let mut valid_this_frame = has_current && slot_matches;
         let mut valid_to_fire_ocl = true;
-        let mut last_shot_frame = 0u32;
-        let mut possible_next_shot_frame = 0u32;
-        let has_slot_weapon = obj
-            .get_weapon_in_weapon_slot(self.module_data.weapon_slot)
-            .is_some();
-
-        if let Some((weapon, slot)) = obj.get_current_weapon() {
-            if slot != self.module_data.weapon_slot {
-                valid_this_frame = false;
-            } else {
-                last_shot_frame = weapon.get_last_shot_frame();
-                possible_next_shot_frame = weapon.get_possible_next_shot_frame();
-            }
-        } else {
-            valid_this_frame = false;
-        }
-
-        let upgrade_mask = self.build_upgrade_mask(&obj);
         if valid_this_frame && !self.upgrade_mux.test_upgrade_conditions(upgrade_mask) {
             valid_this_frame = false;
             valid_to_fire_ocl = false;
@@ -169,14 +181,12 @@ impl UpdateModuleInterface for FireOCLAfterWeaponCooldownUpdate {
                 }
             } else if possible_next_shot_frame < now {
                 if self.module_data.min_shots_required <= self.consecutive_shots {
-                    drop(obj);
-                    self.fire_ocl(&obj_arc, now);
+                    self.fire_ocl(self.object_id, now);
                 }
             }
         } else if valid_to_fire_ocl {
             if has_slot_weapon && self.module_data.min_shots_required <= self.consecutive_shots {
-                drop(obj);
-                self.fire_ocl(&obj_arc, now);
+                self.fire_ocl(self.object_id, now);
             }
         }
 

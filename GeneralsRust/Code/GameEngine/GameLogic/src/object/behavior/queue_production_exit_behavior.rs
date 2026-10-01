@@ -424,11 +424,11 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !(crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(obj_id))
+        {
             return Ok(());
-        };
+        }
 
         let exit_door = match door {
             ModuleExitDoorType::Primary
@@ -445,22 +445,23 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             return Ok(());
         }
 
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(owner_info) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                (
+                    owner_guard.get_transform_matrix(),
+                    owner_guard.get_orientation(),
+                    owner_guard.get_layer(),
+                    owner_guard
+                        .get_physics()
+                        .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity())),
+                )
+            })
+        else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return Ok(());
-        };
+        let (building_transform, building_orientation, owner_layer, owner_velocity) = owner_info;
 
-        let building_transform = owner_guard.get_transform_matrix();
-        let building_orientation = owner_guard.get_orientation();
-        let owner_layer = owner_guard.get_layer();
-        let owner_velocity = owner_guard
-            .get_physics()
-            .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()));
-        drop(owner_guard);
-
-        let new_obj_id = obj.read().map(|guard| guard.get_id()).unwrap_or(INVALID_ID);
+        let new_obj_id = obj_id;
         let exit_result = QueueProductionExitBehavior::exit_object_via_door(
             self,
             new_obj_id,
@@ -475,15 +476,15 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
         );
 
         if let Ok(result) = exit_result {
-            if let Ok(mut guard) = obj.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |guard| {
                 let _ = guard.set_position(&result.exit_position);
                 let _ = guard.set_orientation(result.exit_orientation);
                 guard.set_layer(owner_layer);
-            }
+            });
 
             if result.creation_in_air {
                 if let Some(owner_velocity) = owner_velocity {
-                    if let Ok(obj_guard) = obj.read() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                         if let Some(physics) = obj_guard.get_physics() {
                             if let Ok(mut phys_guard) = physics.lock() {
                                 let mut starting_force = owner_velocity;
@@ -495,7 +496,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                                 phys_guard.set_pitch_rate(pitch_rate);
                             }
                         }
-                    }
+                    });
                 }
             }
 
@@ -511,14 +512,14 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(pf) = pathfinder.read() {
-                        if let Ok(obj_guard) = obj.read() {
-                            pf.snap_position_for_object(&obj_guard, &mut natural_rally);
-                        }
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            pf.snap_position_for_object(obj_guard, &mut natural_rally);
+                        });
                     }
                 }
             }
             let mut exit_path = vec![natural_rally];
-            if let Ok(new_obj_guard) = obj.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |new_obj_guard| {
                 if let Some(ai) = new_obj_guard.get_ai_update_interface() {
                     if self.rally_point_exists {
                         if let Ok(mut ai_guard) = ai.lock() {
@@ -530,7 +531,6 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                             }
                         }
                     } else {
-                        // Match C++ "double destination" to prevent stacking.
                         exit_path.push(natural_rally);
                     }
                     ai.ai_follow_exit_production_path(
@@ -539,7 +539,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                         CommandSourceType::FromAi,
                     );
                 }
-            }
+            });
         }
 
         Ok(())
@@ -555,30 +555,23 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !(crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(obj_id))
+        {
             return Ok(());
-        };
+        }
 
-        let host_info = host_id
-            .and_then(|id| {
-                crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        let host_info = host_id.and_then(|id| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
+                (
+                    *guard.get_position(),
+                    guard.get_orientation(),
+                    guard.get_layer(),
+                )
             })
-            .and_then(|arc| {
-                arc.read().ok().map(|guard| {
-                    (
-                        *guard.get_position(),
-                        guard.get_orientation(),
-                        guard.get_layer(),
-                    )
-                })
-            });
-        let owner_info = TheGameLogic::find_object_by_id(self.owner_id).and_then(|arc| {
-            arc.read()
-                .ok()
-                .map(|guard| (*guard.get_position(), guard.get_orientation()))
+        });
+        let owner_info = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |guard| {
+            (*guard.get_position(), guard.get_orientation())
         });
 
         let (host_pos, host_orient, host_layer) = if let Some((pos, orient, layer)) = host_info {
@@ -587,7 +580,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             (None, None, None)
         };
 
-        let new_obj_id = obj.read().map(|guard| guard.get_id()).unwrap_or(INVALID_ID);
+        let new_obj_id = obj_id;
         if let Ok(result) = QueueProductionExitBehavior::exit_object_by_budding(
             self,
             new_obj_id,
@@ -596,19 +589,19 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             owner_info.as_ref().map(|(pos, _)| *pos),
             owner_info.as_ref().map(|(_, orient)| *orient),
         ) {
-            if let Ok(mut guard) = obj.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |guard| {
                 let _ = guard.set_position(&result.exit_position);
                 let _ = guard.set_orientation(result.exit_orientation);
                 if let Some(layer) = host_layer {
                     guard.set_layer(layer);
                 }
-            }
+            });
 
-            if let Ok(new_obj_guard) = obj.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |new_obj_guard| {
                 if let Some(ai) = new_obj_guard.get_ai_update_interface() {
                     ai.ai_move_to_position(&result.exit_position, false, CommandSourceType::FromAi);
                 }
-            }
+            });
         }
 
         Ok(())

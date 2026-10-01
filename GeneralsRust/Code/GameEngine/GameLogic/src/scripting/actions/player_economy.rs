@@ -57,18 +57,10 @@ impl ScriptAction for SetPlayerResourceAction {
         log::info!("Setting player {} {} to {}", player, resource_type, amount);
 
         if is_money_resource(&resource_type) {
-            let player_list_lock = player_list();
-            let list = player_list_lock
-                .read()
-                .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
-            let Some(player_arc) = list.get_player(player as i32) else {
-                return Ok(ScriptResult::Success(None));
-            };
-            let mut player_guard = player_arc
-                .write()
-                .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
             let new_amount = clamp_script_money(amount);
-            set_script_player_money(&mut player_guard, new_amount);
+            let _ = crate::player::with_player_mut(player as i32, |player_guard| {
+                set_script_player_money(player_guard, new_amount);
+            });
         }
 
         Ok(ScriptResult::Success(None))
@@ -112,23 +104,15 @@ impl ScriptAction for AddPlayerResourceAction {
         log::info!("Adding {} {} to player {}", amount, resource_type, player);
 
         if is_money_resource(&resource_type) {
-            let player_list_lock = player_list();
-            let list = player_list_lock
-                .read()
-                .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
-            let Some(player_arc) = list.get_player(player as i32) else {
-                return Ok(ScriptResult::Success(None));
-            };
-            let mut player_guard = player_arc
-                .write()
-                .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-            if amount < 0 {
-                let requested = clamp_script_money(amount.saturating_neg());
-                spend_script_player_money(&mut player_guard, requested);
-            } else {
-                let deposit_amount = clamp_script_money(amount);
-                grant_script_player_money(&mut player_guard, deposit_amount);
-            }
+            let _ = crate::player::with_player_mut(player as i32, |player_guard| {
+                if amount < 0 {
+                    let requested = clamp_script_money(amount.saturating_neg());
+                    spend_script_player_money(player_guard, requested);
+                } else {
+                    let deposit_amount = clamp_script_money(amount);
+                    grant_script_player_money(player_guard, deposit_amount);
+                }
+            });
         }
 
         Ok(ScriptResult::Success(None))
@@ -178,21 +162,17 @@ impl ScriptAction for PlayerAddMoneyAction {
         // 4. Amount can be negative to subtract money
         // Rust: player.add_money(amount)
 
-        if let Ok(list) = player_list().read() {
-            let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            if let Some(player_arc) = list.get_player(player_idx) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    if amount >= 0 {
-                        grant_script_player_money(&mut player_guard, clamp_script_money(amount));
-                    } else {
-                        spend_script_player_money(
-                            &mut player_guard,
-                            clamp_script_money(amount.saturating_neg()),
-                        );
-                    }
-                }
+        let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let _ = crate::player::with_player_mut(player_idx, |player_guard| {
+            if amount >= 0 {
+                grant_script_player_money(player_guard, clamp_script_money(amount));
+            } else {
+                spend_script_player_money(
+                    player_guard,
+                    clamp_script_money(amount.saturating_neg()),
+                );
             }
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -249,23 +229,20 @@ impl ScriptAction for GiveMoneyAction {
                 amount: host_amount,
             },
         );
-        let list_guard = player_list()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
-        let Some(player_arc) = list_guard.find_player_by_name(&resolved_name) else {
+        if crate::player::with_player_named_mut(&resolved_name, |player_guard| {
+            if amount < 0 {
+                spend_script_player_money(
+                    player_guard,
+                    clamp_script_money(amount.saturating_neg()),
+                );
+            } else {
+                grant_script_player_money(player_guard, clamp_script_money(amount));
+            }
+        })
+        .is_none()
+        {
             log::warn!("GiveMoneyAction: player '{}' not found", resolved_name);
             return Ok(ScriptResult::Success(None));
-        };
-        let mut player_guard = player_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-        if amount < 0 {
-            spend_script_player_money(
-                &mut player_guard,
-                clamp_script_money(amount.saturating_neg()),
-            );
-        } else {
-            grant_script_player_money(&mut player_guard, clamp_script_money(amount));
         }
 
         Ok(ScriptResult::Success(None))
@@ -320,17 +297,14 @@ impl ScriptAction for SetMoneyAction {
                 amount: host_amount,
             },
         );
-        let list_guard = player_list()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
-        let Some(player_arc) = list_guard.find_player_by_name(&resolved_name) else {
+        if crate::player::with_player_named_mut(&resolved_name, |player_guard| {
+            set_script_player_money(player_guard, clamp_script_money(amount));
+        })
+        .is_none()
+        {
             log::warn!("SetMoneyAction: player '{}' not found", resolved_name);
             return Ok(ScriptResult::Success(None));
-        };
-        let mut player_guard = player_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-        set_script_player_money(&mut player_guard, clamp_script_money(amount));
+        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -378,17 +352,14 @@ impl ScriptAction for SetHandicapAction {
         // Rust: player_list.get_player(player_name).set_handicap(handicap)
 
         let resolved_name = resolve_player_name_token(&player_name);
-        let list_guard = player_list()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
-        let Some(player_arc) = list_guard.find_player_by_name(&resolved_name) else {
+        if crate::player::with_player_named_mut(&resolved_name, |player_guard| {
+            player_guard.set_handicap(handicap as f32);
+        })
+        .is_none()
+        {
             log::warn!("SetHandicapAction: player '{}' not found", resolved_name);
             return Ok(ScriptResult::Success(None));
-        };
-        let mut player_guard = player_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-        player_guard.set_handicap(handicap as f32);
+        }
 
         Ok(ScriptResult::Success(None))
     }

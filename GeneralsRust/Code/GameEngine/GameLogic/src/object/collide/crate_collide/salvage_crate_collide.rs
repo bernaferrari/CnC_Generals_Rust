@@ -33,8 +33,7 @@ fn resolve_crate_object(id: ObjectID) -> Option<ObjectID> {
     if id == crate::common::INVALID_ID {
         return None;
     }
-    TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    (if crate::helpers::TheGameLogic::find_object_by_id(id) || crate::object::registry::OBJECT_REGISTRY.contains(id) { Some(id) } else { None })
 }
 
 /// INI configuration for salvage crates.

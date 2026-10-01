@@ -87,11 +87,8 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     }
 
     fn resolve_object_player_index(&self, object_id: ObjectID) -> Option<Int> {
-        crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
-            let player = guard.get_controlling_player()?;
-            let player_guard = player.read().ok()?;
-            Some(player_guard.get_player_index())
-        }).flatten()
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |guard| guard.get_controlling_player())
     }
 
     fn resolve_drawable_player_index(&self, drawable_id: u32) -> Option<Int> {
@@ -119,8 +116,7 @@ impl AudioShroudResolver for GameLogicAudioShroudResolver {
         let local_player_index = crate::player::player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_local_player().cloned())
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()));
+            .and_then(|list| list.get_local_player().map(|player| player.get_player_index()));
 
         let Some(local_player_index) = local_player_index else {
             return true;
@@ -152,9 +148,7 @@ struct GameLogicAudioLocalityResolver;
 impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
     fn get_local_player_index(&self) -> Option<Int> {
         let list = crate::player::player_list().read().ok()?;
-        let player = list.get_local_player()?.clone();
-        let guard = player.read().ok()?;
-        Some(guard.get_player_index())
+        Some(list.get_local_player()?.get_player_index())
     }
 
     fn is_player_active(&self, player_index: Int) -> Bool {
@@ -165,14 +159,10 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
             Ok(list) => list,
             Err(_) => return false,
         };
-        let Some(player) = list.get_player(player_index).cloned() else {
+        let Some(player) = list.get_player(player_index) else {
             return false;
         };
-        player
-            .read()
-            .ok()
-            .map(|guard| guard.is_player_active())
-            .unwrap_or(false)
+        player.is_player_active()
     }
 
     fn player_exists(&self, player_index: Int) -> Bool {
@@ -194,14 +184,10 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
             Ok(list) => list,
             Err(_) => return false,
         };
-        let Some(player) = list.get_player(player_index).cloned() else {
+        let Some(player) = list.get_player(player_index) else {
             return false;
         };
-        player
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_default_team())
-            .is_some()
+        player.get_default_team_id().is_some()
     }
 
     fn get_observer_look_at_player_index(&self) -> Option<Int> {
@@ -221,30 +207,23 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
             Ok(list) => list,
             Err(_) => return AudioLocalityRelationship::Neutral,
         };
-
-        let Some(source_player) = list.get_player(source_player_index).cloned() else {
+        let Some(local_team_id) = list
+            .get_player(local_player_index)
+            .and_then(|player| player.get_default_team_id())
+        else {
             return AudioLocalityRelationship::Neutral;
         };
-        let Some(local_player) = list.get_player(local_player_index).cloned() else {
+        drop(list);
+        let Some(relationship) = crate::player::with_player(source_player_index, |source| {
+            crate::team::factory_access::with_team(local_team_id, |local_team| {
+                source.get_relationship_with_team(local_team)
+            })
+        })
+        .flatten()
+        else {
             return AudioLocalityRelationship::Neutral;
         };
-
-        let local_team = local_player
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_default_team());
-        let Some(local_team) = local_team else {
-            return AudioLocalityRelationship::Neutral;
-        };
-
-        let Ok(local_team_guard) = local_team.read() else {
-            return AudioLocalityRelationship::Neutral;
-        };
-        let Ok(source_guard) = source_player.read() else {
-            return AudioLocalityRelationship::Neutral;
-        };
-
-        match source_guard.get_relationship_with_team(&local_team_guard) {
+        match relationship {
             Relationship::Allies => AudioLocalityRelationship::Allies,
             Relationship::Enemies => AudioLocalityRelationship::Enemies,
             Relationship::Neutral => AudioLocalityRelationship::Neutral,

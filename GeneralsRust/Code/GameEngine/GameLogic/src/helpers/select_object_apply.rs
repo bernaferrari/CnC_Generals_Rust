@@ -23,16 +23,22 @@ impl TheGameLogic {
         } else {
             SelectionType::Add
         };
-        let Ok(list) = crate::player::player_list().read() else {
-            return;
+        let indices: Vec<usize> = {
+            let Ok(list) = crate::player::player_list().read() else {
+                return;
+            };
+            list.iter()
+                .enumerate()
+                .filter(|(player_index, _)| {
+                    let bit = PlayerMaskType::from_bits_truncate(1u32 << (*player_index as u32));
+                    mask.contains(bit)
+                })
+                .map(|(i, _)| i)
+                .collect()
         };
-        for (player_index, player_arc) in list.iter().enumerate() {
-            let bit = PlayerMaskType::from_bits_truncate(1u32 << (player_index as u32));
-            if !mask.contains(bit) {
-                continue;
-            }
+        for player_index in indices {
             let mut added_to_group = false;
-            if let Ok(mut player) = player_arc.write() {
+            let _ = crate::player::with_player_mut(player_index as i32, |player| {
                 if create_new_selection {
                     if can_add_to_group {
                         player.set_current_selection_to_object(object_id);
@@ -44,7 +50,7 @@ impl TheGameLogic {
                     player.add_object_to_current_selection(object_id);
                     added_to_group = true;
                 }
-            }
+            });
             if added_to_group {
                 if let Some(selection) = manager.get_player_selection(player_index as i32) {
                     selection.select_objects(vec![object_id], selection_type);
@@ -72,23 +78,29 @@ impl TheGameLogic {
         let Ok(mut manager) = selection_manager.write() else {
             return;
         };
-        let Ok(list) = crate::player::player_list().read() else {
-            return;
+        let indices: Vec<usize> = {
+            let Ok(list) = crate::player::player_list().read() else {
+                return;
+            };
+            list.iter()
+                .enumerate()
+                .filter(|(player_index, _)| {
+                    let bit = PlayerMaskType::from_bits_truncate(1u32 << (*player_index as u32));
+                    mask.contains(bit)
+                })
+                .map(|(i, _)| i)
+                .collect()
         };
-        for (player_index, player_arc) in list.iter().enumerate() {
-            let bit = PlayerMaskType::from_bits_truncate(1u32 << (player_index as u32));
-            if !mask.contains(bit) {
-                continue;
-            }
+        for player_index in indices {
             let mut actually_removed = false;
-            if let Ok(mut player) = player_arc.write() {
+            let _ = crate::player::with_player_mut(player_index as i32, |player| {
                 actually_removed = player.remove_object_from_current_selection(object_id);
                 if actually_removed && affect_client {
                     if let Some(drawable) = drawable.as_ref() {
                         TheInGameUI::deselect_drawable(drawable);
                     }
                 }
-            }
+            });
             if actually_removed {
                 if let Some(selection) = manager.get_player_selection(player_index as i32) {
                     selection.select_objects(vec![object_id], SelectionType::Remove);

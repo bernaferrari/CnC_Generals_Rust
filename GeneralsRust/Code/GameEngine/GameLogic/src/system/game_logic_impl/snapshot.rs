@@ -214,11 +214,18 @@ impl XferSnapshotTrait for PlayerListSnapshotBridge {
     fn load_post_process(&mut self) -> Result<(), XferStatus> {
         use game_engine::common::system::snapshot::Snapshotable;
 
-        let players = player_list();
-        let list = players.read().map_err(|_| XferStatus::InvalidData)?;
-        for player_arc in list.iter() {
-            let mut player = player_arc.write().map_err(|_| XferStatus::InvalidData)?;
-            Snapshotable::load_post_process(&mut *player).map_err(|_| XferStatus::InvalidData)?;
+        let count = {
+            let players = player_list();
+            let list = players.read().map_err(|_| XferStatus::InvalidData)?;
+            list.get_player_count()
+        };
+        for idx in 0..count as i32 {
+            let Some(result) = crate::player::with_player_mut(idx, |player| {
+                Snapshotable::load_post_process(player)
+            }) else {
+                return Err(XferStatus::InvalidData);
+            };
+            result.map_err(|_| XferStatus::InvalidData)?;
         }
         Ok(())
     }

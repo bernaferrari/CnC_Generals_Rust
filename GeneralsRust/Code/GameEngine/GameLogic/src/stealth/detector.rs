@@ -232,9 +232,7 @@ impl StealthDetectorController {
             return None;
         }
 
-        OBJECT_REGISTRY
-            .get_object(self.object_id)
-            .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
+        OBJECT_REGISTRY.with_object(self.object_id, |guard| *guard.get_position())
     }
 
     /// Check if target is an enemy

@@ -102,17 +102,15 @@ impl ScriptAction for DefeatPlayerAction {
 
         // Actually defeat the player
         // Matches C++ Player::Set_Defeated()
-        use crate::player::player_list;
+        use crate::player::{player_list, with_player_mut};
 
-        let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
-            if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_defeated(true);
-                    log::info!("Player {} has been defeated", player);
-                    return Ok(ScriptResult::Success(None));
-                }
-            }
+        if with_player_mut(player as i32, |player_guard| {
+            player_guard.set_defeated(true);
+        })
+        .is_some()
+        {
+            log::info!("Player {} has been defeated", player);
+            return Ok(ScriptResult::Success(None));
         }
 
         Ok(ScriptResult::Success(None))
@@ -164,21 +162,12 @@ impl ScriptAction for PlayerDisableFactoriesAction {
         // 4. Existing queue items continue or are cancelled
         // Rust: player.disable_all_production()
 
-        let object_ids = {
-            let Ok(list) = player_list().read() else {
-                return Ok(ScriptResult::Success(None));
-            };
-            let index = player as i32;
-            if let Some(player_arc) = list.get_player(index) {
-                if let Ok(player_guard) = player_arc.read() {
-                    player_guard.get_object_ids()
-                } else {
-                    Vec::new()
-                }
-            } else {
-                log::warn!("PlayerDisableFactoriesAction: player {} not found", player);
-                Vec::new()
-            }
+        let object_ids = crate::player::with_player(player as i32, |player_guard| {
+            player_guard.get_object_ids()
+        });
+        let Some(object_ids) = object_ids else {
+            log::warn!("PlayerDisableFactoriesAction: player {} not found", player);
+            return Ok(ScriptResult::Success(None));
         };
         for obj_id in object_ids {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
@@ -234,21 +223,12 @@ impl ScriptAction for PlayerEnableFactoriesAction {
         // 3. Player can queue new units again
         // Rust: player.enable_all_production()
 
-        let object_ids = {
-            let Ok(list) = player_list().read() else {
-                return Ok(ScriptResult::Success(None));
-            };
-            let index = player as i32;
-            if let Some(player_arc) = list.get_player(index) {
-                if let Ok(player_guard) = player_arc.read() {
-                    player_guard.get_object_ids()
-                } else {
-                    Vec::new()
-                }
-            } else {
-                log::warn!("PlayerEnableFactoriesAction: player {} not found", player);
-                Vec::new()
-            }
+        let object_ids = crate::player::with_player(player as i32, |player_guard| {
+            player_guard.get_object_ids()
+        });
+        let Some(object_ids) = object_ids else {
+            log::warn!("PlayerEnableFactoriesAction: player {} not found", player);
+            return Ok(ScriptResult::Success(None));
         };
         for obj_id in object_ids {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
@@ -291,20 +271,16 @@ impl ScriptAction for PlayerBuildBaseDefenseAction {
 
         log::info!("Player {} building base defense '{}'", player, defense_type);
 
-        let Ok(list) = player_list().read() else {
-            return Ok(ScriptResult::Success(None));
-        };
         let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        let Some(player_arc) = list.get_player(player_idx) else {
+        let Some((player_id, _difficulty)) = crate::player::with_player(player_idx, |player_guard| {
+            (
+                player_guard.get_player_index() as u32,
+                player_guard.get_player_difficulty(),
+            )
+        }) else {
             log::warn!("PlayerBuildBaseDefenseAction: player {} not found", player);
             return Ok(ScriptResult::Success(None));
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(ScriptResult::Success(None));
-        };
-
-        let player_id = player_guard.get_player_index() as u32;
-        let _difficulty = player_guard.get_player_difficulty();
 
         let defense_lower = defense_type.to_ascii_lowercase();
         let _ = with_ai_integration_mut(|manager| {
@@ -353,15 +329,13 @@ impl ScriptAction for PlayerHuntAction {
 
         log::info!("Player {} AI hunting", player);
 
-        if let Ok(list) = player_list().read() {
-            let index = player as i32;
-            if let Some(player_arc) = list.get_player(index) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.set_units_should_hunt(true, CommandSourceType::FromScript);
-                }
-            } else {
-                log::warn!("PlayerHuntAction: player {} not found", player);
-            }
+        let index = player as i32;
+        if crate::player::with_player_mut(index, |player_guard| {
+            player_guard.set_units_should_hunt(true, CommandSourceType::FromScript);
+        })
+        .is_none()
+        {
+            log::warn!("PlayerHuntAction: player {} not found", player);
         }
 
         Ok(ScriptResult::Success(None))
@@ -412,21 +386,16 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
         // 5. GarrisonContain handles actual containment
         // Rust: player.auto_garrison_all_buildings()
 
-        if let Ok(list) = player_list().read() {
-            let index = player as i32;
-            let Some(player_arc) = list.get_player(index) else {
-                log::warn!(
-                    "PlayerGarrisonAllBuildingsAction: player {} not found",
-                    player
-                );
-                return Ok(ScriptResult::Success(None));
-            };
-
-            let Ok(player_guard) = player_arc.read() else {
-                return Ok(ScriptResult::Success(None));
-            };
-
-            let object_ids = player_guard.get_object_ids();
+        let index = player as i32;
+        let Some(object_ids) = crate::player::with_player(index, |player_guard| {
+            player_guard.get_object_ids()
+        }) else {
+            log::warn!(
+                "PlayerGarrisonAllBuildingsAction: player {} not found",
+                player
+            );
+            return Ok(ScriptResult::Success(None));
+        };
             let mut garrison_buildings = Vec::new();
             let mut infantry_units = Vec::new();
 
@@ -472,7 +441,6 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
                     }
                 });
             }
-        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -593,18 +561,15 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
         // 3. Units return to player control
         // Rust: player.evacuate_all_garrisons()
 
-        if let Ok(list) = player_list().read() {
-            let index = player as i32;
-            let Some(player_arc) = list.get_player(index) else {
-                log::warn!("PlayerEvacuateBuildingAction: player {} not found", player);
-                return Ok(ScriptResult::Success(None));
-            };
+        let index = player as i32;
+        let Some(object_ids) = crate::player::with_player(index, |player_guard| {
+            player_guard.get_object_ids()
+        }) else {
+            log::warn!("PlayerEvacuateBuildingAction: player {} not found", player);
+            return Ok(ScriptResult::Success(None));
+        };
 
-            let Ok(player_guard) = player_arc.read() else {
-                return Ok(ScriptResult::Success(None));
-            };
-
-            for obj_id in player_guard.get_object_ids() {
+        for obj_id in object_ids {
                 {
                     enum _ObjFlow<T> { Cont, Ret(T), Fall }
                     let _flow = OBJECT_REGISTRY.with_object_mut(obj_id, |mut obj_guard| {
@@ -626,7 +591,6 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
                         Some(_ObjFlow::Fall) => {}
                     }
                 }
-            }
         }
 
         Ok(ScriptResult::Success(None))
@@ -678,19 +642,15 @@ impl ScriptAction for PlayerSetActiveAction {
         // 4. Used for players defeated or left in multiplayer
         // Rust: player.set_active(active)
 
-        if let Ok(list) = player_list().read() {
-            let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-            if let Some(player_arc) = list.get_player(player_idx) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    if active {
-                        player_guard.set_observer(false);
-                        player_guard.set_defeated(false);
-                    } else {
-                        player_guard.set_observer(true);
-                    }
-                }
+        let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let _ = crate::player::with_player_mut(player_idx, |player_guard| {
+            if active {
+                player_guard.set_observer(false);
+                player_guard.set_defeated(false);
+            } else {
+                player_guard.set_observer(true);
             }
-        }
+        });
 
         Ok(ScriptResult::Success(None))
     }
@@ -846,19 +806,14 @@ impl ScriptAction for SetTeamAllianceAction {
         }
         let relationship = parse_script_relationship(&relation)?;
         let target_player_index = player2 as PlayerIndex;
-        let player_arc = player_list()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
-            .get_player(player1 as PlayerIndex)
-            .cloned();
-        let Some(player_arc) = player_arc else {
+        if crate::player::with_player_mut(player1 as PlayerIndex, |player_guard| {
+            player_guard.set_player_relationship_by_index(target_player_index, relationship);
+        })
+        .is_none()
+        {
             log::warn!("SetTeamAllianceAction: player {} not found", player1);
             return Ok(ScriptResult::Success(None));
-        };
-        let mut player_guard = player_arc
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-        player_guard.set_player_relationship_by_index(target_player_index, relationship);
+        }
 
         Ok(ScriptResult::Success(None))
     }

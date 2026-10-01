@@ -588,8 +588,7 @@ impl AIFollowWaypointPathAsTeamState {
 
         if self.core.move_as_group {
             if let Some(player) = owner_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    if player_guard.is_skirmish_ai() {
+                if crate::player::with_player(player, |player_guard| player_guard.is_skirmish_ai()).unwrap_or(false) {
                         if let Some(group_id) = owner_guard.get_group_id() {
                             let fudge = the_ai()
                                 .read()
@@ -616,7 +615,6 @@ impl AIFollowWaypointPathAsTeamState {
                                 }
                             }
                         }
-                    }
                 }
             }
         }

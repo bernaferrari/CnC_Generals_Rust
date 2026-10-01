@@ -38,8 +38,7 @@ impl AIPlayer {
         // Snapshot supply-building build-list entries we may need to service.
         let mut supply_entries: Vec<(ObjectID, i32, i32)> = Vec::new();
         if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(pg) = player_arc.read() {
+            if let Some(pg) = list.get_player(self.player_id as i32) {
                     let mut cur = pg.get_build_list();
                     while let Some(info) = cur {
                         if info.is_supply_building() {
@@ -51,7 +50,6 @@ impl AIPlayer {
                         }
                         cur = info.get_next();
                     }
-                }
             }
         }
 
@@ -119,10 +117,7 @@ impl AIPlayer {
         let Ok(list) = player_list().read() else {
             return 0;
         };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return 0;
-        };
-        let Ok(pg) = player_arc.read() else {
+        let Some(pg) = list.get_player(self.player_id as i32) else {
             return 0;
         };
         let mut total = 0;
@@ -233,10 +228,7 @@ impl AIPlayer {
         let Ok(list) = player_list().read() else {
             return 0;
         };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return 0;
-        };
-        let Ok(pg) = player_arc.read() else {
+        let Some(pg) = list.get_player(self.player_id as i32) else {
             return 0;
         };
         let mut cur = 0;
@@ -288,9 +280,7 @@ impl AIPlayer {
     }
 
     pub(super) fn set_build_list_current_gatherers(&self, center_id: ObjectID, cur: i32) {
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(mut pg) = player_arc.write() {
+        let _ = crate::player::with_player_mut(self.player_id as i32, |pg| {
                     if let Some(info) = pg.get_build_list_mut() {
                         let mut node = Some(&mut *info);
                         while let Some(n) = node {
@@ -301,9 +291,7 @@ impl AIPlayer {
                             node = n.get_next_mut();
                         }
                     }
-                }
-            }
-        }
+        });
     }
 
     pub(super) fn try_reattach_loose_harvester(
@@ -319,10 +307,7 @@ impl AIPlayer {
         let Ok(list) = player_list().read() else {
             return Ok(false);
         };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return Ok(false);
-        };
-        let Ok(pg) = player_arc.read() else {
+        let Some(pg) = list.get_player(self.player_id as i32) else {
             return Ok(false);
         };
         for obj_id in pg.get_all_objects() {
@@ -377,18 +362,12 @@ impl AIPlayer {
     }
 
     pub(super) fn set_can_build_units_temp(&self, can: bool) -> bool {
-        let Ok(list) = player_list().read() else {
-            return can;
-        };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return can;
-        };
-        let Ok(mut pg) = player_arc.write() else {
-            return can;
-        };
-        let prev = pg.get_can_build_units();
-        pg.set_can_build_units(can);
-        prev
+        crate::player::with_player_mut(self.player_id as i32, |pg| {
+            let prev = pg.get_can_build_units();
+            pg.set_can_build_units(can);
+            prev
+        })
+        .unwrap_or(can)
     }
 
     /// Find a harvester template with an idle factory and queue one (C++ priority team).
@@ -438,12 +417,10 @@ impl AIPlayer {
             team.frame_started = TheGameLogic::get_frame();
             // C++ sticks supply truck on default team (m_team + name).
             if let Ok(list) = player_list().read() {
-                if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                    if let Ok(pg) = player_arc.read() {
+                if let Some(pg) = list.get_player(self.player_id as i32) {
                         if let Some(dt) = pg.get_default_team_id() {
                             team.team_id = Some(dt);
                         }
-                    }
                 }
             }
 
@@ -498,12 +475,10 @@ impl AIPlayer {
         let current_frame = TheGameLogic::get_frame();
         let rebuild_delay_frames = self.rebuild_delay_frames();
 
-        let Some(player_arc) = self.get_player_arc() else {
+        let Some(player_index_id) = self.get_player_arc() else {
             return Ok(());
         };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return Ok(());
-        };
+        let Some((player_index, to_build, resume_jobs)) = crate::player::with_player_mut(player_index_id, |player_guard| {
         let player_index = player_guard.get_player_index() as u32;
 
         // Collect first actionable missing buildable entry (name, location, angle).
@@ -612,7 +587,10 @@ impl AIPlayer {
 
             info_opt = info.get_next_mut();
         }
-        drop(player_guard);
+        (player_index, to_build, resume_jobs)
+        }) else {
+            return Ok(());
+        };
 
         // C++: for each UC building, aiResumeConstruction on builder or findDozer.
         for (bldg_id, builder_id, bldg_pos) in resume_jobs {
@@ -711,11 +689,7 @@ impl AIPlayer {
         self.structure_seconds = structure_seconds;
         let mut timer = (structure_seconds.max(0.0) * LOGICFRAMES_PER_SECOND as f32) as u32;
 
-        let money = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| p.read().ok().map(|g| g.get_money().get_money()))
+        let money = crate::player::with_player(self.player_id as i32, |g| g.get_money().get_money())
             .unwrap_or(0);
 
         let (poor, wealthy, poor_mod, wealthy_mod) = Self::structure_wealth_params();

@@ -627,7 +627,7 @@ fn host_relationship(
             players.find_player_by_name(&looker.owner_player),
             players.find_player_by_name(&candidate.owner_player),
         ) {
-            if let (Ok(look), Ok(them)) = (a.read(), b.read()) {
+            if let (Ok(look), Ok(them)) = (Ok(a), Ok(b)) {
                 return look.get_relationship(&them);
             }
         }
@@ -1221,9 +1221,11 @@ pub fn host_script_team_member_ids(team_name: &str) -> Vec<u32> {
     });
     if ids.is_empty() {
         if let Ok(factory) = crate::team::get_team_factory().lock() {
-            for team in factory.find_team_instances(team_name) {
-                if let Ok(team_guard) = team.read() {
-                    ids.extend(team_guard.get_members().iter().copied());
+            for team_id in factory.find_team_instances(team_name) {
+                if let Some(members) = crate::team::factory_access::with_team(team_id, |team| {
+                    team.get_members().to_vec()
+                }) {
+                    ids.extend(members);
                 }
             }
         }
@@ -1491,7 +1493,7 @@ fn leftover_census_or_player_has_science(
     }
     if let Ok(list) = player_list().read() {
         if let Some(arc) = list.find_player_by_name(player_name) {
-            if let Ok(player) = arc.read() {
+            if let Ok(player) = Ok(arc) {
                 return player.has_science(science);
             }
         }
@@ -1647,7 +1649,7 @@ fn host_allow_neutral_affiliation(player_name: &str, obj: &HostScriptQueryObject
             players.find_player_by_name(player_name),
             players.find_player_by_name(&obj.owner_player),
         ) {
-            if let (Ok(look), Ok(them)) = (a.read(), b.read()) {
+            if let (Ok(look), Ok(them)) = (Ok(a), Ok(b)) {
                 return look.get_relationship(&them) == crate::common::Relationship::Neutral;
             }
         }
@@ -1672,7 +1674,7 @@ fn host_allow_non_ally_tech_affiliation(player_name: &str, owner_player: &str) -
             players.find_player_by_name(player_name),
             players.find_player_by_name(owner_player),
         ) {
-            if let (Ok(look), Ok(them)) = (a.read(), b.read()) {
+            if let (Ok(look), Ok(them)) = (Ok(a), Ok(b)) {
                 return !matches!(
                     look.get_relationship(&them),
                     crate::common::Relationship::Allies

@@ -5,11 +5,11 @@
 //! to the live ClientUpdate implementation and keeps leftover factory glue.
 
 use crate::common::{AsciiString, ModuleData, ObjectID, Real};
-use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::update::laser_update::laser_anchor_from_object;
 use crate::prelude::Coord3D;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -18,7 +18,7 @@ use game_engine::common::thing::module::{
     ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData as EngineModuleData,
     NameKeyType,
 };
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct LaserUpdateModuleData {
@@ -129,11 +129,13 @@ impl LaserUpdate {
             .downcast_ref::<LaserUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        let object_id = object_id;
-        let thing_id = object
-            .read()
-            .ok()
-            .and_then(|g| g.get_drawable().map(|drawable| drawable.get_id()))
+        let thing_id = OBJECT_REGISTRY
+            .with_object(object_id, |object| {
+                object
+                    .get_drawable()
+                    .map(|drawable| drawable.get_id())
+                    .unwrap_or(object_id)
+            })
             .unwrap_or(object_id);
 
         Ok(Self {
@@ -219,15 +221,18 @@ impl LaserUpdateInterface for LaserUpdate {
         parent_bone_name: String,
         size_delta_frames: i32,
     ) {
-        let parent_arc = parent_id.and_then(TheGameLogic::find_object_by_id);
-        let target_arc = target_id.and_then(TheGameLogic::find_object_by_id);
-        let parent_guard = parent_arc.as_ref().and_then(|arc| arc.read().ok());
-        let target_guard = target_arc.as_ref().and_then(|arc| arc.read().ok());
         let start_pos = start_pos.map(Coord3D::from_array);
         let end_pos = end_pos.map(Coord3D::from_array);
-        self.inner.init_laser(
-            parent_guard.as_deref(),
-            target_guard.as_deref(),
+        // Copy each endpoint before the other id is checked out.
+        let parent = parent_id.and_then(|id| {
+            OBJECT_REGISTRY.with_object(id, laser_anchor_from_object)
+        });
+        let target = target_id.and_then(|id| {
+            OBJECT_REGISTRY.with_object(id, laser_anchor_from_object)
+        });
+        self.inner.init_laser_anchored(
+            parent,
+            target,
             start_pos.as_ref(),
             end_pos.as_ref(),
             parent_bone_name,

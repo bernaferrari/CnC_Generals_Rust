@@ -315,10 +315,7 @@ impl FirestormDynamicGeometryInfoUpdate {
         Self::leftover_follow_emission_radius(particle_system_ids, major_radius);
     }
 
-    fn do_damage_scan(&mut self, object: &GameObject) {
-        let pos = *object.get_position();
-        let radius = object.get_geometry_info().get_bounding_circle_radius();
-
+    fn do_damage_scan_at(&mut self, pos: crate::common::Coord3D, radius: Real, source_id: crate::common::ObjectID) {
         if radius <= 0.0 {
             return;
         }
@@ -328,7 +325,7 @@ impl FirestormDynamicGeometryInfoUpdate {
                 amount: self.module_data.damage_amount,
                 damage_type: DamageType::Flame,
                 death_type: DeathType::Burned,
-                source_id: object.get_id(),
+                source_id,
                 ..Default::default()
             },
             ..Default::default()
@@ -336,20 +333,14 @@ impl FirestormDynamicGeometryInfoUpdate {
 
         if let Some(partition) = ThePartitionManager::get() {
             for id in partition.get_objects_in_range_boundary_2d(&pos, radius) {
-                let Some(target_arc) = TheGameLogic::find_object_by_id(id) else {
-                    continue;
-                };
-                let Ok(mut target) = target_arc.write() else {
-                    continue;
-                };
-
-                if target.get_position().z > pos.z + self.module_data.max_height_for_damage {
-                    continue;
-                }
-
-                let mut dmg = damage_info.clone();
-                dmg.sync_from_input();
-                let _ = target.attempt_damage(&mut dmg);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |target| {
+                    if target.get_position().z > pos.z + self.module_data.max_height_for_damage {
+                        return;
+                    }
+                    let mut dmg = damage_info.clone();
+                    dmg.sync_from_input();
+                    let _ = target.attempt_damage(&mut dmg);
+                });
             }
         }
     }
@@ -357,32 +348,22 @@ impl FirestormDynamicGeometryInfoUpdate {
 
 impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let obj_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return UPDATE_SLEEP_NONE,
+        let Some((res, started, pos, major_radius, switched)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                let res = self.logic.update_step(obj);
+                let started = self.logic.started;
+                let pos = *obj.get_position();
+                let major_radius = obj.get_geometry_info().get_major_radius();
+                (res, started, pos, major_radius, self.logic.switched_directions)
+            })
+        else {
+            return UPDATE_SLEEP_NONE;
         };
 
-        let mut obj = match obj_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return UPDATE_SLEEP_NONE,
-        };
-
-        // Call base transition logic
-        let res = self.logic.update_step(&mut obj);
-
-        // Don't do firestorm stuff if still in initial delay
-        if !self.logic.started {
+        if !started {
             return res;
         }
 
-        // Fired effects for the first time + emission-volume follow.
-        let pos = *obj.get_position();
-        let major_radius = obj.get_geometry_info().get_major_radius();
         Self::leftover_tick_particle_fx(
             &self.module_data,
             &pos,
@@ -391,19 +372,26 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
             major_radius,
         );
 
-        // Place scorch mark when reversed
-        if self.logic.switched_directions && !self.scorch_placed {
+        if switched && !self.scorch_placed {
             if let Some(client) = TheGameClient::get() {
-                client.add_scorch(obj.get_position(), self.module_data.scorch_size, 0);
-                // 0 = default scorch type
+                client.add_scorch(&pos, self.module_data.scorch_size, 0);
             }
             self.scorch_placed = true;
         }
 
-        // Periodic damage scan
         let current_frame = TheGameLogic::get_frame();
         if current_frame - self.last_damage_frame >= self.module_data.delay_between_damage_frames {
-            self.do_damage_scan(&obj);
+            if let Some((scan_pos, scan_radius, source_id)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                    (
+                        *obj.get_position(),
+                        obj.get_geometry_info().get_bounding_circle_radius(),
+                        obj.get_id(),
+                    )
+                })
+            {
+                self.do_damage_scan_at(scan_pos, scan_radius, source_id);
+            }
             self.last_damage_frame = current_frame;
         }
 

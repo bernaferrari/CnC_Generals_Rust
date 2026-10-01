@@ -403,10 +403,7 @@ impl TheRadar {
         }
 
         let position = *target.get_position();
-        let player_index = target
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
-            .unwrap_or(-1);
+        let player_index = target.get_controlling_player().unwrap_or(-1);
         let victim = game_engine::common::system::radar::RadarVictimInfo {
             is_local_player: true,
             player_index,
@@ -452,10 +449,7 @@ impl TheRadar {
             return Ok(false);
         }
         let position = *target.get_position();
-        let player_index = target
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
-            .unwrap_or(-1);
+        let player_index = target.get_controlling_player().unwrap_or(-1);
         let victim = game_engine::common::system::radar::RadarVictimInfo {
             is_infantry: target.is_kind_of(KindOf::Infantry),
             is_vehicle: target.is_kind_of(KindOf::Vehicle),
@@ -1124,9 +1118,7 @@ fn leftover_local_player_is_individually_defeated() -> bool {
         return false;
     };
     list.get_local_player()
-        .and_then(|player| {
-            player.read().ok().map(|guard| guard.is_defeated() || guard.is_player_dead())
-        })
+        .map(|player| player.is_defeated() || player.is_player_dead())
         .unwrap_or(false)
 }
 

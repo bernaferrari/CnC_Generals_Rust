@@ -264,7 +264,6 @@ impl ModuleExitInterface for SupplyCenterProductionExitBehavior {
         door: ModuleExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
             return Ok(());
         };

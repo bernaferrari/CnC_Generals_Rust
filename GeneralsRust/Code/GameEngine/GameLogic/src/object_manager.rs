@@ -1369,13 +1369,13 @@ impl ObjectManager {
         let mut owned_objects = Vec::new();
 
         self.for_each_object_instance(|obj_id, obj_guard| {
-            if let Some(team_arc) = obj_guard.get_team() {
-                if let Ok(team_guard) = team_arc.read() {
-                    if let Some(controlling_player) = team_guard.get_controlling_player_id() {
-                        if controlling_player == player_id {
-                            owned_objects.push(obj_id);
-                        }
-                    }
+            if let Some(team) = obj_guard.get_team() {
+                if crate::team::factory_access::with_team(team, |team_guard| {
+                    team_guard.get_controlling_player_id() == Some(player_id)
+                })
+                .unwrap_or(false)
+                {
+                    owned_objects.push(obj_id);
                 }
             }
         });
@@ -1397,12 +1397,11 @@ impl ObjectManager {
     /// true if object's team is controlled by player, false otherwise
     pub fn object_is_owned_by(&self, object_id: ObjectID, player_id: UnsignedInt) -> bool {
         self.with_object(object_id, |obj_guard| {
-            if let Some(team_arc) = obj_guard.get_team() {
-                if let Ok(team_guard) = team_arc.read() {
-                    if let Some(controlling_player) = team_guard.get_controlling_player_id() {
-                        return controlling_player == player_id;
-                    }
-                }
+            if let Some(team) = obj_guard.get_team() {
+                return crate::team::factory_access::with_team(team, |team_guard| {
+                    team_guard.get_controlling_player_id() == Some(player_id)
+                })
+                .unwrap_or(false);
             }
             false
         })

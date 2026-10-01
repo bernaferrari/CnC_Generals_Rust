@@ -24,13 +24,16 @@ fn dual_world_registry_unavailable() -> bool {
 
 /// C++ `obj->getTemplate()->calcCostToBuild(prisonerOwningPlayer)`.
 fn prisoner_calc_cost_to_build(prisoner: &Object) -> f32 {
-    let player_arc = prisoner.get_controlling_player();
-    let cost = match player_arc.as_ref().and_then(|player| player.read().ok()) {
-        Some(player_guard) => prisoner
-            .get_template()
-            .calc_cost_to_build(Some(&*player_guard as &dyn std::any::Any)),
-        None => prisoner.get_template().calc_cost_to_build(None),
-    };
+    let cost = prisoner
+        .get_controlling_player()
+        .and_then(|player_index| {
+            crate::player::with_player(player_index, |player| {
+                prisoner
+                    .get_template()
+                    .calc_cost_to_build(Some(player as &dyn std::any::Any))
+            })
+        })
+        .unwrap_or_else(|| prisoner.get_template().calc_cost_to_build(None));
     cost.max(0) as f32
 }
 
@@ -1047,10 +1050,10 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
         if collects && bounty > 0 {
             crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 if let Some(player) = owner_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
+                    let _ = crate::player::with_player_mut(player, |player_guard| {
                         let _ = player_guard.get_money_mut().deposit(bounty);
                         player_guard.get_score_keeper_mut().add_money_earned(bounty);
-                    }
+                    });
                 }
             });
             if let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(

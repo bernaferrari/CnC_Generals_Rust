@@ -1546,8 +1546,8 @@ impl ExitInterface for ObjectExitInterface<'_> {
         }
 
         if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .is_none()
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
         {
             return Ok(());
         }
@@ -1567,11 +1567,11 @@ impl ExitInterface for ObjectExitInterface<'_> {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id).is_none()
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+        {
             return Ok(());
-        };
+        }
 
         match self {
             Self::Module(proxy) => proxy.exit_object_in_a_hurry(obj_id),
@@ -1590,8 +1590,8 @@ impl ExitInterface for ObjectExitInterface<'_> {
         }
 
         if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .is_none()
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
         {
             return Ok(());
         }
@@ -1657,8 +1657,8 @@ impl ExitInterface for ModuleExitInterfaceProxy {
         }
 
         if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .is_none()
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
         {
             return Ok(());
         }
@@ -1676,11 +1676,11 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id).is_none()
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+        {
             return Ok(());
-        };
+        }
 
         self.with_exit_behavior(|module| module.exit_object_in_a_hurry(obj_id))
             .unwrap_or(Ok(()))
@@ -1696,11 +1696,11 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id).is_none()
+            && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+        {
             return Ok(());
-        };
+        }
 
         self.with_exit_behavior(|module| module.exit_object_by_budding(obj_id, host_id))
             .unwrap_or(Ok(()))

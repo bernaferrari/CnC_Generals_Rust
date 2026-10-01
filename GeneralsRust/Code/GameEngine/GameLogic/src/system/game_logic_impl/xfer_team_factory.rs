@@ -112,17 +112,20 @@ fn xfer_team_prototype_snapshot(
 
     let proto_name = prototype.get_name().to_string();
     let mut instances = factory.find_team_instances(&proto_name);
-    instances.sort_by_key(|team| team.read().ok().map(|t| t.get_id()).unwrap_or(0));
+    instances.sort();
     let mut instance_count = instances.len() as u16;
     xfer.xfer_unsigned_short(&mut instance_count)?;
 
     if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
-        for team_arc in &instances {
-            let mut team_id = team_arc.read().map(|t| t.get_id()).unwrap_or(0);
-            xfer.xfer_unsigned_int(&mut team_id)?;
-            let mut team = team_arc.write().map_err(|_| XferStatus::InvalidData)?;
-            let mut bridge = CommonXferBridge { inner: xfer };
-            Snapshotable::xfer(&mut *team, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
+        for team_id in &instances {
+            let mut id = *team_id;
+            xfer.xfer_unsigned_int(&mut id)?;
+            let result = crate::team::with_team_mut(*team_id, |team| {
+                let mut bridge = CommonXferBridge { inner: xfer };
+                Snapshotable::xfer(team, &mut bridge)
+            })
+            .ok_or(XferStatus::InvalidData)?;
+            result.map_err(|_| XferStatus::InvalidData)?;
         }
     } else {
         let live_prototype = factory
@@ -133,15 +136,18 @@ fn xfer_team_prototype_snapshot(
         for _ in 0..instance_count {
             let mut team_id = 0u32;
             xfer.xfer_unsigned_int(&mut team_id)?;
-            let team_arc = factory
+            let team_id = factory
                 .find_team_by_id(team_id)
                 .or_else(|| {
                     factory.create_team_on_prototype_with_id(live_prototype.as_ref(), team_id)
                 })
                 .ok_or(XferStatus::InvalidData)?;
-            let mut team = team_arc.write().map_err(|_| XferStatus::InvalidData)?;
-            let mut bridge = CommonXferBridge { inner: xfer };
-            Snapshotable::xfer(&mut *team, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
+            let result = crate::team::with_team_mut(team_id, |team| {
+                let mut bridge = CommonXferBridge { inner: xfer };
+                Snapshotable::xfer(team, &mut bridge)
+            })
+            .ok_or(XferStatus::InvalidData)?;
+            result.map_err(|_| XferStatus::InvalidData)?;
         }
     }
 

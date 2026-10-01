@@ -437,13 +437,17 @@ impl CollisionManager {
             .map_err(|e| CollisionError::InvalidObject(format!("Failed to acquire lock: {}", e)))?;
 
         if let Some(object_modules) = modules.get_mut(&object_id) {
-            let object_handle = crate::helpers::TheGameLogic::find_object_by_id(object_id);
+            let present = crate::helpers::TheGameLogic::find_object_by_id(object_id)
+                || crate::object::registry::OBJECT_REGISTRY.contains(object_id);
             for module in object_modules.iter_mut() {
-                if let Some(handle) = &object_handle {
-                    if let Ok(obj_guard) = handle.read() {
-                        if obj_guard.test_status(ObjectStatusTypes::NoCollisions) {
-                            break;
-                        }
+                if present {
+                    let blocked = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(object_id, |obj| {
+                            obj.test_status(ObjectStatusTypes::NoCollisions)
+                        })
+                        .unwrap_or(false);
+                    if blocked {
+                        break;
                     }
                 }
                 module.on_collide(other, loc, normal)?;
@@ -518,8 +522,7 @@ impl Default for CollisionManager {
 
 /// C++ Object.cpp:2369 — call CollideModuleInterface on each behavior module.
 fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject>) {
-    let obj = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id));
+    let obj = (if crate::helpers::TheGameLogic::find_object_by_id(object_id) || crate::object::registry::OBJECT_REGISTRY.contains(object_id) { Some(object_id) } else { None });
     let Some(obj) = obj else {
         return;
     };
@@ -533,8 +536,7 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
     drop(guard);
     let other_id = other.map(|o| o.get_id()).unwrap_or(INVALID_ID);
     for behavior in behaviors {
-        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        if let Some(obj) = (if crate::helpers::TheGameLogic::find_object_by_id(object_id) || crate::object::registry::OBJECT_REGISTRY.contains(object_id) { Some(object_id) } else { None })
         {
             if let Ok(guard) = obj.try_read() {
                 if guard.test_status(ObjectStatusTypes::NoCollisions) {
@@ -550,8 +552,7 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
         }
     }
     if other_id != INVALID_ID {
-        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        if let Some(obj) = (if crate::helpers::TheGameLogic::find_object_by_id(object_id) || crate::object::registry::OBJECT_REGISTRY.contains(object_id) { Some(object_id) } else { None })
         {
             let contain = obj.try_read().ok().and_then(|guard| guard.get_contain());
             if let Some(contain) = contain {

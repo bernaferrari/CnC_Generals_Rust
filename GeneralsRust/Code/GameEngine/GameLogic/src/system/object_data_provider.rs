@@ -109,29 +109,33 @@ impl ObjectDataProvider for GameLogicObjectDataProvider {
         let (Some(my_team), Some(other_team)) = (my_team, other_team) else {
             return Relationship::Neutral;
         };
-        let (Ok(my_guard), Ok(other_guard)) = (my_team.read(), other_team.read()) else {
+        let Some(rel) = crate::team::with_team(my_team, |my_guard| {
+            crate::team::with_team(other_team, |other_guard| {
+                if i_defect {
+                    return Relationship::Neutral;
+                }
+                if other_defect {
+                    return Relationship::Allies;
+                }
+                my_guard.get_relationship(other_guard)
+            })
+        })
+        .flatten()
+        else {
             return Relationship::Neutral;
         };
-        if i_defect {
-            return Relationship::Neutral;
-        }
-        if other_defect {
-            return Relationship::Allies;
-        }
-        my_guard.get_relationship(&other_guard)
+        rel
     }
 
     fn get_team_relationship(&self, source: ObjectHandle, player_id: u32) -> Relationship {
-        with_object(source, |obj| {
-            let Some(team) = obj.get_team() else {
-                return Relationship::Neutral;
-            };
-            let Ok(team_guard) = team.read() else {
-                return Relationship::Neutral;
-            };
-            team_guard.get_relationship_with_player(player_id as crate::common::Int)
-        })
-        .unwrap_or(Relationship::Neutral)
+        with_object(source, |obj| obj.get_team())
+            .flatten()
+            .and_then(|team| {
+                crate::team::with_team(team, |team_guard| {
+                    team_guard.get_relationship_with_player(player_id as crate::common::Int)
+                })
+            })
+            .unwrap_or(Relationship::Neutral)
     }
 
     fn is_effectively_dead(&self, id: ObjectHandle) -> bool {

@@ -207,7 +207,6 @@ impl SupplyWarehouseCripplingBehavior {
             return Err("Object not set".into());
         }
         crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
             .ok_or_else(|| "Object not found".into())
     }
 
@@ -321,7 +320,6 @@ impl DamageModuleInterface for SupplyWarehouseCripplingBehavior {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) {
             if let Ok(obj_guard) = obj.read() {
                 obj_guard.reschedule_named_update(

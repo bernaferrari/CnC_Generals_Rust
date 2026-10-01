@@ -76,23 +76,17 @@ impl EnemyNearUpdate {
     fn check_for_enemies(&mut self) {
         if self.enemy_scan_delay == 0 {
             self.enemy_scan_delay = self.module_data.enemy_scan_delay_time;
-            let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) else {
+            let Some((vision_range, obj_id)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                    (obj.get_vision_range(), obj.get_id())
+                })
+            else {
                 self.enemy_near = false;
                 return;
             };
-            let Ok(obj) = obj_arc.read() else {
-                self.enemy_near = false;
-                return;
-            };
-            let vision_range = obj.get_vision_range();
             let ai_store = the_ai();let enemy = ai_store.read().ok().and_then(|ai| {
                 ai.find_closest_enemy(
-                    obj.get_id(),
+                    obj_id,
                     vision_range,
                     search_qualifiers::CAN_SEE,
                     None,
@@ -113,23 +107,16 @@ impl UpdateModuleInterface for EnemyNearUpdate {
         let enemy_was_near = self.enemy_near;
         self.check_for_enemies();
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let applied =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+                if self.enemy_near && !enemy_was_near {
+                    obj.set_model_condition_state(MODELCONDITION_ENEMYNEAR);
+                } else if !self.enemy_near && enemy_was_near {
+                    obj.clear_model_condition_state(MODELCONDITION_ENEMYNEAR);
+                }
+            });
+        if applied.is_none() {
             return UpdateSleepTime::None;
-        };
-        let mut obj = match obj_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::None,
-        };
-
-        if self.enemy_near && !enemy_was_near {
-            obj.set_model_condition_state(MODELCONDITION_ENEMYNEAR);
-        } else if !self.enemy_near && enemy_was_near {
-            obj.clear_model_condition_state(MODELCONDITION_ENEMYNEAR);
         }
 
         UpdateSleepTime::None

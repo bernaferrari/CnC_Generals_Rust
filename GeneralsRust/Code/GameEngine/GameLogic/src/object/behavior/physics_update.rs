@@ -26,12 +26,13 @@ use crate::modules::{
 };
 use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use glam::{Mat4, Quat, Vec3};
 use std::any::Any;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::Arc;
 
 /// C++ PhysicsFlagsType (PhysicsUpdate.h:220-235) — written in save/load; do not remap.
 const FLAG_STICK_TO_GROUND: i32 = 0x0001;
@@ -47,14 +48,6 @@ const FLAG_IS_IN_FREEFALL: i32 = 0x0200;
 const FLAG_IS_IN_UPDATE: i32 = 0x0400;
 const FLAG_IS_STUNNED: i32 = 0x0800;
 
-pub(super) fn find_object(id: ObjectID) -> Option<ObjectID> {
-    if id == crate::common::INVALID_ID {
-        return None;
-    }
-    TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-}
-
 fn apply_ypr_damping(state: &mut PhysicsBehaviorState, factor: Real) {
     state.pitch_rate *= factor;
     state.roll_rate *= factor;
@@ -68,22 +61,30 @@ fn is_very_small3d(vec: Coord3D) -> bool {
     vec.x.abs() < thresh && vec.y.abs() < thresh && vec.z.abs() < thresh
 }
 
-fn contained_items_mass(obj: &GameObject) -> Real {
-    let Some(contain) = obj.get_contain() else {
-        return 0.0;
-    };
-    let Ok(contain) = contain.try_lock() else {
-        return 0.0;
-    };
+fn contained_item_ids(obj: &GameObject) -> Vec<ObjectID> {
+    match obj.get_contain() {
+        Some(contain) => crate::modules::ContainModuleInterface::get_contained_objects(contain)
+            .iter()
+            .copied()
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
+/// Cargo mass with one checkout at a time. Caller must not already hold an object.
+/// Nested `get_mass` on the same id misses and reports that body's own mass.
+fn mass_of_contained_ids(ids: &[ObjectID]) -> Real {
     let mut mass = 0.0;
-    for &id in contain.get_contained_objects().iter() {
-        if let Some(cargo) = find_object(id) {
-            if let Ok(cargo) = cargo.try_read() {
-                if let Some(phys) = cargo.get_physics() {
-                    mass += ::get_mass(&phys);
-                }
-            }
-        }
+    for &id in ids {
+        let Some(cargo_mass) = OBJECT_REGISTRY.with_object(id, |cargo| {
+            cargo
+                .get_physics()
+                .map(PhysicsBehaviorTrait::get_mass)
+                .unwrap_or(0.0)
+        }) else {
+            continue;
+        };
+        mass += cargo_mass;
     }
     mass
 }
@@ -92,13 +93,9 @@ fn is_deck_taxiing(obj: &GameObject) -> bool {
     if !obj.test_status(ObjectStatusTypes::DeckHeightOffset) {
         return false;
     }
-    let Some(ai) = obj.get_ai() else {
-        return false;
-    };
-    let Ok(ai) = ai.try_lock() else {
-        return false;
-    };
-    ai.get_cur_locomotor_set_type() == LocomotorSetType::Taxiing
+    obj.get_ai().is_some_and(|ai| {
+        crate::modules::AIUpdateInterface::get_cur_locomotor_set_type(ai) == LocomotorSetType::Taxiing
+    })
 }
 
 const DEFAULT_MASS: Real = 1.0;
@@ -254,11 +251,7 @@ struct PhysicsBehaviorHandle {
 }
 
 impl PhysicsBehaviorHandle {
-    fn new(object: Weak<RwLock<GameObject>>, module_data: Arc<PhysicsBehaviorModuleData>) -> Self {
-        let object_id = object
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
+    fn new(object_id: ObjectID, module_data: Arc<PhysicsBehaviorModuleData>) -> Self {
         let mut state = PhysicsBehaviorState::new(module_data.mass);
         state.original_allow_bounce = module_data.allow_bouncing;
         state.set_flag(FLAG_ALLOW_BOUNCE, module_data.allow_bouncing);
@@ -269,10 +262,6 @@ impl PhysicsBehaviorHandle {
             module_data,
             bounce_sound: None,
         }
-    }
-
-    fn object_arc(&self) -> Option<ObjectID> {
-        find_object(self.object_id)
     }
 
     fn is_motive(&self) -> bool {
@@ -343,40 +332,41 @@ impl PhysicsBehaviorHandle {
         self.state.vel_mag
     }
 
-    fn mass_with_cargo(&self, obj: Option<&GameObject>) -> Real {
-        let mut mass = self.state.mass;
-        if let Some(obj) = obj {
-            mass += contained_items_mass(obj);
-        } else if let Some(arc) = self.object_arc() {
-            if let Ok(obj) = arc.try_read() {
-                mass += contained_items_mass(&obj);
-            }
-        }
-        mass
+    /// Contained mass. Does not check out `self` while another id is held.
+    fn lookup_cargo_mass(&self) -> Real {
+        let Some(ids) = OBJECT_REGISTRY.with_object(self.object_id, contained_item_ids) else {
+            return 0.0;
+        };
+        mass_of_contained_ids(&ids)
     }
 
-    fn apply_force_with_obj(&mut self, force: &Vec3, obj: Option<&GameObject>) {
+    fn reschedule_physics(&self, wake_frame: UnsignedInt) {
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            guard.reschedule_named_update("PhysicsBehavior", wake_frame);
+        });
+    }
+
+    /// `facing` and `cargo_extra` are copied before this runs so no second checkout is held.
+    fn apply_force_with_facing(
+        &mut self,
+        force: &Vec3,
+        facing: Option<(Real, Real)>,
+        cargo_extra: Real,
+    ) {
         if !force.x.is_finite() || !force.y.is_finite() || !force.z.is_finite() {
             return;
         }
 
         let mut mod_force = *force;
         if self.is_motive() {
-            let dirs = obj.map(|o| o.get_unit_direction_vector_2d()).or_else(|| {
-                self.object_arc().and_then(|arc| {
-                    arc.try_read()
-                        .ok()
-                        .map(|o| o.get_unit_direction_vector_2d())
-                })
-            });
-            if let Some((dir_x, dir_y)) = dirs {
+            if let Some((dir_x, dir_y)) = facing {
                 let lateral_dot = force.x * -dir_y + force.y * dir_x;
                 mod_force.x = lateral_dot * -dir_y;
                 mod_force.y = lateral_dot * dir_x;
             }
         }
 
-        let mass = self.mass_with_cargo(obj);
+        let mass = self.state.mass + cargo_extra;
         let mass = if mass.abs() < 0.0001 { 0.0001 } else { mass };
         let mass_inv = 1.0 / mass;
         self.state.accel.x += mod_force.x * mass_inv;
@@ -384,16 +374,8 @@ impl PhysicsBehaviorHandle {
         self.state.accel.z += mod_force.z * mass_inv;
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(id) = obj.map(|o| o.get_id()).or(Some(self.object_id)) {
-                if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                {
-                    if let Ok(guard) = object.read() {
-                        let now = TheGameLogic::get_frame();
-                        guard.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
-                    }
-                }
-            }
+            let now = TheGameLogic::get_frame();
+            self.reschedule_physics(now.saturating_add(1));
         }
     }
 }
@@ -422,7 +404,13 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn apply_force(&mut self, force: &Vec3) {
-        self.apply_force_with_obj(force, None);
+        let facing = if self.is_motive() {
+            OBJECT_REGISTRY.with_object(self.object_id, |obj| obj.get_unit_direction_vector_2d())
+        } else {
+            None
+        };
+        let cargo_extra = self.lookup_cargo_mass();
+        self.apply_force_with_facing(force, facing, cargo_extra);
     }
 
     fn set_yaw_rate(&mut self, rate: Real) {
@@ -484,7 +472,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
     }
 
     fn get_mass(&self) -> Real {
-        self.mass_with_cargo(None)
+        self.state.mass + self.lookup_cargo_mass()
     }
 
     fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
@@ -496,17 +484,8 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.yaw_angle += angular_velocity.z * factor;
         self.update_pitch_roll_yaw_flag();
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(obj) = obj.read() {
-                    let now = TheGameLogic::get_frame();
-                    obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
-                }
-            }
+            let now = TheGameLogic::get_frame();
+            self.reschedule_physics(now.saturating_add(1));
         }
     }
 
@@ -551,33 +530,29 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.roll_rate = 0.0;
         self.state.pitch_rate = 0.0;
         self.update_pitch_roll_yaw_flag();
-        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        {
-            if let Ok(guard) = object.read() {
-                let now = TheGameLogic::get_frame();
-                let zero_vel =
-                    self.state.vel.x == 0.0 && self.state.vel.y == 0.0 && self.state.vel.z == 0.0;
-                let zero_accel = self.state.accel.x == 0.0
-                    && self.state.accel.y == 0.0
-                    && self.state.accel.z == 0.0;
-                let asleep = zero_vel
-                    && zero_accel
-                    && !self.state.has_flag(FLAG_HAS_PITCHROLLYAW)
-                    && self.state.motive_force_expires <= now
-                    && guard.get_layer() == crate::common::PathfindLayerEnum::Ground
-                    && !guard.is_above_terrain()
-                    && self.state.current_overlap == crate::common::INVALID_ID
-                    && self.state.previous_overlap == crate::common::INVALID_ID
-                    && self.state.has_flag(FLAG_UPDATE_EVER_RUN);
-                let wake = if asleep {
-                    UpdateSleepTime::Forever.to_u32()
-                } else {
-                    now.saturating_add(1)
-                };
-                guard.reschedule_named_update("PhysicsBehavior", wake);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            let now = TheGameLogic::get_frame();
+            let zero_vel =
+                self.state.vel.x == 0.0 && self.state.vel.y == 0.0 && self.state.vel.z == 0.0;
+            let zero_accel = self.state.accel.x == 0.0
+                && self.state.accel.y == 0.0
+                && self.state.accel.z == 0.0;
+            let asleep = zero_vel
+                && zero_accel
+                && !self.state.has_flag(FLAG_HAS_PITCHROLLYAW)
+                && self.state.motive_force_expires <= now
+                && guard.get_layer() == crate::common::PathfindLayerEnum::Ground
+                && !guard.is_above_terrain()
+                && self.state.current_overlap == crate::common::INVALID_ID
+                && self.state.previous_overlap == crate::common::INVALID_ID
+                && self.state.has_flag(FLAG_UPDATE_EVER_RUN);
+            let wake = if asleep {
+                UpdateSleepTime::Forever.to_u32()
+            } else {
+                now.saturating_add(1)
+            };
+            guard.reschedule_named_update("PhysicsBehavior", wake);
+        });
     }
 
     fn apply_shock(&mut self, force: &Coord3D) {
@@ -602,37 +577,21 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.update_pitch_roll_yaw_flag();
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(obj) = obj.read() {
-                    let now = TheGameLogic::get_frame();
-                    obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
-                }
-            }
+            let now = TheGameLogic::get_frame();
+            self.reschedule_physics(now.saturating_add(1));
         }
     }
 
     fn set_stunned(&mut self, stunned: bool) {
         self.state.set_flag(FLAG_IS_STUNNED, stunned);
-        if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut obj) = obj.write() {
-                if stunned {
-                    obj.set_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
-                } else {
-                    obj.clear_model_condition_state(MODELCONDITION_STUNNED);
-                    obj.clear_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
-                }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            if stunned {
+                obj.set_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
+            } else {
+                obj.clear_model_condition_state(MODELCONDITION_STUNNED);
+                obj.clear_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
             }
-        }
+        });
     }
 
     fn set_allow_to_fall(&mut self, allow: bool) {
@@ -669,29 +628,20 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
 
     fn get_forward_speed_2d(&self) -> Real {
         let vel = self.state.vel;
-        let (dir_x, dir_y) = self
-            .object_arc()
-            .and_then(|arc| {
-                arc.try_read()
-                    .ok()
-                    .map(|o| o.get_unit_direction_vector_2d())
-            })
+        let (dir_x, dir_y) = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| obj.get_unit_direction_vector_2d())
             .unwrap_or((1.0, 0.0));
         crate::modules::signed_forward_speed_2d(vel.x, vel.y, dir_x, dir_y)
     }
 
     fn get_forward_speed_3d(&self) -> Real {
         let vel = self.state.vel;
-        let (dir_x, dir_y, dir_z) = if let Some(arc) = self.object_arc() {
-            if let Ok(obj) = arc.try_read() {
+        let (dir_x, dir_y, dir_z) = OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
                 let x = obj.get_transform_matrix().transform_vector3(glam::Vec3::X);
                 (x.x, x.y, x.z)
-            } else {
-                self.forward_dir_from_angles()
-            }
-        } else {
-            self.forward_dir_from_angles()
-        };
+            })
+            .unwrap_or_else(|| self.forward_dir_from_angles());
         crate::modules::signed_forward_speed_3d(vel.x, vel.y, vel.z, dir_x, dir_y, dir_z)
     }
 
@@ -724,7 +674,7 @@ impl PhysicsBehaviorUpdate {
         Ok(Self {
             object_id,
             module_data: module_data.clone(),
-            physics_handle: PhysicsBehaviorHandle::new(Arc::downgrade(&object), module_data),
+            physics_handle: PhysicsBehaviorHandle::new(object_id, module_data),
         })
     }
 
@@ -784,6 +734,7 @@ impl PhysicsBehaviorUpdate {
         module_data: &PhysicsBehaviorModuleData,
         obj: &GameObject,
         state: &mut PhysicsBehaviorState,
+        cargo_extra: Real,
     ) {
         let deck_taxiing = is_deck_taxiing(obj);
         let apply_ground = state.has_flag(FLAG_APPLY_FRICTION2D_WHEN_AIRBORNE)
@@ -794,7 +745,7 @@ impl PhysicsBehaviorUpdate {
 
             if state.vel.x != 0.0 || state.vel.y != 0.0 {
                 let (dir_x, dir_y) = obj.get_unit_direction_vector_2d();
-                let mass = state.mass + contained_items_mass(obj);
+                let mass = state.mass + cargo_extra;
 
                 let lateral_dot = state.vel.x * -dir_y + state.vel.y * dir_x;
                 let lateral_vel_x = lateral_dot * -dir_y;
@@ -855,16 +806,12 @@ impl PhysicsBehaviorUpdate {
             UPDATE_SLEEP_NONE
         }
     }
-}
 
-impl UpdateModuleInterface for PhysicsBehaviorUpdate {
-    fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(obj_arc) = find_object(self.object_id) else {
-            return UpdateSleepTime::None;
-        };
-        let Ok(mut obj) = obj_arc.write() else {
-            return UpdateSleepTime::None;
-        };
+    fn update_while_checked_out(
+        &mut self,
+        obj: &mut GameObject,
+        cargo_extra: Real,
+    ) -> PhysicsUpdateStep {
         let module_data = Arc::clone(&self.module_data);
         let object_id = self.object_id;
         let handle = &mut self.physics_handle;
@@ -887,7 +834,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
 
         if !obj.is_disabled_by_type(DisabledType::Held) {
             Self::apply_gravity(state);
-            Self::apply_frictional_forces(&module_data, &obj, state);
+            Self::apply_frictional_forces(&module_data, obj, state, cargo_extra);
 
             state.vel += state.accel;
 
@@ -918,10 +865,9 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
 
             if !pos.x.is_finite() || !pos.y.is_finite() || !pos.z.is_finite() {
                 // C++ PhysicsUpdate.cpp:665-669 — NaN translation destroys the object.
+                // Destroy after this checkout ends so unregister can see the id.
                 state.set_flag(FLAG_IS_IN_UPDATE, false);
-                drop(obj);
-                let _ = TheGameLogic::destroy_object_by_id(object_id);
-                return UpdateSleepTime::None;
+                return PhysicsUpdateStep::Destroy;
             }
 
             if let Some(terrain) = TheTerrainLogic::get() {
@@ -932,10 +878,10 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
                 got_ground = true;
             }
 
-            let bounce_mass = state.mass + contained_items_mass(&obj);
+            let bounce_mass = state.mass + cargo_extra;
             bounce_force = physics_bounce::handle_bounce(
                 state,
-                &mut obj,
+                obj,
                 bounce_mass,
                 old_pos_z,
                 pos.z,
@@ -1022,11 +968,12 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
 
         if let Some(force) = bounce_force {
             if allow_bounce {
-                handle.apply_force_with_obj(&force, Some(&obj));
+                let facing = Some(obj.get_unit_direction_vector_2d());
+                handle.apply_force_with_facing(&force, facing, cargo_extra);
             }
         }
         let bounce_sound = handle.bounce_sound.clone();
-        let cargo_mass = handle.mass_with_cargo(Some(&obj));
+        let total_mass = handle.state.mass + cargo_extra;
         let airborne_at_end = obj.is_above_terrain();
         let was_airborne = handle.state.has_flag(FLAG_WAS_AIRBORNE_LAST_FRAME);
         let immune_fall = handle.state.has_flag(FLAG_IMMUNE_TO_FALLING_DAMAGE);
@@ -1034,11 +981,12 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
             was_airborne && !airborne_at_end && obj.is_kind_of(KindOf::Projectile);
 
         if was_airborne && !airborne_at_end && !immune_fall {
-            physics_bounce::do_bounce_sound(&obj, bounce_sound.as_ref(), prev_pos, cargo_mass);
+            physics_bounce::do_bounce_sound(&obj, bounce_sound.as_ref(), prev_pos, total_mass);
             let normal = Coord3D::new(0.0, 0.0, -1.0);
             let collision_pos = *obj.get_position();
             // C++ PhysicsUpdate.cpp:831 — obj->onCollide(NULL) reaches PhysicsBehavior::onCollide.
             // Owned handle is already borrowed; call on_collide directly.
+            // This id is checked out, so on_collide's same-id lookup misses (old try_read did too).
             physics_collide::on_collide(
                 &mut *handle,
                 object_id,
@@ -1058,7 +1006,7 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
                         || (active_vel_z / state.vel.y).abs() >= MIN_ANGLE_TAN)
                 {
                     let damage_amount =
-                        net_speed * cargo_mass * module_data.fall_height_damage_factor;
+                        net_speed * total_mass * module_data.fall_height_damage_factor;
                     let mut damage = DamageInfo::with_simple(
                         damage_amount,
                         obj.get_id(),
@@ -1101,15 +1049,54 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
         state.set_flag(FLAG_WAS_AIRBORNE_LAST_FRAME, airborne_at_end);
         state.set_flag(FLAG_IS_IN_UPDATE, false);
 
-        let sleep = Self::calc_sleep_time(state, &obj);
-        drop(obj);
-        if projectile_ground_collide {
-            crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision(
-                object_id,
-                None,
-            );
+        let sleep = Self::calc_sleep_time(state, obj);
+        PhysicsUpdateStep::Finished {
+            sleep,
+            projectile_ground_collide,
         }
-        sleep
+    }
+}
+
+enum PhysicsUpdateStep {
+    Destroy,
+    Finished {
+        sleep: UpdateSleepTime,
+        projectile_ground_collide: bool,
+    },
+}
+
+impl UpdateModuleInterface for PhysicsBehaviorUpdate {
+    fn update_simple(&mut self) -> UpdateSleepTime {
+        let contained_ids = OBJECT_REGISTRY.with_object(self.object_id, contained_item_ids);
+        let Some(contained_ids) = contained_ids else {
+            return UpdateSleepTime::None;
+        };
+        // Parent is back in the registry before any cargo id is checked out.
+        let cargo_extra = mass_of_contained_ids(&contained_ids);
+        let object_id = self.object_id;
+        let Some(step) = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+            self.update_while_checked_out(obj, cargo_extra)
+        }) else {
+            return UpdateSleepTime::None;
+        };
+        match step {
+            PhysicsUpdateStep::Destroy => {
+                let _ = TheGameLogic::destroy_object_by_id(object_id);
+                UpdateSleepTime::None
+            }
+            PhysicsUpdateStep::Finished {
+                sleep,
+                projectile_ground_collide,
+            } => {
+                if projectile_ground_collide {
+                    crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision(
+                        object_id,
+                        None,
+                    );
+                }
+                sleep
+            }
+        }
     }
 
     fn get_update_phase(&self) -> SleepyUpdatePhase {
@@ -1349,23 +1336,16 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
             self.module_data.allow_collide_force,
         );
 
-        let Some(obj_arc) = find_object(self.object_id) else {
-            return Ok(());
-        };
-        // std RwLock does not reenter. Creation may already hold this write guard.
-        let Ok(mut obj) = obj_arc.try_write() else {
-            return Ok(());
-        };
-        self.physics_handle.state.yaw_angle = obj.get_orientation();
-        let physics_name = AsciiString::from("PhysicsBehavior");
-        if let Some(module) = obj.module_by_name(&physics_name) {
-            let view: Arc<Mutex<dyn PhysicsBehaviorTrait>> =
-                Arc::new(Mutex::new(PhysicsModuleView { module }));
-            obj.set_physics(Some(view));
-        }
-
-        let now = TheGameLogic::get_frame();
-        obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+        // Creation may already have this id checked out. Same-id re-entry misses.
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
+            self.physics_handle.state.yaw_angle = obj.get_orientation();
+            let physics_name = AsciiString::from("PhysicsBehavior");
+            if let Some(module) = obj.module_by_name(&physics_name) {
+                obj.set_physics(Some(Box::new(PhysicsModuleView { module })));
+            }
+            let now = TheGameLogic::get_frame();
+            obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+        });
         Ok(())
     }
 }
@@ -1674,7 +1654,7 @@ mod tests {
     #[test]
     fn set_allow_to_fall_is_readable() {
         let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        let mut handle = PhysicsBehaviorHandle::new(crate::common::INVALID_ID, data);
         assert!(
             !handle.allow_to_fall(),
             "C++ ALLOW_TO_FALL defaults unset/false"
@@ -1708,7 +1688,7 @@ mod tests {
     #[test]
     fn set_is_in_freefall_is_readable() {
         let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        let mut handle = PhysicsBehaviorHandle::new(crate::common::INVALID_ID, data);
         assert!(!handle.get_is_in_freefall());
         assert!(handle.is_on_ground());
 
@@ -1725,7 +1705,7 @@ mod tests {
     #[test]
     fn set_stick_to_ground_sets_flag() {
         let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        let mut handle = PhysicsBehaviorHandle::new(crate::common::INVALID_ID, data);
         assert!(!PhysicsBehaviorTrait::get_stick_to_ground(&handle));
         PhysicsBehaviorTrait::set_stick_to_ground(&mut handle, true);
         assert!(handle.state.has_flag(FLAG_STICK_TO_GROUND));
@@ -1737,7 +1717,7 @@ mod tests {
     #[test]
     fn get_forward_speed_2d_is_signed() {
         let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        let mut handle = PhysicsBehaviorHandle::new(crate::common::INVALID_ID, data);
         handle.set_velocity(&Coord3D::new(-6.0, 0.0, 0.0));
         // No object: default facing +X, so backward vel is negative.
         assert!((PhysicsBehaviorTrait::get_forward_speed_2d(&handle) + 6.0).abs() < 1.0e-5);
@@ -1748,7 +1728,7 @@ mod tests {
     #[test]
     fn scrub_velocity_2d_negative_desired_zeros_xy() {
         let data = Arc::new(PhysicsBehaviorModuleData::default());
-        let mut handle = PhysicsBehaviorHandle::new(std::sync::Weak::new(), data);
+        let mut handle = PhysicsBehaviorHandle::new(crate::common::INVALID_ID, data);
         handle.set_velocity(&Coord3D::new(5.0, -3.0, 2.0));
         PhysicsBehaviorTrait::scrub_velocity_2d(&mut handle, -1.0);
         let vel = handle.get_velocity();

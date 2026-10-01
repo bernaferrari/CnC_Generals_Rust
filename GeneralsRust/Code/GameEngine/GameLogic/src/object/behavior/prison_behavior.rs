@@ -240,8 +240,13 @@ impl PrisonBehavior {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        if crate::helpers::TheGameLogic::find_object_by_id(id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(id)
+        {
+            Some(id)
+        } else {
+            None
+        }
     }
 
     fn pick_visual_location(&self) -> Coord3D {
@@ -338,17 +343,12 @@ impl PrisonBehavior {
         if dual_world_registry_unavailable() {
             return;
         }
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return;
-        };
-        if let Ok(mut guard) = obj.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |guard| {
             guard.set_disabled(DisabledType::Held);
             if self.module_data.show_prisoners {
-                self.add_visual(&*guard);
+                self.add_visual(guard);
             }
-        }
+        });
     }
 
     fn remove_visual(&mut self, obj: &Object) {
@@ -462,17 +462,14 @@ impl ContainModuleInterface for PrisonBehavior {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
-        if let Ok(mut guard) = obj.write() {
+        let present = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |guard| {
             if self.module_data.show_prisoners {
-                self.remove_visual(&*guard);
+                self.remove_visual(guard);
             }
             guard.clear_disabled(DisabledType::Held);
+        });
+        if present.is_none() {
+            return Ok(());
         }
         self.contain.on_removing(obj_id)
     }

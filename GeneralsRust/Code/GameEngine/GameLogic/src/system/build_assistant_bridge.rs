@@ -87,12 +87,7 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                         if let Some(id) = player_id_opt {
                             if let Ok(list) = player_list().read() {
                                 if let Some(player) = list.get_player(id as i32) {
-                                    if let Ok(player_guard) = player.read() {
-                                        template.calc_time_to_build(Some(&*player_guard)).max(1)
-                                            as u32
-                                    } else {
-                                        template.calc_time_to_build(None).max(1) as u32
-                                    }
+                                    template.calc_time_to_build(Some(player)).max(1) as u32
                                 } else {
                                     template.calc_time_to_build(None).max(1) as u32
                                 }

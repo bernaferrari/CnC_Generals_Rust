@@ -139,10 +139,8 @@ impl AIPlayer {
             return None;
         }
 
-        let player_arc = self.get_player()?;
-        let Ok(mut pg) = player_arc.write() else {
-            return None;
-        };
+        let player_index = self.get_player()?;
+        crate::player::with_player_mut(player_index, |pg| {
         let Some(info_head) = pg.get_build_list_mut() else {
             return None;
         };
@@ -162,6 +160,7 @@ impl AIPlayer {
             node = info.get_next_mut();
         }
         last_dock
+        }).flatten()
     }
 
     /// C++ `AIPlayer::checkForSupplyCenter` (AIPlayer.cpp).
@@ -190,8 +189,7 @@ impl AIPlayer {
         let side = player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| p.read().ok().map(|g| g.get_side().to_string()))
+            .and_then(|list| list.get_player(self.player_id as i32).map(|g| g.get_side().to_string()))
             .unwrap_or_default();
 
         let mut desired = 0;
@@ -210,9 +208,7 @@ impl AIPlayer {
             }
         }
 
-        if let Ok(list) = player_list().read() {
-            if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                if let Ok(mut pg) = player_arc.write() {
+        let _ = crate::player::with_player_mut(self.player_id as i32, |pg| {
                     if let Some(info) = pg.get_build_list_mut() {
                         let mut cur = Some(&mut *info);
                         while let Some(node) = cur {
@@ -226,9 +222,7 @@ impl AIPlayer {
                             cur = node.get_next_mut();
                         }
                     }
-                }
-            }
-        }
+        });
         Ok(())
     }
 
@@ -306,10 +300,7 @@ impl AIPlayer {
         let Ok(list) = player_list().read() else {
             return false;
         };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return false;
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(player_guard) = list.get_player(self.player_id as i32) else {
             return false;
         };
         if player_guard.get_attacked_frame().saturating_add(SCAN_RATE) < cur_frame {
@@ -360,21 +351,16 @@ impl AIPlayer {
         team_name: &str,
         priority_build: bool,
     ) -> Result<(), AiError> {
-        let Some(player_arc) = self.get_player_arc() else {
+        let Some(player_index) = self.get_player_arc() else {
             return Ok(());
         };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(());
-        };
-        if !player_guard.get_can_build_units() {
+        if !crate::player::with_player(player_index, |player_guard| player_guard.get_can_build_units()).unwrap_or(false) {
             log::debug!(
                 "Can't build team '{}' because build units is disabled.",
                 team_name
             );
             return Ok(());
         }
-        drop(player_guard);
-
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(());
         };

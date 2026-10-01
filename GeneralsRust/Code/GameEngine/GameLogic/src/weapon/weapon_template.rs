@@ -1890,8 +1890,8 @@ impl WeaponTemplate {
                 });
             }
 
-            if let Some(player_arc) = owning_player {
-                if let Ok(player_guard) = player_arc.read() {
+            if let Some(player_index) = owning_player {
+                let _ = crate::player::with_player(player_index, |player_guard| {
                     if player_guard.get_num_battle_plans_active() > 0 {
                         crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                             projectile_id,
@@ -1900,7 +1900,7 @@ impl WeaponTemplate {
                             },
                         );
                     }
-                }
+                });
             }
 
             let exhaust = self
@@ -2020,20 +2020,12 @@ impl WeaponTemplate {
 
         log::debug!("Creating laser object '{}'", self.laser_name);
 
-        let Some(team_and_pos) = crate::object::registry::OBJECT_REGISTRY.with_object(
+        let Some((team_id, source_pos)) = crate::object::registry::OBJECT_REGISTRY.with_object(
             source_obj,
             |source_guard| source_guard.get_team().map(|team| (team, *source_guard.get_position())),
-        ) else {
+        ).flatten() else {
             return Err(GameLogicError::InvalidObject(source_obj));
         };
-        let Some((team_arc, source_pos)) = team_and_pos else {
-            return Err(GameLogicError::Configuration(
-                "Laser creation requires a source team".to_string(),
-            ));
-        };
-        let team_guard = team_arc
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock source team".to_string()))?;
 
         let Some(template) = crate::helpers::TheThingFactory::find_template(&self.laser_name)
         else {
@@ -2045,13 +2037,12 @@ impl WeaponTemplate {
 
         let factory = crate::helpers::TheThingFactory::get()
             .map_err(|e| GameLogicError::SystemNotInitialized(e.to_string()))?;
-        let laser_obj = factory
-            .new_object(template, &team_guard)
-            .map_err(|e| GameLogicError::ModuleError(e.to_string()))?;
+        let laser_id = crate::team::with_team(team_id, |team_guard| {
+            factory.new_object(template, team_guard)
+        })
+        .ok_or_else(|| GameLogicError::Threading("Failed to lock source team".to_string()))?
+        .map_err(|e| GameLogicError::ModuleError(e.to_string()))?;
 
-        let mut laser_guard = laser_obj
-            .write()
-            .map_err(|_| GameLogicError::Threading("Failed to lock laser object".to_string()))?;
         let end_pos = if let Some(pos) = victim_pos {
             *pos
         } else if let Some(target_id) = victim_obj {
@@ -2061,12 +2052,12 @@ impl WeaponTemplate {
         } else {
             source_pos
         };
-        let _ = laser_guard.set_position(&end_pos);
-        let laser_id = laser_guard.get_id();
-
-        let client_modules =
-            laser_guard.drawable_modules_with_interface(ModuleInterfaceType::CLIENT_UPDATE);
-        drop(laser_guard);
+        let Some(client_modules) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(laser_id, |laser_guard| {
+            let _ = laser_guard.set_position(&end_pos);
+            laser_guard.drawable_modules_with_interface(ModuleInterfaceType::CLIENT_UPDATE)
+        }) else {
+            return Err(GameLogicError::Threading("Failed to lock laser object".to_string()));
+        };
 
         let end_pos_ref = victim_pos.or(if victim_obj.is_some() {
             None
@@ -3253,8 +3244,8 @@ mod tests {
 
             assert!(weapon.should_projectile_collide_with(
                 crate::common::INVALID_ID,
-                projectile.read().unwrap().get_id(),
-                target.read().unwrap().get_id(),
+                projectile,
+                target,
                 crate::common::INVALID_ID,
             ));
         });
@@ -3307,8 +3298,8 @@ mod tests {
 
             assert!(weapon.should_projectile_collide_with(
                 crate::common::INVALID_ID,
-                projectile.read().unwrap().get_id(),
-                target.read().unwrap().get_id(),
+                projectile,
+                target,
                 crate::common::INVALID_ID,
             ));
         });

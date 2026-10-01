@@ -147,15 +147,10 @@ impl DefaultCommandHandler {
             }
         }
 
-        let player_index = if let Some(player_arc) = builder_guard.get_controlling_player() {
-            if let Ok(player_guard) = player_arc.read() {
-                player_guard.get_player_index() as u32
-            } else {
-                context.player_id as u32
-            }
-        } else {
-            context.player_id as u32
-        };
+        let player_index = builder_guard
+            .get_controlling_player()
+            .map(|index| index as u32)
+            .unwrap_or(context.player_id as u32);
 
         let builder_snapshot = build_assistant::Object {
             id: builder_guard.get_id(),

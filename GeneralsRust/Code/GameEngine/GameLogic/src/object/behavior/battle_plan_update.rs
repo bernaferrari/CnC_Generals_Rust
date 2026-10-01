@@ -454,25 +454,25 @@ impl BattlePlanUpdate {
         })
     }
 
-    fn object_arc(&self) -> Option<ObjectID> {
-        (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+    fn object_present(&self) -> bool {
+        self.object_id != crate::common::INVALID_ID
+            && crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |_| ())
+                .is_some()
     }
 
     fn with_object<R>(&self, func: impl FnOnce(&GameObject) -> R) -> Option<R> {
-        let obj = self.object_arc()?;
-        let guard = obj.read().ok()?;
-        Some(func(&*guard))
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, func)
     }
 
     fn with_object_mut<R>(&self, func: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
-        let obj = self.object_arc()?;
-        let mut guard = obj.write().ok()?;
-        Some(func(&mut *guard))
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, func)
     }
 
     fn enable_turret(&self, enable: bool) {
@@ -787,13 +787,7 @@ impl BattlePlanUpdate {
             BattlePlanStatus::None => {
                 let now = TheGameLogic::get_frame();
                 let _ = player.iterate_object_ids(|obj_id| {
-                    let obj = match crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    {
-                        Some(a) => a,
-                        None => return Ok(()),
-                    };
-                    if let Ok(mut guard) = obj.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |guard| {
                         let kind_of = guard.get_kind_of();
                         if (kind_of & self.module_data.valid_member_kind_of) != 0
                             && (kind_of & self.module_data.invalid_member_kind_of) == 0
@@ -803,7 +797,7 @@ impl BattlePlanUpdate {
                                 now + self.module_data.battle_plan_paralyze_frames,
                             );
                         }
-                    }
+                    });
                     Ok(())
                 });
             }
@@ -956,7 +950,7 @@ impl UpdateModuleInterface for BattlePlanUpdate {
             return UpdateSleepTime::None;
         }
 
-        if self.object_arc().is_none() {
+        if !self.object_present() {
             return UpdateSleepTime::Forever;
         }
 
@@ -1057,9 +1051,9 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
             .with_object(|object| object.get_controlling_player())
             .flatten()
         {
-            if let Ok(mut player) = player.write() {
+            let _ = crate::player::with_player_mut(player, |player| {
                 player.get_academy_stats_mut().record_battle_plan_selected();
-            }
+            });
         }
 
         true

@@ -740,19 +740,19 @@ impl ParticleUplinkCannonUpdate {
     where
         F: FnOnce(&mut dyn SpecialPowerModuleInterface) -> R,
     {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        let template_name = self.module_data.special_power_template.as_ref()?.get_name();
         let mut func = Some(func);
-        let obj_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })?;
-        let obj = obj_arc.read().ok()?;
-        let template = self.module_data.special_power_template.as_ref()?;
-        obj.with_special_power_module_mut_by_name(template.get_name(), |module| {
-            let func = func.take().expect("special power callback already used");
-            func(module)
-        })
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                obj.with_special_power_module_mut_by_name(template_name, |module| {
+                    let func = func.take().expect("special power callback already used");
+                    func(module)
+                })
+            })
+            .flatten()
     }
 
     fn get_ready_frame(&mut self) -> UnsignedInt {
@@ -829,13 +829,8 @@ impl ParticleUplinkCannonUpdate {
         }
 
         if self.status != status {
-            if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(obj_guard) = object_arc.read() {
+            if self.object_id != crate::common::INVALID_ID {
+                crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
                     if let Some(drawable) = obj_guard.get_drawable() {
                         let (clear, set) = match status {
                             PUCStatus::Idle => (
@@ -864,7 +859,7 @@ impl ParticleUplinkCannonUpdate {
                             drawable.clear_and_set_model_condition_state(clear, set);
                         }
                     }
-                }
+                });
             }
 
             if matches!(
@@ -914,15 +909,13 @@ impl ParticleUplinkCannonUpdate {
             return None;
         }
 
-        let object_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })?;
-        let obj_guard = object_arc.read().ok()?;
-        let pos = obj_guard.get_position();
-        Some((obj_guard.get_id(), Coord3D::new(pos.x, pos.y, pos.z)))
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+            let pos = obj_guard.get_position();
+            (obj_guard.get_id(), Coord3D::new(pos.x, pos.y, pos.z))
+        })
     }
 
     fn play_audio_event(event: &mut AudioEventRts, object_id: ObjectID, position: &Coord3D) {
@@ -969,45 +962,54 @@ impl ParticleUplinkCannonUpdate {
             return false;
         }
 
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            self.invalid_settings = true;
-            return false;
-        };
-        let Ok(obj_guard) = object_arc.read() else {
-            return false;
-        };
-        let Some(draw) = obj_guard.get_drawable() else {
-            self.invalid_settings = true;
-            return false;
-        };
-        let Ok(draw_guard) = draw.read() else {
-            return false;
-        };
-
-        let prefix = self.module_data.outer_effect_base_bone_name.as_str();
-        let positions = draw_guard.get_pristine_bone_positions(prefix, 1, count);
-        let transforms = draw_guard.get_pristine_bone_transforms(prefix, 1, count);
-        let num_bones = positions.len().min(transforms.len());
-        if num_bones != count {
+        if self.object_id == crate::common::INVALID_ID {
             self.invalid_settings = true;
             return false;
         }
-
+        let bone_result = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+            let Some(draw) = obj_guard.get_drawable() else {
+                return Err(true);
+            };
+            let Ok(draw_guard) = draw.read() else {
+                return Err(false);
+            };
+            let prefix = self.module_data.outer_effect_base_bone_name.as_str();
+            let positions = draw_guard.get_pristine_bone_positions(prefix, 1, count);
+            let transforms = draw_guard.get_pristine_bone_transforms(prefix, 1, count);
+            let num_bones = positions.len().min(transforms.len());
+            if num_bones != count {
+                return Err(true);
+            }
+            let mut cached = Vec::with_capacity(count);
+            for i in 0..count {
+                let world = obj_guard
+                    .convert_bone_pos_to_world_pos(Some(&positions[i]), Some(&transforms[i]));
+                let (_, _, translation) = world.to_scale_rotation_translation();
+                cached.push((translation, world));
+            }
+            Ok(cached)
+        });
+        let Some(bone_result) = bone_result else {
+            self.invalid_settings = true;
+            return false;
+        };
+        let cached = match bone_result {
+            Ok(cached) => cached,
+            Err(mark_invalid) => {
+                if mark_invalid {
+                    self.invalid_settings = true;
+                }
+                return false;
+            }
+        };
         for i in 0..count {
             self.laser_beam_ids[i] = INVALID_DRAWABLE_ID;
             self.outer_system_ids[i] = INVALID_PARTICLE_SYSTEM_ID;
-            let world =
-                obj_guard.convert_bone_pos_to_world_pos(Some(&positions[i]), Some(&transforms[i]));
-            let (_, _, translation) = world.to_scale_rotation_translation();
-            self.outer_node_positions[i] = translation;
-            self.outer_node_orientations[i] = world;
+            self.outer_node_positions[i] = cached[i].0;
+            self.outer_node_orientations[i] = cached[i].1;
         }
-        true
+        return true;
+
     }
 
     fn create_outer_node_particle_systems(&mut self, intensity: IntensityTypes) {
@@ -1040,13 +1042,12 @@ impl ParticleUplinkCannonUpdate {
         let Some(manager) = TheParticleSystemManager::get() else {
             return;
         };
-        let object_id = (if self.object_id == crate::common::INVALID_ID {
+        let object_id = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()));
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |guard| guard.get_id())
+        };
         for (idx, system_id) in self.outer_system_ids.iter_mut().enumerate() {
             if let Some(new_id) = manager.create_particle_system(Some(name.as_str())) {
                 *system_id = new_id;
@@ -1098,47 +1099,46 @@ impl ParticleUplinkCannonUpdate {
             return false;
         }
 
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return false;
-        };
-        let Ok(obj_guard) = object_arc.read() else {
-            return false;
-        };
-        let Some(draw) = obj_guard.get_drawable() else {
-            return false;
-        };
-        let Ok(draw_guard) = draw.read() else {
-            return false;
-        };
-
-        if !self.module_data.connector_bone_name.is_empty() {
-            if let Some(matrix) = draw_guard.get_current_worldspace_client_bone_positions(
-                self.module_data.connector_bone_name.as_str(),
-            ) {
-                let world = obj_guard.convert_bone_pos_to_world_pos(None, Some(&matrix));
-                let translation = world.w_axis;
-                self.connector_node_position =
-                    Coord3D::new(translation.x, translation.y, translation.z);
-            }
         }
-
-        if !self.module_data.fire_bone_name.is_empty() {
-            if let Some(matrix) = draw_guard.get_current_worldspace_client_bone_positions(
-                self.module_data.fire_bone_name.as_str(),
-            ) {
-                let world = obj_guard.convert_bone_pos_to_world_pos(None, Some(&matrix));
-                let translation = world.w_axis;
-                self.laser_origin_position =
-                    Coord3D::new(translation.x, translation.y, translation.z);
+        let bones = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
+            let draw = obj_guard.get_drawable()?;
+            let draw_guard = draw.read().ok()?;
+            let mut connector = None;
+            let mut laser = None;
+            if !self.module_data.connector_bone_name.is_empty() {
+                if let Some(matrix) = draw_guard.get_current_worldspace_client_bone_positions(
+                    self.module_data.connector_bone_name.as_str(),
+                ) {
+                    let world = obj_guard.convert_bone_pos_to_world_pos(None, Some(&matrix));
+                    let translation = world.w_axis;
+                    connector = Some(Coord3D::new(translation.x, translation.y, translation.z));
+                }
             }
+            if !self.module_data.fire_bone_name.is_empty() {
+                if let Some(matrix) = draw_guard.get_current_worldspace_client_bone_positions(
+                    self.module_data.fire_bone_name.as_str(),
+                ) {
+                    let world = obj_guard.convert_bone_pos_to_world_pos(None, Some(&matrix));
+                    let translation = world.w_axis;
+                    laser = Some(Coord3D::new(translation.x, translation.y, translation.z));
+                }
+            }
+            Some((connector, laser))
+        });
+        let Some((connector, laser)) = bones.flatten() else {
+            return false;
+        };
+        if let Some(pos) = connector {
+            self.connector_node_position = pos;
         }
+        if let Some(pos) = laser {
+            self.laser_origin_position = pos;
+        }
+        return true;
 
-        true
+
     }
 
     fn create_connector_flare(&mut self, intensity: IntensityTypes) {
@@ -1326,27 +1326,29 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             return UpdateSleepTime::None; // C++ checks this first
         }
 
-        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj_guard) = object_arc.read() {
+        if self.object_id != crate::common::INVALID_ID {
+            let early = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj_guard| {
                 if obj_guard.test_status(ObjectStatusTypes::Sold) {
-                    drop(obj_guard);
+                    return 1;
+                }
+                if obj_guard.test_status(ObjectStatusTypes::UnderConstruction) {
+                    return 2;
+                }
+                if obj_guard.is_effectively_dead() {
+                    return 2;
+                }
+                0
+            });
+            match early {
+                Some(1) => {
                     if self.status != PUCStatus::Idle {
                         self.set_logical_status(PUCStatus::Idle);
                         self.remove_all_effects();
                     }
                     return UpdateSleepTime::None;
                 }
-                if obj_guard.test_status(ObjectStatusTypes::UnderConstruction) {
-                    return UpdateSleepTime::None;
-                }
-                if obj_guard.is_effectively_dead() {
-                    return UpdateSleepTime::None;
-                }
+                Some(2) => return UpdateSleepTime::None,
+                _ => {}
             }
         }
 
@@ -1388,21 +1390,18 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             }
 
             if self.start_decay_frame > now {
-                if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                }) {
-                    if let Ok(obj_guard) = object_arc.read() {
-                        if obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered)
-                            || obj_guard.is_disabled_by_type(DisabledType::DisabledEmp)
-                            || obj_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
-                            || obj_guard.is_disabled_by_type(DisabledType::DisabledHacked)
-                        {
-                            self.start_decay_frame = now;
-                        }
+                if self.object_id != crate::common::INVALID_ID {
+                    let disabled = crate::object::registry::OBJECT_REGISTRY.with_object(
+                        self.object_id,
+                        |obj_guard| {
+                            obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered)
+                                || obj_guard.is_disabled_by_type(DisabledType::DisabledEmp)
+                                || obj_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
+                                || obj_guard.is_disabled_by_type(DisabledType::DisabledHacked)
+                        },
+                    );
+                    if disabled == Some(true) {
+                        self.start_decay_frame = now;
                     }
                 }
             }
@@ -1477,17 +1476,9 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                     let cx_height = height * data.swath_of_death_amplitude;
 
                     // Calculate vector from building to initial target
-                    let building_pos = *(if self.object_id == crate::common::INVALID_ID {
-                        None
-                    } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
-                        )
-                    })
-                    .unwrap()
-                    .read()
-                    .unwrap()
-                    .get_position();
+                    let building_pos = *crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.object_id, |obj| *obj.get_position())
+                        .expect("building object");
                     let building_to_initial_target_vector = (
                         self.initial_target_position.x - building_pos.x,
                         self.initial_target_position.y - building_pos.y,
@@ -1634,30 +1625,27 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         }
                     }
 
-                    if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                        None
-                    } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
-                        )
-                    }) {
-                        if let Ok(obj_guard) = object_arc.read() {
-                            if let Some(player) = obj_guard.get_controlling_player() {
-                                if let Ok(player_guard) = player.read() {
-                                    let mask = player_guard.get_player_mask().bits();
-                                    if let Ok(mut shroud) = get_shroud_manager().lock() {
-                                        shroud.do_shroud_reveal(
-                                            &self.current_target_position,
-                                            data.reveal_range,
-                                            mask,
-                                        );
-                                        shroud.undo_shroud_reveal(
-                                            &self.current_target_position,
-                                            data.reveal_range,
-                                            mask,
-                                        );
-                                    }
-                                }
+                    if self.object_id != crate::common::INVALID_ID {
+                        let mask = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            self.object_id,
+                            |obj_guard| {
+                                obj_guard.get_controlling_player().and_then(|player| {
+                                    player.read().ok().map(|g| g.get_player_mask().bits())
+                                })
+                            },
+                        );
+                        if let Some(Some(mask)) = mask {
+                            if let Ok(mut shroud) = get_shroud_manager().lock() {
+                                shroud.do_shroud_reveal(
+                                    &self.current_target_position,
+                                    data.reveal_range,
+                                    mask,
+                                );
+                                shroud.undo_shroud_reveal(
+                                    &self.current_target_position,
+                                    data.reveal_range,
+                                    mask,
+                                );
                             }
                         }
                     }
@@ -1676,22 +1664,20 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         0.0
                     };
 
-                    if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-                        None
-                    } else {
-                        crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(
-                            || crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id),
-                        )
-                    }) {
-                        let (source_id, source_mask) = if let Ok(obj_guard) = object_arc.read() {
-                            let mask = obj_guard
-                                .get_controlling_player()
-                                .and_then(|player| player.read().ok().map(|g| g.get_player_mask()))
-                                .unwrap_or(PlayerMaskType::none());
-                            (obj_guard.get_id(), mask)
-                        } else {
-                            (crate::common::INVALID_ID, PlayerMaskType::none())
-                        };
+                    if self.object_id != crate::common::INVALID_ID
+                        && crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+                    {
+                        let (source_id, source_mask) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(self.object_id, |obj_guard| {
+                                let mask = obj_guard
+                                    .get_controlling_player()
+                                    .and_then(|player| {
+                                        player.read().ok().map(|g| g.get_player_mask())
+                                    })
+                                    .unwrap_or(PlayerMaskType::none());
+                                (obj_guard.get_id(), mask)
+                            })
+                            .unwrap_or((crate::common::INVALID_ID, PlayerMaskType::none()));
 
                         let mut damage_info = DamageInfo::with_simple(
                             damage_per_pulse,
@@ -1706,14 +1692,15 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                             for id in partition
                                 .get_objects_in_range(&self.current_target_position, damage_radius)
                             {
-                                if let Some(target_arc) = TheGameLogic::find_object_by_id(id) {
-                                    if let Ok(mut target) = target_arc.write() {
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                    id,
+                                    |target| {
                                         if target.is_effectively_dead() {
-                                            continue;
+                                            return;
                                         }
                                         let _ = target.attempt_damage(&mut damage_info);
-                                    }
-                                }
+                                    },
+                                );
                             }
                         }
                     }
@@ -1722,34 +1709,28 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         if let Some(template) = TheThingFactory::find_template(
                             data.damage_pulse_remnant_object_name.as_str(),
                         ) {
-                            if let Some(object_arc) =
-                                (if self.object_id == crate::common::INVALID_ID {
-                                    None
-                                } else {
-                                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                                        .or_else(|| {
-                                            crate::object::registry::OBJECT_REGISTRY
-                                                .get_object(self.object_id)
-                                        })
-                                })
-                            {
-                                if let Ok(obj_guard) = object_arc.read() {
-                                    if let Some(team_arc) = obj_guard.get_team() {
-                                        if let Ok(team) = team_arc.read() {
-                                            if let Ok(factory) = TheThingFactory::get() {
-                                                if let Ok(remnant) =
-                                                    factory.new_object(template, &*team)
-                                                {
-                                                    if let Ok(mut remnant_obj) = remnant.write() {
-                                                        let _ = remnant_obj.set_position(
-                                                            &self.current_target_position,
-                                                        );
+                            if self.object_id != crate::common::INVALID_ID {
+                                crate::object::registry::OBJECT_REGISTRY.with_object(
+                                    self.object_id,
+                                    |obj_guard| {
+                                        if let Some(team_arc) = obj_guard.get_team() {
+                                            if let Ok(team) = team_arc.read() {
+                                                if let Ok(factory) = TheThingFactory::get() {
+                                                    if let Ok(remnant) =
+                                                        factory.new_object(template, &*team)
+                                                    {
+                                                        if let Ok(mut remnant_obj) = remnant.write()
+                                                        {
+                                                            let _ = remnant_obj.set_position(
+                                                                &self.current_target_position,
+                                                            );
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                }
+                                    },
+                                );
                             }
                         }
                     }
@@ -1802,20 +1783,19 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
             }
         }
 
-        if let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                let local_index = ThePlayerList()
-                    .read()
-                    .ok()
-                    .map(|list| list.get_local_player_index())
-                    .unwrap_or(-1);
-                let shrouded =
-                    obj_guard.get_shrouded_status(local_index) != ObjectShroudStatus::Clear;
+        if self.object_id != crate::common::INVALID_ID {
+            let local_index = ThePlayerList()
+                .read()
+                .ok()
+                .map(|list| list.get_local_player_index())
+                .unwrap_or(-1);
+            let shrouded = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.object_id,
+                |obj_guard| {
+                    obj_guard.get_shrouded_status(local_index) != ObjectShroudStatus::Clear
+                },
+            );
+            if let Some(shrouded) = shrouded {
                 if shrouded {
                     self.remove_all_effects();
                 } else {
@@ -1887,10 +1867,10 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
             if let Some(pos_ref) = target_pos {
                 pos = *pos_ref;
             } else if let Some(target_id) = target_obj {
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(target_id) {
-                    if let Ok(obj_guard) = obj_arc.read() {
-                        pos = *obj_guard.get_position();
-                    }
+                if let Some(target_pos) = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |obj_guard| *obj_guard.get_position())
+                {
+                    pos = target_pos;
                 }
             }
             self.initial_target_position = pos;
@@ -1951,20 +1931,14 @@ impl SpecialPowerUpdateInterface for ParticleUplinkCannonUpdate {
             return;
         }
 
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return;
-        };
-        let Ok(obj_guard) = object_arc.read() else {
-            return;
-        };
-        if obj_guard.is_disabled() {
+        if self.object_id == crate::common::INVALID_ID {
             return;
         }
+        let disabled = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj_guard| obj_guard.is_disabled());
+        let Some(false) = disabled else {
+            return;
+        };
         self.override_target_destination = *loc;
         self.manual_target_mode = true;
         self.second_last_driving_click_frame = self.last_driving_click_frame;
@@ -1997,14 +1971,10 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
             return Ok(());
         }
 
-        if let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(obj_guard) = object_arc.read() {
-                let position = *obj_guard.get_position();
+        if self.object_id != crate::common::INVALID_ID {
+            if let Some(position) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |obj_guard| *obj_guard.get_position())
+            {
                 self.connector_node_position = position;
                 self.laser_origin_position = position;
             }

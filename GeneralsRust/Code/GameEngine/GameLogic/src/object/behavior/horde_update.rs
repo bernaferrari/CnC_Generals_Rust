@@ -11,15 +11,15 @@ use crate::common::{
 use crate::common::{FROM_CENTER_2D, GameLogicRandomValue, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::Object as GameObject;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 /// Host-only leftover ticks still drive membership when the dual-world
 /// factory registry is empty. The live module must keep running (C++
@@ -404,92 +404,92 @@ impl HordeUpdate {
         if self.module_data.flag_sub_obj_names.is_empty() {
             return;
         }
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let object_id = self.object_id;
+        if object_id == crate::common::INVALID_ID {
             return;
-        };
-        let Ok(obj) = object_arc.read() else {
-            return;
-        };
-        if let Some(drawable) = obj.get_drawable() {
-            if let Ok(mut draw_guard) = drawable.write() {
-                for name in &self.module_data.flag_sub_obj_names {
-                    draw_guard.show_sub_object(name, show);
-                }
-                draw_guard.update_sub_objects();
-            }
         }
+        let module_data = Arc::clone(&self.module_data);
+        let _ = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let Some(drawable) = obj.get_drawable() else {
+                return;
+            };
+            let Ok(mut draw_guard) = drawable.write() else {
+                return;
+            };
+            for name in &module_data.flag_sub_obj_names {
+                draw_guard.show_sub_object(name, show);
+            }
+            draw_guard.update_sub_objects();
+        });
     }
 
     fn check_horde_status(&mut self) {
-        // C++ PartitionFilterHordeMember + Radius scan always run.
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        // C++ PartitionFilterHordeMember + radius scan always run.
+        // Owner stays checked out for the scan so other ids can be borrowed
+        // alongside it; same-id re-entry would miss the checked-out owner.
+        if self.object_id == crate::common::INVALID_ID {
             return;
-        };
-        let Ok(obj) = object_arc.read() else {
-            return;
-        };
-        let owner_id = obj.get_id();
+        }
         let Some(partition) = ThePartitionManager::get() else {
             return;
         };
 
-        let mut horde_candidates = Vec::new();
-        for id in
-            partition.get_objects_in_range_boundary_3d_from_object(&obj, self.module_data.min_dist)
-        {
-            if id == owner_id {
-                continue;
-            }
-            let Some(other_arc) = TheGameLogic::find_object_by_id(id) else {
-                continue;
-            };
-            let Ok(other) = other_arc.read() else {
-                continue;
-            };
+        let object_id = self.object_id;
+        let exact_match = self.module_data.exact_match;
+        let kindof = self.module_data.kindof;
+        let allies_only = self.module_data.allies_only;
+        let min_dist = self.module_data.min_dist;
+        let rub_off_radius_sq = self.module_data.rub_off_radius * self.module_data.rub_off_radius;
+        let required = self.module_data.min_count - 1;
 
-            if self.module_data.exact_match
-                && obj.get_template().get_name() != other.get_template().get_name()
-            {
-                continue;
-            }
-
-            let mut has_horde = false;
-            other.with_horde_update_interface(|_| {
-                has_horde = true;
-            });
-            if !has_horde {
-                continue;
-            }
-
-            if !other.is_kind_of_multi(self.module_data.kindof, KIND_OF_MASK_NONE) {
-                continue;
-            }
-
-            if self.module_data.allies_only {
-                let relationship = obj.relationship_to(&other);
-                if !matches!(relationship, crate::common::Relationship::Allies) {
+        let Some(horde_candidates) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let owner_id = obj.get_id();
+            let mut horde_candidates = Vec::new();
+            for id in partition.get_objects_in_range_boundary_3d_from_object(obj, min_dist) {
+                if id == owner_id {
                     continue;
                 }
+                let passes = OBJECT_REGISTRY
+                    .with_object(id, |other| {
+                        if exact_match && obj.get_template_name() != other.get_template_name() {
+                            return false;
+                        }
+
+                        let mut has_horde = false;
+                        other.with_horde_update_interface(|_| {
+                            has_horde = true;
+                        });
+                        if !has_horde {
+                            return false;
+                        }
+
+                        if !other.is_kind_of_multi(kindof, KIND_OF_MASK_NONE) {
+                            return false;
+                        }
+
+                        if allies_only {
+                            let relationship = obj.relationship_to(other);
+                            if !matches!(relationship, crate::common::Relationship::Allies) {
+                                return false;
+                            }
+                        }
+
+                        if obj.is_off_map() != other.is_off_map() {
+                            return false;
+                        }
+
+                        true
+                    })
+                    .unwrap_or(false);
+                if passes {
+                    horde_candidates.push(id);
+                }
             }
+            horde_candidates
+        }) else {
+            return;
+        };
 
-            if obj.is_off_map() != other.is_off_map() {
-                continue;
-            }
-
-            horde_candidates.push(id);
-        }
-
-        let required = self.module_data.min_count - 1;
         if required <= 0 || horde_candidates.len() as Int >= required {
             self.in_horde = true;
             self.true_horde_member = true;
@@ -499,29 +499,37 @@ impl HordeUpdate {
         self.in_horde = false;
         self.true_horde_member = false;
 
-        let rub_off_radius_sq = self.module_data.rub_off_radius * self.module_data.rub_off_radius;
-        for id in &horde_candidates {
-            let Some(other_arc) = TheGameLogic::find_object_by_id(*id) else {
-                continue;
-            };
-            let Ok(other) = other_arc.read() else {
-                continue;
-            };
-            let mut is_true = false;
-            other.with_horde_update_interface(|hui| {
-                if hui.is_true_horde_member() {
-                    is_true = true;
+        let joined_by_rub_off = OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                for id in &horde_candidates {
+                    let near_true_member = OBJECT_REGISTRY
+                        .with_object(*id, |other| {
+                            let mut is_true = false;
+                            other.with_horde_update_interface(|hui| {
+                                if hui.is_true_horde_member() {
+                                    is_true = true;
+                                }
+                            });
+                            if !is_true {
+                                return false;
+                            }
+                            let dist_sq = ThePartitionManager::get_distance_squared(
+                                obj,
+                                other,
+                                FROM_CENTER_2D,
+                            );
+                            dist_sq <= rub_off_radius_sq
+                        })
+                        .unwrap_or(false);
+                    if near_true_member {
+                        return true;
+                    }
                 }
-            });
-            if !is_true {
-                continue;
-            }
-
-            let dist_sq = ThePartitionManager::get_distance_squared(&obj, &other, FROM_CENTER_2D);
-            if dist_sq <= rub_off_radius_sq {
-                self.in_horde = true;
-                break;
-            }
+                false
+            })
+            .unwrap_or(false);
+        if joined_by_rub_off {
+            self.in_horde = true;
         }
     }
 }
@@ -529,77 +537,80 @@ impl HordeUpdate {
 impl UpdateModuleInterface for HordeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         // C++ HordeUpdate::update always runs membership + decals.
-        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        // Missing owner is UPDATE_SLEEP_FOREVER (HordeUpdate.cpp:242-243).
+        // An empty OBJECT_REGISTRY is not itself a Forever-sleep reason.
+        if self.object_id == crate::common::INVALID_ID {
             return UpdateSleepTime::Forever;
-        };
-        let Ok(obj) = object_arc.read() else {
-            return UpdateSleepTime::Forever;
-        };
+        }
 
         let current_frame = TheGameLogic::get_frame();
-        let is_infantry = obj.is_kind_of(crate::common::KindOf::Infantry);
+        let object_id = self.object_id;
+        let update_rate = self.module_data.update_rate;
         let was_in_horde = self.in_horde;
+        let Some(is_infantry) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            obj.is_kind_of(crate::common::KindOf::Infantry)
+        }) else {
+            // C++ FOREVER is only a null owning object. An empty factory
+            // store must keep waking; Forever here would stick the module
+            // asleep for the rest of the match.
+            if OBJECT_REGISTRY.store_is_empty() {
+                return horde_update_sleep_after_tick(false, update_rate);
+            }
+            return UpdateSleepTime::Forever;
+        };
 
-        if is_infantry
-            || current_frame > self.last_horde_refresh_frame + self.module_data.update_rate
-        {
+        if is_infantry || current_frame > self.last_horde_refresh_frame + update_rate {
             self.last_horde_refresh_frame = current_frame;
             self.check_horde_status();
-            drop(obj);
-            // evaluateMoraleBonus needs &mut AI access: run it under a
-            // short-lived write guard, still ahead of the icon pass below as
-            // in the pre-migration order.
-            if let Ok(mut obj_mut) = object_arc.write() {
+            // evaluateMoraleBonus needs &mut AI, still ahead of the icon pass.
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_mut| {
                 if let Some(ai) = obj_mut.get_ai_update_interface_mut() {
                     let _ = ai.evaluate_morale_bonus();
                 }
-            }
-        } else {
-            drop(obj);
+            });
         }
 
-        let Ok(obj) = object_arc.read() else {
-            return UpdateSleepTime::Forever;
-        };
+        let in_horde = self.in_horde;
+        let decals_applied = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            if let Some(drawable) = obj.get_drawable() {
+                if !obj.is_effectively_dead() {
+                    let draw_icon_ui = TheGameLogic::get_draw_icon_ui();
+                    let is_portable_structure = obj.is_kind_of(KindOf::PortableStructure);
+                    let bonus_flags = obj.get_weapon_bonus_condition();
+                    let has_nationalism =
+                        bonus_flags.contains(WeaponBonusConditionFlags::NATIONALISM);
+                    let has_fanaticism =
+                        bonus_flags.contains(WeaponBonusConditionFlags::FANATICISM);
 
-        if let Some(drawable) = obj.get_drawable() {
-            if !obj.is_effectively_dead() {
-                let draw_icon_ui = TheGameLogic::get_draw_icon_ui();
-                let is_portable_structure = obj.is_kind_of(KindOf::PortableStructure);
-                let bonus_flags = obj.get_weapon_bonus_condition();
-                let has_nationalism = bonus_flags.contains(WeaponBonusConditionFlags::NATIONALISM);
-                let has_fanaticism = bonus_flags.contains(WeaponBonusConditionFlags::FANATICISM);
+                    if draw_icon_ui {
+                        if in_horde && !is_portable_structure {
+                            let decal_type = if is_infantry {
+                                horde_terrain_decal_type(true, has_nationalism, has_fanaticism)
+                            } else {
+                                let geom = obj.get_geometry_info();
+                                let size =
+                                    3.5 * ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5);
+                                drawable.set_terrain_decal_size(size, size);
+                                horde_terrain_decal_type(false, has_nationalism, has_fanaticism)
+                            };
 
-                if draw_icon_ui {
-                    if self.in_horde && !is_portable_structure {
-                        let decal_type = if is_infantry {
-                            horde_terrain_decal_type(true, has_nationalism, has_fanaticism)
-                        } else {
-                            let geom = obj.get_geometry_info();
-                            let size = 3.5 * ((geom.bounds.max.x - geom.bounds.min.x).abs() * 0.5);
-                            drawable.set_terrain_decal_size(size, size);
-                            horde_terrain_decal_type(false, has_nationalism, has_fanaticism)
-                        };
-
-                        drawable.set_terrain_decal(decal_type);
+                            drawable.set_terrain_decal(decal_type);
+                        }
+                    } else {
+                        drawable.set_terrain_decal(TerrainDecalType::None);
                     }
-                } else {
-                    drawable.set_terrain_decal(TerrainDecalType::None);
-                }
 
-                if let Some((target, rate)) = horde_terrain_decal_fade(was_in_horde, self.in_horde)
-                {
-                    drawable.set_terrain_decal_fade_target(target, rate);
+                    if let Some((target, rate)) = horde_terrain_decal_fade(was_in_horde, in_horde) {
+                        drawable.set_terrain_decal_fade_target(target, rate);
+                    }
                 }
             }
+        });
+        if decals_applied.is_none() {
+            return UpdateSleepTime::Forever;
         }
 
-        horde_update_sleep_after_tick(is_infantry, self.module_data.update_rate)
+        horde_update_sleep_after_tick(is_infantry, update_rate)
     }
 }
 

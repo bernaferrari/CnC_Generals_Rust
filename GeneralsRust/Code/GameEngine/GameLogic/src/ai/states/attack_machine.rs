@@ -178,15 +178,14 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
         return Ok(false);
     }
 
-    let is_computer = if let Some(player) = owner_guard.get_controlling_player() {
-        if let Ok(player_guard) = player.read() {
-            player_guard.get_player_type() == PlayerType::Computer
-        } else {
-            false
-        }
-    } else {
-        false
-    };
+    let is_computer = owner_guard
+        .get_controlling_player()
+        .and_then(|player_idx| {
+            crate::player::with_player(player_idx, |player_guard| {
+                player_guard.get_player_type() == PlayerType::Computer
+            })
+        })
+        .unwrap_or(false);
     if !is_computer {
         return Ok(false);
     }
@@ -1659,7 +1658,7 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
             let is_human = owner_guard
                 .get_controlling_player()
                 .and_then(|player| {
-                    player.read().ok().map(|player_guard| {
+                    crate::player::with_player(player, |player_guard| {
                         player_guard.get_player_type() == PlayerType::Human
                     })
                 })
@@ -1923,7 +1922,7 @@ impl AIAttackApproachTargetState {
                 if owner_guard
                     .get_controlling_player()
                     .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
+                        crate::player::with_player(player, |player_guard| {
                             player_guard.get_player_type() == PlayerType::Computer
                         })
                     })
@@ -2170,7 +2169,7 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
                 let is_human = owner_guard
                     .get_controlling_player()
                     .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
+                        crate::player::with_player(player, |player_guard| {
                             player_guard.get_player_type() == PlayerType::Human
                         })
                     })
@@ -2185,7 +2184,7 @@ let __early = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |o
                 let is_computer = owner_guard
                     .get_controlling_player()
                     .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
+                        crate::player::with_player(player, |player_guard| {
                             player_guard.get_player_type() == PlayerType::Computer
                         })
                     })

@@ -71,11 +71,7 @@ impl ScriptAction for CreateBuildingAction {
             .try_into()
             .map_err(|_| GameLogicError::Configuration("Invalid player id".to_string()))?;
 
-        let team = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_id as i32).cloned())
-            .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));
+        let team = crate::player::with_player(player_id as i32, |p| p.get_default_team_id()).flatten();
 
         let position = Coord3D::new(x as f32, y as f32, z as f32);
         let object_id = get_object_manager()
@@ -89,16 +85,9 @@ impl ScriptAction for CreateBuildingAction {
             )?;
 
         if angle != 0.0 {
-            if let Ok(manager) = get_object_manager().read() {
-                if let Some(object) = manager.get_object(object_id) {
-                    if let Ok(guard) = object.write() {
-                        let _ = guard
-                            .base()
-                            .write()
-                            .map(|mut base| base.set_orientation(angle as f32));
-                    }
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                let _ = object.set_orientation(angle as f32);
+            });
         }
 
         Ok(ScriptResult::Success(Some(ScriptValue::ObjectId(

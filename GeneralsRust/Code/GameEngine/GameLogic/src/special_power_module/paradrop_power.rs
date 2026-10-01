@@ -150,39 +150,29 @@ impl ParadropPower {
             return true;
         }
 
-        let player_list = crate::player::player_list();
-        let Ok(list_guard) = player_list.read() else {
-            return false;
-        };
-        let Some(player_arc) = list_guard.get_player(player_id as PlayerIndex) else {
-            return false;
-        };
-        let Ok(mut player_guard) = player_arc.write() else {
-            return false;
-        };
+        crate::player::with_player_mut(player_id as PlayerIndex, |player_guard| {
+            if !player_guard
+                .get_money_mut()
+                .subtract_money(self.data.base.cost)
+            {
+                return false;
+            }
 
-        if !player_guard
-            .get_money_mut()
-            .subtract_money(self.data.base.cost)
-        {
-            return false;
-        }
+            if self.data.base.cost > 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_spent(self.data.base.cost as u32);
+            }
 
-        if self.data.base.cost > 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_spent(self.data.base.cost as u32);
-        }
-
-        true
+            true
+        })
+        .unwrap_or(false)
     }
 
     fn get_player_money(&self, player_id: ObjectID) -> Option<Int> {
-        let player_list = crate::player::player_list();
-        let list_guard = player_list.read().ok()?;
-        let player_arc = list_guard.get_player(player_id as PlayerIndex)?;
-        let player_guard = player_arc.read().ok()?;
-        Some(player_guard.get_money().get_money())
+        crate::player::with_player(player_id as PlayerIndex, |player_guard| {
+            player_guard.get_money().get_money()
+        })
     }
 
     fn check_prerequisites(&self, player_id: ObjectID) -> Bool {
@@ -237,12 +227,9 @@ impl ParadropPower {
         {
             return Ok(());
         }
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "Paradrop requires an owning object".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "owner lock poisoned".to_string())?;
+        let owner_pos = OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| *owner_guard.get_position())
+            .ok_or_else(|| "owner lock poisoned".to_string())?;
 
         let mut target_coord = targeting.position;
         if let Some(target_id) = targeting.target_object {
@@ -256,23 +243,17 @@ impl ParadropPower {
             if let Some(partition) = ThePartitionManager::get() {
                 let center = target_coord;
                 let mut options = crate::helpers::FindPositionOptions::default();
-                options.min_radius = 0.0;
                 options.max_radius = MAX_ADJUST_RADIUS;
-                options.flags = crate::helpers::FPF_CLEAR_CELLS_ONLY;
-                if !partition.find_position_around_with_options(
-                    &center,
-                    &options,
-                    &mut target_coord,
-                ) {
-                    target_coord = targeting.position;
+                if let Some(found) = partition.find_position_around(&center, &options) {
+                    target_coord = found;
                 }
             }
         }
 
         let creation_coord = match self.data.create_loc {
             OclCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
-                .map(|terrain| terrain.find_closest_edge_point(owner_guard.get_position()))
-                .unwrap_or(*owner_guard.get_position()),
+                .map(|terrain| terrain.find_closest_edge_point(&owner_pos))
+                .unwrap_or(owner_pos),
             OclCreateLocType::CreateAtEdgeNearTarget => TheTerrainLogic::get()
                 .map(|terrain| terrain.find_closest_edge_point(&target_coord))
                 .unwrap_or(target_coord),
@@ -294,31 +275,33 @@ impl ParadropPower {
 
         let ctx = crate::object_creation_list::live_creation_context();
         let create_owner = self.data.create_loc != OclCreateLocType::UseOwnerObject;
-        let created = if create_owner {
-            ocl.create_with_angle(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                0,
-            )
-        } else {
-            ocl.create_with_angle_and_owner_flag(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                false,
-                0,
-            )
-        };
+        let created = OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                if create_owner {
+                    ocl.create_with_angle(
+                        &ctx,
+                        Some(owner_guard),
+                        &creation_coord,
+                        &target_coord,
+                        0.0,
+                        0,
+                    )
+                } else {
+                    ocl.create_with_angle_and_owner_flag(
+                        &ctx,
+                        Some(owner_guard),
+                        &creation_coord,
+                        &target_coord,
+                        0.0,
+                        false,
+                        0,
+                    )
+                }
+            })
+            .ok_or_else(|| "owner lock poisoned".to_string())?;
 
-        if let Some(handle) = created {
-            if let Ok(guard) = handle.read() {
-                self.dropped_units.push(guard.get_id());
-            }
+        if let Some(id) = created {
+            self.dropped_units.push(id);
         }
 
         // Play sound effect
@@ -375,12 +358,6 @@ impl ParadropPower {
         positions
     }
 
-    fn resolve_owner_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        crate::special_power_module::resolve_special_power_owner(
-            self.owner_object_id,
-            self.owner_player_id,
-        )
-    }
 
     fn resolve_owner_object_id(&self) -> Option<ObjectID> {
         crate::special_power_module::resolve_special_power_owner_id(
@@ -445,7 +422,7 @@ impl ParadropPower {
             self.aircraft_id = None;
             return Ok(());
         };
-        self.aircraft_id = created.and_then(|h| h.read().ok().map(|o| o.get_id()));
+        self.aircraft_id = created;
 
         Ok(())
     }

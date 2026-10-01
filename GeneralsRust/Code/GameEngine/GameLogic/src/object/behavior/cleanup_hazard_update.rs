@@ -141,25 +141,17 @@ impl CleanupHazardUpdate {
 
     pub fn scan_closest_target(&mut self) -> Option<ObjectID> {
         // Wave 317: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let me_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })?;
-        let me = me_arc.read().ok()?;
+        let (target_pos, cleaner_off_map) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |me| {
+                let target_pos = if self.move_range > 0.0 {
+                    self.pos
+                } else {
+                    *me.get_position()
+                };
+                (target_pos, me.is_off_map())
+            })?;
 
         let partition = ThePartitionManager::get()?;
-
-        let target_pos = if self.move_range > 0.0 {
-            &self.pos
-        } else {
-            me.get_position()
-        };
 
         let radius = if self.move_range > 0.0 {
             self.module_data.scan_range + self.move_range
@@ -167,8 +159,7 @@ impl CleanupHazardUpdate {
             self.module_data.scan_range
         };
 
-        let cleaner_off_map = me.is_off_map();
-        let best_target = partition.get_closest_object_2d(target_pos, radius, |obj| {
+        let best_target = partition.get_closest_object_2d(&target_pos, radius, |obj| {
             obj.is_kind_of(KindOf::CleanupHazard) && obj.is_off_map() == cleaner_off_map
         });
 
@@ -182,31 +173,24 @@ impl CleanupHazardUpdate {
             return;
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return;
-        };
-        let Ok(mut me) = me_arc.write() else {
-            return;
-        };
-
         let mut target_id = self.best_target_id;
 
-        // Track target and check range if not cleaning an area
         if target_id != INVALID_ID && self.move_range == 0.0 {
-            let fire_range = if let Some(ref template) = self.weapon_template {
+            let fire_range = if let Some(template) = &self.weapon_template {
                 template.get_attack_range(&Default::default())
             } else {
                 0.0
             };
-            match OBJECT_REGISTRY.with_object(target_id, |target| {
-                ThePartitionManager::get_distance_squared(&me, target, FROM_CENTER_2D)
-            }) {
-                Some(dist_sqr) => {
+            let in_range_now = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.object_id,
+                |me| {
+                    OBJECT_REGISTRY.with_object(target_id, |target| {
+                        ThePartitionManager::get_distance_squared(me, target, FROM_CENTER_2D)
+                    })
+                },
+            );
+            match in_range_now {
+                Some(Some(dist_sqr)) => {
                     if dist_sqr < fire_range * fire_range {
                         self.in_range = true;
                     } else if self.in_range {
@@ -221,7 +205,7 @@ impl CleanupHazardUpdate {
                         self.in_range = false;
                     }
                 }
-                None => {}
+                _ => {}
             }
         }
 
@@ -230,13 +214,11 @@ impl CleanupHazardUpdate {
             return;
         }
 
-        if target_id != INVALID_ID {
-            if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_some() {
+        if target_id != INVALID_ID && OBJECT_REGISTRY.with_object(target_id, |_| ()).is_some() {
+            let weapon_slot = self.module_data.weapon_slot;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |me| {
                 if me.get_ai().map(|ai| ai.is_idle() || ai.is_busy()) == Some(true) {
-                    me.set_weapon_lock(
-                        self.module_data.weapon_slot,
-                        WeaponLockType::LockedTemporarily,
-                    );
+                    me.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
                     let mut params = AiCommandParams::new(
                         AiCommandType::AttackObject,
                         CommandSourceType::FromAi,
@@ -247,7 +229,7 @@ impl CleanupHazardUpdate {
                         let _ = ai.execute_command(&params);
                     }
                 }
-            }
+            });
         }
     }
 }
@@ -262,27 +244,17 @@ impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
         self.move_range = range;
         self.pos = *pos;
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return;
-        };
-        let Ok(mut me) = me_arc.write() else {
-            return;
-        };
-
-        if let Some(ai) = me.get_ai_mut() {
-            // C++ AIUpdateInterface::aiMoveToPosition(pos, FALSE, FromAI).
-            let mut params = AiCommandParams::new(
-                AiCommandType::MoveToPosition,
-                CommandSourceType::FromAi,
-            );
-            params.pos = *pos;
-            let _ = ai.execute_command(&params);
-        }
+        let pos = *pos;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |me| {
+            if let Some(ai) = me.get_ai_mut() {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::MoveToPosition,
+                    CommandSourceType::FromAi,
+                );
+                params.pos = pos;
+                let _ = ai.execute_command(&params);
+            }
+        });
     }
 }
 
@@ -293,31 +265,35 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
             return UPDATE_SLEEP_NONE;
         }
 
-        let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return UPDATE_SLEEP_NONE;
-        };
-
         if self.move_range > 0.0 {
-            if let Ok(mut me) = me_arc.write() {
-                if let Some(ai) = me.get_ai_mut() {
-                    if ai.is_idle() {
-                        // C++ AIUpdateInterface::aiBusy(FromAI).
-                        let params = AiCommandParams::new(
-                            AiCommandType::Busy,
-                            CommandSourceType::FromAi,
-                        );
-                        let _ = ai.execute_command(&params);
-                    } else if ai.get_last_command_source() != CommandSourceType::FromAi {
-                        self.move_range = 0.0;
-                        return UPDATE_SLEEP_NONE;
+            let idle_or_not_ai = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.object_id,
+                |me| {
+                    if let Some(ai) = me.get_ai_mut() {
+                        if ai.is_idle() {
+                            let params = AiCommandParams::new(
+                                AiCommandType::Busy,
+                                CommandSourceType::FromAi,
+                            );
+                            let _ = ai.execute_command(&params);
+                            false
+                        } else {
+                            ai.get_last_command_source() != CommandSourceType::FromAi
+                        }
+                    } else {
+                        false
                     }
-                }
+                },
+            );
+            if idle_or_not_ai == Some(true) {
+                self.move_range = 0.0;
+                return UPDATE_SLEEP_NONE;
             }
+            if idle_or_not_ai.is_none() {
+                return UPDATE_SLEEP_NONE;
+            }
+        } else if !crate::object::registry::OBJECT_REGISTRY.contains(self.object_id) {
+            return UPDATE_SLEEP_NONE;
         }
 
         if self.next_scan_frames > 0 {
@@ -330,25 +306,32 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
         if self.scan_closest_target().is_some() {
             self.fire_when_ready();
         } else if self.move_range > 0.0 {
-            if let Ok(mut me) = me_arc.write() {
-                if me.get_ai().map(|ai| ai.is_idle() || ai.is_busy()) == Some(true) {
-                    let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
-                        &me,
-                        &self.pos,
-                        FROM_CENTER_2D,
-                    );
-                    if dist_sqr < 25.0 * 25.0 {
-                        self.move_range = 0.0;
-                    } else if let Some(ai) = me.get_ai_mut() {
-                        // C++ AIUpdateInterface::aiMoveToPosition(pos, FALSE, FromAI).
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::MoveToPosition,
-                            CommandSourceType::FromAi,
-                        );
-                        params.pos = self.pos;
-                        let _ = ai.execute_command(&params);
+            let pos = self.pos;
+            let arrived = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.object_id,
+                |me| {
+                    if me.get_ai().map(|ai| ai.is_idle() || ai.is_busy()) != Some(true) {
+                        return false;
                     }
-                }
+                    let dist_sqr =
+                        ThePartitionManager::get_distance_squared_to_pos(me, &pos, FROM_CENTER_2D);
+                    if dist_sqr < 25.0 * 25.0 {
+                        true
+                    } else {
+                        if let Some(ai) = me.get_ai_mut() {
+                            let mut params = AiCommandParams::new(
+                                AiCommandType::MoveToPosition,
+                                CommandSourceType::FromAi,
+                            );
+                            params.pos = pos;
+                            let _ = ai.execute_command(&params);
+                        }
+                        false
+                    }
+                },
+            );
+            if arrived == Some(true) {
+                self.move_range = 0.0;
             }
         }
 
@@ -367,34 +350,37 @@ impl BehaviorModuleInterface for CleanupHazardUpdate {
             return Ok(());
         }
 
-        let me_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .ok_or("Object lost")?;
-        let mut me = me_arc.write().unwrap();
+        let weapon_slot = self.module_data.weapon_slot;
+        let scan_range = self.module_data.scan_range;
+        let outcome = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |me| {
+                me.set_weapon_set_flag(WeaponSetType::Veteran);
+                if let Some(weapon_arc) = me.get_weapon_in_slot(weapon_slot) {
+                    let template = Arc::clone(weapon_arc.get_template());
+                    let name = me.get_template().get_name().to_string();
+                    Ok((template, name))
+                } else {
+                    error!(
+                        "CleanupHazardUpdate for {} doesn't have a valid weapon template",
+                        me.get_template().get_name()
+                    );
+                    Err(())
+                }
+            })
+            .ok_or("Object lost")?;
+        let (template, name) = match outcome {
+            Ok(pair) => pair,
+            Err(()) => return Ok(()),
+        };
+        self.weapon_template = Some(template);
 
-        me.set_weapon_set_flag(WeaponSetType::Veteran);
-        if let Some(weapon_arc) = me.get_weapon_in_slot(self.module_data.weapon_slot) {
-            self.weapon_template = Some(Arc::clone(weapon_arc.get_template()));
-        } else {
-            error!(
-                "CleanupHazardUpdate for {} doesn't have a valid weapon template",
-                me.get_template().get_name()
-            );
-            return Ok(());
-        }
-
-        // Validate scan range vs attack range
-        if let Some(ref template) = self.weapon_template {
+        if let Some(template) = &self.weapon_template {
             let attack_range = template.get_attack_range(&Default::default());
-            if self.module_data.scan_range <= attack_range {
+            if scan_range <= attack_range {
                 error!(
                     "CleanupHazardUpdate for {} requires the scan range ({:.1}) being larger than the firing range ({:.1})",
-                    me.get_template().get_name(),
-                    self.module_data.scan_range,
+                    name,
+                    scan_range,
                     attack_range
                 );
             }

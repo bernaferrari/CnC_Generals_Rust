@@ -227,7 +227,6 @@ impl SpectreGunshipDeploymentUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })?;
         let obj = obj_arc.read().ok()?;
         let template = self.module_data.special_power_template.as_ref()?;
@@ -270,7 +269,6 @@ impl UpdateModuleInterface for SpectreGunshipDeploymentUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return Ok(UpdateSleepTime::None);
         };
@@ -307,7 +305,6 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -360,7 +357,6 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return false;
         };
@@ -512,7 +508,6 @@ impl BehaviorModuleInterface for SpectreGunshipDeploymentUpdate {
             None
         } else {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         }) else {
             return Ok(());
         };

@@ -227,60 +227,54 @@ impl PointDefenseLaserUpdate {
                 continue;
             }
 
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let index = if Self::matches_kind_of_mask(
+                    obj_guard,
+                    self.module_data.primary_target_kind_of,
+                ) {
+                    0
+                } else if Self::matches_kind_of_mask(
+                    obj_guard,
+                    self.module_data.secondary_target_kind_of,
+                ) {
+                    1
+                } else {
+                    return;
+                };
 
-            let index = if Self::matches_kind_of_mask(
-                &obj_guard,
-                self.module_data.primary_target_kind_of,
-            ) {
-                0
-            } else if Self::matches_kind_of_mask(
-                &obj_guard,
-                self.module_data.secondary_target_kind_of,
-            ) {
-                1
-            } else {
-                continue;
-            };
-
-            if !obj_guard.is_airborne_target()
-                && !template.anti_mask.contains(WeaponAntiMask::GROUND)
-            {
-                continue;
-            }
-
-            if owner_guard.get_relationship_to(&obj_guard) != ObjectRelationship::Enemy {
-                continue;
-            }
-
-            if obj_guard.test_status(ObjectStatusTypes::Stealthed)
-                && !obj_guard.test_status(ObjectStatusTypes::Detected)
-                && !obj_guard.test_status(ObjectStatusTypes::Disguised)
-            {
-                continue;
-            }
-
-            let pos = obj_guard.get_position();
-            let owner_pos = owner_guard.get_position();
-            let dx = pos.x - owner_pos.x;
-            let dy = pos.y - owner_pos.y;
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            if dist <= fire_range {
-                if dist < closest_in[index] {
-                    closest_in[index] = dist;
-                    best_in_range[index] = Some(obj_id);
+                if !obj_guard.is_airborne_target()
+                    && !template.anti_mask.contains(WeaponAntiMask::GROUND)
+                {
+                    return;
                 }
-            } else if best_in_range[index].is_none() && dist < closest_out[index] {
-                closest_out[index] = dist;
-                best_out_range[index] = Some(obj_id);
-            }
 
+                if owner_guard.get_relationship_to(obj_guard) != ObjectRelationship::Enemy {
+                    return;
+                }
+
+                if obj_guard.test_status(ObjectStatusTypes::Stealthed)
+                    && !obj_guard.test_status(ObjectStatusTypes::Detected)
+                    && !obj_guard.test_status(ObjectStatusTypes::Disguised)
+                {
+                    return;
+                }
+
+                let pos = obj_guard.get_position();
+                let owner_pos = owner_guard.get_position();
+                let dx = pos.x - owner_pos.x;
+                let dy = pos.y - owner_pos.y;
+                let dist = (dx * dx + dy * dy).sqrt();
+
+                if dist <= fire_range {
+                    if dist < closest_in[index] {
+                        closest_in[index] = dist;
+                        best_in_range[index] = Some(obj_id);
+                    }
+                } else if best_in_range[index].is_none() && dist < closest_out[index] {
+                    closest_out[index] = dist;
+                    best_out_range[index] = Some(obj_id);
+                }
+            });
         }
 
         if best_in_range[0].is_some() || best_in_range[1].is_some() {
@@ -293,14 +287,9 @@ impl PointDefenseLaserUpdate {
 
     fn fire_when_ready(&mut self, owner_guard: &GameObject) {
 
-        let Some(target_arc) = TheGameLogic::find_object_by_id(self.best_target_id) else {
-            self.tick_shot_delay();
-            return;
-        };
-        let Ok(target_guard) = target_arc.read() else {
-            self.tick_shot_delay();
-            return;
-        };
+        let handled = crate::object::registry::OBJECT_REGISTRY.with_object(
+            self.best_target_id,
+            |target_guard| {
 
 
 
@@ -373,6 +362,10 @@ impl PointDefenseLaserUpdate {
                 self.next_scan_frames = self.module_data.scan_rate as i32;
             }
         }
+        });
+        if handled.is_none() {
+            self.tick_shot_delay();
+        }
     }
 
     fn tick_shot_delay(&mut self) {
@@ -388,37 +381,32 @@ impl UpdateModuleInterface for PointDefenseLaserUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let Some(owner_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return UpdateSleepTime::Forever;
-        };
-        let Ok(owner_guard) = owner_arc.read() else {
-            return UpdateSleepTime::Forever;
-        };
-        if owner_guard.is_effectively_dead() {
+        if self.object_id == crate::common::INVALID_ID {
             return UpdateSleepTime::Forever;
         }
+        let sleep = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+            if owner_guard.is_effectively_dead() {
+                return UpdateSleepTime::Forever;
+            }
 
-        if self.next_scan_frames > 0 {
-            self.next_scan_frames -= 1;
-            self.fire_when_ready(&owner_guard);
-            return UpdateSleepTime::Frames(1);
-        }
+            if self.next_scan_frames > 0 {
+                self.next_scan_frames -= 1;
+                self.fire_when_ready(owner_guard);
+                return UpdateSleepTime::Frames(1);
+            }
 
-        self.next_scan_frames = self.module_data.scan_rate as i32;
-        if let Some(target_id) = self.scan_closest_target(&owner_guard) {
-            self.best_target_id = target_id;
-            self.fire_when_ready(&owner_guard);
-        } else {
-            self.best_target_id = crate::common::INVALID_ID;
-            self.in_range = false;
-        }
+            self.next_scan_frames = self.module_data.scan_rate as i32;
+            if let Some(target_id) = self.scan_closest_target(owner_guard) {
+                self.best_target_id = target_id;
+                self.fire_when_ready(owner_guard);
+            } else {
+                self.best_target_id = crate::common::INVALID_ID;
+                self.in_range = false;
+            }
 
-        UpdateSleepTime::Frames(1)
+            UpdateSleepTime::Frames(1)
+        });
+        sleep.unwrap_or(UpdateSleepTime::Forever)
     }
 }
 
@@ -585,9 +573,12 @@ pub fn point_defense_laser_update_module_factory(
         .as_object()
         .map(ModuleObject::get_object_id)
         .unwrap_or(crate::common::INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("PointDefenseLaserUpdate requires object");
-    let behavior = PointDefenseLaserUpdate::new(object_id, module_data_arc.clone())
+    if !(TheGameLogic::find_object_by_id(owner_id)
+        || crate::object::registry::OBJECT_REGISTRY.contains(owner_id))
+    {
+        panic!("PointDefenseLaserUpdate requires object");
+    }
+    let behavior = PointDefenseLaserUpdate::new(owner_id, module_data_arc.clone())
         .expect("PointDefenseLaserUpdate failed to initialize");
     let module_name = AsciiString::from("PointDefenseLaserUpdate");
     Box::new(PointDefenseLaserUpdateModule::new(

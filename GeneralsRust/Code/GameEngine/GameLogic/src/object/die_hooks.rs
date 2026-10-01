@@ -80,16 +80,19 @@ impl Object {
             if object_id == from_id {
                 continue;
             }
-            let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(object_id))
-            else {
-                continue;
-            };
-            let Ok(mut guard) = obj.write() else {
-                continue;
-            };
-            if let Some(ai) = guard.get_ai_update_interface_mut() {
-                ai.transfer_attack(from_id, to_id);
+            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
+                let Ok(mut guard) = obj.write() else {
+                    continue;
+                };
+                if let Some(ai) = guard.get_ai_update_interface_mut() {
+                    ai.transfer_attack(from_id, to_id);
+                }
+            } else {
+                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+                    if let Some(ai) = guard.get_ai_update_interface_mut() {
+                        ai.transfer_attack(from_id, to_id);
+                    }
+                });
             }
         }
     }

@@ -254,16 +254,13 @@ impl GameInitializer {
     }
 
     fn apply_replay_observer_as_local_player() {
-        let observer = {
+        let index = {
             let Ok(list) = ThePlayerList().read() else {
                 return;
             };
             list.find_player_by_name("ReplayObserver")
+                .map(|player| player.get_player_index())
         };
-        let Some(observer) = observer else {
-            return;
-        };
-        let index = observer.read().ok().map(|player| player.get_player_index());
         let Some(index) = index else {
             return;
         };
@@ -1303,45 +1300,44 @@ impl GameInitializer {
                 singleton,
                 Some(dict),
             );
-            let team = team_factory
+            let team_id = team_factory
                 .find_team(&team_name)
                 .or_else(|| team_factory.create_team(&team_name));
 
-            let Some(team_arc) = team else { continue };
+            let Some(team_id) = team_id else { continue };
 
-            if let Ok(mut team_guard) = team_arc.write() {
-                if !owner.is_empty() {
-                    if let Ok(player_list) = ThePlayerList().read() {
-                        if let Some(player_arc) = player_list.find_player_by_name(&owner) {
-                            if let Ok(player_guard) = player_arc.read() {
-                                team_guard.set_controlling_player_id(Some(
-                                    player_guard.get_player_index() as u32,
-                                ));
-                            }
-                        }
+            if !owner.is_empty() {
+                if let Ok(player_list) = ThePlayerList().read() {
+                    if let Some(player) = player_list.find_player_by_name(&owner) {
+                        let index = player.get_player_index() as u32;
+                        let _ = crate::team::with_team_mut(team_id, |team| {
+                            team.set_controlling_player_id(Some(index));
+                        });
                     }
                 }
-            };
+            }
         }
 
         if let Ok(player_list) = ThePlayerList().read() {
-            for player_arc in player_list.iter() {
-                let Ok(player_guard) = player_arc.read() else {
-                    continue;
-                };
-                let name_key = player_guard.get_player_name_key();
-                let player_name = NameKeyGenerator::key_to_name(name_key).unwrap_or_default();
-                drop(player_guard);
-
-                let default_team_name = format!("team{}", player_name);
-                if let Some(team_arc) = team_factory.find_team(&default_team_name) {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        player_guard.set_default_team(Some(team_arc.clone()));
-                    }
-                    if let Ok(mut team_guard) = team_arc.write() {
-                        team_guard.set_active();
-                    }
-                }
+            let defaults: Vec<(i32, crate::team::TeamID)> = player_list
+                .iter()
+                .filter_map(|player| {
+                    let name_key = player.get_player_name_key();
+                    let player_name = NameKeyGenerator::key_to_name(name_key).unwrap_or_default();
+                    let default_team_name = format!("team{}", player_name);
+                    team_factory
+                        .find_team(&default_team_name)
+                        .map(|team_id| (player.get_player_index(), team_id))
+                })
+                .collect();
+            drop(player_list);
+            for (player_index, team_id) in defaults {
+                let _ = crate::player::with_player_mut(player_index, |player| {
+                    player.set_default_team(Some(team_id));
+                });
+                let _ = crate::team::with_team_mut(team_id, |team| {
+                    team.set_active();
+                });
             }
         }
     }
@@ -1401,15 +1397,12 @@ impl GameInitializer {
             return;
         };
 
-        for player_arc in player_list.iter() {
-            let Ok(player_guard) = player_arc.read() else {
-                continue;
-            };
-            if player_guard.get_player_type() != LogicPlayerType::Computer {
+        for player in player_list.iter() {
+            if player.get_player_type() != LogicPlayerType::Computer {
                 continue;
             }
-            let player_id = player_guard.get_player_index() as u32;
-            let difficulty = player_guard.get_player_difficulty();
+            let player_id = player.get_player_index() as u32;
+            let difficulty = player.get_player_difficulty();
 
             let _ = with_ai_integration_mut(|manager| manager.create_ai_player(player_id));
             let _ = with_ai_integration_mut(|manager| {

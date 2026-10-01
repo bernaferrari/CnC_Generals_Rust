@@ -463,11 +463,7 @@ impl CountermeasuresBehavior {
         object_id: ObjectID,
         module_data: Arc<CountermeasuresBehaviorModuleData>,
     ) -> Self {
-        let object_id = object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(OBJECT_INVALID_ID);
-        Self::construct_with_object_id(object_id, module_data, Some(object))
+        Self::construct_with_object_id(object_id, module_data, Some(object_id))
     }
 
     pub fn from_module_thing(
@@ -484,18 +480,22 @@ impl CountermeasuresBehavior {
     }
 
     pub fn update(&mut self, current_frame: u32) -> BehaviorResult<UpdateSleepTime> {
-        let object = self
-            .get_object()
-            .map_err(|_| BehaviorError::ModuleDisabled)?;
-        let obj_guard = object.read().map_err(|_| BehaviorError::ModuleDisabled)?;
-        if obj_guard.is_effectively_dead() {
+        let id = self.get_object().map_err(|_| BehaviorError::ModuleDisabled)?;
+        let is_airborne = OBJECT_REGISTRY
+            .with_object(id, |obj| {
+                if obj.is_effectively_dead() {
+                    None
+                } else {
+                    Some(obj.is_airborne_target())
+                }
+            })
+            .ok_or(BehaviorError::ModuleDisabled)?;
+        let Some(is_airborne) = is_airborne else {
             return Ok(UpdateSleepTime::Forever);
-        }
+        };
         if !self.upgrade_mux.is_already_upgraded() {
             return Ok(UpdateSleepTime::Forever);
         }
-        let is_airborne = obj_guard.is_airborne_target();
-        drop(obj_guard);
 
         Self::cleanup_expired_countermeasures(&mut self.state)?;
 
@@ -565,7 +565,10 @@ impl CountermeasuresBehavior {
                 let angle_base = obj_guard.get_orientation();
                 let team = obj_guard
                     .get_controlling_player()
-                    .and_then(|player| player.read().ok()?.get_default_team())
+                    .and_then(|player| {
+                        crate::player::with_player(player, |p| p.get_default_team())
+                    })
+                    .flatten()
                     .or_else(|| obj_guard.get_team());
                 let unit_dir = obj_guard.get_unit_direction_vector_2d();
                 let velocity = obj_guard
@@ -579,11 +582,12 @@ impl CountermeasuresBehavior {
             return Ok(None);
         };
 
-        let team_guard = team_arc.read().map_err(|_| BehaviorError::ModuleDisabled)?;
         let factory = TheThingFactory::get().map_err(|_| BehaviorError::ModuleDisabled)?;
-        let flare = factory
-            .new_object(template, &*team_guard)
-            .map_err(|_| BehaviorError::ModuleDisabled)?;
+        let flare = crate::team::factory_access::with_team(team_arc, |team_guard| {
+            factory.new_object(template, team_guard)
+        })
+        .ok_or(BehaviorError::ModuleDisabled)?
+        .map_err(|_| BehaviorError::ModuleDisabled)?;
 
         let (dir_x, dir_y) = unit_dir;
         let (sin_angle, cos_angle) = angle.sin_cos();
@@ -709,9 +713,11 @@ impl CountermeasuresBehavior {
         if id == OBJECT_INVALID_ID {
             return Err(BehaviorError::ObjectNotFound { id });
         }
-        OBJECT_REGISTRY
-            .get_object(id)
-            .ok_or(BehaviorError::ObjectNotFound { id })
+        if OBJECT_REGISTRY.contains(id) {
+            Ok(id)
+        } else {
+            Err(BehaviorError::ObjectNotFound { id })
+        }
     }
 
     fn get_current_frame(&self) -> UnsignedInt {
@@ -807,29 +813,26 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
                 "MissileDecoyDelay must be larger than ReactionLaunchLatency"
             );
 
-            let Some(missile_arc) = TheGameLogic::find_object_by_id(missile_id) else {
-                return Ok(());
-            };
-            let Ok(mut missile_guard) = missile_arc.write() else {
-                return Ok(());
-            };
-
             let current_frame = self.get_current_frame();
             let decoy_frames = self.module_data.missile_decoy_frames;
             let reaction_frames = self.module_data.countermeasure_reaction_frames;
-            let modules = missile_guard.get_behavior_modules_mut();
-
-            let mut diverted = false;
-            for behavior in modules {
-                if let Some(projectile) = behavior.get_projectile_update_interface() {
-                    projectile.set_frames_till_countermeasure_diversion_occurs(
-                        decoy_frames,
-                        current_frame,
-                    );
-                    diverted = true;
-                    break;
+            let Some(diverted) = OBJECT_REGISTRY.with_object_mut(missile_id, |missile| {
+                let modules = missile.get_behavior_modules_mut();
+                let mut diverted = false;
+                for behavior in modules {
+                    if let Some(projectile) = behavior.get_projectile_update_interface() {
+                        projectile.set_frames_till_countermeasure_diversion_occurs(
+                            decoy_frames,
+                            current_frame,
+                        );
+                        diverted = true;
+                        break;
+                    }
                 }
-            }
+                diverted
+            }) else {
+                return Ok(());
+            };
 
             if diverted {
                 self.state.diverted_missiles += 1;

@@ -282,9 +282,7 @@ impl FuelAirBombPower {
             })
             .ok_or_else(|| "Fuel Air Bomb requires an owning object".to_string())?;
 
-        self.bomber_aircraft_id = created
-            .as_ref()
-            .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()));
+        self.bomber_aircraft_id = created;
         Ok(())
     }
 

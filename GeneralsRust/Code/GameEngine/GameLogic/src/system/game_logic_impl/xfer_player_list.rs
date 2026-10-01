@@ -3,25 +3,16 @@
 fn xfer_player_list_crc(xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     use game_engine::common::system::snapshot::Snapshotable;
 
-    let player_arcs = {
-        let players = player_list();
-        let list_guard = players.read().map_err(|_| XferStatus::InvalidData)?;
-        let mut player_count = list_guard.get_player_count() as i32;
-        xfer.xfer_int(&mut player_count)?;
-        (0..player_count.max(0))
-            .map(|idx| {
-                list_guard
-                    .get_player(idx)
-                    .cloned()
-                    .ok_or(XferStatus::InvalidData)
-            })
-            .collect::<Result<Vec<_>, _>>()?
-    };
-
-    for player_arc in player_arcs {
-        let player = player_arc.read().map_err(|_| XferStatus::InvalidData)?;
+    let players = player_list();
+    let list_guard = players.read().map_err(|_| XferStatus::InvalidData)?;
+    let mut player_count = list_guard.get_player_count() as i32;
+    xfer.xfer_int(&mut player_count)?;
+    for idx in 0..player_count.max(0) {
+        let player = list_guard
+            .get_player(idx)
+            .ok_or(XferStatus::InvalidData)?;
         let mut bridge = CommonXferBridge { inner: xfer };
-        Snapshotable::crc(&*player, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
+        Snapshotable::crc(player, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
     }
     Ok(())
 }
@@ -34,8 +25,7 @@ fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
-    // Drop the list lock before Player::xfer — rank/local-player queries re-enter the list.
-    let player_arcs = {
+    let indices = {
         let players = player_list();
         let list_guard = players.read().map_err(|_| XferStatus::InvalidData)?;
         let mut player_count = list_guard.get_player_count() as i32;
@@ -45,20 +35,16 @@ fn xfer_player_list_runtime_state(xfer: &mut dyn Xfer) -> Result<(), XferStatus>
             return Err(XferStatus::InvalidData);
         }
 
-        (0..player_count.max(0))
-            .map(|idx| {
-                list_guard
-                    .get_player(idx)
-                    .cloned()
-                    .ok_or(XferStatus::InvalidData)
-            })
-            .collect::<Result<Vec<_>, _>>()?
+        (0..player_count.max(0)).collect::<Vec<_>>()
     };
 
-    for player_arc in player_arcs {
-        let mut player = player_arc.write().map_err(|_| XferStatus::InvalidData)?;
-        let mut bridge = CommonXferBridge { inner: xfer };
-        Snapshotable::xfer(&mut *player, &mut bridge).map_err(|_| XferStatus::InvalidData)?;
+    for idx in indices {
+        let result = crate::player::with_player_mut(idx, |player| {
+            let mut bridge = CommonXferBridge { inner: xfer };
+            Snapshotable::xfer(player, &mut bridge)
+        })
+        .ok_or(XferStatus::InvalidData)?;
+        result.map_err(|_| XferStatus::InvalidData)?;
     }
 
     Ok(())

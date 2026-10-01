@@ -72,11 +72,7 @@ impl ScriptAction for CreateUnitAction {
             .try_into()
             .map_err(|_| GameLogicError::Configuration("Invalid player id".to_string()))?;
 
-        let team = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(player_id as i32).cloned())
-            .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));
+        let team = crate::player::with_player(player_id as i32, |p| p.get_default_team_id()).flatten();
 
         let position = Coord3D::new(x as f32, y as f32, z as f32);
         let object_id = get_object_manager()
@@ -235,12 +231,8 @@ impl ScriptAction for SpawnReinforcementsAction {
             ));
         }
 
-        let team = player_list()
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
-            .get_player(player as PlayerIndex)
-            .cloned()
-            .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));
+        let team = crate::player::with_player(player as PlayerIndex, |p| p.get_default_team_id())
+            .flatten();
 
         let mut created_ids = Vec::with_capacity(count as usize);
         let manager = get_object_manager();

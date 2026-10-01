@@ -194,18 +194,11 @@ impl Module for FiringTrackerBehaviorModule {
     fn on_object_created(&mut self) {
         self.behavior.next_call_frame_and_phase = UpdateSleepTime::Forever.to_u32();
         if self.object_id() != 0 {
-            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id())
-                .or_else(|| {
-                    crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id())
-                })
-            {
-                if let Ok(guard) = obj.read() {
-                    guard.reschedule_named_update(
-                        "FiringTracker",
-                        self.behavior.next_call_frame_and_phase,
-                    );
-                }
-            }
+            let wake = self.behavior.next_call_frame_and_phase;
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id(), |guard| {
+                    guard.reschedule_named_update("FiringTracker", wake);
+                });
         }
     }
 }

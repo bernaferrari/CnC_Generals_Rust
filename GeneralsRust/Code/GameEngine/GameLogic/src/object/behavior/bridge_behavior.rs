@@ -488,12 +488,7 @@ impl BridgeBehavior {
         object_id: ObjectID,
         module_data: Arc<BridgeBehaviorModuleData>,
     ) -> Self {
-        let object_id = object
-            .read()
-            .map(|guard| guard.get_id())
-            .unwrap_or(OBJECT_INVALID_ID);
-
-        Self::construct_with_object_id(object_id, module_data, Some(object))
+        Self::construct_with_object_id(object_id, module_data, Some(object_id))
     }
 
     pub fn from_module_thing(
@@ -510,9 +505,12 @@ impl BridgeBehavior {
             .ok_or_else(|| "BridgeBehavior requires an owning object".to_string())?;
 
         let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY.get_object(object_id).ok_or_else(|| {
-            format!("BridgeBehavior requires object {object_id} to be registered")
-        })?;
+        if !OBJECT_REGISTRY.contains(object_id) {
+            return Err(format!(
+                "BridgeBehavior requires object {object_id} to be registered"
+            )
+            .into());
+        }
 
         Ok(Self::new_from_object_handle(object_id, module_data))
     }
@@ -537,10 +535,7 @@ impl BridgeBehavior {
         }
 
         let previous_id = self.tower_id[index];
-        let new_id = tower
-            .as_ref()
-            .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
-            .unwrap_or(OBJECT_INVALID_ID);
+        let new_id = tower.unwrap_or(OBJECT_INVALID_ID);
 
         if previous_id != OBJECT_INVALID_ID && previous_id != new_id {
             if let Err(err) = self.detach_tower(previous_id) {
@@ -562,12 +557,9 @@ impl BridgeBehavior {
         tower_object: ObjectID,
         tower_type: BridgeTowerType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let module_handles = {
-            let tower_read = tower_object
-                .read()
-                .map_err(|e| format!("tower lock poisoned: {}", e))?;
-            tower_read.behavior_modules()
-        };
+        let module_handles = OBJECT_REGISTRY
+            .with_object(tower_object, |tower_read| tower_read.behavior_modules())
+            .ok_or_else(|| format!("tower {tower_object} not registered"))?;
 
         let bridge_id = self
             .with_object(|guard| guard.get_id())
@@ -1133,7 +1125,7 @@ impl BridgeBehavior {
         // Module entries are shared with the global update registries and their
         // locks are independent of the owning Object's RwLock, so `f` may
         // re-enter the Object exactly as before the borrow migration.
-        let behaviors = obj.read().ok()?.behavior_modules();
+        let behaviors = OBJECT_REGISTRY.with_object(*obj, |o| o.behavior_modules())?;
         for behavior in behaviors {
             let result = behavior.try_with_module(|module| {
                 module
@@ -1162,13 +1154,13 @@ impl BridgeBehavior {
         let fudge = 8.0;
         sunken_pos.z -= sunken_height.max(0.0) + fudge;
 
-        {
-            let mut obj_write = obj
-                .write()
-                .map_err(|e| format!("bridge object write lock poisoned: {}", e))?;
-            obj_write.set_position(&sunken_pos)?;
-            obj_write.set_orientation(angle)?;
-        }
+        OBJECT_REGISTRY
+            .with_object_mut(object_id, |obj_write| {
+                obj_write.set_position(&sunken_pos)?;
+                obj_write.set_orientation(angle)?;
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            })
+            .ok_or_else(|| format!("bridge object {object_id} not registered"))??;
 
         let build_to_center = *build_pos - *rise_to_pos;
         let rise_to_center = *bridge_center - *rise_to_pos;
@@ -1309,12 +1301,9 @@ impl BridgeBehavior {
                 factory.new_object(scaffold_template.clone(), team_guard)
             })
             .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
-            let obj_id = obj
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(OBJECT_INVALID_ID);
+            let obj_id = obj;
             self.set_scaffold_data(
-                obj,
+                obj_id,
                 left_angle,
                 scaffold_height,
                 &rise_to_pos,
@@ -1340,12 +1329,9 @@ impl BridgeBehavior {
                         factory.new_object(support_template.clone(), team_guard)
                     })
                     .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
-                    let support_id = support_obj
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(OBJECT_INVALID_ID);
+                    let support_id = support_obj;
                     self.set_scaffold_data(
-                        support_obj,
+                        support_id,
                         left_angle,
                         support_height,
                         &support_rise,
@@ -1373,12 +1359,9 @@ impl BridgeBehavior {
                 factory.new_object(scaffold_template.clone(), team_guard)
             })
             .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
-            let obj_id = obj
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(OBJECT_INVALID_ID);
+            let obj_id = obj;
             self.set_scaffold_data(
-                obj,
+                obj_id,
                 right_angle,
                 scaffold_height,
                 &rise_to_pos,
@@ -1404,12 +1387,9 @@ impl BridgeBehavior {
                         factory.new_object(support_template.clone(), team_guard)
                     })
                     .ok_or("BridgeBehavior::create_scaffold_objects missing team")??;
-                    let support_id = support_obj
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(OBJECT_INVALID_ID);
+                    let support_id = support_obj;
                     self.set_scaffold_data(
-                        support_obj,
+                        support_id,
                         right_angle,
                         support_height,
                         &support_rise,
@@ -1472,14 +1452,10 @@ impl BridgeBehavior {
         &self,
         id: ObjectID,
     ) -> Result<Option<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
-        if id == OBJECT_INVALID_ID {
+        if id == OBJECT_INVALID_ID || !OBJECT_REGISTRY.contains(id) {
             return Ok(None);
         }
-
-        if let Some(obj) = OBJECT_REGISTRY.get_object(id) {
-            return Ok(Some(obj));
-        }
-        Ok(TheGameLogic::find_object_by_id(id))
+        Ok(Some(id))
     }
 
     /// Get the object this behavior belongs to
@@ -1513,21 +1489,16 @@ impl BridgeBehavior {
             .ok_or_else(|| "BridgeBehavior owning object not found".into())
     }
 
-    fn get_object(
-        &self,
-    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 301: empty dual-world → missing object.
+    fn get_object(&self) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         if dual_world_registry_unavailable() {
             return Err("BridgeBehavior missing dual-world object".into());
         }
 
         let id = self.owner_object_id();
-        if id == OBJECT_INVALID_ID {
-            return Err("BridgeBehavior missing owning object id".into());
+        if id == OBJECT_INVALID_ID || !OBJECT_REGISTRY.contains(id) {
+            return Err("BridgeBehavior owning object not found".into());
         }
-        OBJECT_REGISTRY
-            .get_object(id)
-            .ok_or_else(|| "BridgeBehavior owning object not found".into())
+        Ok(id)
     }
 
     /// Get current game frame
@@ -1677,19 +1648,17 @@ impl DamageModuleInterface for BridgeBehavior {
 
         if !source_is_bridge_tower {
             for tower_id in &self.tower_id {
-                let Some(tower_arc) = self.find_object_by_id(*tower_id)? else {
+                let Some(tower_id) = self.find_object_by_id(*tower_id)? else {
                     continue;
                 };
 
-                let tower_max = {
-                    let tower_read = match tower_arc.read() {
-                        Ok(guard) => guard,
-                        Err(_) => continue,
-                    };
-                    let Some(tower_body) = tower_read.get_body_module() else {
-                        continue;
-                    };
-                    tower_body.get_max_health()
+                let tower_max = OBJECT_REGISTRY.with_object(tower_id, |tower_read| {
+                    tower_read
+                        .get_body_module()
+                        .map(|tower_body| tower_body.get_max_health())
+                });
+                let Some(tower_max) = tower_max.flatten() else {
+                    continue;
                 };
 
                 if tower_max <= 0.0 {
@@ -1702,12 +1671,9 @@ impl DamageModuleInterface for BridgeBehavior {
                     damage_info.damage_type,
                     damage_info.death_type,
                 );
-                {
-                    let Ok(mut tower_write) = tower_arc.write() else {
-                        continue;
-                    };
+                let _ = OBJECT_REGISTRY.with_object_mut(tower_id, |tower_write| {
                     let _ = tower_write.attempt_damage(&mut tower_damage);
-                }
+                });
             }
         }
 
@@ -1741,34 +1707,29 @@ impl DamageModuleInterface for BridgeBehavior {
 
         if !source_is_bridge_tower {
             for tower_id in &self.tower_id {
-                let Some(tower_arc) = self.find_object_by_id(*tower_id)? else {
+                let Some(tower_id) = self.find_object_by_id(*tower_id)? else {
                     continue;
                 };
 
-                let tower_max = {
-                    let tower_read = match tower_arc.read() {
-                        Ok(guard) => guard,
-                        Err(_) => continue,
-                    };
-                    let Some(tower_body) = tower_read.get_body_module() else {
-                        continue;
-                    };
-                    tower_body.get_max_health()
+                let tower_max = OBJECT_REGISTRY.with_object(tower_id, |tower_read| {
+                    tower_read
+                        .get_body_module()
+                        .map(|tower_body| tower_body.get_max_health())
+                });
+                let Some(tower_max) = tower_max.flatten() else {
+                    continue;
                 };
 
                 if tower_max <= 0.0 {
                     continue;
                 }
 
-                {
-                    let Ok(mut tower_write) = tower_arc.write() else {
-                        continue;
-                    };
+                let _ = OBJECT_REGISTRY.with_object_mut(tower_id, |tower_write| {
                     let _ = self.with_object(|source_guard| {
                         tower_write
                             .attempt_healing(healing_percentage * tower_max, Some(source_guard))
                     });
-                }
+                });
             }
         }
 
@@ -1882,10 +1843,10 @@ impl DieModuleInterface for BridgeBehavior {
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         for tower_id in &self.tower_id {
-            if let Some(tower_arc) = self.find_object_by_id(*tower_id)? {
-                if let Ok(mut tower_write) = tower_arc.write() {
+            if let Some(tower_id) = self.find_object_by_id(*tower_id)? {
+                let _ = OBJECT_REGISTRY.with_object_mut(tower_id, |tower_write| {
                     tower_write.kill(None, None);
-                }
+                });
             }
         }
 

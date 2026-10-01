@@ -117,21 +117,28 @@ impl Object {
             if obj_id == self.id {
                 continue;
             }
-            let Some(mine) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
-            else {
-                continue;
-            };
-            let Ok(mut mine_guard) = mine.write() else {
-                continue;
-            };
-            if !mine_guard.is_kind_of(KindOf::Mine) {
-                continue;
+            if let Some(mine) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
+                let Ok(mut mine_guard) = mine.write() else {
+                    continue;
+                };
+                if !mine_guard.is_kind_of(KindOf::Mine) {
+                    continue;
+                }
+                if mine_guard.get_producer_id() != self.id {
+                    continue;
+                }
+                let _ = mine_guard.set_team(Some(new_team));
+            } else {
+                let _ = OBJECT_REGISTRY.with_object_mut(obj_id, |mine_guard| {
+                    if !mine_guard.is_kind_of(KindOf::Mine) {
+                        return;
+                    }
+                    if mine_guard.get_producer_id() != self.id {
+                        return;
+                    }
+                    let _ = mine_guard.set_team(Some(new_team));
+                });
             }
-            if mine_guard.get_producer_id() != self.id {
-                continue;
-            }
-            let _ = mine_guard.set_team(Some(new_team));
         }
     }
 }

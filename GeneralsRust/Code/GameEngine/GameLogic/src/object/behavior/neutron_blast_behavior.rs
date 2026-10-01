@@ -191,23 +191,22 @@ impl DieModuleInterface for NeutronBlastBehavior {
             return Ok(());
         }
 
-        let Some(source_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return Ok(());
-        };
-        let Ok(source) = source_arc.read() else {
+        }
+        let Some((source_id, source_pos, source_off_map)) =
+            OBJECT_REGISTRY.with_object(self.object_id, |source| {
+                (
+                    source.get_id(),
+                    *source.get_position(),
+                    source.is_off_map(),
+                )
+            })
+        else {
             return Ok(());
         };
 
-        let source_id = source.get_id();
-        let source_pos = *source.get_position();
-        let source_off_map = source.is_off_map();
         let hit_air = self.module_data.is_affect_airborne;
-        drop(source);
 
         let Some(partition) = ThePartitionManager::get() else {
             return Ok(());

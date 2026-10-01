@@ -30,11 +30,9 @@ pub fn resolve_special_power_owner_id(
     }
 
     let player_id = owner_player_id?;
-    let list = player_list().read().ok()?;
-    let player = list.get_player(player_id as Int).cloned()?;
-    let player_guard = player.read().ok()?;
-    let owned = player_guard.get_all_objects();
-    drop(player_guard);
+    let owned = crate::player::with_player(player_id as crate::player::PlayerIndex, |player_guard| {
+        player_guard.get_all_objects()
+    })?;
 
     for object_id in owned {
         if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some() {

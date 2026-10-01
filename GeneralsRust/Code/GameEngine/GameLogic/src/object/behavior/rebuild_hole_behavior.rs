@@ -187,8 +187,13 @@ impl RebuildHoleBehavior {
             return None;
         }
 
-        TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if TheGameLogic::find_object_by_id(self.object_id)
+            || crate::object::registry::OBJECT_REGISTRY.contains(self.object_id)
+        {
+            Some(self.object_id)
+        } else {
+            None
+        }
     }
 
     fn resolve_worker_template(&mut self) -> Option<Arc<dyn crate::common::ThingTemplate>> {

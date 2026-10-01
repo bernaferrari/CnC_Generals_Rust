@@ -20,6 +20,7 @@ use crate::modules::{
     UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::behavior::slow_death_behavior::{
     self, SlowDeathBehaviorModuleData, parse_death_types, parse_destruction_altitude,
     parse_destruction_delay, parse_destruction_delay_variance, parse_exempt_status,
@@ -34,7 +35,7 @@ use game_engine::common::thing::module::{
     Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
 };
 use log::warn;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct HelicopterSlowDeathBehaviorModuleData {
@@ -725,24 +726,29 @@ impl HelicopterSlowDeathBehavior {
     /// C++ Drawable::getPristineBonePositions (Drawable.cpp:747): model-space
     /// offset of the first bone matching `bone`.
     fn pristine_bone_position(&self, bone: &str) -> Option<Coord3D> {
-        let object = self.owner()?;
-        let object = object.read().ok()?;
-        let drawable = object.get_drawable()?;
-        let drawable = drawable.read().ok()?;
-        drawable
-            .get_pristine_bone_positions(bone, 0, 1)
-            .first()
-            .copied()
+        self.with_object(|object| {
+            let drawable = object.get_drawable()?;
+            let drawable = drawable.read().ok()?;
+            drawable
+                .get_pristine_bone_positions(bone, 0, 1)
+                .first()
+                .copied()
+        })
+        .flatten()
     }
 
-    /// Resolve the owning object handle (same fallback chain as update).
-    fn owner(&self) -> Option<ObjectID> {
+    fn with_object<R>(&self, f: impl FnOnce(&GameObject) -> R) -> Option<R> {
         if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            return None;
         }
+        OBJECT_REGISTRY.with_object(self.object_id, f)
+    }
+
+    fn with_object_mut<R>(&self, f: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        OBJECT_REGISTRY.with_object_mut(self.object_id, f)
     }
 }
 
@@ -845,24 +851,22 @@ impl UpdateModuleInterface for HelicopterSlowDeathBehavior {
 
         // In C++ lines 417-450: Check if hit ground
         if self.hit_ground_frame == 0 {
-            if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut guard) = object.write() {
-                    let pos = *guard.get_position();
-                    let ground = TheTerrainLogic::get()
-                        .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
-                        .unwrap_or(pos.z);
+            let hit_ground = self.with_object_mut(|guard| {
+                let pos = *guard.get_position();
+                let ground = TheTerrainLogic::get()
+                    .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
+                    .unwrap_or(pos.z);
 
-                    if pos.z <= ground + 1.0 {
-                        self.hit_ground_frame = current_frame;
-                        let _ = guard.set_disabled_held(true);
-                        guard.set_model_condition_state(MODELCONDITION_SPECIAL_DAMAGED);
-                    }
+                if pos.z <= ground + 1.0 {
+                    let _ = guard.set_disabled_held(true);
+                    guard.set_model_condition_state(MODELCONDITION_SPECIAL_DAMAGED);
+                    true
+                } else {
+                    false
                 }
+            });
+            if hit_ground == Some(true) {
+                self.hit_ground_frame = current_frame;
             }
         }
 
@@ -1171,7 +1175,7 @@ impl HelicopterSlowDeathBehaviorFactory {
                 HelicopterSlowDeathBehaviorModuleData::default()
             });
         Ok(Box::new(HelicopterSlowDeathBehavior::new(
-            thing,
+            object_id,
             Arc::new(typed),
         )))
     }

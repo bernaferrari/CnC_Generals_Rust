@@ -128,44 +128,33 @@ impl CheckpointUpdate {
         // Always scan (C++ has `|| TRUE` which makes the delay check always pass)
         self.enemy_scan_delay = self.module_data.enemy_scan_delay_time;
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        let Some((obj_id, vision_range, mut geometry)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |obj| {
+                (
+                    obj.get_id(),
+                    obj.get_vision_range(),
+                    obj.get_geometry_info().clone(),
+                )
+            })
+        else {
             self.enemy_near = false;
             self.ally_near = false;
             return;
-        };
-
-        let (obj_id, vision_range, mut geometry) = {
-            let obj = match obj_arc.read() {
-                Ok(guard) => guard,
-                Err(_) => {
-                    self.enemy_near = false;
-                    self.ally_near = false;
-                    return;
-                }
-            };
-            (
-                obj.get_id(),
-                obj.get_vision_range(),
-                obj.get_geometry_info().clone(),
-            )
         };
 
         let restore_radius = Self::y_radius(&geometry);
         let mut scan_geometry = geometry.clone();
         Self::set_geometry_minor_radius(&mut scan_geometry, self.max_bounding_radius);
 
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |obj| {
+                obj.set_geometry_info(scan_geometry);
+            })
+            .is_none()
         {
-            let Ok(mut obj) = obj_arc.write() else {
-                self.enemy_near = false;
-                self.ally_near = false;
-                return;
-            };
-            obj.set_geometry_info(scan_geometry);
+            self.enemy_near = false;
+            self.ally_near = false;
+            return;
         }
 
         let ai_store = the_ai();let enemy = ai_store.read().ok().and_then(|ai| {
@@ -182,12 +171,9 @@ impl CheckpointUpdate {
         self.ally_near = ally.is_some();
 
         Self::set_geometry_minor_radius(&mut geometry, restore_radius);
-        {
-            let Ok(mut obj) = obj_arc.write() else {
-                return;
-            };
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
             obj.set_geometry_info(geometry);
-        }
+        });
     }
 }
 
@@ -201,54 +187,37 @@ impl UpdateModuleInterface for CheckpointUpdate {
         let change = (was_an_ally != self.ally_near) || (was_an_enemy != self.enemy_near);
         let open = !self.enemy_near && self.ally_near;
 
-        let me_arc = match (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            Some(arc) => arc,
-            None => return UPDATE_SLEEP_NONE,
-        };
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |me| {
+                if let Some(draw) = me.get_drawable() {
+                    if change {
+                        if open {
+                            draw.clear_and_set_model_condition_state(
+                                ModelConditionFlag::Door1Closing,
+                                ModelConditionFlag::Door1Opening,
+                            );
+                        } else {
+                            draw.clear_and_set_model_condition_state(
+                                ModelConditionFlag::Door1Opening,
+                                ModelConditionFlag::Door1Closing,
+                            );
+                        }
+                    }
+                }
 
-        let mut me = match me_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return UPDATE_SLEEP_NONE,
-        };
-
-        if let Some(draw) = me.get_drawable() {
-            if change {
+                let mut geom = me.get_geometry_info().clone();
+                let radius = Self::y_radius(&geom);
+                let mut new_radius = radius;
                 if open {
-                    // Open the gate: clear CLOSING, set OPENING
-                    draw.clear_and_set_model_condition_state(
-                        ModelConditionFlag::Door1Closing,
-                        ModelConditionFlag::Door1Opening,
-                    );
-                } else {
-                    // Close the gate: clear OPENING, set CLOSING
-                    draw.clear_and_set_model_condition_state(
-                        ModelConditionFlag::Door1Opening,
-                        ModelConditionFlag::Door1Closing,
-                    );
+                    if radius > 0.0 {
+                        new_radius = radius - 0.333;
+                    }
+                } else if radius < self.max_bounding_radius {
+                    new_radius = radius + 0.333;
                 }
-            }
-
-            // Adjust radius for pathfinding based on door animation state.
-            let mut geom = me.get_geometry_info().clone();
-            let radius = Self::y_radius(&geom);
-            let mut new_radius = radius;
-
-            if open {
-                if radius > 0.0 {
-                    new_radius = radius - 0.333;
-                }
-            } else if radius < self.max_bounding_radius {
-                new_radius = radius + 0.333;
-            }
-
-            Self::set_geometry_minor_radius(&mut geom, new_radius);
-            me.set_geometry_info(geom);
-        }
+                Self::set_geometry_minor_radius(&mut geom, new_radius);
+                me.set_geometry_info(geom);
+        });
 
         UPDATE_SLEEP_NONE
     }

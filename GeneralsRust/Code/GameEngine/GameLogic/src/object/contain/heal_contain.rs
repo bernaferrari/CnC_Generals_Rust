@@ -177,8 +177,7 @@ impl HealContain {
         }
 
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        if (if crate::helpers::TheGameLogic::find_object_by_id(obj_id) || crate::object::registry::OBJECT_REGISTRY.contains(obj_id) { Some(obj_id) } else { None })
             .is_none()
         {
             return Err("HealContain patient not found".into());
