@@ -795,7 +795,11 @@ impl Object {
         // Register the template's descriptors with the global factory (if initialised).
         let _ = thing_template.module_descriptors();
 
-        let thing_handle: Arc<ObjectThingHandle> = Arc::new(ObjectThingHandle::new(object));
+        let object_id = object
+            .read()
+            .map(|guard| guard.id)
+            .unwrap_or(crate::common::INVALID_ID);
+        let thing_handle: Arc<ObjectThingHandle> = Arc::new(ObjectThingHandle::new(object_id));
         let module_handle: Arc<dyn ModuleThing> = thing_handle.clone();
         let mut modules_to_install: Vec<Arc<ModuleEntry>> = Vec::new();
 
@@ -929,7 +933,7 @@ impl Object {
                             })
                     });
                     if let Some(handle) = contain_handle {
-                        guard.set_contain(handle);
+                        guard.set_contain(Some(handle));
                         break;
                     }
                 }
@@ -941,9 +945,9 @@ impl Object {
                 let template_name = guard.get_template_name().to_string();
                 guard
                     .get_controlling_player()
-                    .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
-                            player_guard.get_production_veterancy_level(&template_name)
+                    .and_then(|player_index| {
+                        crate::player::with_player(player_index, |player| {
+                            player.get_production_veterancy_level(&template_name)
                         })
                     })
                     .unwrap_or(crate::common::types::VeterancyLevel::Regular)
@@ -1019,19 +1023,20 @@ impl Object {
             obj_guard.apply_team_ai_profile();
         }
 
-        // Apply battle plan bonuses after modules are ready (C++ Object::onObjectCreated parity).
-        if let Ok(obj_guard) = object.read() {
-            if let Some(player_arc) = obj_guard.get_controlling_player() {
-                if let Ok(player_guard) = player_arc.read() {
-                    if player_guard.get_num_battle_plans_active() > 0 {
-                        drop(player_guard);
-                        drop(obj_guard);
-                        if let (Ok(player_guard), Ok(mut obj_guard)) =
-                            (player_arc.read(), object.write())
-                        {
-                            player_guard.apply_battle_plan_bonuses_for_object(&mut obj_guard);
-                        }
-                    }
+        let player_index = object
+            .read()
+            .ok()
+            .and_then(|obj_guard| obj_guard.get_controlling_player());
+        if let Some(player_index) = player_index {
+            let plans = crate::player::with_player(player_index, |player| {
+                player.get_num_battle_plans_active()
+            })
+            .unwrap_or(0);
+            if plans > 0 {
+                if let Ok(mut obj_guard) = object.write() {
+                    crate::player::with_player(player_index, |player| {
+                        player.apply_battle_plan_bonuses_for_object(&mut obj_guard);
+                    });
                 }
             }
         }
