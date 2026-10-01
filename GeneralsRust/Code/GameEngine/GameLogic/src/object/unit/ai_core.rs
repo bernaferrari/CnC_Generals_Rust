@@ -292,8 +292,7 @@ impl UnitAIUpdate {
             return;
         };
         let now = TheGameLogic::get_frame();
-        if let Some(object) = TheGameLogic::find_object_by_id(owner_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
+        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id)
         {
             if let Ok(guard) = object.read() {
                 guard.reschedule_ai_update(now.saturating_add(1));

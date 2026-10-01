@@ -1340,8 +1340,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let rider = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        let rider = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
             .ok_or("Rider object not found")?;
 
         let Ok(rider_guard) = rider.try_read() else {
@@ -1393,8 +1392,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
         else {
             return Ok(());
         };
@@ -1420,8 +1418,7 @@ impl RiderChangeContain {
             if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
             }) {
                 if let (Ok(owner_guard), Ok(mut rider_guard)) =
                     (owner.try_read(), rider.try_write())
@@ -1471,8 +1468,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1502,8 +1498,7 @@ impl RiderChangeContain {
         let owner_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         });
 
         if let Some(owner) = owner_arc.as_ref() {
@@ -1555,8 +1550,7 @@ impl RiderChangeContain {
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) else {
             return;
         };
@@ -1589,8 +1583,7 @@ impl RiderChangeContain {
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) else {
             return;
         };
@@ -1628,16 +1621,14 @@ impl RiderChangeContain {
             return;
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
         else {
             return;
         };
         let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) else {
             return;
         };
@@ -1703,16 +1694,14 @@ impl RiderChangeContain {
             return false;
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
         else {
             return false;
         };
         let owner_has_drawable = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         })
         .and_then(|owner| owner.read().ok()?.get_drawable())
         .is_some();
@@ -1730,8 +1719,7 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1739,8 +1727,7 @@ impl RiderChangeContain {
         if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) {
             if let Ok(owner_guard) = owner.read() {
                 if owner_guard.is_effectively_dead() {
@@ -1768,16 +1755,14 @@ impl RiderChangeContain {
         let owner_arc = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         });
         let mut transfer_to_rider = false;
 
         if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) {
             if let Ok(mut owner_guard) = owner.write() {
                 for rider_info in &self.module_data.riders {
@@ -1800,8 +1785,7 @@ impl RiderChangeContain {
             if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
                 None
             } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+                crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
             }) {
                 if let Ok(mut owner_guard) = owner.write() {
                     self.scuttled_on_frame = TheGameLogic::get_frame();
@@ -1928,11 +1912,9 @@ impl Snapshotable for RiderChangeContain {
 
 impl ContainModuleInterface for RiderChangeContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self.is_valid_container_for(&*obj_guard, true);
+            });
         false
     }
 
@@ -2023,8 +2005,7 @@ impl ContainModuleInterface for RiderChangeContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };

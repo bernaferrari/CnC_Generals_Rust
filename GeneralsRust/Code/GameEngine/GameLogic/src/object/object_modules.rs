@@ -399,10 +399,10 @@ impl Object {
         self.behaviors.iter().cloned().collect()
     }
 
-    pub fn status_damage_helper(
-        &self,
-    ) -> Option<Arc<Mutex<crate::object::helper::StatusDamageHelper>>> {
-        self.status_damage_helper.clone()
+    pub(crate) fn status_damage_helper(
+        &mut self,
+    ) -> Option<&mut crate::object::helper::StatusDamageHelper> {
+        self.status_damage_helper.as_deref_mut()
     }
 
     pub fn has_ctor_helpers(&self) -> bool {
@@ -429,20 +429,18 @@ impl Object {
             .any(|entry| entry.name.as_str().eq_ignore_ascii_case("InactiveBody"));
         if !inactive_body {
             if self.status_damage_helper.is_none() {
-                self.status_damage_helper = Some(Arc::new(Mutex::new(
-                    crate::object::helper::StatusDamageHelper::new(
+                self.status_damage_helper =
+                    Some(Box::new(crate::object::helper::StatusDamageHelper::new(
                         self.id,
                         crate::object::helper::StatusDamageHelperModuleData::new(),
-                    ),
-                )));
+                    )));
             }
             if self.subdual_damage_helper.is_none() {
-                self.subdual_damage_helper = Some(Arc::new(Mutex::new(
-                    crate::object::helper::SubdualDamageHelper::new(
+                self.subdual_damage_helper =
+                    Some(Box::new(crate::object::helper::SubdualDamageHelper::new(
                         self.id,
                         crate::object::helper::SubdualDamageHelperModuleData::new(),
-                    ),
-                )));
+                    )));
             }
         }
 
@@ -465,23 +463,22 @@ impl Object {
         // Object.cpp:364-384 — weapon helpers only if the template can have a weapon.
         if template_can_possibly_have_any_weapon(self.thing_template.as_ref()) {
             if self.ws_helper.is_none() {
-                self.ws_helper = Some(Arc::new(Mutex::new(
+                self.ws_helper = Some(Box::new(
                     crate::object::helper::ObjectWeaponStatusHelper::new(
                         crate::object::helper::ObjectWeaponStatusHelperModuleData::new(),
                         true,
                     ),
-                )));
+                ));
             }
             if self.firing_tracker.is_none() {
-                self.firing_tracker = Some(Arc::new(Mutex::new(FiringTracker::new(self.id))));
+                self.firing_tracker = Some(Box::new(FiringTracker::new(self.id)));
             }
             if self.temp_weapon_bonus_helper.is_none() {
-                self.temp_weapon_bonus_helper = Some(Arc::new(Mutex::new(
-                    crate::object::helper::TempWeaponBonusHelper::new(
+                self.temp_weapon_bonus_helper =
+                    Some(Box::new(crate::object::helper::TempWeaponBonusHelper::new(
                         self.id,
                         crate::object::helper::TempWeaponBonusHelperModuleData::new(),
-                    ),
-                )));
+                    )));
             }
         }
 
@@ -672,7 +669,6 @@ impl Object {
         }
         Ok(false)
     }
-
 
     pub fn get_object_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
         for entry in &self.modules {
@@ -1003,11 +999,10 @@ impl Object {
                     >() {
                         lifetime.behavior_mut().bind_update_proxy(proxy.clone());
                     }
-                    if let Some(deletion) = (module as &mut dyn Any).downcast_mut::<
-                        crate::contain_module_overrides::ActiveBehaviorModule<
-                            crate::object::behavior::deletion_update::DeletionUpdate,
-                        >,
-                    >() {
+                    if let Some(deletion) = (module as &mut dyn Any)
+                        .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                        crate::object::behavior::deletion_update::DeletionUpdate,
+                    >>() {
                         deletion.behavior_mut().bind_update_proxy(proxy.clone());
                     }
                     if let Some(spy) = (module as &mut dyn Any).downcast_mut::<

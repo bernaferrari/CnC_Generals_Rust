@@ -82,6 +82,11 @@ pub(crate) enum W3dAssetSource {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The loader/manager members (`TextureManager`,
+// `W3DLoader`, `WW3DAssetManager`, the `W3DModel` cache) own `Rc`-backed wgpu
+// texture handles, which are `!Send` on the web backend — but wasm32 has no
+// threads, so they can never reach another thread. The impl only satisfies
+// the `Send` bounds of the wasm plumbing owning the manager.
 unsafe impl Send for AssetManager {}
 
 /// C++ HAnim assets are shared by their fully-qualified `Hierarchy.Animation`

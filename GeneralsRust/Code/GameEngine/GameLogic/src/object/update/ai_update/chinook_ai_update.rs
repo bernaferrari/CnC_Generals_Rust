@@ -982,12 +982,10 @@ impl ChinookAIUpdate {
         // remove done rappellers
         for rope in &mut state.ropes {
             rope.rappeller_ids.retain(|id| {
-                if let Some(rappeller) = TheGameLogic::find_object_by_id(*id) {
-                    if let Ok(rappeller_guard) = rappeller.read() {
-                        return !rappeller_guard.is_effectively_dead()
-                            && rappeller_guard.is_above_terrain();
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*id, |rappeller_guard| {
+                    return !rappeller_guard.is_effectively_dead()
+                        && rappeller_guard.is_above_terrain();
+                    });
                 false
             });
         }
@@ -1110,13 +1108,11 @@ impl ChinookAIUpdate {
             if let Some(state) = self.combat_drop_state.as_ref() {
                 for rope in &state.ropes {
                     for rappeller_id in &rope.rappeller_ids {
-                        if let Some(rappeller) = TheGameLogic::find_object_by_id(*rappeller_id) {
-                            if let Ok(rappeller_guard) = rappeller.read() {
-                                if let Some(ai) = rappeller_guard.get_ai_update_interface() {
-                                    ai.ai_idle(CommandSourceType::FromAi);
-                                }
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*rappeller_id, |rappeller_guard| {
+                            if let Some(ai) = rappeller_guard.get_ai_update_interface() {
+                                ai.ai_idle(CommandSourceType::FromAi);
                             }
-                        }
+                            });
                     }
                 }
             }
@@ -1164,13 +1160,11 @@ impl ChinookAIUpdate {
         }
 
         if self.airfield_for_healing != INVALID_ID && self.airfield_for_healing != id {
-            if let Some(airfield) = TheGameLogic::find_object_by_id(self.airfield_for_healing) {
-                if let Ok(guard) = airfield.read() {
-                    let _ = guard.with_parking_place_behavior(|pp| {
-                        pp.set_healee(Some(self.object_id), false);
-                    });
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.airfield_for_healing, |guard| {
+                let _ = guard.with_parking_place_behavior(|pp| {
+                    pp.set_healee(Some(self.object_id), false);
+                });
+                });
         }
         self.airfield_for_healing = id;
     }
@@ -1233,11 +1227,9 @@ impl ChinookAIUpdate {
                 let _ = ai.set_movement_target(&self.goal_pos);
             }
             ChinookAIState::MoveToAndEvacAndExitInit => {
-                if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-                    if let Ok(guard) = owner.read() {
-                        self.record_original_position(*guard.get_position());
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                    self.record_original_position(*guard.get_position());
+                    });
                 self.set_my_state(
                     ChinookAIState::MoveToAndEvacAndExit,
                     None,
@@ -1290,11 +1282,9 @@ impl ChinookAIUpdate {
 
     /// C++ `ChinookHeadOffMapState::onEnter`.
     fn enter_head_off_map(&mut self, ai: &mut dyn AIUpdateInterface) {
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.set_status(ObjectStatusMaskType::RIDER8, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
+            owner_guard.set_status(ObjectStatusMaskType::RIDER8, true);
+            });
         let _ = ai.set_movement_target(&self.original_pos);
         let _ = ai.set_allow_invalid_position(true);
     }
@@ -1391,10 +1381,13 @@ impl ChinookAIUpdate {
         });
         if landing {
             let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Taxiing);
-        } else if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.set_layer(PathfindLayerEnum::Ground);
-            }
+        } else {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.object_id,
+                |owner_guard| {
+                    owner_guard.set_layer(PathfindLayerEnum::Ground);
+                },
+            );
         }
     }
 
@@ -1440,22 +1433,20 @@ impl ChinookAIUpdate {
         self.move_to_bldg_new_preferred = self.move_to_bldg_old_preferred;
         let mut dest_pos = self.goal_pos;
         if let Some(target_id) = self.goal_object {
-            if let Some(bldg) = TheGameLogic::find_object_by_id(target_id) {
-                if let Ok(bldg_guard) = bldg.read() {
-                    if !bldg_guard.is_effectively_dead() && bldg_guard.is_kind_of(KindOf::Structure)
-                    {
-                        dest_pos = *bldg_guard.get_position();
-                        self.move_to_bldg_new_preferred = chinook_move_to_bldg_preferred_height(
-                            self.move_to_bldg_old_preferred,
-                            true,
-                            bldg_guard
-                                .get_geometry_info()
-                                .get_max_height_above_position(),
-                            self.data.min_drop_height,
-                        );
-                    }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |bldg_guard| {
+                if !bldg_guard.is_effectively_dead() && bldg_guard.is_kind_of(KindOf::Structure)
+                {
+                    dest_pos = *bldg_guard.get_position();
+                    self.move_to_bldg_new_preferred = chinook_move_to_bldg_preferred_height(
+                        self.move_to_bldg_old_preferred,
+                        true,
+                        bldg_guard
+                            .get_geometry_info()
+                            .get_max_height_above_position(),
+                        self.data.min_drop_height,
+                    );
                 }
-            }
+                });
         }
         ai.with_cur_locomotor(&mut |loco| {
             loco.set_preferred_height(self.move_to_bldg_new_preferred);
@@ -1517,11 +1508,9 @@ impl ChinookAIUpdate {
     }
 
     fn exit_head_off_map(&mut self) {
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.set_status(ObjectStatusMaskType::RIDER8, false);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
+            owner_guard.set_status(ObjectStatusMaskType::RIDER8, false);
+            });
     }
 
     fn succeed_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
@@ -1609,15 +1598,13 @@ impl ChinookAIUpdate {
         }
         let mut result = self.base.get_state() == SupplyTruckState::Idle;
         if result && self.flight_status == ChinookFlightStatus::Landed {
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-                if let Ok(guard) = owner.read() {
-                    if let Some(contain) = guard.get_contain() {
-                        if contain.has_objects_wanting_to_enter_or_exit() {
-                            result = false;
-                        }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                if let Some(contain) = guard.get_contain() {
+                    if contain.has_objects_wanting_to_enter_or_exit() {
+                        result = false;
                     }
                 }
-            }
+                });
         }
         result
     }
@@ -1829,21 +1816,19 @@ impl ChinookAIUpdate {
             return;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(guard) = owner.read() {
-                if let Some(contain) = guard.get_contain() {
-                    if let Some(rider_id) = contain.friend_get_rider() {
-                        if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                            if let Ok(rider_guard) = rider.read() {
-                                if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                    ai.ai_idle(cmd_source);
-                                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            if let Some(contain) = guard.get_contain() {
+                if let Some(rider_id) = contain.friend_get_rider() {
+                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                        if let Ok(rider_guard) = rider.read() {
+                            if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                ai.ai_idle(cmd_source);
                             }
                         }
                     }
                 }
             }
-        }
+            });
         self.base.private_idle(cmd_source);
     }
 
@@ -1862,58 +1847,56 @@ impl ChinookAIUpdate {
             return;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(guard) = owner.read() {
-                if !chinook_kind_of_can_attack(&*guard) {
-                    return;
-                }
-                if let Some(contain) = guard.get_contain() {
-                    if matches!(
-                        cmd_source,
-                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
-                    ) {
-                        let passengers = contain.get_contained_objects();
-                        for passenger_id in passengers {
-                            if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
-                                continue;
-                            }
-                            let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
-                            else {
-                                continue;
-                            };
-                            let Ok(pass_guard) = passenger.read() else {
-                                continue;
-                            };
-                            if !pass_guard.is_kind_of(KindOf::Infantry) {
-                                continue;
-                            }
-                            if pass_guard.is_kind_of(KindOf::PortableStructure)
-                                && (pass_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::DisabledHacked,
-                                ) || pass_guard
-                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
-                                    || pass_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledSubdued,
-                                    )
-                                    || pass_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::Paralyzed,
-                                    ))
-                            {
-                                continue;
-                            }
-                            if let Some(ai) = pass_guard.get_ai_update_interface() {
-                                ai.ai_attack_object_id(victim_id, max_shots_to_fire, cmd_source);
-                            }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            if !chinook_kind_of_can_attack(&*guard) {
+                return;
+            }
+            if let Some(contain) = guard.get_contain() {
+                if matches!(
+                    cmd_source,
+                    CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                ) {
+                    let passengers = contain.get_contained_objects();
+                    for passenger_id in passengers {
+                        if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
+                            continue;
                         }
-                        self.tell_portable_structure_to_attack_with_me(
-                            victim_id,
-                            max_shots_to_fire,
-                            cmd_source,
-                        );
+                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
+                        else {
+                            continue;
+                        };
+                        let Ok(pass_guard) = passenger.read() else {
+                            continue;
+                        };
+                        if !pass_guard.is_kind_of(KindOf::Infantry) {
+                            continue;
+                        }
+                        if pass_guard.is_kind_of(KindOf::PortableStructure)
+                            && (pass_guard.is_disabled_by_type(
+                                crate::common::DisabledType::DisabledHacked,
+                            ) || pass_guard
+                                .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                                || pass_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::DisabledSubdued,
+                                )
+                                || pass_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::Paralyzed,
+                                ))
+                        {
+                            continue;
+                        }
+                        if let Some(ai) = pass_guard.get_ai_update_interface() {
+                            ai.ai_attack_object_id(victim_id, max_shots_to_fire, cmd_source);
+                        }
                     }
+                    self.tell_portable_structure_to_attack_with_me(
+                        victim_id,
+                        max_shots_to_fire,
+                        cmd_source,
+                    );
                 }
             }
-        }
+            });
     }
 
     pub fn private_force_attack_object(
@@ -1931,207 +1914,59 @@ impl ChinookAIUpdate {
         if victim.is_none() {
             return;
         }
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(guard) = owner.read() {
-                if !chinook_kind_of_can_attack(&*guard) {
-                    return;
-                }
-                if let Some(contain) = guard.get_contain() {
-                    if matches!(
-                        cmd_source,
-                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
-                    ) {
-                        let passengers = contain.get_contained_objects();
-                        for passenger_id in passengers {
-                            if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
-                                continue;
-                            }
-                            let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
-                            else {
-                                continue;
-                            };
-                            let Ok(pass_guard) = passenger.read() else {
-                                continue;
-                            };
-                            if !pass_guard.is_kind_of(KindOf::Infantry) {
-                                continue;
-                            }
-                            if pass_guard.is_kind_of(KindOf::PortableStructure)
-                                && (pass_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::DisabledHacked,
-                                ) || pass_guard
-                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
-                                    || pass_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledSubdued,
-                                    )
-                                    || pass_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::Paralyzed,
-                                    ))
-                            {
-                                continue;
-                            }
-                            if let Some(ai) = pass_guard.get_ai_update_interface() {
-                                if let Some(victim_arc) = victim.as_ref() {
-                                    ai.ai_force_attack_object(
-                                        victim_arc.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                                        max_shots_to_fire,
-                                        cmd_source,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    if matches!(
-                        cmd_source,
-                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
-                    ) {
-                        if let Some(rider_id) = contain.friend_get_rider() {
-                            if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                                if let Ok(rider_guard) = rider.read() {
-                                    if rider_guard.is_kind_of(KindOf::PortableStructure)
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::DisabledHacked,
-                                        )
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::DisabledEmp,
-                                        )
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::DisabledSubdued,
-                                        )
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::Paralyzed,
-                                        )
-                                    {
-                                        if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                            if let Some(victim_arc) = victim.as_ref() {
-                                                ai.ai_force_attack_object(
-                                                    victim_arc
-                                                        .read()
-                                                        .ok()
-                                                        .map(|g| g.get_id())
-                                                        .unwrap_or(0),
-                                                    max_shots_to_fire,
-                                                    cmd_source,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            if !chinook_kind_of_can_attack(&*guard) {
+                return;
             }
-        }
-    }
-
-    pub fn private_attack_position(
-        &self,
-        pos: &Coord3D,
-        max_shots_to_fire: i32,
-        cmd_source: CommandSourceType,
-    ) {
-        // Wave 349: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(guard) = owner.read() {
-                if !chinook_kind_of_can_attack(&*guard) {
-                    return;
-                }
-                if let Some(contain) = guard.get_contain() {
-                    if matches!(
-                        cmd_source,
-                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
-                    ) {
-                        let passengers = contain.get_contained_objects();
-                        for passenger_id in passengers {
-                            if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
-                                continue;
-                            }
-                            let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
-                            else {
-                                continue;
-                            };
-                            let Ok(pass_guard) = passenger.read() else {
-                                continue;
-                            };
-                            if !pass_guard.is_kind_of(KindOf::Infantry) {
-                                continue;
-                            }
-                            if pass_guard.is_kind_of(KindOf::PortableStructure)
-                                && (pass_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::DisabledHacked,
-                                ) || pass_guard
-                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
-                                    || pass_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledSubdued,
-                                    )
-                                    || pass_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::Paralyzed,
-                                    ))
-                            {
-                                continue;
-                            }
-                            if let Some(ai) = pass_guard.get_ai_update_interface() {
-                                ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
-                            }
+            if let Some(contain) = guard.get_contain() {
+                if matches!(
+                    cmd_source,
+                    CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                ) {
+                    let passengers = contain.get_contained_objects();
+                    for passenger_id in passengers {
+                        if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
+                            continue;
                         }
-                    }
-                    if matches!(
-                        cmd_source,
-                        CommandSourceType::FromPlayer | CommandSourceType::FromScript
-                    ) {
-                        if let Some(rider_id) = contain.friend_get_rider() {
-                            if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                                if let Ok(rider_guard) = rider.read() {
-                                    if rider_guard.is_kind_of(KindOf::PortableStructure)
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::DisabledHacked,
-                                        )
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::DisabledEmp,
-                                        )
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::DisabledSubdued,
-                                        )
-                                        && !rider_guard.is_disabled_by_type(
-                                            crate::common::DisabledType::Paralyzed,
-                                        )
-                                    {
-                                        if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                            ai.ai_attack_position(
-                                                pos,
-                                                max_shots_to_fire,
-                                                cmd_source,
-                                            );
-                                        }
-                                    }
-                                }
+                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
+                        else {
+                            continue;
+                        };
+                        let Ok(pass_guard) = passenger.read() else {
+                            continue;
+                        };
+                        if !pass_guard.is_kind_of(KindOf::Infantry) {
+                            continue;
+                        }
+                        if pass_guard.is_kind_of(KindOf::PortableStructure)
+                            && (pass_guard.is_disabled_by_type(
+                                crate::common::DisabledType::DisabledHacked,
+                            ) || pass_guard
+                                .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                                || pass_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::DisabledSubdued,
+                                )
+                                || pass_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::Paralyzed,
+                                ))
+                        {
+                            continue;
+                        }
+                        if let Some(ai) = pass_guard.get_ai_update_interface() {
+                            if let Some(victim_arc) = victim.as_ref() {
+                                ai.ai_force_attack_object(
+                                    victim_arc.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                    max_shots_to_fire,
+                                    cmd_source,
+                                );
                             }
                         }
                     }
                 }
-            }
-        }
-    }
-
-    fn tell_portable_structure_to_attack_with_me(
-        &self,
-        victim_id: ObjectID,
-        max_shots_to_fire: i32,
-        cmd_source: CommandSourceType,
-    ) {
-        // Wave 349: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(guard) = owner.read() {
-                if let Some(contain) = guard.get_contain() {
+                if matches!(
+                    cmd_source,
+                    CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                ) {
                     if let Some(rider_id) = contain.friend_get_rider() {
                         if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
                             if let Ok(rider_guard) = rider.read() {
@@ -2145,12 +1980,110 @@ impl ChinookAIUpdate {
                                     && !rider_guard.is_disabled_by_type(
                                         crate::common::DisabledType::DisabledSubdued,
                                     )
-                                    && !rider_guard
-                                        .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
+                                    && !rider_guard.is_disabled_by_type(
+                                        crate::common::DisabledType::Paralyzed,
+                                    )
                                 {
                                     if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                        ai.ai_attack_object_id(
-                                            victim_id,
+                                        if let Some(victim_arc) = victim.as_ref() {
+                                            ai.ai_force_attack_object(
+                                                victim_arc
+                                                    .read()
+                                                    .ok()
+                                                    .map(|g| g.get_id())
+                                                    .unwrap_or(0),
+                                                max_shots_to_fire,
+                                                cmd_source,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            });
+    }
+
+    pub fn private_attack_position(
+        &self,
+        pos: &Coord3D,
+        max_shots_to_fire: i32,
+        cmd_source: CommandSourceType,
+    ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            if !chinook_kind_of_can_attack(&*guard) {
+                return;
+            }
+            if let Some(contain) = guard.get_contain() {
+                if matches!(
+                    cmd_source,
+                    CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                ) {
+                    let passengers = contain.get_contained_objects();
+                    for passenger_id in passengers {
+                        if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
+                            continue;
+                        }
+                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
+                        else {
+                            continue;
+                        };
+                        let Ok(pass_guard) = passenger.read() else {
+                            continue;
+                        };
+                        if !pass_guard.is_kind_of(KindOf::Infantry) {
+                            continue;
+                        }
+                        if pass_guard.is_kind_of(KindOf::PortableStructure)
+                            && (pass_guard.is_disabled_by_type(
+                                crate::common::DisabledType::DisabledHacked,
+                            ) || pass_guard
+                                .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                                || pass_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::DisabledSubdued,
+                                )
+                                || pass_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::Paralyzed,
+                                ))
+                        {
+                            continue;
+                        }
+                        if let Some(ai) = pass_guard.get_ai_update_interface() {
+                            ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
+                        }
+                    }
+                }
+                if matches!(
+                    cmd_source,
+                    CommandSourceType::FromPlayer | CommandSourceType::FromScript
+                ) {
+                    if let Some(rider_id) = contain.friend_get_rider() {
+                        if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                            if let Ok(rider_guard) = rider.read() {
+                                if rider_guard.is_kind_of(KindOf::PortableStructure)
+                                    && !rider_guard.is_disabled_by_type(
+                                        crate::common::DisabledType::DisabledHacked,
+                                    )
+                                    && !rider_guard.is_disabled_by_type(
+                                        crate::common::DisabledType::DisabledEmp,
+                                    )
+                                    && !rider_guard.is_disabled_by_type(
+                                        crate::common::DisabledType::DisabledSubdued,
+                                    )
+                                    && !rider_guard.is_disabled_by_type(
+                                        crate::common::DisabledType::Paralyzed,
+                                    )
+                                {
+                                    if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                        ai.ai_attack_position(
+                                            pos,
                                             max_shots_to_fire,
                                             cmd_source,
                                         );
@@ -2161,7 +2094,51 @@ impl ChinookAIUpdate {
                     }
                 }
             }
+            });
+    }
+
+    fn tell_portable_structure_to_attack_with_me(
+        &self,
+        victim_id: ObjectID,
+        max_shots_to_fire: i32,
+        cmd_source: CommandSourceType,
+    ) {
+        // Wave 349: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
         }
+
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            if let Some(contain) = guard.get_contain() {
+                if let Some(rider_id) = contain.friend_get_rider() {
+                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                        if let Ok(rider_guard) = rider.read() {
+                            if rider_guard.is_kind_of(KindOf::PortableStructure)
+                                && !rider_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::DisabledHacked,
+                                )
+                                && !rider_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::DisabledEmp,
+                                )
+                                && !rider_guard.is_disabled_by_type(
+                                    crate::common::DisabledType::DisabledSubdued,
+                                )
+                                && !rider_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
+                            {
+                                if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                    ai.ai_attack_object_id(
+                                        victim_id,
+                                        max_shots_to_fire,
+                                        cmd_source,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            });
     }
 
     pub fn private_get_repaired(
@@ -2253,12 +2230,10 @@ impl ChinookAIUpdate {
         if target.is_none() {
             let mut tmp = local_pos;
             let mut options = crate::helpers::FindPositionOptions::default();
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    options.max_radius =
-                        owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+                options.max_radius =
+                    owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
+                });
             if let Some(partition) = ThePartitionManager::get() {
                 if partition.find_position_around_with_options(&local_pos, &options, &mut tmp) {
                     local_pos = tmp;
@@ -2389,66 +2364,64 @@ impl ChinookAIUpdate {
             }
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(guard) = owner.read() {
-                if let Some(contain) = guard.get_contain() {
-                    if self.base.get_state() == SupplyTruckState::Idle {
-                        let waiting = contain.has_objects_wanting_to_enter_or_exit();
-                        if let Some(command) = self.pending_command.take() {
-                            let _ = ai.execute_command(&command);
-                        } else if chinook_should_auto_land(
-                            true,
-                            waiting,
-                            self.flight_status == ChinookFlightStatus::Landed,
-                        ) {
-                            self.set_my_state(
-                                ChinookAIState::Landing,
-                                None,
-                                None,
-                                CommandSourceType::FromAi,
-                                ai,
-                            );
-                        } else if chinook_should_auto_takeoff(
-                            true,
-                            waiting,
-                            self.flight_status == ChinookFlightStatus::Landed,
-                            self.airfield_for_healing != INVALID_ID,
-                        ) {
-                            self.set_my_state(
-                                ChinookAIState::TakingOff,
-                                None,
-                                None,
-                                CommandSourceType::FromAi,
-                                ai,
-                            );
-                        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+            if let Some(contain) = guard.get_contain() {
+                if self.base.get_state() == SupplyTruckState::Idle {
+                    let waiting = contain.has_objects_wanting_to_enter_or_exit();
+                    if let Some(command) = self.pending_command.take() {
+                        let _ = ai.execute_command(&command);
+                    } else if chinook_should_auto_land(
+                        true,
+                        waiting,
+                        self.flight_status == ChinookFlightStatus::Landed,
+                    ) {
+                        self.set_my_state(
+                            ChinookAIState::Landing,
+                            None,
+                            None,
+                            CommandSourceType::FromAi,
+                            ai,
+                        );
+                    } else if chinook_should_auto_takeoff(
+                        true,
+                        waiting,
+                        self.flight_status == ChinookFlightStatus::Landed,
+                        self.airfield_for_healing != INVALID_ID,
+                    ) {
+                        self.set_my_state(
+                            ChinookAIState::TakingOff,
+                            None,
+                            None,
+                            CommandSourceType::FromAi,
+                            ai,
+                        );
                     }
+                }
 
-                    if TheGameLogic::get_frame() % 10 == 1 {
-                        if let Some(ai_update) = guard.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai_update.lock() {
-                                if let Some(victim_id) = ai_guard.get_current_victim() {
-                                    if contain.is_passenger_allowed_to_fire(None) {
-                                        let passengers = contain.get_contained_objects();
-                                        for passenger_id in passengers {
-                                            if let Some(passenger) =
-                                                TheGameLogic::find_object_by_id(passenger_id)
-                                            {
-                                                if let Ok(pass_guard) = passenger.read() {
-                                                    if let Some(pass_ai) =
-                                                        pass_guard.get_ai_update_interface()
-                                                    {
-                                                        if !chinook_passenger_should_follow_attack(
-                                                            pass_ai.get_current_victim().is_some(),
-                                                        ) {
-                                                            continue;
-                                                        }
-                                                        pass_ai.ai_attack_object_id(
-                                                            victim_id,
-                                                            999,
-                                                            CommandSourceType::FromAi,
-                                                        );
+                if TheGameLogic::get_frame() % 10 == 1 {
+                    if let Some(ai_update) = guard.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai_update.lock() {
+                            if let Some(victim_id) = ai_guard.get_current_victim() {
+                                if contain.is_passenger_allowed_to_fire(None) {
+                                    let passengers = contain.get_contained_objects();
+                                    for passenger_id in passengers {
+                                        if let Some(passenger) =
+                                            TheGameLogic::find_object_by_id(passenger_id)
+                                        {
+                                            if let Ok(pass_guard) = passenger.read() {
+                                                if let Some(pass_ai) =
+                                                    pass_guard.get_ai_update_interface()
+                                                {
+                                                    if !chinook_passenger_should_follow_attack(
+                                                        pass_ai.get_current_victim().is_some(),
+                                                    ) {
+                                                        continue;
                                                     }
+                                                    pass_ai.ai_attack_object_id(
+                                                        victim_id,
+                                                        999,
+                                                        CommandSourceType::FromAi,
+                                                    );
                                                 }
                                             }
                                         }
@@ -2457,26 +2430,26 @@ impl ChinookAIUpdate {
                             }
                         }
                     }
+                }
 
-                    if self.flight_status == ChinookFlightStatus::DoingCombatDrop {
-                        if !self.combat_drop_started {
-                            if !self.start_combat_drop() {
-                                self.flight_status = ChinookFlightStatus::Flying;
-                            }
+                if self.flight_status == ChinookFlightStatus::DoingCombatDrop {
+                    if !self.combat_drop_started {
+                        if !self.start_combat_drop() {
+                            self.flight_status = ChinookFlightStatus::Flying;
                         }
+                    }
 
-                        let owner_dead = guard.is_effectively_dead();
-                        if owner_dead {
-                            self.finish_combat_drop(true);
-                        } else if self.combat_drop_state.is_some() {
-                            if self.update_combat_drop() {
-                                self.finish_combat_drop(false);
-                            }
+                    let owner_dead = guard.is_effectively_dead();
+                    if owner_dead {
+                        self.finish_combat_drop(true);
+                    } else if self.combat_drop_state.is_some() {
+                        if self.update_combat_drop() {
+                            self.finish_combat_drop(false);
                         }
                     }
                 }
             }
-        }
+            });
 
         self.update_rotor_wash();
 

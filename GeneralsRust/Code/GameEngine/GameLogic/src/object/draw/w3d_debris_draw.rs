@@ -250,15 +250,13 @@ impl W3DDebrisDraw {
             return;
         };
         let mut scale = 1.0;
-        if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    if let Ok(drawable_guard) = drawable.read() {
-                        scale = drawable_guard.get_instance_scale();
-                    }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            if let Some(drawable) = owner_guard.get_drawable() {
+                if let Ok(drawable_guard) = drawable.read() {
+                    scale = drawable_guard.get_instance_scale();
                 }
             }
-        }
+            });
         let world_transform = if (scale - 1.0).abs() < f32::EPSILON {
             *transform_mtx
         } else {
@@ -378,17 +376,15 @@ impl DrawModule for W3DDebrisDraw {
         let Some(owner_id) = self.owner_id else {
             return;
         };
-        if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    if let Ok(drawable_guard) = drawable.read() {
-                        let transform = drawable_guard.get_transform_matrix();
-                        drop(drawable_guard);
-                        self.submit_mesh(&transform);
-                    }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            if let Some(drawable) = owner_guard.get_drawable() {
+                if let Ok(drawable_guard) = drawable.read() {
+                    let transform = drawable_guard.get_transform_matrix();
+                    drop(drawable_guard);
+                    self.submit_mesh(&transform);
                 }
             }
-        }
+            });
     }
     fn react_to_geometry_change(&mut self) {}
 

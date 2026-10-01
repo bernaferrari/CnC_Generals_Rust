@@ -87,41 +87,67 @@ impl StatusDamageHelper {
     ///
     /// # Arguments
     /// * `status` - The status type to apply
-    /// * `duration` - Duration in seconds (will be converted to frames)
+    /// * `duration` - Duration value floored to an integer logic-frame count, matching C++ `REAL_TO_INT_FLOOR`
     /// * `current_frame` - Current game frame
     ///
     /// # Returns
     /// The status that was cleared (if different from the new status)
     pub fn do_status_damage(&mut self, status: ObjectStatusTypes, duration: Real) {
+        let owner_id = self.owner_id;
+        self.start_status_damage(status, duration, |changed_status, enabled| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                owner_guard
+                    .set_status(ObjectStatusMaskType::from_status(changed_status), enabled);
+                });
+        });
+    }
+
+    /// Shared status/timer transition. The callback applies each object-side
+    /// status change at the same point in the transition for both owner paths.
+    fn start_status_damage(
+        &mut self,
+        status: ObjectStatusTypes,
+        duration: Real,
+        mut apply_status: impl FnMut(ObjectStatusTypes, bool),
+    ) {
         let duration_frames = duration.floor() as u32;
-
-        // Clear any different status we may have.
         if self.status_to_heal != status {
-            self.clear_status_condition();
+            self.clear_status_condition_with(|old_status| apply_status(old_status, false));
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.set_status(ObjectStatusMaskType::from_status(status), true);
-            }
-        }
-
+        apply_status(status, true);
         self.status_to_heal = status;
         self.frame_to_heal = TheGameLogic::get_frame().saturating_add(duration_frames);
         self.wake_frame = self.frame_to_heal;
     }
 
+    /// Apply the status directly to the object that owns this helper.
+    /// Object calls this while already mutably borrowing itself, so resolving
+    /// `owner_id` through the global registry would re-enter the same object.
+    pub(crate) fn do_status_damage_in_owner(
+        &mut self,
+        status: ObjectStatusTypes,
+        duration: Real,
+        owner: &mut Object,
+    ) {
+        self.start_status_damage(status, duration, |changed_status, enabled| {
+            owner.set_status(ObjectStatusMaskType::from_status(changed_status), enabled);
+        });
+    }
+
     /// Clear the current status condition
     pub fn clear_status_condition(&mut self) {
+        let owner_id = self.owner_id;
+        self.clear_status_condition_with(|status| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                owner_guard.set_status(ObjectStatusMaskType::from_status(status), false);
+                });
+        });
+    }
+
+    fn clear_status_condition_with(&mut self, mut clear_status: impl FnMut(ObjectStatusTypes)) {
         if self.status_to_heal != ObjectStatusTypes::None {
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.set_status(
-                        ObjectStatusMaskType::from_status(self.status_to_heal),
-                        false,
-                    );
-                }
-            }
+            clear_status(self.status_to_heal);
             self.status_to_heal = ObjectStatusTypes::None;
             self.frame_to_heal = 0;
             self.wake_frame = u32::MAX;
@@ -140,6 +166,11 @@ impl StatusDamageHelper {
 
     pub fn set_frame_to_heal_for_test(&mut self, frame: u32) {
         self.frame_to_heal = frame;
+    }
+
+    #[cfg(test)]
+    pub fn set_status_to_heal_for_test(&mut self, status: ObjectStatusTypes) {
+        self.status_to_heal = status;
     }
 
     /// Check if a status is currently being tracked
@@ -173,7 +204,10 @@ impl StatusDamageHelper {
         // Clear the status condition directly on the owner (mirrors
         // clear_status_condition without the global owner lookup).
         if self.status_to_heal != ObjectStatusTypes::None {
-            owner.set_status(ObjectStatusMaskType::from_status(self.status_to_heal), false);
+            owner.set_status(
+                ObjectStatusMaskType::from_status(self.status_to_heal),
+                false,
+            );
             self.status_to_heal = ObjectStatusTypes::None;
             self.frame_to_heal = 0;
             self.wake_frame = u32::MAX;

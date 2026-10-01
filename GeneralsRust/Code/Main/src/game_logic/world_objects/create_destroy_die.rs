@@ -6,6 +6,14 @@ use super::super::*;
 mod grant_upgrade;
 use grant_upgrade::{GrantUpgradeKind, host_grant_upgrade_kind};
 
+/// Zero the continuous-fire ramp state when a template re-seeds base weapons.
+fn reset_continuous_fire_state(object: &mut Object) {
+    object.continuous_fire_consecutive = 0;
+    object.continuous_fire_level = 0;
+    object.continuous_fire_coast_until_frame = 0;
+    object.continuous_fire_victim = 0;
+}
+
 /// Compact live-host peel of C++ `SpawnBehaviorModuleData` for Tunnel / Stinger.
 #[derive(Clone, Debug)]
 struct HostSpawnBehaviorSpec {
@@ -96,6 +104,34 @@ fn spawn_point_slot_occupied(existing: &[Vec3], bone: Vec3) -> bool {
 }
 
 impl GameLogic {
+    /// Damage carried onto debris/replacement objects when a dying object's
+    /// death transfers combat damage. Shared by the debris and respawn paths.
+    fn apply_death_transfer_damage(
+        &mut self,
+        id: &ObjectId,
+        subdual: f32,
+        transfer_dmg: f32,
+        source: Option<ObjectId>,
+    ) {
+        let Some(n) = self.objects.get_mut(id) else {
+            return;
+        };
+        if subdual > 0.0 {
+            let _ = n.take_damage_from_typed(
+                subdual,
+                None,
+                crate::game_logic::combat::DamageType::SubdualUnresistable,
+            );
+        }
+        if transfer_dmg > 0.0 {
+            let _ = n.take_damage_from_typed(
+                transfer_dmg,
+                source,
+                crate::game_logic::combat::DamageType::Unresistable,
+            );
+        }
+    }
+
     /// C++ `SupplyCenterProductionExitUpdate::exitObjectViaDoor` finishes the
     /// ordinary authored exit path before asking `SupplyTruckAIUpdate` to
     /// enter Wanting.  The compact host keeps that path on the unit and only
@@ -1740,10 +1776,7 @@ impl GameLogic {
                 let chain = has_chain_guns_upgrade(&object.applied_upgrades);
                 object.weapon = Some(gattling_ground_weapon(GattlingFireLevel::Base, chain));
                 object.secondary_weapon = Some(gattling_air_weapon(GattlingFireLevel::Base, chain));
-                object.continuous_fire_consecutive = 0;
-                object.continuous_fire_level = 0;
-                object.continuous_fire_coast_until_frame = 0;
-                object.continuous_fire_victim = 0;
+                reset_continuous_fire_state(&mut object);
             }
 
             // Host residual: China Gattling Cannon structure dual ground/AA + continuous-fire ramp.
@@ -1761,10 +1794,7 @@ impl GameLogic {
                 ));
                 object.secondary_weapon =
                     Some(gattling_building_air_weapon(GattlingFireLevel::Base, chain));
-                object.continuous_fire_consecutive = 0;
-                object.continuous_fire_level = 0;
-                object.continuous_fire_coast_until_frame = 0;
-                object.continuous_fire_victim = 0;
+                reset_continuous_fire_state(&mut object);
             }
 
             // Host residual: GLA Stinger Site SPAWNS_ARE_THE_WEAPONS dual ground/AA +
@@ -2028,10 +2058,7 @@ impl GameLogic {
                     false,
                     false,
                 ));
-                object.continuous_fire_consecutive = 0;
-                object.continuous_fire_level = 0;
-                object.continuous_fire_coast_until_frame = 0;
-                object.continuous_fire_victim = 0;
+                reset_continuous_fire_state(&mut object);
             }
 
             // Host residual: Colonel Burton PRIMARY sniper residual.
@@ -3045,6 +3072,15 @@ impl GameLogic {
         }
     }
 
+
+    /// True when the object is a DAM (battle dam) template residual.
+    fn dam_template_at(&self, id: ObjectId) -> bool {
+        self.objects
+            .get(&id)
+            .map(|o| crate::game_logic::host_dam_die::is_dam_template(&o.template_name))
+            .unwrap_or(false)
+    }
+
     pub(crate) fn mark_object_for_destruction(&mut self, id: ObjectId, killer: Option<Team>) {
         self.mark_object_for_destruction_with_mode(id, killer, false);
     }
@@ -3067,11 +3103,7 @@ impl GameLogic {
         killer: Option<Team>,
         direct_destroy: bool,
     ) {
-        if self
-            .objects
-            .get(&id)
-            .is_some_and(|o| o.status.on_die_started)
-        {
+        if self.objects.get(&id).is_some_and(|o| o.status.on_die_started) {
             return;
         }
         if let Some(obj) = self.objects.get_mut(&id) {
@@ -3196,15 +3228,15 @@ impl GameLogic {
             && !direct_destroy;
         if defer_death_animations {
             // C++ StructureTopple/Collapse residual: buildings fall/sink before remove.
-            if self.try_begin_structure_topple_instead_of_destroy(id, killer) {
+            if self.try_begin_structure_topple_instead_of_destroy(id) {
                 return;
             }
             // C++ SlowDeathBehavior residual: infantry/vehicles delay destroy + sink.
-            if self.try_begin_slow_death_instead_of_destroy(id, killer) {
+            if self.try_begin_slow_death_instead_of_destroy(id) {
                 return;
             }
             // C++ KeepObjectDie residual: leave rubble, do not DestroyDie-remove.
-            if self.try_begin_keep_object_die_instead_of_destroy(id, killer) {
+            if self.try_begin_keep_object_die_instead_of_destroy(id) {
                 return;
             }
         }
@@ -3259,7 +3291,6 @@ impl GameLogic {
     pub(in super::super) fn try_begin_keep_object_die_instead_of_destroy(
         &mut self,
         id: ObjectId,
-        killer: Option<Team>,
     ) -> bool {
         let frame = self.frame;
         let Some(obj) = self.objects.get_mut(&id) else {
@@ -3291,25 +3322,18 @@ impl GameLogic {
             return false;
         }
         if obj.status.keep_as_rubble {
-            let _ = killer;
             return true;
         }
         if !obj.begin_keep_object_die(frame) {
             return false;
         }
-        let _ = killer;
         // Death FX / OCL peels without world removal.
         if let Some(obj) = self.objects.get_mut(&id) {
             obj.fire_fx_list_die();
             obj.fire_create_object_die();
         }
         self.apply_pending_create_object_die(id);
-        let is_dam = self
-            .objects
-            .get(&id)
-            .map(|o| crate::game_logic::host_dam_die::is_dam_template(&o.template_name))
-            .unwrap_or(false);
-        if is_dam {
+        if self.dam_template_at(id) {
             self.apply_dam_die_enable_waveguides();
         }
         true
@@ -3347,12 +3371,7 @@ impl GameLogic {
     }
 
     pub(in super::super) fn maybe_apply_dam_die(&mut self, id: ObjectId) {
-        let is_dam = self
-            .objects
-            .get(&id)
-            .map(|o| crate::game_logic::host_dam_die::is_dam_template(&o.template_name))
-            .unwrap_or(false);
-        if is_dam {
+        if self.dam_template_at(id) {
             self.apply_dam_die_enable_waveguides();
         }
     }
@@ -3380,7 +3399,6 @@ impl GameLogic {
     pub(in super::super) fn try_begin_slow_death_instead_of_destroy(
         &mut self,
         id: ObjectId,
-        killer: Option<Team>,
     ) -> bool {
         let frame = self.frame;
         let Some(obj) = self.objects.get_mut(&id) else {
@@ -3400,11 +3418,9 @@ impl GameLogic {
                 .map(|j| j.is_active())
                 .unwrap_or(false)
             {
-                let _ = killer;
-                return true;
+                    return true;
             }
             let deferred = obj.begin_jet_slow_death();
-            let _ = killer;
             return deferred;
         }
         // Helicopter spiral crash residual.
@@ -3422,11 +3438,9 @@ impl GameLogic {
             .map(|h| h.is_active())
             .unwrap_or(false)
         {
-            let _ = killer;
             return true;
         }
         if obj.begin_helicopter_slow_death() {
-            let _ = killer;
             return true;
         }
         // Already finished slow death → allow destroy.
@@ -3445,11 +3459,9 @@ impl GameLogic {
             .map(|s| s.is_active())
             .unwrap_or(false)
         {
-            let _ = killer;
             return true;
         }
         if obj.begin_slow_death(frame) {
-            let _ = killer;
             return true;
         }
         false
@@ -3583,22 +3595,7 @@ impl GameLogic {
                 let ids = self.spawn_ocl_create_debris(&plan, team, pos, inherit, owner_player_id);
                 if transfer {
                     for id in &ids {
-                        if let Some(n) = self.objects.get_mut(id) {
-                            if subdual > 0.0 {
-                                let _ = n.take_damage_from_typed(
-                                    subdual,
-                                    None,
-                                    crate::game_logic::combat::DamageType::SubdualUnresistable,
-                                );
-                            }
-                            if transfer_dmg > 0.0 {
-                                let _ = n.take_damage_from_typed(
-                                    transfer_dmg,
-                                    source,
-                                    crate::game_logic::combat::DamageType::Unresistable,
-                                );
-                            }
-                        }
+                        self.apply_death_transfer_damage(id, subdual, transfer_dmg, source);
                     }
                 }
                 spawned_ids.extend(ids);
@@ -3633,22 +3630,7 @@ impl GameLogic {
                 }
             }
             if transfer {
-                if let Some(n) = self.objects.get_mut(&new_id) {
-                    if subdual > 0.0 {
-                        let _ = n.take_damage_from_typed(
-                            subdual,
-                            None,
-                            crate::game_logic::combat::DamageType::SubdualUnresistable,
-                        );
-                    }
-                    if transfer_dmg > 0.0 {
-                        let _ = n.take_damage_from_typed(
-                            transfer_dmg,
-                            source,
-                            crate::game_logic::combat::DamageType::Unresistable,
-                        );
-                    }
-                }
+                self.apply_death_transfer_damage(&new_id, subdual, transfer_dmg, source);
             }
             spawned_ids.push(new_id);
         }
@@ -3691,7 +3673,6 @@ impl GameLogic {
     pub(in super::super) fn try_begin_structure_topple_instead_of_destroy(
         &mut self,
         id: ObjectId,
-        killer: Option<Team>,
     ) -> bool {
         let attacker_pos = {
             let src = self.objects.get(&id).and_then(|o| o.last_damage_source);
@@ -3745,16 +3726,13 @@ impl GameLogic {
                 .map(|d| d.is_active())
                 .unwrap_or(false)
         {
-            let _ = killer;
             return true;
         }
         // Prefer StructureCollapse for civilian/prop peels; else StructureTopple.
         if obj.begin_structure_collapse(frame) {
-            let _ = killer;
             return true;
         }
         if obj.begin_structure_topple(frame, attacker_pos) {
-            let _ = killer;
             return true;
         }
         false

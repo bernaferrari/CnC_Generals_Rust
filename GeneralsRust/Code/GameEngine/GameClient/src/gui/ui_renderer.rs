@@ -457,8 +457,16 @@ pub struct UIRenderer {
 // wasm32 wgpu resources are `Rc`, and this target does not run the UI renderer
 // on a second thread. Native stays without this impl: cosmic-text is `!Sync`.
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The wgpu `ShaderModule`/`Buffer`/`BindGroup`/`Sampler`
+// fields and `Arc<TextureView>` caches are `Rc`-backed and `!Send` on the web
+// backend, and `Mutex<FontRuntime>` guards the `!Sync` cosmic-text state.
+// wasm32 has no threads, so nothing can cross a thread boundary; the impl
+// only satisfies container `Send` bounds (native keeps the auto traits).
 unsafe impl Send for UIRenderer {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: with no threads on the target, `&UIRenderer`
+// is never accessed concurrently; the `Mutex<FontRuntime>` that guards the
+// `!Sync` cosmic-text state is uncontended by construction.
 unsafe impl Sync for UIRenderer {}
 
 /// cosmic_text layout state. `FontSystem` / `SwashCache` / `TextBuffer` are

@@ -473,15 +473,13 @@ impl ProductionUpdateComplete {
         }
 
         let should_set = self.current_production.is_some() || !self.queue.is_empty();
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut guard) = owner.write() {
-                if should_set {
-                    guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
-                } else {
-                    guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+            if should_set {
+                guard.set_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+            } else {
+                guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
             }
-        }
+            });
     }
 
     fn set_hold_door_open(&mut self, exit_door: usize, hold_it: bool) {
@@ -505,11 +503,9 @@ impl ProductionUpdateComplete {
             && door.door_closed_frame == 0
         {
             door.door_opened_frame = game_logic::current_frame();
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut guard) = owner.write() {
-                    guard.set_model_condition_state(OPENING_FLAGS[exit_door]);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                guard.set_model_condition_state(OPENING_FLAGS[exit_door]);
+                });
         }
     }
     /// Create a new production update module
@@ -905,12 +901,10 @@ impl ProductionUpdateComplete {
                 if elapsed > self.data.door_opening_time {
                     door.door_opened_frame = 0;
                     door.door_wait_open_frame = current_frame;
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                        if let Ok(mut guard) = owner.write() {
-                            guard.clear_model_condition_state(OPENING_FLAGS[door_idx]);
-                            guard.set_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
-                        }
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                        guard.clear_model_condition_state(OPENING_FLAGS[door_idx]);
+                        guard.set_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
+                        });
                 }
             }
             // Door wait open -> closing transition
@@ -919,12 +913,10 @@ impl ProductionUpdateComplete {
                 if elapsed > self.data.door_wait_open_time {
                     door.door_wait_open_frame = 0;
                     door.door_closed_frame = current_frame;
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                        if let Ok(mut guard) = owner.write() {
-                            guard.clear_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
-                            guard.set_model_condition_state(CLOSING_FLAGS[door_idx]);
-                        }
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                        guard.clear_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
+                        guard.set_model_condition_state(CLOSING_FLAGS[door_idx]);
+                        });
                 }
             }
             // Door closing -> closed transition
@@ -932,11 +924,9 @@ impl ProductionUpdateComplete {
                 let elapsed = current_frame - door.door_closed_frame;
                 if elapsed > self.data.door_closing_time {
                     door.door_closed_frame = 0;
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                        if let Ok(mut guard) = owner.write() {
-                            guard.clear_model_condition_state(CLOSING_FLAGS[door_idx]);
-                        }
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                        guard.clear_model_condition_state(CLOSING_FLAGS[door_idx]);
+                        });
                 }
             }
         }
@@ -954,13 +944,11 @@ impl ProductionUpdateComplete {
             let elapsed = current_frame - self.construction_complete_frame;
             if elapsed > self.data.construction_complete_duration {
                 self.construction_complete_frame = 0;
-                if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                    if let Ok(mut guard) = owner.write() {
-                        guard.clear_model_condition_state(
-                            ModelConditionFlags::CONSTRUCTION_COMPLETE,
-                        );
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                    guard.clear_model_condition_state(
+                        ModelConditionFlags::CONSTRUCTION_COMPLETE,
+                    );
+                    });
             }
         }
     }
@@ -1080,24 +1068,22 @@ impl ProductionUpdateComplete {
         let Some(template) = TheThingFactory::find_template(template_name) else {
             return Ok(-1);
         };
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some((needs, exit)) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |guard| {
+            let needs = guard
+                .with_parking_place_behavior(|parking_place| {
+                    parking_place.should_reserve_door_when_queued(template.as_ref())
+                })
+                .unwrap_or(false);
+            (needs, guard.get_object_exit_interface())
+        }) else {
             return Ok(-1);
         };
-        let Ok(guard) = owner.read() else {
-            return Ok(-1);
-        };
-        let needs = guard
-            .with_parking_place_behavior(|parking_place| {
-                parking_place.should_reserve_door_when_queued(template.as_ref())
-            })
-            .unwrap_or(false);
         if !needs {
             return Ok(-1);
         }
-        let Some(exit) = guard.get_object_exit_interface() else {
+        let Some(exit) = exit else {
             return Err("No parking door available".to_string());
         };
-        drop(guard);
         let Ok(mut exit_guard) = exit.lock() else {
             return Err("No parking door available".to_string());
         };
@@ -1114,14 +1100,9 @@ impl ProductionUpdateComplete {
         if exit_door < 0 || dual_world_registry_unavailable() {
             return;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Some(exit) = owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_object_exit_interface())
-        else {
+        let Some(exit) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |guard| {
+            guard.get_object_exit_interface()
+        }).flatten() else {
             return;
         };
         if let Ok(mut exit_guard) = exit.lock() {
@@ -1514,7 +1495,7 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
 
         // C++ ProductionUpdate.cpp:647-648 OBJECT_STATUS_SOLD freezes the queue.
         let mut cancel_disallowed = false;
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+        if let Some(owner) = crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id) {
             if let Ok(guard) = owner.read() {
                 if self.should_halt_production(
                     guard.test_status(crate::common::ObjectStatusTypes::Sold),

@@ -186,8 +186,7 @@ impl DockUpdateInterface for PrisonDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(false);
         };

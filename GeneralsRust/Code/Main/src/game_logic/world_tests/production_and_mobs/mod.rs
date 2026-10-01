@@ -34,6 +34,7 @@ use super::helpers::*;
 // -----------------------------------------------------------------------
 
 // Behavior-named suites keep each test file below the 4k LOC ceiling.
+mod addons_deploy_and_hunt;
 mod mobs_transports_and_flights;
 mod ocl_and_special_power;
 mod production_and_hunt;

@@ -9,12 +9,11 @@ use super::*;
 impl Object {
     /// Drive the object-owned FiringTracker UpdateModule (C++ ctor helper on `m_behaviors`).
     pub(super) fn update_firing_tracker(&mut self) {
-        let Some(tracker) = self.firing_tracker.clone() else {
+        let Some(mut tracker) = self.firing_tracker.take() else {
             return;
         };
-        if let Ok(mut guard) = tracker.lock() {
-            let _ = guard.update_for_owner(self);
-        }
+        let _ = tracker.update_for_owner(self);
+        self.firing_tracker = Some(tracker);
     }
 
     /// C++ `adjustModelConditionForWeaponStatus` WSF_PREATTACK loop-duration stretch.

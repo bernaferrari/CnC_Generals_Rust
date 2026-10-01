@@ -242,8 +242,7 @@ impl Unit {
         if self.object_id == INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
             .or_else(|| crate::ai::object_registry::get_legacy_object(self.object_id))
     }
     pub(super) fn base_arc(&self) -> Arc<RwLock<Object>> {

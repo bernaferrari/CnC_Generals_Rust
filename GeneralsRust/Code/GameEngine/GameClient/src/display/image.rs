@@ -230,8 +230,16 @@ pub struct Image {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: only compiled on wasm32, where the `wgpu::Texture`/`TextureView`/
+// `Sampler` inside `gpu_texture` are `Rc`-backed JS handles and thus `!Send`
+// by default. wasm32-unknown-unknown has no threads, so the handles can never
+// be moved to or touched from another thread; the impl just lets `Image`
+// satisfy the `Send` bounds of the containers that hold it.
 unsafe impl Send for Image {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so `&Image`
+// is never shared between threads and the JS handles' `!Sync` default is
+// unreachable.
 unsafe impl Sync for Image {}
 
 impl Image {

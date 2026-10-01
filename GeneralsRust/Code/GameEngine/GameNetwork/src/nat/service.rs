@@ -6,8 +6,9 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
 use crate::transport_unified::UnifiedTransport as Transport;
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::Rng;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -157,7 +158,7 @@ impl NatService {
                     if max_ms == 0 {
                         Duration::ZERO
                     } else {
-                        let mut rng = OsRng;
+                        let mut rng = UnwrapErr(SysRng);
                         let roll = if max_ms == u64::MAX {
                             rng.next_u64()
                         } else {
@@ -300,7 +301,7 @@ async fn query_address(
     request[0..2].copy_from_slice(&BINDING_REQUEST.to_be_bytes());
     request[4..8].copy_from_slice(&MAGIC_COOKIE.to_be_bytes());
 
-    let mut rng = OsRng;
+    let mut rng = UnwrapErr(SysRng);
     rng.fill_bytes(&mut request[8..20]);
 
     socket

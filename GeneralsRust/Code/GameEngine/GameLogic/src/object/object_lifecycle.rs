@@ -306,7 +306,7 @@ impl Object {
             && !self.has_firing_tracker_module()
             && self.weapon_set.has_any_weapons()
         {
-            self.firing_tracker = Some(Arc::new(Mutex::new(FiringTracker::new(self.id))));
+            self.firing_tracker = Some(Box::new(FiringTracker::new(self.id)));
         }
 
         self.init_object_cpp_sequence();
@@ -1103,15 +1103,12 @@ impl Object {
 
         // Objects that were spawned from something need to tell their spawner that they have died
         if self.producer_id != INVALID_ID {
-            if let Some(spawner) = crate::helpers::TheGameLogic::find_object_by_id(self.producer_id)
-            {
-                if let Ok(spawner_guard) = spawner.write() {
-                    let mut spawn_damage = damage_info.clone();
-                    let _ = spawner_guard.with_spawn_behavior_full_interface(|spawn_behavior| {
-                        let _ = spawn_behavior.on_spawn_death(self.id, &mut spawn_damage);
-                    });
-                }
-            }
+            let mut spawn_damage = damage_info.clone();
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.producer_id, |spawner| {
+                spawner.with_spawn_behavior_full_interface(|spawn_behavior| {
+                    let _ = spawn_behavior.on_spawn_death(self.id, &mut spawn_damage);
+                });
+            });
         }
 
         // Handle partition cell maintenance
@@ -1119,10 +1116,8 @@ impl Object {
 
         // Notify team of object death. The script stays queued for the normal
         // flush so a busy script engine does not drop every pending team script.
-        if let Some(team) = self.get_team() {
-            if let Ok(mut team_guard) = team.write() {
-                team_guard.notify_team_of_object_death();
-            }
+        if let Some(team_id) = self.get_team() {
+            let _ = crate::team::with_team_mut(team_id, |team| team.notify_team_of_object_death());
         }
 
         // Play EVA notifications for locally controlled units
@@ -1160,12 +1155,9 @@ impl Object {
         }
 
         if let Some(player) = self.get_controlling_player() {
-            if let Ok(guard) = player.read() {
-                crate::helpers::TheInGameUI::remove_idle_worker(
-                    self,
-                    guard.get_player_index() as Int,
-                );
-            }
+            let _ = crate::player::with_player(player, |p| {
+                crate::helpers::TheInGameUI::remove_idle_worker(self, p.get_player_index() as Int);
+            });
         }
 
         self.on_die_rebuild_hole_transfer();

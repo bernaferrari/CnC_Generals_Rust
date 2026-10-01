@@ -928,6 +928,13 @@ impl Snapshotable for ModuleFactory {
         // Module data is shared with templates via Arc. C++ still xfers every
         // entry; save/load is single-threaded, so exclusive mutation is valid.
         for module_data in &self.module_data_list {
+            // TODO(unsafe-review): `Arc::as_ptr` + `&mut` aliases module data
+            // that live modules and templates also own via `Arc` clones; the
+            // exclusivity of this `&mut` comes only from the single-threaded
+            // save/load convention, not from anything the type system can
+            // check (under stacked borrows, later reads through another
+            // `Arc` clone would be UB). Prefer `Arc::make_mut` or a `&dyn`
+            // read-only xfer path.
             let data = unsafe { &mut *(Arc::as_ptr(module_data) as *mut dyn ModuleData) };
             data.xfer(xfer)?;
         }

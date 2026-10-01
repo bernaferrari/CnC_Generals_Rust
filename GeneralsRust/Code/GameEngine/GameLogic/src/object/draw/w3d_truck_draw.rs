@@ -685,36 +685,34 @@ impl W3DTruckDraw {
         );
         let mut desired_cab = wheel_angle * self.data.cab_rotation_factor;
         if wheel_info.is_some() {
-            if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if ai_guard.has_nonempty_path() {
-                                if let Some(point) = ai_guard.peek_cached_point_on_path() {
-                                let pos = *owner_guard.get_position();
-                                let facing = owner_guard.get_orientation();
-                                let angle_to_goal = relative_angle_2d(pos, facing, point);
-                                if angle_to_goal < 0.0 {
-                                    if desired_cab < angle_to_goal {
-                                        desired_cab = angle_to_goal;
-                                    }
-                                    if desired_cab > 0.0 {
-                                        desired_cab = 0.0;
-                                    }
-                                } else {
-                                    if desired_cab > angle_to_goal {
-                                        desired_cab = angle_to_goal;
-                                    }
-                                    if desired_cab < 0.0 {
-                                        desired_cab = 0.0;
-                                    }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        if ai_guard.has_nonempty_path() {
+                            if let Some(point) = ai_guard.peek_cached_point_on_path() {
+                            let pos = *owner_guard.get_position();
+                            let facing = owner_guard.get_orientation();
+                            let angle_to_goal = relative_angle_2d(pos, facing, point);
+                            if angle_to_goal < 0.0 {
+                                if desired_cab < angle_to_goal {
+                                    desired_cab = angle_to_goal;
                                 }
+                                if desired_cab > 0.0 {
+                                    desired_cab = 0.0;
                                 }
+                            } else {
+                                if desired_cab > angle_to_goal {
+                                    desired_cab = angle_to_goal;
+                                }
+                                if desired_cab < 0.0 {
+                                    desired_cab = 0.0;
+                                }
+                            }
                             }
                         }
                     }
                 }
-            }
+                });
         }
         let cab_index = self.bone_index(info, &self.data.cab_bone_name);
         let trailer_index = self.bone_index(info, &self.data.trailer_bone_name);
@@ -807,31 +805,29 @@ impl DrawModule for W3DTruckDraw {
         let mut motive = false;
         let mut airborne = false;
         let mut backwards = false;
-        if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                airborne = owner_guard.is_significantly_above_terrain();
-                if let Some(physics) = owner_guard.get_physics() {
-                    if let Ok(physics_guard) = physics.lock() {
-                        let velocity = physics_guard.get_velocity();
-                        vel_x = velocity.x;
-                        vel_y = velocity.y;
-                        speed = velocity.length();
-                        turning = physics_guard.get_turning();
-                        motive = physics_guard.is_motive();
-                        let accel = physics_guard.get_acceleration();
-                        accel_x = accel.x;
-                        accel_y = accel.y;
-                    }
-                }
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        ai_guard.with_cur_locomotor(&mut |loco| {
-                            backwards = loco.is_moving_backwards();
-                        });
-                    }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            airborne = owner_guard.is_significantly_above_terrain();
+            if let Some(physics) = owner_guard.get_physics() {
+                if let Ok(physics_guard) = physics.lock() {
+                    let velocity = physics_guard.get_velocity();
+                    vel_x = velocity.x;
+                    vel_y = velocity.y;
+                    speed = velocity.length();
+                    turning = physics_guard.get_turning();
+                    motive = physics_guard.is_motive();
+                    let accel = physics_guard.get_acceleration();
+                    accel_x = accel.x;
+                    accel_y = accel.y;
                 }
             }
-        }
+            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(ai_guard) = ai.lock() {
+                    ai_guard.with_cur_locomotor(&mut |loco| {
+                        backwards = loco.is_moving_backwards();
+                    });
+                }
+            }
+            });
         let frames_airborne = TheGameClient::get()
             .and_then(|client| client.get_object_wheel_info(owner_id))
             .map(|info| info.frames_airborne)

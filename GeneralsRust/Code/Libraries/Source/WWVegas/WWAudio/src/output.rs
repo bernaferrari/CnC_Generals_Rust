@@ -148,8 +148,8 @@ fn select_stream_config(
         if config.channels() != desired_channels {
             continue;
         }
-        let min_rate = config.min_sample_rate().0;
-        let max_rate = config.max_sample_rate().0;
+        let min_rate = config.min_sample_rate();
+        let max_rate = config.max_sample_rate();
         if desired_rate < min_rate || desired_rate > max_rate {
             continue;
         }
@@ -160,7 +160,7 @@ fn select_stream_config(
         }
 
         let mut stream_config = config
-            .with_sample_rate(cpal::SampleRate(desired_rate))
+            .with_sample_rate(desired_rate)
             .config();
         stream_config.channels = desired_channels;
         return Ok((stream_config, sample_format));
@@ -174,7 +174,7 @@ fn select_stream_config(
 
     let mut stream_config = default_config.config();
     stream_config.channels = desired_channels;
-    stream_config.sample_rate = cpal::SampleRate(desired_rate);
+    stream_config.sample_rate = desired_rate;
     let sample_format = SampleFormat::F32;
     Ok((stream_config, sample_format))
 }
@@ -189,14 +189,15 @@ fn build_stream(
 ) -> Result<Stream> {
     let err_fn = |err| error!("CPAL stream error: {err}");
     let channels = config.channels as usize;
-    let sample_rate = config.sample_rate.0;
+    let config_channels = config.channels;
+    let sample_rate = config.sample_rate;
 
     match sample_format {
         SampleFormat::F32 => {
             let mut mix_buffer = MixBuffer::new(config.channels, buffer_frames, sample_rate);
             device
                 .build_output_stream(
-                    &config,
+                    config,
                     move |output: &mut [f32], _| {
                         let frames = if channels == 0 {
                             0
@@ -212,8 +213,8 @@ fn build_stream(
                             mix_buffer.frames = frames;
                             mix_buffer.data.resize(frames.saturating_mul(channels), 0.0);
                         }
-                        if mix_buffer.channels != config.channels {
-                            mix_buffer.channels = config.channels;
+                        if mix_buffer.channels != config_channels {
+                            mix_buffer.channels = config_channels;
                         }
                         if mix_buffer.sample_rate != sample_rate {
                             mix_buffer.sample_rate = sample_rate;

@@ -60,11 +60,11 @@ impl ParticleEditorUI {
 
     pub fn show(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         system: &mut Option<ParticleSystem>,
     ) -> Option<UiAction> {
         let mut action = None;
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if let Some(menu_action) = self.show_menu_bar(ui) {
                 action = Some(menu_action);
             }
@@ -664,7 +664,7 @@ impl ParticleEditorUI {
             ui.add(
                 egui::DragValue::new(value)
                     .speed(speed)
-                    .clamp_range(min..=max),
+                    .range(min..=max),
             );
         });
     }

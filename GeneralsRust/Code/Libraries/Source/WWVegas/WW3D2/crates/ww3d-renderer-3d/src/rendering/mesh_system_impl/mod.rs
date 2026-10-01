@@ -385,8 +385,17 @@ pub struct MeshClass {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `MeshClass` reaches wgpu handles through
+// `material_info_cache: OnceLock<MaterialInfoClass>` and the shared
+// `Arc<LightEnvironmentClass>`/`Arc<MeshClass>` links; they are `Rc`-backed
+// and `!Send` on the web backend, but wasm32 has no threads. The impl only
+// satisfies the bounds of the registries/`Arc`s that hold meshes.
 unsafe impl Send for MeshClass {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&MeshClass` is never accessed from two threads and the handles' `!Sync`
+// default is unreachable (the `OnceLock` is populated at most once on that
+// single thread).
 unsafe impl Sync for MeshClass {}
 
 /// Concatenated live sources for residual `include_str!` scans.

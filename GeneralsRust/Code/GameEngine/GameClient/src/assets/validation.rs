@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
 
@@ -242,22 +242,22 @@ pub struct AssetValidator {
     fallback_configs: HashMap<AssetType, FallbackConfig>,
 
     // Integrity database
-    integrity_db: Arc<RwLock<HashMap<PathBuf, IntegrityRecord>>>,
+    integrity_db: RwLock<HashMap<PathBuf, IntegrityRecord>>,
 
     // Format validators
     format_validators: HashMap<AssetType, Box<dyn FormatValidator + Send + Sync>>,
 
     // Fallback assets cache
-    fallback_cache: Arc<RwLock<HashMap<AssetType, Vec<u8>>>>,
+    fallback_cache: RwLock<HashMap<AssetType, Vec<u8>>>,
 
     // Last known good assets cache
-    last_known_good: Arc<RwLock<HashMap<AssetType, Vec<u8>>>>,
+    last_known_good: RwLock<HashMap<AssetType, Vec<u8>>>,
 
     // Statistics
-    stats: Arc<RwLock<ValidationStats>>,
+    stats: RwLock<ValidationStats>,
 
     // Known good checksums database
-    known_checksums: Arc<RwLock<HashMap<PathBuf, String>>>,
+    known_checksums: RwLock<HashMap<PathBuf, String>>,
 }
 
 /// Trait for format-specific validators
@@ -317,12 +317,12 @@ impl AssetValidator {
         Self {
             security_config: SecurityConfig::default(),
             fallback_configs,
-            integrity_db: Arc::new(RwLock::new(HashMap::new())),
+            integrity_db: RwLock::new(HashMap::new()),
             format_validators,
-            fallback_cache: Arc::new(RwLock::new(HashMap::new())),
-            last_known_good: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(ValidationStats::default())),
-            known_checksums: Arc::new(RwLock::new(HashMap::new())),
+            fallback_cache: RwLock::new(HashMap::new()),
+            last_known_good: RwLock::new(HashMap::new()),
+            stats: RwLock::new(ValidationStats::default()),
+            known_checksums: RwLock::new(HashMap::new()),
         }
     }
 
@@ -411,9 +411,7 @@ impl AssetValidator {
             checksum,
             validation_time,
             file_size: data.len() as u64,
-            last_modified: std::fs::metadata(path)
-                .ok()
-                .and_then(|m| m.modified().ok()),
+            last_modified: std::fs::metadata(path).ok().and_then(|m| m.modified().ok()),
             repair_suggestions,
         };
 
@@ -775,11 +773,10 @@ impl AssetValidator {
 
     /// Load static fallback asset from file
     async fn load_static_fallback(&self, path: &Path) -> Result<Vec<u8>, ValidationError> {
-        std::fs::read(path)
-            .map_err(|e| ValidationError::RepairFailed {
-                path: path.to_string_lossy().to_string(),
-                error: e.to_string(),
-            })
+        std::fs::read(path).map_err(|e| ValidationError::RepairFailed {
+            path: path.to_string_lossy().to_string(),
+            error: e.to_string(),
+        })
     }
 
     /// Generate procedural fallback asset
@@ -912,11 +909,10 @@ impl AssetValidator {
                 })?;
             Ok(bytes.to_vec())
         } else {
-            std::fs::read(&config.fallback_path)
-                .map_err(|error| ValidationError::RepairFailed {
-                    path: config.fallback_path.to_string_lossy().to_string(),
-                    error: error.to_string(),
-                })
+            std::fs::read(&config.fallback_path).map_err(|error| ValidationError::RepairFailed {
+                path: config.fallback_path.to_string_lossy().to_string(),
+                error: error.to_string(),
+            })
         }
     }
 

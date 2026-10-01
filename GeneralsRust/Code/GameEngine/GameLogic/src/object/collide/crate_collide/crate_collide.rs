@@ -201,8 +201,7 @@ impl CrateCollide {
 
     pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
         let object_id = self.base_module.get_object_id();
-        TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(object_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
             .ok_or_else(|| {
                 CollisionError::InvalidObject(format!(
                     "crate collide object {} unavailable",
@@ -614,8 +613,7 @@ impl LegacyCollideAdapter for CrateCollide {
         // Resolve via TheGameLogic first so the host-only path still validates
         // PickupScience / KindOf PARACHUTE (C++ isValidToExecute).
 
-        let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };
@@ -629,8 +627,7 @@ impl LegacyCollideAdapter for CrateCollide {
     ) -> Result<bool, GameError> {
         // Resolve via TheGameLogic first so empty OBJECT_REGISTRY is not fail-closed.
 
-        let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(false);
         };

@@ -221,21 +221,19 @@ impl SpecialPowerModule {
         if self.paused_count == 0 {
             if let Some(template) = &self.module_data.special_power_template {
                 if template.is_shared_n_sync() && template.has_public_timer() && is_structure {
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-                        if let Ok(owner_guard) = owner.read() {
-                            if let Some(player) = owner_guard.get_controlling_player() {
-                                if let Ok(player_guard) = player.read() {
-                                    let player_index = player_guard.get_player_index();
-                                    TheInGameUI::add_superweapon(
-                                        player_index,
-                                        self.get_power_name(),
-                                        self.owner_object_id,
-                                        template,
-                                    );
-                                }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+                        if let Some(player) = owner_guard.get_controlling_player() {
+                            if let Ok(player_guard) = player.read() {
+                                let player_index = player_guard.get_player_index();
+                                TheInGameUI::add_superweapon(
+                                    player_index,
+                                    self.get_power_name(),
+                                    self.owner_object_id,
+                                    template,
+                                );
                             }
                         }
-                    }
+                        });
                 }
             }
         }
@@ -252,14 +250,12 @@ impl SpecialPowerModule {
         let mut is_under_construction = false;
         let mut is_structure = false;
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                is_under_construction = owner_guard
-                    .get_status_bits()
-                    .contains(ObjectStatusMaskType::UNDER_CONSTRUCTION);
-                is_structure = owner_guard.is_kind_of(KindOf::Structure);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            is_under_construction = owner_guard
+                .get_status_bits()
+                .contains(ObjectStatusMaskType::UNDER_CONSTRUCTION);
+            is_structure = owner_guard.is_kind_of(KindOf::Structure);
+            });
 
         self.initialize(current_frame, is_under_construction, is_structure);
     }
@@ -414,52 +410,50 @@ impl SpecialPowerModule {
         };
 
         let mut valid = false;
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                for module in owner_guard.behavior_modules() {
-                    if valid {
-                        break;
-                    }
-                    module.with_module(|module| {
-                        if valid {
-                            return;
-                        }
-                        if let Some(update) = module_special_power_update_interface(module) {
-                            if self.is_module_for_power(template)
-                                && update.does_special_power_update_pass_science_test()
-                                && update.initiate_intent_to_do_special_power(
-                                    template,
-                                    target_object,
-                                    target_pos,
-                                    waypoint,
-                                    command_options,
-                                )
-                            {
-                                valid = true;
-                            }
-                        }
-                    });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            for module in owner_guard.behavior_modules() {
+                if valid {
+                    break;
                 }
-
-                if let Some(player) = owner_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        // C++ AcademyStats::recordSpecialPowerUsed increments only
-                        // when getAcademyClassificationType() == ACT_SUPERPOWER.
-                        let classification = match template.get_academy_classification_type() {
-                            crate::object::special_power_template::AcademyClassificationType::Superweapon => {
-                                AcademyClassificationType::Superpower
-                            }
-                            _ => AcademyClassificationType::None,
-                        };
-                        if classification == AcademyClassificationType::Superpower {
-                            player_guard
-                                .get_academy_stats_mut()
-                                .record_special_power_used(classification);
+                module.with_module(|module| {
+                    if valid {
+                        return;
+                    }
+                    if let Some(update) = module_special_power_update_interface(module) {
+                        if self.is_module_for_power(template)
+                            && update.does_special_power_update_pass_science_test()
+                            && update.initiate_intent_to_do_special_power(
+                                template,
+                                target_object,
+                                target_pos,
+                                waypoint,
+                                command_options,
+                            )
+                        {
+                            valid = true;
                         }
+                    }
+                });
+            }
+
+            if let Some(player) = owner_guard.get_controlling_player() {
+                if let Ok(mut player_guard) = player.write() {
+                    // C++ AcademyStats::recordSpecialPowerUsed increments only
+                    // when getAcademyClassificationType() == ACT_SUPERPOWER.
+                    let classification = match template.get_academy_classification_type() {
+                        crate::object::special_power_template::AcademyClassificationType::Superweapon => {
+                            AcademyClassificationType::Superpower
+                        }
+                        _ => AcademyClassificationType::None,
+                    };
+                    if classification == AcademyClassificationType::Superpower {
+                        player_guard
+                            .get_academy_stats_mut()
+                            .record_special_power_used(classification);
                     }
                 }
             }
-        }
+            });
 
         if !valid && self.module_data.update_module_starts_attack {
             log::error!(
@@ -908,13 +902,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         if self.paused_count > 0 {
             return;
         }
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return;
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            if owner_guard.is_disabled() {
+                return;
             }
-        }
+            });
 
         // Initiate intent (notifies update modules)
         self.initiate_intent_to_do_special_power(None, None, None, command_options);
@@ -944,13 +936,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         if self.paused_count > 0 {
             return;
         }
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return;
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            if owner_guard.is_disabled() {
+                return;
             }
-        }
+            });
 
         self.initiate_intent_to_do_special_power(Some(object_id), None, None, command_options);
 
@@ -979,13 +969,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         if self.paused_count > 0 {
             return;
         }
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return;
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            if owner_guard.is_disabled() {
+                return;
             }
-        }
+            });
 
         self.initiate_intent_to_do_special_power(None, Some(location), None, command_options);
 
@@ -1011,13 +999,11 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
         if self.paused_count > 0 {
             return;
         }
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return;
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            if owner_guard.is_disabled() {
+                return;
             }
-        }
+            });
 
         self.initiate_intent_to_do_special_power(None, None, Some(waypoint), command_options);
 
@@ -1102,12 +1088,11 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
         if self.paused_count > 0 {
             return false;
         }
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return false;
-                }
-            }
+        let owner_disabled = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| owner_guard.is_disabled())
+            .unwrap_or(false);
+        if owner_disabled {
+            return false;
         }
         self.is_ready()
     }
@@ -1151,11 +1136,9 @@ impl EngineSpecialPowerModuleInterface for SpecialPowerModule {
 
         let mut ready_frame = self.available_on_frame;
         let mut is_disabled = false;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                is_disabled = owner_guard.is_disabled();
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            is_disabled = owner_guard.is_disabled();
+            });
         if self.paused_count > 0 || is_disabled {
             let current_frame = crate::helpers::TheGameLogic::get_frame();
             let paused_frames = current_frame.saturating_sub(self.paused_on_frame);
@@ -1397,20 +1380,18 @@ impl BehaviorModule for SpecialPowerModule {
 
         if let Some(template) = &self.module_data.special_power_template {
             if template.has_public_timer() {
-                if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(player) = owner_guard.get_controlling_player() {
-                            if let Ok(player_guard) = player.read() {
-                                TheInGameUI::remove_superweapon(
-                                    player_guard.get_player_index(),
-                                    self.get_power_name(),
-                                    self.owner_object_id,
-                                    template,
-                                );
-                            }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+                    if let Some(player) = owner_guard.get_controlling_player() {
+                        if let Ok(player_guard) = player.read() {
+                            TheInGameUI::remove_superweapon(
+                                player_guard.get_player_index(),
+                                self.get_power_name(),
+                                self.owner_object_id,
+                                template,
+                            );
                         }
                     }
-                }
+                    });
             }
         }
     }
@@ -1461,22 +1442,20 @@ impl game_engine::common::system::snapshot::Snapshotable for SpecialPowerModule 
         if let Some(template) = &self.module_data.special_power_template {
             if self.paused_count == 0 && template.is_shared_n_sync() && template.has_public_timer()
             {
-                if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-                    if let Ok(owner_guard) = owner.read() {
-                        if owner_guard.is_kind_of(KindOf::Structure) {
-                            if let Some(player) = owner_guard.get_controlling_player() {
-                                if let Ok(player_guard) = player.read() {
-                                    TheInGameUI::add_superweapon(
-                                        player_guard.get_player_index(),
-                                        self.get_power_name(),
-                                        self.owner_object_id,
-                                        template,
-                                    );
-                                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+                    if owner_guard.is_kind_of(KindOf::Structure) {
+                        if let Some(player) = owner_guard.get_controlling_player() {
+                            if let Ok(player_guard) = player.read() {
+                                TheInGameUI::add_superweapon(
+                                    player_guard.get_player_index(),
+                                    self.get_power_name(),
+                                    self.owner_object_id,
+                                    template,
+                                );
                             }
                         }
                     }
-                }
+                    });
             }
         }
         Ok(())

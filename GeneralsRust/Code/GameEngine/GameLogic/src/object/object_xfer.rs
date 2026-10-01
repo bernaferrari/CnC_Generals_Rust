@@ -486,27 +486,6 @@ impl Object {
         (helpers + self.modules.len()).min(u16::MAX as usize) as u16
     }
 
-    fn xfer_one_helper_block<H: EngineSnapshotable>(
-        &self,
-        xfer: &mut dyn Xfer,
-        tag: &str,
-        helper: &std::sync::Mutex<H>,
-    ) {
-        let mut module_identifier = tag.to_string();
-        let _ = xfer.xfer_ascii_string(&mut module_identifier);
-        if xfer.begin_block().is_ok() {
-            if let Ok(mut guard) = helper.lock() {
-                if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
-                    warn!(
-                        "Object::xfer {} failed for object {}: {}",
-                        tag, self.id, err
-                    );
-                }
-            }
-            let _ = xfer.end_block();
-        }
-    }
-
     fn xfer_owned_helper_block<H: EngineSnapshotable>(
         object_id: ObjectID,
         xfer: &mut dyn Xfer,
@@ -532,33 +511,32 @@ impl Object {
             HELPER_TAG_SMC => {
                 if let Some(helper) = &mut self.smc_helper {
                     if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                        warn!("Object::xfer load {} failed for object {}: {}", tag, object_id, err);
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
             }
             HELPER_TAG_STATUS => {
-                if let Some(helper) = &self.status_damage_helper {
-                    if let Ok(mut guard) = helper.lock() {
-                        if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
-                            warn!(
-                                "Object::xfer load {} failed for object {}: {}",
-                                tag, object_id, err
-                            );
-                        }
+                if let Some(helper) = &mut self.status_damage_helper {
+                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
             }
             HELPER_TAG_SUBDUAL => {
-                if let Some(helper) = &self.subdual_damage_helper {
-                    if let Ok(mut guard) = helper.lock() {
-                        if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
-                            warn!(
-                                "Object::xfer load {} failed for object {}: {}",
-                                tag, object_id, err
-                            );
-                        }
+                if let Some(helper) = &mut self.subdual_damage_helper {
+                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
@@ -566,7 +544,10 @@ impl Object {
             HELPER_TAG_REPULSOR => {
                 if let Some(helper) = &mut self.repulsor_helper {
                     if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                        warn!("Object::xfer load {} failed for object {}: {}", tag, object_id, err);
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
@@ -574,46 +555,43 @@ impl Object {
             HELPER_TAG_DEFECTION => {
                 if let Some(helper) = &mut self.defection_helper {
                     if let Err(err) = EngineSnapshotable::xfer(helper, xfer) {
-                        warn!("Object::xfer load {} failed for object {}: {}", tag, object_id, err);
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
             }
             HELPER_TAG_WEAPON_STATUS => {
-                if let Some(helper) = &self.ws_helper {
-                    if let Ok(mut guard) = helper.lock() {
-                        if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
-                            warn!(
-                                "Object::xfer load {} failed for object {}: {}",
-                                tag, object_id, err
-                            );
-                        }
+                if let Some(helper) = &mut self.ws_helper {
+                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
             }
             HELPER_TAG_FIRING_TRACKER => {
-                if let Some(helper) = &self.firing_tracker {
-                    if let Ok(mut guard) = helper.lock() {
-                        if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
-                            warn!(
-                                "Object::xfer load {} failed for object {}: {}",
-                                tag, object_id, err
-                            );
-                        }
+                if let Some(helper) = &mut self.firing_tracker {
+                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
             }
             HELPER_TAG_TEMP_WEAPON_BONUS => {
-                if let Some(helper) = &self.temp_weapon_bonus_helper {
-                    if let Ok(mut guard) = helper.lock() {
-                        if let Err(err) = EngineSnapshotable::xfer(&mut *guard, xfer) {
-                            warn!(
-                                "Object::xfer load {} failed for object {}: {}",
-                                tag, object_id, err
-                            );
-                        }
+                if let Some(helper) = &mut self.temp_weapon_bonus_helper {
+                    if let Err(err) = EngineSnapshotable::xfer(helper.as_mut(), xfer) {
+                        warn!(
+                            "Object::xfer load {} failed for object {}: {}",
+                            tag, object_id, err
+                        );
                     }
                     return true;
                 }
@@ -632,11 +610,11 @@ impl Object {
             if let Some(helper) = &mut self.smc_helper {
                 Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SMC, helper);
             }
-            if let Some(helper) = &self.status_damage_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_STATUS, helper.as_ref());
+            if let Some(helper) = &mut self.status_damage_helper {
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_STATUS, helper.as_mut());
             }
-            if let Some(helper) = &self.subdual_damage_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_SUBDUAL, helper.as_ref());
+            if let Some(helper) = &mut self.subdual_damage_helper {
+                Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_SUBDUAL, helper.as_mut());
             }
             if let Some(helper) = &mut self.repulsor_helper {
                 Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_REPULSOR, helper);
@@ -644,14 +622,29 @@ impl Object {
             if let Some(helper) = &mut self.defection_helper {
                 Self::xfer_owned_helper_block(object_id, xfer, HELPER_TAG_DEFECTION, helper);
             }
-            if let Some(helper) = &self.ws_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_WEAPON_STATUS, helper.as_ref());
+            if let Some(helper) = &mut self.ws_helper {
+                Self::xfer_owned_helper_block(
+                    object_id,
+                    xfer,
+                    HELPER_TAG_WEAPON_STATUS,
+                    helper.as_mut(),
+                );
             }
-            if let Some(helper) = &self.firing_tracker {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_FIRING_TRACKER, helper.as_ref());
+            if let Some(helper) = &mut self.firing_tracker {
+                Self::xfer_owned_helper_block(
+                    object_id,
+                    xfer,
+                    HELPER_TAG_FIRING_TRACKER,
+                    helper.as_mut(),
+                );
             }
-            if let Some(helper) = &self.temp_weapon_bonus_helper {
-                self.xfer_one_helper_block(xfer, HELPER_TAG_TEMP_WEAPON_BONUS, helper.as_ref());
+            if let Some(helper) = &mut self.temp_weapon_bonus_helper {
+                Self::xfer_owned_helper_block(
+                    object_id,
+                    xfer,
+                    HELPER_TAG_TEMP_WEAPON_BONUS,
+                    helper.as_mut(),
+                );
             }
             let remaining =
                 (module_count as usize).saturating_sub(self.ctor_helper_xfer_tags().len());
@@ -749,8 +742,8 @@ impl Snapshot for Object {
                 let mut xp = guard.get_current_experience();
                 let _ = xfer.xfer_int(&mut xp);
                 let mut level = guard.get_veterancy_level() as i32;
-                    // SAFETY: `level` is an initialized stack `i32`; exactly
-                    // `size_of::<i32>()` bytes are transferred here.
+                // SAFETY: `level` is an initialized stack `i32`; exactly
+                // `size_of::<i32>()` bytes are transferred here.
                 unsafe {
                     let _ = xfer.xfer_user(
                         (&mut level as *mut i32).cast::<u8>(),

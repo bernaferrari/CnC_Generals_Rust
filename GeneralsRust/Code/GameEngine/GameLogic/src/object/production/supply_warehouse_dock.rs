@@ -426,8 +426,7 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Perform supply transfer to truck
         {
-            let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             else {
                 return Ok(false);
             };
@@ -471,22 +470,20 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         if crippled {
             let active_id = self.base.active_docker_id();
             if active_id != INVALID_ID {
-                if let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(active_id) {
-                    if let Ok(mut victim_guard) = victim.write() {
-                        if self.base.docker_inside() {
-                            if !victim_guard.is_using_airborne_locomotor() {
-                                victim_guard.kill(None, None);
-                            }
-                        } else if let Some(ai) = victim_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                                    victim_guard.ai_idle();
-                                    truck.set_force_wanting_state(true);
-                                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(active_id, |victim_guard| {
+                    if self.base.docker_inside() {
+                        if !victim_guard.is_using_airborne_locomotor() {
+                            victim_guard.kill(None, None);
+                        }
+                    } else if let Some(ai) = victim_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
+                                victim_guard.ai_idle();
+                                truck.set_force_wanting_state(true);
                             }
                         }
                     }
-                }
+                    });
             }
         }
 

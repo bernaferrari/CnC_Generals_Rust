@@ -17,10 +17,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::RwLock;
 use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
-use tokio::sync::RwLock as AsyncRwLock;
 
 use super::{AssetError, AssetHandle};
 
@@ -314,14 +313,14 @@ pub struct LocalizationStats {
 /// Complete Localization Management System
 pub struct LocalizationManager {
     // Current language
-    current_language: Arc<RwLock<String>>,
+    current_language: RwLock<String>,
 
     // Language packs
-    language_packs: Arc<RwLock<HashMap<String, LanguagePack>>>,
-    available_languages: Arc<RwLock<Vec<LanguageInfo>>>,
+    language_packs: RwLock<HashMap<String, LanguagePack>>,
+    available_languages: RwLock<Vec<LanguageInfo>>,
 
     // Translation cache
-    translation_cache: Arc<RwLock<HashMap<String, String>>>,
+    translation_cache: RwLock<HashMap<String, String>>,
 
     // Fallback chain
     fallback_languages: Vec<String>,
@@ -330,7 +329,7 @@ pub struct LocalizationManager {
     base_path: PathBuf,
 
     // Statistics
-    stats: Arc<RwLock<LocalizationStats>>,
+    stats: RwLock<LocalizationStats>,
 
     // Regex for format string parsing
     format_regex: Regex,
@@ -346,16 +345,16 @@ impl LocalizationManager {
         let base_path = PathBuf::from("localization");
 
         Ok(Self {
-            current_language: Arc::new(RwLock::new(initial_language.clone())),
-            language_packs: Arc::new(RwLock::new(HashMap::new())),
-            available_languages: Arc::new(RwLock::new(Vec::new())),
-            translation_cache: Arc::new(RwLock::new(HashMap::new())),
+            current_language: RwLock::new(initial_language.clone()),
+            language_packs: RwLock::new(HashMap::new()),
+            available_languages: RwLock::new(Vec::new()),
+            translation_cache: RwLock::new(HashMap::new()),
             fallback_languages: vec!["english".to_string()],
             base_path,
-            stats: Arc::new(RwLock::new(LocalizationStats {
+            stats: RwLock::new(LocalizationStats {
                 current_language: initial_language,
                 ..Default::default()
-            })),
+            }),
             format_regex: FORMAT_REGEX.clone(),
         })
     }

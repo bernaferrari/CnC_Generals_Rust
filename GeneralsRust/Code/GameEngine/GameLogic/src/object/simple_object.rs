@@ -195,8 +195,7 @@ impl SimpleObject {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
     }
 
     /// Create a new SimpleObject

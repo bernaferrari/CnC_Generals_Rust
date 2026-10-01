@@ -415,13 +415,11 @@ impl RailedTransportAIUpdate {
             return;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let _ = owner_guard.with_dock_update_interface(|dock| {
-                    dock.set_dock_open(!in_transit);
-                });
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let _ = owner_guard.with_dock_update_interface(|dock| {
+                dock.set_dock_open(!in_transit);
+            });
+            });
 
         self.in_transit = in_transit;
     }

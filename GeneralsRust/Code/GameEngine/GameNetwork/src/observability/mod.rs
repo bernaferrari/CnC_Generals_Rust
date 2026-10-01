@@ -20,7 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use {
     metrics::{counter, describe_counter, describe_gauge, describe_histogram, gauge, histogram},
     opentelemetry::KeyValue,
-    opentelemetry_otlp::WithExportConfig,
+    opentelemetry::trace::TracerProvider as _,
+    opentelemetry_otlp::{SpanExporter, WithExportConfig},
     opentelemetry_sdk::{Resource, trace},
     tracing::{error, info, warn},
     tracing_opentelemetry::OpenTelemetryLayer,
@@ -95,7 +96,7 @@ pub struct TelemetrySystem {
     metrics_server: Option<tokio::task::JoinHandle<()>>,
 
     #[cfg(feature = "metrics")]
-    _tracer_provider: Option<String>, // Simplified for now
+    tracer_provider: Option<trace::SdkTracerProvider>,
 }
 
 /// Direction of a file transfer for telemetry accounting.
@@ -125,7 +126,7 @@ impl TelemetrySystem {
             metrics_server: None,
 
             #[cfg(feature = "metrics")]
-            _tracer_provider: None,
+            tracer_provider: None,
         };
 
         // Initialize tracing with OpenTelemetry
@@ -161,24 +162,31 @@ impl TelemetrySystem {
         let mut tracer = None;
         // Build the tracer
         if let Some(endpoint) = &self.config.otlp_endpoint {
-            match opentelemetry_otlp::new_pipeline()
-                .tracing()
-                .with_exporter(
-                    opentelemetry_otlp::new_exporter()
-                        .tonic()
-                        .with_endpoint(endpoint),
-                )
-                .with_trace_config(trace::config().with_resource(Resource::new(vec![
-                    KeyValue::new("service.name", self.config.service_name.clone()),
-                    KeyValue::new("service.version", self.config.service_version.clone()),
-                    KeyValue::new("environment", self.config.environment.clone()),
-                    KeyValue::new("runtime", "tokio"),
-                    KeyValue::new("language", "rust"),
-                ])))
-                .install_simple()
+            match SpanExporter::builder()
+                .with_http()
+                .with_endpoint(endpoint)
+                .build()
             {
-                Ok(installed) => {
-                    tracer = Some(installed);
+                Ok(exporter) => {
+                    let provider = trace::SdkTracerProvider::builder()
+                        .with_simple_exporter(exporter)
+                        .with_resource(
+                            Resource::builder_empty()
+                                .with_attributes(vec![
+                                    KeyValue::new("service.name", self.config.service_name.clone()),
+                                    KeyValue::new(
+                                        "service.version",
+                                        self.config.service_version.clone(),
+                                    ),
+                                    KeyValue::new("environment", self.config.environment.clone()),
+                                    KeyValue::new("runtime", "tokio"),
+                                    KeyValue::new("language", "rust"),
+                                ])
+                                .build(),
+                        )
+                        .build();
+                    tracer = Some(provider.tracer("game_network"));
+                    self.tracer_provider = Some(provider);
                     info!(
                         "✅ OpenTelemetry exporter configured for endpoint {}",
                         endpoint
@@ -234,7 +242,12 @@ impl TelemetrySystem {
     async fn start_metrics_server(&mut self) -> NetworkResult<()> {
         #[cfg(feature = "metrics")]
         {
+            use http_body_util::Full;
+            use hyper::body::Bytes;
+            use hyper::service::service_fn;
+            use hyper_util::rt::TokioIo;
             use metrics_exporter_prometheus::PrometheusBuilder;
+            use std::convert::Infallible;
             use std::net::SocketAddr;
 
             info!(
@@ -252,24 +265,40 @@ impl TelemetrySystem {
             })?;
 
             // Start HTTP server for metrics
-            let make_service = hyper::service::make_service_fn(move |_conn| {
-                let handle = handle.clone();
-                async move {
-                    Ok::<_, hyper::Error>(hyper::service::service_fn(move |_req| {
-                        let handle = handle.clone();
-                        async move {
-                            let metrics = handle.render();
-                            Ok::<_, hyper::Error>(hyper::Response::new(metrics))
-                        }
-                    }))
-                }
-            });
+            let listener = tokio::net::TcpListener::bind(addr).await.map_err(|e| {
+                NetworkError::generic(format!("Failed to bind metrics server: {}", e))
+            })?;
 
             info!("📊 Metrics server listening on http://{}/metrics", addr);
-            let server = hyper::Server::bind(&addr).serve(make_service);
             let server_handle = tokio::spawn(async move {
-                if let Err(e) = server.await {
-                    error!("Metrics server error: {}", e);
+                loop {
+                    let (stream, _) = match listener.accept().await {
+                        Ok(conn) => conn,
+                        Err(e) => {
+                            error!("Metrics server error: {}", e);
+                            break;
+                        }
+                    };
+
+                    let handle = handle.clone();
+                    tokio::spawn(async move {
+                        let service = service_fn(move |_req| {
+                            let handle = handle.clone();
+                            async move {
+                                let metrics = handle.render();
+                                Ok::<_, Infallible>(hyper::Response::new(Full::new(Bytes::from(
+                                    metrics,
+                                ))))
+                            }
+                        });
+
+                        if let Err(e) = hyper::server::conn::http1::Builder::new()
+                            .serve_connection(TokioIo::new(stream), service)
+                            .await
+                        {
+                            error!("Metrics connection error: {}", e);
+                        }
+                    });
                 }
             });
 
@@ -385,8 +414,8 @@ impl TelemetrySystem {
     pub fn record_packet_sent(&self, size: usize) {
         #[cfg(feature = "metrics")]
         {
-            counter!("network_packets_sent_total", 1);
-            counter!("network_bytes_sent_total", size as u64);
+            counter!("network_packets_sent_total").increment(1);
+            counter!("network_bytes_sent_total").increment(size as u64);
         }
     }
 
@@ -394,12 +423,10 @@ impl TelemetrySystem {
     pub fn record_packet_received(&self, size: usize, processing_time: Duration) {
         #[cfg(feature = "metrics")]
         {
-            counter!("network_packets_received_total", 1);
-            counter!("network_bytes_received_total", size as u64);
-            histogram!(
-                "network_packet_processing_duration_seconds",
-                processing_time.as_secs_f64()
-            );
+            counter!("network_packets_received_total").increment(1);
+            counter!("network_bytes_received_total").increment(size as u64);
+            histogram!("network_packet_processing_duration_seconds")
+                .record(processing_time.as_secs_f64());
         }
     }
 
@@ -407,7 +434,7 @@ impl TelemetrySystem {
     pub fn record_connection_established(&self) {
         #[cfg(feature = "metrics")]
         {
-            counter!("network_connections_established_total", 1);
+            counter!("network_connections_established_total").increment(1);
         }
     }
 
@@ -415,11 +442,8 @@ impl TelemetrySystem {
     pub fn record_connection_closed(&self, duration: Duration) {
         #[cfg(feature = "metrics")]
         {
-            counter!("network_connections_closed_total", 1);
-            histogram!(
-                "network_connection_duration_seconds",
-                duration.as_secs_f64()
-            );
+            counter!("network_connections_closed_total").increment(1);
+            histogram!("network_connection_duration_seconds").record(duration.as_secs_f64());
         }
     }
 
@@ -427,7 +451,7 @@ impl TelemetrySystem {
     pub fn set_active_connections(&self, count: usize) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("network_active_connections", count as f64);
+            gauge!("network_active_connections").set(count as f64);
         }
     }
 
@@ -435,11 +459,9 @@ impl TelemetrySystem {
     pub fn record_frame_processed(&self, processing_time: Duration) {
         #[cfg(feature = "metrics")]
         {
-            counter!("game_frames_processed_total", 1);
-            histogram!(
-                "game_frame_processing_duration_seconds",
-                processing_time.as_secs_f64()
-            );
+            counter!("game_frames_processed_total").increment(1);
+            histogram!("game_frame_processing_duration_seconds")
+                .record(processing_time.as_secs_f64());
         }
     }
 
@@ -447,7 +469,7 @@ impl TelemetrySystem {
     pub fn record_command_processed(&self) {
         #[cfg(feature = "metrics")]
         {
-            counter!("game_commands_processed_total", 1);
+            counter!("game_commands_processed_total").increment(1);
         }
     }
 
@@ -455,7 +477,7 @@ impl TelemetrySystem {
     pub fn set_active_players(&self, count: usize) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("game_active_players", count as f64);
+            gauge!("game_active_players").set(count as f64);
         }
     }
 
@@ -463,7 +485,7 @@ impl TelemetrySystem {
     pub fn set_run_ahead(&self, run_ahead: u32) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("game_run_ahead", run_ahead as f64);
+            gauge!("game_run_ahead").set(run_ahead as f64);
         }
     }
 
@@ -471,7 +493,7 @@ impl TelemetrySystem {
     pub fn set_packet_cushion(&self, cushion_frames: f32) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("network_packet_cushion_frames", cushion_frames as f64);
+            gauge!("network_packet_cushion_frames").set(cushion_frames as f64);
         }
     }
 
@@ -479,7 +501,7 @@ impl TelemetrySystem {
     pub fn set_min_packet_cushion(&self, cushion_frames: f32) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("network_packet_cushion_min_frames", cushion_frames as f64);
+            gauge!("network_packet_cushion_min_frames").set(cushion_frames as f64);
         }
     }
 
@@ -487,7 +509,7 @@ impl TelemetrySystem {
     pub fn set_frames_ahead(&self, frames_ahead: u32) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("game_frames_ahead", frames_ahead as f64);
+            gauge!("game_frames_ahead").set(frames_ahead as f64);
         }
     }
 
@@ -495,7 +517,7 @@ impl TelemetrySystem {
     pub fn set_load_progress(&self, percent: u8) {
         #[cfg(feature = "metrics")]
         {
-            gauge!("game_load_progress_percent", percent as f64);
+            gauge!("game_load_progress_percent").set(percent as f64);
         }
     }
 
@@ -503,7 +525,7 @@ impl TelemetrySystem {
     pub fn mark_load_complete(&self) {
         #[cfg(feature = "metrics")]
         {
-            counter!("game_load_completed_total", 1);
+            counter!("game_load_completed_total").increment(1);
         }
     }
 
@@ -515,11 +537,8 @@ impl TelemetrySystem {
     ) {
         #[cfg(feature = "metrics")]
         {
-            counter!(
-                "file_transfers_started_total",
-                1,
-                "direction" => direction.as_label()
-            );
+            counter!("file_transfers_started_total", "direction" => direction.as_label())
+                .increment(1);
         }
     }
 
@@ -534,11 +553,8 @@ impl TelemetrySystem {
             if chunk_bytes == 0 {
                 return;
             }
-            counter!(
-                "file_transfer_bytes_total",
-                chunk_bytes,
-                "direction" => direction.as_label()
-            );
+            counter!("file_transfer_bytes_total", "direction" => direction.as_label())
+                .increment(chunk_bytes);
         }
     }
 
@@ -552,12 +568,9 @@ impl TelemetrySystem {
         #[cfg(feature = "metrics")]
         {
             let label = direction.as_label();
-            counter!("file_transfers_completed_total", 1, "direction" => label);
-            histogram!(
-                "file_transfer_duration_seconds",
-                duration.as_secs_f64(),
-                "direction" => label
-            );
+            counter!("file_transfers_completed_total", "direction" => label).increment(1);
+            histogram!("file_transfer_duration_seconds", "direction" => label)
+                .record(duration.as_secs_f64());
         }
     }
 
@@ -565,11 +578,8 @@ impl TelemetrySystem {
     pub fn record_transfer_failed(&self, direction: TransferTelemetryDirection) {
         #[cfg(feature = "metrics")]
         {
-            counter!(
-                "file_transfers_failed_total",
-                1,
-                "direction" => direction.as_label()
-            );
+            counter!("file_transfers_failed_total", "direction" => direction.as_label())
+                .increment(1);
         }
     }
 
@@ -577,11 +587,8 @@ impl TelemetrySystem {
     pub fn set_active_transfers(&self, direction: TransferTelemetryDirection, active: usize) {
         #[cfg(feature = "metrics")]
         {
-            gauge!(
-                "file_transfers_active",
-                active as f64,
-                "direction" => direction.as_label()
-            );
+            gauge!("file_transfers_active", "direction" => direction.as_label())
+                .set(active as f64);
         }
     }
 
@@ -677,7 +684,11 @@ impl TelemetrySystem {
         // Flush OpenTelemetry data
         #[cfg(feature = "metrics")]
         {
-            opentelemetry::global::shutdown_tracer_provider();
+            if let Some(provider) = &self.tracer_provider {
+                if let Err(err) = provider.shutdown() {
+                    warn!("Failed to shut down tracer provider: {}", err);
+                }
+            }
             info!("🔍 Tracing data flushed");
         }
 

@@ -111,8 +111,7 @@ impl HealContain {
         (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         })
     }
 
@@ -146,8 +145,7 @@ impl HealContain {
 
             if done_healing {
                 // Reserve door for exit
-                if let Some(obj) = TheGameLogic::find_object_by_id(patient_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(patient_id))
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(patient_id)
                 {
                     if let Ok(object) = obj.try_read() {
                         if let Ok(exit_door) = self
@@ -194,8 +192,7 @@ impl HealContain {
 
         let mut done_healing = false;
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("HealContain patient not found")?;
 
         // Setup healing damage info structure
@@ -329,11 +326,9 @@ impl ContainModuleInterface for HealContain {
             return false;
         }
 
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.base.is_valid_container_for(&*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self.base.is_valid_container_for(&*obj_guard, true);
+            });
         false
     }
 
@@ -445,8 +440,7 @@ impl ContainModuleInterface for HealContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };

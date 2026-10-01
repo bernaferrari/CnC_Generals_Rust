@@ -134,31 +134,29 @@ impl DemoralizeSpecialPower {
         let mut range = self.data.base_range;
 
         // Check contained units for bonuses
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(contain) = owner_guard.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        let contain_count = contain_guard.get_contained_count() as UnsignedInt;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            if let Some(contain) = owner_guard.get_contain() {
+                if let Ok(contain_guard) = contain.lock() {
+                    let contain_count = contain_guard.get_contained_count() as UnsignedInt;
 
-                        // Bonus duration per captured unit, capped at max
-                        duration = duration.saturating_add(
-                            self.data
-                                .bonus_duration_per_captured_in_frames
-                                .saturating_mul(contain_count),
-                        );
-                        if duration > self.data.max_duration_in_frames {
-                            duration = self.data.max_duration_in_frames;
-                        }
+                    // Bonus duration per captured unit, capped at max
+                    duration = duration.saturating_add(
+                        self.data
+                            .bonus_duration_per_captured_in_frames
+                            .saturating_mul(contain_count),
+                    );
+                    if duration > self.data.max_duration_in_frames {
+                        duration = self.data.max_duration_in_frames;
+                    }
 
-                        // Bonus range per captured unit, capped at max
-                        range += self.data.bonus_range_per_captured * contain_count as Real;
-                        if range > self.data.max_range {
-                            range = self.data.max_range;
-                        }
+                    // Bonus range per captured unit, capped at max
+                    range += self.data.bonus_range_per_captured * contain_count as Real;
+                    if range > self.data.max_range {
+                        range = self.data.max_range;
                     }
                 }
             }
-        }
+            });
 
         (range, duration)
     }

@@ -178,14 +178,15 @@ impl TechBuildingBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn reschedule_owner(&self) {
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
-            return Err("Object not set".into());
+            return;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-            .ok_or_else(|| "Object not found".into())
+        let wake = self.next_call_frame_and_phase;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
+            guard.reschedule_named_update("TechBuildingBehavior", wake);
+        });
     }
 
     /// Handle capture events (when ownership changes)
@@ -197,11 +198,7 @@ impl TechBuildingBehavior {
         // Wake up next frame so we can re-evaluate our captured status
         let now = TheGameLogic::get_frame();
         self.next_call_frame_and_phase = now.saturating_add(1);
-        if let Ok(object) = self.get_object() {
-            if let Ok(guard) = object.read() {
-                guard.reschedule_named_update("TechBuildingBehavior", self.next_call_frame_and_phase);
-            }
-        }
+        self.reschedule_owner();
         Ok(())
     }
 }

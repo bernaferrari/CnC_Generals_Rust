@@ -261,25 +261,23 @@ impl W3DModelDraw {
             let mut turret_angle = 0.0;
             let mut turret_pitch = 0.0;
             if let Some(owner_id) = self.owner_id {
-                if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) {
-                    if let Ok(obj_guard) = obj.read() {
-                        if let Some(ai) = obj_guard.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai.lock() {
-                                let turret_type = if index == 0 {
-                                    TurretType::Primary
-                                } else {
-                                    TurretType::Secondary
-                                };
-                                if let Some((angle, pitch)) =
-                                    ai_guard.get_turret_rot_and_pitch(turret_type)
-                                {
-                                    turret_angle = angle;
-                                    turret_pitch = pitch;
-                                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj_guard| {
+                    if let Some(ai) = obj_guard.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai.lock() {
+                            let turret_type = if index == 0 {
+                                TurretType::Primary
+                            } else {
+                                TurretType::Secondary
+                            };
+                            if let Some((angle, pitch)) =
+                                ai_guard.get_turret_rot_and_pitch(turret_type)
+                            {
+                                turret_angle = angle;
+                                turret_pitch = pitch;
                             }
                         }
                     }
-                }
+                    });
             }
 
             // Apply turret angle bone rotation

@@ -83,7 +83,7 @@ impl ModernShaderSystem {
         // Create wgpu instance with all backends
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(), // Vulkan, Metal, DX12, DX11, GL, WebGPU
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
 
         // Request adapter (will choose best backend for platform)
@@ -250,7 +250,7 @@ impl ModernShaderSystem {
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[ModernVertex::desc()],
+                    buffers: &[Some(ModernVertex::desc())],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {

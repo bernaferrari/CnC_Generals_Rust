@@ -94,8 +94,17 @@ pub struct WgpuMainRenderer {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The wgpu state lives behind `Arc<Mutex<WgpuWrapper>>`/
+// `Arc<Mutex<Renderer>>` (handles `Rc`-backed, `!Send`) and the callbacks are
+// plain `RefCell`s here. wasm32 has no threads, so no handle or `RefCell` can
+// ever cross a thread boundary; the impl only satisfies the bounds of the
+// global renderer registry. Native keeps auto traits (and uses `Mutex`).
 unsafe impl Send for WgpuMainRenderer {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&WgpuMainRenderer` is never accessed from two threads; the `RefCell`
+// callback vectors and the mutex-guarded wgpu state cannot be entered
+// re-entrantly from a second thread.
 unsafe impl Sync for WgpuMainRenderer {}
 
 #[derive(Debug)]
@@ -912,8 +921,16 @@ pub(crate) struct WgpuCoreBridge {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. Every field is an `Arc` to a mutex/atomic, so the only
+// `!Send` contributor is the `Rc`-backed wgpu state inside the shared
+// `Renderer`; wasm32 has no threads, so that state can never be reached from
+// another thread. The impl only satisfies the bounds of the slots storing the
+// bridge. Native keeps the auto traits.
 unsafe impl Send for WgpuCoreBridge {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&WgpuCoreBridge` is never accessed from two threads; the shared
+// `Mutex`es/`AtomicBool`s are uncontended by construction.
 unsafe impl Sync for WgpuCoreBridge {}
 
 impl WgpuCoreBridge {

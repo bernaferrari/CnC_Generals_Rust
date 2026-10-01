@@ -76,6 +76,11 @@ pub struct Win32GameEngine {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The wgpu handles (`Surface<'static>`, `Device`,
+// `Queue`, `Buffer`, `RenderPipeline`) are `Rc`-backed and `!Send` on the web
+// backend, but wasm32 has no threads, so a cross-thread move is impossible.
+// The impl only satisfies the `Send` bounds of the wasm engine/factory
+// plumbing that boxes the engine. Native keeps the auto traits.
 unsafe impl Send for Win32GameEngine {}
 
 use crate::subsystem_interfaces::SubsystemManager;

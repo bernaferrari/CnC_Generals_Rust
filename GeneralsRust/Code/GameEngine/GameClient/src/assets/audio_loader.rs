@@ -372,7 +372,7 @@ pub struct AudioLoader {
 
     // Environmental effects
     current_environment: Arc<RwLock<AudioEnvironment>>,
-    environments: Arc<RwLock<HashMap<String, AudioEnvironment>>>,
+    environments: HashMap<String, AudioEnvironment>,
 
     // Audio tracks for mixing
     music_track: Arc<Mutex<Option<TrackHandle>>>,
@@ -544,7 +544,7 @@ impl AudioLoader {
             listener: Arc::new(RwLock::new(AudioListener::default())),
             spatial_listener: Arc::new(Mutex::new(spatial_listener)),
             current_environment: Arc::new(RwLock::new(AudioEnvironment::default())),
-            environments: Arc::new(RwLock::new(environments)),
+            environments,
             music_track: Arc::new(Mutex::new(Some(music_track))),
             sfx_track: Arc::new(Mutex::new(Some(sfx_track))),
             voice_track: Arc::new(Mutex::new(Some(voice_track))),
@@ -808,10 +808,7 @@ impl AudioLoader {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .id();
-            let mut manager = self
-                .audio_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut manager = self.audio_manager.lock().unwrap_or_else(|e| e.into_inner());
             let mut spatial = manager
                 .add_spatial_sub_track(
                     listener_id,
@@ -827,9 +824,9 @@ impl AudioLoader {
                 .map_err(|e| {
                     AudioError::EngineError(format!("Failed to create spatial track: {}", e))
                 })?;
-            let handle = spatial.play(sound_data).map_err(|e| {
-                AudioError::EngineError(format!("Failed to play sound: {}", e))
-            })?;
+            let handle = spatial
+                .play(sound_data)
+                .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?;
             (handle, Some(spatial))
         } else {
             let track_slot = match asset.asset_type {
@@ -840,9 +837,9 @@ impl AudioLoader {
             };
             let mut track_guard = track_slot.lock().unwrap_or_else(|e| e.into_inner());
             let handle = if let Some(track) = track_guard.as_mut() {
-                track.play(sound_data).map_err(|e| {
-                    AudioError::EngineError(format!("Failed to play sound: {}", e))
-                })?
+                track
+                    .play(sound_data)
+                    .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?
             } else {
                 drop(track_guard);
                 self.audio_manager
@@ -1046,8 +1043,7 @@ impl AudioLoader {
 
     /// Set environmental audio effects
     pub fn set_environment(&self, environment_name: &str) -> Result<(), AudioError> {
-        let environments = self.environments.read().unwrap_or_else(|e| e.into_inner());
-        if let Some(environment) = environments.get(environment_name) {
+        if let Some(environment) = self.environments.get(environment_name) {
             *self
                 .current_environment
                 .write()
@@ -1145,10 +1141,7 @@ impl AudioLoader {
     ) {
         if let Ok(mut guard) = track.lock() {
             if let Some(track) = guard.as_mut() {
-                track.set_volume(
-                    kira_amplitude((volume * master) as f64),
-                    Tween::default(),
-                );
+                track.set_volume(kira_amplitude((volume * master) as f64), Tween::default());
             }
         }
     }

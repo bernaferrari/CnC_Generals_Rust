@@ -57,8 +57,11 @@ pub trait GameTool {
     /// Initialize the tool
     fn initialize(&mut self) -> Result<()>;
 
-    /// Update the tool (called every frame)
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) -> Result<()>;
+    /// Update the tool (called every frame).
+    ///
+    /// Receives the root [`egui::Ui`] after the chrome docks, so the tool's own
+    /// panels/CentralPanel fill the remaining center space.
+    fn update(&mut self, ui: &mut eframe::egui::Ui, frame: &mut eframe::Frame) -> Result<()>;
 
     /// Handle tool-specific menu items
     fn menu_bar(&mut self, ui: &mut eframe::egui::Ui) -> Result<()>;

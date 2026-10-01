@@ -108,11 +108,7 @@ impl WebSocketChatTransport {
                 pending.push_back(cmd);
             }
 
-            match timeout(
-                config.connect_timeout,
-                connect_async(config.endpoint.clone()),
-            )
-            .await
+            match timeout(config.connect_timeout, connect_async(config.endpoint.as_str())).await
             {
                 Ok(Ok((ws_stream, _))) => {
                     info!("Connected to GameSpy chat backend {}", config.endpoint);
@@ -180,7 +176,7 @@ impl WebSocketChatTransport {
                                         Self::handle_incoming(&inbound_tx, &text);
                                     }
                                     Some(Ok(Message::Binary(bin))) => {
-                                        if let Ok(text) = String::from_utf8(bin) {
+                                        if let Ok(text) = String::from_utf8(bin.to_vec()) {
                                             Self::handle_incoming(&inbound_tx, &text);
                                         }
                                     }
@@ -260,7 +256,7 @@ impl WebSocketChatTransport {
         command: &ChatWireCommand,
     ) -> Result<(), TungsteniteError> {
         let payload = serde_json::to_string(command).unwrap_or_default();
-        writer.send(Message::Text(payload)).await
+        writer.send(Message::text(payload)).await
     }
 
     fn handle_incoming(inbound_tx: &mpsc::UnboundedSender<ChatMessage>, payload: &str) {

@@ -208,3 +208,23 @@ impl TeamArcExt for Arc<RwLock<Team>> {
         }
     }
 }
+
+/// Run `f` with exclusive access to the team addressed by `team_id`.
+///
+/// The team is resolved through the factory singleton; returns `None` when the
+/// id is unknown or a lock is poisoned. The factory lock is released before
+/// `f` runs so object creation under a team cannot re-enter it.
+pub fn with_team<R>(team_id: TeamID, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
+    let team = get_team_factory()
+        .lock()
+        .ok()?
+        .find_team_by_id(team_id)?;
+    let mut guard = team.write().ok()?;
+    Some(f(&mut guard))
+}
+
+/// Run `f` with exclusive access to an already-resolved team handle.
+pub fn with_team_mut<R>(team: Arc<RwLock<Team>>, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
+    let mut guard = team.write().ok()?;
+    Some(f(&mut guard))
+}

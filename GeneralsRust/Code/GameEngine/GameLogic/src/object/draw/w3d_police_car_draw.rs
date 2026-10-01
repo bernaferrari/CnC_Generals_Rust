@@ -173,14 +173,12 @@ impl DrawModule for W3DPoliceCarDraw {
         if let Some(light_id) = self.light_id {
             let mut pos = Coord3D::origin();
             if let Some(owner_id) = self.base.owner_id() {
-                if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-                    if let Ok(owner_guard) = owner.read() {
-                        pos = owner_guard
-                            .get_drawable()
-                            .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_position()))
-                            .unwrap_or_else(|| *owner_guard.get_position());
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                    pos = owner_guard
+                        .get_drawable()
+                        .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_position()))
+                        .unwrap_or_else(|| *owner_guard.get_position());
+                    });
             }
             update_scene_point_light(
                 light_id,

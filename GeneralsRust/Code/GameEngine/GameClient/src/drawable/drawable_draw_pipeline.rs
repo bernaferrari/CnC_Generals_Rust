@@ -210,8 +210,16 @@ pub struct DrawableDrawPipeline {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The `Arc<wgpu::Device>`/`Arc<wgpu::Queue>` and every
+// pipeline/buffer/bind-group field are `Rc`-backed on the web backend and
+// therefore `!Send` by default. wasm32-unknown-unknown has no threads, so the
+// handles can never move between threads; the impl only lets
+// `DrawableDrawPipeline` live in `Send`/`Sync` containers.
 unsafe impl Send for DrawableDrawPipeline {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: no threads exist on this target, so `&Self`
+// is never accessed concurrently and the handles' `!Sync` default is
+// unreachable.
 unsafe impl Sync for DrawableDrawPipeline {}
 
 impl DrawableDrawPipeline {

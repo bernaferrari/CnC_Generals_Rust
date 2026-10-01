@@ -1,5 +1,5 @@
 // Auto-generated C++ compatibility shim for RSA
-use rand::rngs::OsRng;
+use rand_core::OsRng;
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 
 pub fn generate_key(bits: usize) -> (RsaPrivateKey, RsaPublicKey) {

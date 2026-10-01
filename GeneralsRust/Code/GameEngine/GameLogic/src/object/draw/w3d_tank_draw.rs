@@ -668,33 +668,31 @@ impl DrawModule for W3DTankDraw {
         let mut is_motive = false;
 
         if let Some(owner_id) = self.base.owner_id() {
-            if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
-                    if dir_x != 0.0 || dir_y != 0.0 {
-                        direction = Coord3D::new(dir_x, dir_y, 0.0);
-                    }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
+                if dir_x != 0.0 || dir_y != 0.0 {
+                    direction = Coord3D::new(dir_x, dir_y, 0.0);
+                }
 
-                    if let Some(physics) = owner_guard.get_physics() {
-                        if let Ok(physics_guard) = physics.lock() {
-                            let velocity = physics_guard.get_velocity();
-                            self.current_velocity =
-                                (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
-                            turning = physics_guard.get_turning();
-                            is_motive = physics_guard.is_motive();
-                        }
+                if let Some(physics) = owner_guard.get_physics() {
+                    if let Ok(physics_guard) = physics.lock() {
+                        let velocity = physics_guard.get_velocity();
+                        self.current_velocity =
+                            (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
+                        turning = physics_guard.get_turning();
+                        is_motive = physics_guard.is_motive();
                     }
+                }
 
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            let locomotor_speed = ai_guard.get_cur_locomotor_speed();
-                            if locomotor_speed > 0.0 {
-                                self.max_velocity = locomotor_speed;
-                            }
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        let locomotor_speed = ai_guard.get_cur_locomotor_speed();
+                        if locomotor_speed > 0.0 {
+                            self.max_velocity = locomotor_speed;
                         }
                     }
                 }
-            }
+                });
         }
 
         if self.max_velocity <= 0.0 {

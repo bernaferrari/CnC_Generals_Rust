@@ -15,8 +15,16 @@ pub struct SharedGpuDevice {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The `wgpu::Device`/`wgpu::Queue` fields are `Rc`-backed
+// handles on the web backend and therefore `!Send`/`!Sync` by default.
+// wasm32-unknown-unknown has no threads, so the handles can never move to or
+// be observed from another thread; the impl only lets the process-wide
+// device slot (`parking_lot::Mutex<Slot>`, `OnceLock`) hand out clones.
 unsafe impl Send for SharedGpuDevice {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&SharedGpuDevice` is never accessed from two threads and the handles'
+// `!Sync` default is unreachable.
 unsafe impl Sync for SharedGpuDevice {}
 
 #[derive(Debug)]

@@ -1526,8 +1526,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        if crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .is_none()
         {
             return Ok(());
@@ -1550,8 +1549,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1574,8 +1572,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1641,8 +1638,7 @@ impl ExitInterface for ContainExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        if crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .is_none()
         {
             return Ok(());
@@ -1663,8 +1659,7 @@ impl ExitInterface for ContainExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1729,8 +1724,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        if crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .is_none()
         {
             return Ok(());
@@ -1749,8 +1743,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1769,8 +1762,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -2498,7 +2490,6 @@ impl BehaviorModuleHandle {
         self.name().as_str()
     }
 
-
     pub fn module_tag_key(&self) -> NameKeyType {
         self.entry
             .with_module(|module| module.get_module_tag_name_key())
@@ -2922,13 +2913,13 @@ pub struct Object {
     // Helper modules
     repulsor_helper: Option<ObjectRepulsorHelper>,
     smc_helper: Option<ObjectSMCHelper>,
-    ws_helper: Option<Arc<Mutex<ObjectWeaponStatusHelper>>>,
+    ws_helper: Option<Box<ObjectWeaponStatusHelper>>,
     defection_helper: Option<ObjectDefectionHelper>,
-    status_damage_helper: Option<Arc<Mutex<StatusDamageHelper>>>,
-    subdual_damage_helper: Option<Arc<Mutex<SubdualDamageHelper>>>,
-    temp_weapon_bonus_helper: Option<Arc<Mutex<TempWeaponBonusHelper>>>,
-    firing_tracker: Option<Arc<Mutex<FiringTracker>>>,
-    held_helper: Option<Arc<Mutex<ObjectHeldHelper>>>,
+    status_damage_helper: Option<Box<StatusDamageHelper>>,
+    subdual_damage_helper: Option<Box<SubdualDamageHelper>>,
+    temp_weapon_bonus_helper: Option<Box<TempWeaponBonusHelper>>,
+    firing_tracker: Option<Box<FiringTracker>>,
+    held_helper: Option<Box<ObjectHeldHelper>>,
 
     // Spatial and partition data
     partition_data: Option<Arc<Mutex<PartitionData>>>,

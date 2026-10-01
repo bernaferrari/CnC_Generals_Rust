@@ -307,9 +307,8 @@ mod tests {
         let mut saved = Object::new_test(42, 100.0);
         assert!(saved.set_health(55.0).is_ok());
         if let Some(helper) = saved.status_damage_helper() {
-            if let Ok(mut guard) = helper.lock() {
-                guard.set_frame_to_heal_for_test(77);
-            }
+            helper.set_frame_to_heal_for_test(77);
+            helper.set_status_to_heal_for_test(ObjectStatusTypes::Stealthed);
         }
 
         let mut bytes = Vec::new();
@@ -334,9 +333,55 @@ mod tests {
         );
         let heal_frame = loaded
             .status_damage_helper()
-            .and_then(|h| h.lock().ok().map(|g| g.get_frame_to_heal()))
+            .map(|helper| helper.get_frame_to_heal())
             .unwrap_or(0);
         assert_eq!(heal_frame, 77, "StatusDamageHelper must xfer with Object");
+        assert_eq!(
+            loaded.status_damage_helper().unwrap().get_status_to_heal(),
+            ObjectStatusTypes::Stealthed
+        );
+    }
+
+    #[test]
+    fn timed_helper_effects_use_the_registered_write_locked_owner() {
+        let _guard = test_state_lock();
+        let id = 88_771;
+        let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        OBJECT_REGISTRY.register_object(id, &object);
+        {
+            let mut owner = object.write().unwrap();
+            owner.temp_weapon_bonus_helper = Some(Box::new(
+                crate::object::helper::TempWeaponBonusHelper::new(
+                    id,
+                    crate::object::helper::TempWeaponBonusHelperModuleData::new(),
+                ),
+            ));
+            let frame = crate::helpers::TheGameLogic::get_frame();
+            owner.do_status_damage(ObjectStatusTypes::Wet, 12.75);
+            assert!(owner.test_status(ObjectStatusTypes::Wet));
+            assert_eq!(owner.status_damage_helper().unwrap().get_frame_to_heal(), frame + 12);
+            owner.do_status_damage(ObjectStatusTypes::Masked, 0.0);
+            assert!(!owner.test_status(ObjectStatusTypes::Wet));
+            assert!(owner.test_status(ObjectStatusTypes::Masked));
+
+            owner.do_temp_weapon_bonus(WeaponBonusConditionType::FrenzyOne, 12);
+            owner.do_temp_weapon_bonus(WeaponBonusConditionType::FrenzyTwo, 0);
+            assert_eq!(
+                owner.temp_weapon_bonus_helper.as_ref().unwrap().get_current_bonus(),
+                WeaponBonusConditionType::FrenzyTwo
+            );
+            assert_eq!(
+                owner.get_weapon_bonus_condition(),
+                WeaponBonusConditionFlags::FRENZY_TWO
+            );
+
+            owner.update(0.0).unwrap();
+            assert!(!owner.test_status(ObjectStatusTypes::Masked));
+            assert!(!owner.status_damage_helper().unwrap().has_active_status());
+            assert!(!owner.temp_weapon_bonus_helper.as_ref().unwrap().has_active_bonus());
+            assert_eq!(owner.get_weapon_bonus_condition(), WeaponBonusConditionFlags::empty());
+        }
+        OBJECT_REGISTRY.unregister_object(id);
     }
 
     #[test]
@@ -361,6 +406,23 @@ mod tests {
         }
 
         first
+            .status_damage_helper()
+            .expect("status ctor helper")
+            .set_frame_to_heal_for_test(77);
+        first
+            .status_damage_helper()
+            .expect("status ctor helper")
+            .set_status_to_heal_for_test(ObjectStatusTypes::Stealthed);
+        second
+            .status_damage_helper()
+            .expect("status ctor helper")
+            .set_frame_to_heal_for_test(88);
+        second
+            .status_damage_helper()
+            .expect("status ctor helper")
+            .set_status_to_heal_for_test(ObjectStatusTypes::UnderConstruction);
+
+        first
             .smc_helper
             .as_mut()
             .expect("SMC ctor helper")
@@ -372,6 +434,22 @@ mod tests {
             .expect("defection ctor helper")
             .start_defection_timer(88, true, 10, true);
 
+        assert_eq!(
+            first.status_damage_helper().unwrap().get_frame_to_heal(),
+            77
+        );
+        assert_eq!(
+            second.status_damage_helper().unwrap().get_frame_to_heal(),
+            88
+        );
+        assert_eq!(
+            first.status_damage_helper().unwrap().get_status_to_heal(),
+            ObjectStatusTypes::Stealthed
+        );
+        assert_eq!(
+            second.status_damage_helper().unwrap().get_status_to_heal(),
+            ObjectStatusTypes::UnderConstruction
+        );
         assert!(first.smc_helper.as_ref().unwrap().needs_clearing());
         assert!(!second.smc_helper.as_ref().unwrap().needs_clearing());
         assert!(first.repulsor_helper.as_ref().unwrap().needs_clearing());
@@ -574,9 +652,7 @@ mod tests {
         let mut saved = Object::new_test(7, 100.0);
         assert!(saved.behavior_module_xfer_count() >= 3);
         if let Some(helper) = saved.status_damage_helper() {
-            if let Ok(mut guard) = helper.lock() {
-                guard.set_frame_to_heal_for_test(88);
-            }
+            helper.set_frame_to_heal_for_test(88);
         }
 
         let mut bytes = Vec::new();
@@ -598,7 +674,7 @@ mod tests {
         );
         let heal_frame = loaded
             .status_damage_helper()
-            .and_then(|h| h.lock().ok().map(|g| g.get_frame_to_heal()))
+            .map(|helper| helper.get_frame_to_heal())
             .unwrap_or(0);
         assert_eq!(heal_frame, 88);
     }

@@ -1346,8 +1346,7 @@ impl SlavedUpdateInterface for SlavedUpdate {
             return Ok(());
         }
 
-        let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
+        let Some(master) = crate::object::registry::OBJECT_REGISTRY.get_object(master_id)
         else {
             return Ok(());
         };

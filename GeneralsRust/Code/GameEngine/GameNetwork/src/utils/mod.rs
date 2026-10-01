@@ -93,7 +93,7 @@ impl NetworkUtils {
 
     /// Generate random port in valid range
     pub fn random_port() -> u16 {
-        use rand::Rng;
+        use rand::RngExt;
         let mut rng = rand::rng();
         rng.random_range(1024..65535)
     }

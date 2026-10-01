@@ -72,7 +72,7 @@ impl Chrome {
     /// Returns the activated menu item id, if any.
     pub fn show_menu_bar(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         mut extra: impl FnMut(&mut egui::Ui),
         mut trailing: impl FnMut(&mut egui::Ui),
     ) -> Option<String> {
@@ -84,7 +84,7 @@ impl Chrome {
         let menus = self.menu_bar.menus.clone();
         let help_index = menus.iter().position(|m| m.id == "help");
 
-        egui::TopBottomPanel::top("chrome_menu_bar").show(ctx, |ui| {
+        egui::Panel::top("chrome_menu_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 for (index, menu) in menus.iter().enumerate() {
                     if help_index == Some(index) {
@@ -111,14 +111,14 @@ impl Chrome {
     /// Render the bottom status bar (message, cursor/map coords, zoom).
     pub fn show_status_bar(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         mut extra_right: impl FnMut(&mut egui::Ui),
     ) {
         if !self.layout.show_status_bar {
             return;
         }
 
-        egui::TopBottomPanel::bottom("chrome_status_bar").show(ctx, |ui| {
+        egui::Panel::bottom("chrome_status_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(self.status_bar.message());
 
@@ -141,7 +141,7 @@ impl Chrome {
     }
 
     /// Render the left tool palette list. Clicking a tool updates the selection.
-    pub fn show_tool_palette(&mut self, ctx: &egui::Context) {
+    pub fn show_tool_palette(&mut self, ui: &mut egui::Ui) {
         if !self.layout.show_left_palette {
             return;
         }
@@ -149,10 +149,10 @@ impl Chrome {
         let width = self.layout.left_width;
         let mut selected = None;
 
-        egui::SidePanel::left("chrome_tool_palette")
+        egui::Panel::left("chrome_tool_palette")
             .resizable(true)
-            .default_width(width)
-            .show(ctx, |ui| {
+            .default_size(width)
+            .show(ui, |ui| {
                 ui.heading("Tools");
                 ui.separator();
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -186,16 +186,16 @@ impl Chrome {
     }
 
     /// Render the right properties dock (reserved region of the chrome layout).
-    pub fn show_properties_dock(&mut self, ctx: &egui::Context) {
+    pub fn show_properties_dock(&mut self, ui: &mut egui::Ui) {
         if !self.layout.show_right_properties {
             return;
         }
 
         let width = self.layout.right_width;
-        egui::SidePanel::right("chrome_properties")
+        egui::Panel::right("chrome_properties")
             .resizable(true)
-            .default_width(width)
-            .show(ctx, |ui| {
+            .default_size(width)
+            .show(ui, |ui| {
                 ui.heading("Properties");
                 ui.separator();
                 ui.weak("No object selected");
@@ -205,15 +205,15 @@ impl Chrome {
     /// Render the full chrome shell around the remaining central viewport.
     pub fn show_shell(
         &mut self,
-        ctx: &egui::Context,
+        ui: &mut egui::Ui,
         extra_menu: impl FnMut(&mut egui::Ui),
         menu_trailing: impl FnMut(&mut egui::Ui),
         extra_status_right: impl FnMut(&mut egui::Ui),
     ) -> Option<String> {
-        let cmd = self.show_menu_bar(ctx, extra_menu, menu_trailing);
-        self.show_status_bar(ctx, extra_status_right);
-        self.show_tool_palette(ctx);
-        self.show_properties_dock(ctx);
+        let cmd = self.show_menu_bar(ui, extra_menu, menu_trailing);
+        self.show_status_bar(ui, extra_status_right);
+        self.show_tool_palette(ui);
+        self.show_properties_dock(ui);
         cmd
     }
 }

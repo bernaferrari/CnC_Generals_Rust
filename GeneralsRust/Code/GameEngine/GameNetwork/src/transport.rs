@@ -150,10 +150,8 @@ fn shared_certificate() -> NetworkResult<&'static SharedCertificate> {
                 NetworkError::transport(format!("Failed to generate certificate: {}", err))
             })?;
 
-            let cert_der = CertificateDer::from(cert.serialize_der().map_err(|err| {
-                NetworkError::transport(format!("Failed to serialize certificate: {}", err))
-            })?);
-            let key_der = cert.serialize_private_key_der();
+            let cert_der = cert.cert.der().clone();
+            let key_der = cert.signing_key.serialize_der();
 
             Ok(SharedCertificate {
                 cert_chain: vec![cert_der],

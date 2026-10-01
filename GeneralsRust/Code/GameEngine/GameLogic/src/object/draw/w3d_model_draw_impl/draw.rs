@@ -913,15 +913,13 @@ impl W3DModelDraw {
             .unwrap_or(false);
         if adjust_height {
             if let Some(owner_id) = self.owner_id {
-                if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
-                    if let Ok(obj) = object.read() {
-                        let pct = obj.get_construction_percent() as Real;
-                        let height = obj.get_geometry_info().get_max_height_above_position();
-                        if let Some(dz) = Self::construction_percent_z_delta(pct, height) {
-                            Self::translate_z(&mut mtx, dz);
-                        }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj| {
+                    let pct = obj.get_construction_percent() as Real;
+                    let height = obj.get_geometry_info().get_max_height_above_position();
+                    if let Some(dz) = Self::construction_percent_z_delta(pct, height) {
+                        Self::translate_z(&mut mtx, dz);
                     }
-                }
+                    });
             }
         }
         mtx
@@ -1033,32 +1031,30 @@ impl W3DModelDraw {
         let mut position = Coord3D::new(0.0, 0.0, 0.0);
         let mut angle = 0.0;
         let mut shadow_type = crate::common::types::SHADOW_ALPHA_DECAL;
-        if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
-            if let Ok(obj) = object.read() {
-                if let Some(drawable_mtx) =
-                    self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
-                {
-                    let adjusted = self.adjust_transform_mtx(&drawable_mtx);
-                    position = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
-                    angle = Self::matrix_z_rotation(&adjusted);
-                } else {
-                    position = *obj.get_position();
-                    angle = obj.get_orientation();
-                }
-                let tmpl = obj.get_template().as_ref();
-                if decal_type == TerrainDecalType::ShadowTexture || texture.is_empty() {
-                    texture = leftover_default_shadow_texture(
-                        tmpl.get_template_geometry_type(),
-                        tmpl.get_shadow_texture_name(),
-                    );
-                }
-                if decal_type == TerrainDecalType::ShadowTexture {
-                    shadow_type = tmpl.get_shadow_type_bits();
-                }
-                size = (tmpl.get_shadow_size_x(), tmpl.get_shadow_size_y());
-                offset = (tmpl.get_shadow_offset_x(), tmpl.get_shadow_offset_y());
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj| {
+            if let Some(drawable_mtx) =
+                self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
+            {
+                let adjusted = self.adjust_transform_mtx(&drawable_mtx);
+                position = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
+                angle = Self::matrix_z_rotation(&adjusted);
+            } else {
+                position = *obj.get_position();
+                angle = obj.get_orientation();
             }
-        }
+            let tmpl = obj.get_template().as_ref();
+            if decal_type == TerrainDecalType::ShadowTexture || texture.is_empty() {
+                texture = leftover_default_shadow_texture(
+                    tmpl.get_template_geometry_type(),
+                    tmpl.get_shadow_texture_name(),
+                );
+            }
+            if decal_type == TerrainDecalType::ShadowTexture {
+                shadow_type = tmpl.get_shadow_type_bits();
+            }
+            size = (tmpl.get_shadow_size_x(), tmpl.get_shadow_size_y());
+            offset = (tmpl.get_shadow_offset_x(), tmpl.get_shadow_offset_y());
+            });
 
 
         client.set_decal(&TerrainDecalDesc {
@@ -1108,11 +1104,9 @@ impl W3DModelDraw {
 
     fn logic_fire_fx_fallback(&self) -> (Coord3D, Matrix3D) {
         if let Some(owner_id) = self.owner_id {
-            if let Some(object) = TheGameLogic::find_object_by_id(owner_id) {
-                if let Ok(obj) = object.read() {
-                    return (*obj.get_position(), obj.get_transform_matrix());
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj| {
+                return (*obj.get_position(), obj.get_transform_matrix());
+                });
         }
         (Coord3D::new(0.0, 0.0, 0.0), Matrix3D::IDENTITY)
     }

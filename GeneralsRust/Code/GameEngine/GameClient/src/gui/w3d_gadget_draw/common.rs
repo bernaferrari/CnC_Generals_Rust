@@ -280,8 +280,16 @@ pub(super) struct RadarObjectOverlayTextureCache {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The only non-plain field is `Arc<wgpu::TextureView>`,
+// an `Rc`-backed handle that is `!Send` on the web backend. wasm32 has no
+// threads, so the handle can never move to or be observed from another
+// thread; the impl only satisfies the `Send` bound of the `static
+// Mutex<Self>` that owns it.
 unsafe impl Send for RadarObjectOverlayTextureCache {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&RadarObjectOverlayTextureCache` is never shared between threads and the
+// handle's `!Sync` default is unreachable.
 unsafe impl Sync for RadarObjectOverlayTextureCache {}
 
 pub(super) fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache>
@@ -304,8 +312,16 @@ pub(super) struct RadarLayerTextureCache {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The only non-plain field is `Arc<wgpu::TextureView>`,
+// an `Rc`-backed handle that is `!Send` on the web backend. wasm32 has no
+// threads, so the handle can never move to or be observed from another
+// thread; the impl only satisfies the `Send` bound of the `static
+// Mutex<Self>` caches that own it.
 unsafe impl Send for RadarLayerTextureCache {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&RadarLayerTextureCache` is never shared between threads and the handle's
+// `!Sync` default is unreachable.
 unsafe impl Sync for RadarLayerTextureCache {}
 
 pub(super) fn radar_terrain_texture_cache() -> &'static Mutex<RadarLayerTextureCache> {

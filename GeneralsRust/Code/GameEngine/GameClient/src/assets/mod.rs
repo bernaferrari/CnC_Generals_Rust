@@ -350,8 +350,16 @@ pub struct AssetManager {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: Send is only claimed on wasm32, where the wgpu/JS-backed handles
+// reachable through `texture_manager`/`w3d_loader` are `Rc`-like and therefore
+// `!Send` by default. wasm32 has no threads, so the handles can never reach
+// another thread; the impl only satisfies the `Send` bounds of the `Arc`/
+// `Mutex` wrappers that own it. Native keeps the auto traits.
 unsafe impl Send for AssetManager {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: Sync has the same wasm32-only scope: the target cannot spawn
+// threads, so no two threads can ever hold `&AssetManager` at the same time
+// and the `!Sync` default of the contained JS handles is unreachable.
 unsafe impl Sync for AssetManager {}
 
 /// Asset loading statistics

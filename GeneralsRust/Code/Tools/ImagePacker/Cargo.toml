@@ -17,7 +17,6 @@ gpui = {workspace = true, optional = true}
 
 # Image processing and texture packing
 image = { workspace = true }
-image_compat = { workspace = true }
 texture_packer = { workspace = true }
 walkdir = { workspace = true }
 

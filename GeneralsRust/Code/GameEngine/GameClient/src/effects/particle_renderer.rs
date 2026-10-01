@@ -598,8 +598,16 @@ pub struct ParticleRenderer {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The `Arc<wgpu::Device>`/`Arc<wgpu::Queue>`, pipelines,
+// buffers, bind groups and the atlas textures are `Rc`-backed on the web
+// backend and therefore `!Send` by default. wasm32 has no threads, so those
+// handles can never move to or be touched from another thread; the impl only
+// lets `ParticleRenderer` satisfy the `Send` bounds of its owners.
 unsafe impl Send for ParticleRenderer {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&ParticleRenderer` is never shared between threads and the handles'
+// `!Sync` default is unreachable.
 unsafe impl Sync for ParticleRenderer {}
 
 /// The currently active WGPU owner for GameClient particle textures.

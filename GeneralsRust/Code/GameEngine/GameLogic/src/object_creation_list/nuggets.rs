@@ -322,55 +322,58 @@ impl GenericObjectCreationNugget {
             let Some(obj) = source_obj else {
                 return None;
             };
-            let Some(player) = obj.get_controlling_player() else {
+            let Some(player_id) = obj.get_controlling_player_id() else {
                 return None;
             };
-            let Ok(player_guard) = player.read() else {
-                return None;
-            };
-            if !player_guard.is_player_active() {
+            let active = crate::player::with_player(player_id as i32, |player_guard| {
+                player_guard.is_player_active()
+            })
+            .unwrap_or(false);
+            if !active {
                 return None;
             }
         }
 
-        // Determine owner team.
-        // C++ ObjectCreationList.cpp:1302-1305 — start from Neutral default team,
-        // then overwrite when the source has a controlling player.
-        let mut debris_owner = crate::player::ThePlayerList()
-            .read()
-            .ok()
-            .and_then(|list| list.get_neutral_player())
-            .and_then(|neutral| {
+        let mut debris_owner = crate::player::ThePlayerList().read().ok().and_then(|list| {
+            list.get_neutral_player().and_then(|neutral| {
                 neutral
                     .read()
                     .ok()
-                    .and_then(|player| player.get_default_team())
-            });
+                    .and_then(|neutral_guard| neutral_guard.get_default_team_id())
+            })
+        });
 
         if let Some(obj) = source_obj {
-            if let Some(player) = obj.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    debris_owner = player_guard.get_default_team();
+            if let Some(player_id) = obj.get_controlling_player_id() {
+                if let Some(team_id) =
+                    crate::player::with_player(player_id as i32, |player_guard| {
+                        player_guard.get_default_team_id()
+                    })
+                    .flatten()
+                {
+                    debris_owner = Some(team_id);
                 }
             }
         }
 
-        // Create container if specified
         let mut container: Option<Arc<RwLock<Object>>> = None;
         if !self.put_in_container.is_empty() {
             if let Some(container_tmpl) = ctx.thing_factory.find_template(&self.put_in_container) {
-                if let Some(ref team_arc) = debris_owner {
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Ok(obj) = ctx.thing_factory.new_object(container_tmpl, &*team_guard)
-                        {
-                            // Set producer
-                            if let Some(src) = source_obj {
-                                if let Ok(mut obj_guard) = obj.write() {
-                                    obj_guard.set_producer(Some(src));
-                                }
+                if let Some(team_id) = debris_owner {
+                    if let Some(obj) =
+                        crate::team::with_team(team_id, |team_guard| {
+                            ctx.thing_factory
+                                .new_object(container_tmpl, team_guard)
+                                .ok()
+                        })
+                        .flatten()
+                    {
+                        if let Some(src) = source_obj {
+                            if let Ok(mut obj_guard) = obj.write() {
+                                obj_guard.set_producer(Some(src));
                             }
-                            container = Some(obj);
                         }
+                        container = Some(obj);
                     }
                 }
             }
@@ -402,15 +405,14 @@ impl GenericObjectCreationNugget {
             };
 
             // Create object
-            let Some(ref team_arc) = debris_owner else {
+            let Some(team_id) = debris_owner else {
                 continue;
             };
 
-            let Ok(team_guard) = team_arc.read() else {
-                continue;
-            };
-
-            let Ok(debris) = ctx.thing_factory.new_object(tmpl, &*team_guard) else {
+            let Some(debris) = crate::team::with_team(team_id, |team_guard| {
+                ctx.thing_factory.new_object(tmpl, team_guard).ok()
+            })
+            .flatten() else {
                 continue;
             };
 

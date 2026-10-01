@@ -102,12 +102,11 @@ impl DefectorSpecialPower {
     /// Matches C++ DefectorSpecialPower::doSpecialPowerAtObject().
     pub fn do_special_power_at_object(&self, target_object_id: ObjectID) -> Result<(), String> {
         // Check if the owner is disabled
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return Ok(());
-                }
-            }
+        let owner_disabled = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| owner_guard.is_disabled())
+            .unwrap_or(false);
+        if owner_disabled {
+            return Ok(());
         }
 
         // Sanity checks

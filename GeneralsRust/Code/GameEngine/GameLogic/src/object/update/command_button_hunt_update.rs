@@ -332,22 +332,20 @@ impl CommandButtonHuntUpdate {
         // Periodic scanning (expensive)
         if let Some(victim_id) = self.scan_closest_target() {
             if let Some(button_id) = self.command_button {
-                if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
-                    if let Ok(victim_guard) = victim.read() {
-                        if let Ok(mut object) = object_arc.write() {
-                            if let Err(err) = object.do_command_button_at_object(
-                                button_id,
-                                &victim_guard,
-                                CommandSourceType::FromAi,
-                            ) {
-                                log::debug!(
-                                    "CommandButtonHuntUpdate::idle_enter do_command_button_at_object failed: {}",
-                                    err
-                                );
-                            }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
+                    if let Ok(mut object) = object_arc.write() {
+                        if let Err(err) = object.do_command_button_at_object(
+                            button_id,
+                            &victim_guard,
+                            CommandSourceType::FromAi,
+                        ) {
+                            log::debug!(
+                                "CommandButtonHuntUpdate::idle_enter do_command_button_at_object failed: {}",
+                                err
+                            );
                         }
                     }
-                }
+                    });
             }
         }
 
@@ -374,22 +372,20 @@ impl CommandButtonHuntUpdate {
         // Periodic scanning (expensive)
         if let Some(victim_id) = self.scan_closest_target() {
             if let Some(button_id) = self.command_button {
-                if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
-                    if let Ok(victim_guard) = victim.read() {
-                        if let Ok(mut object) = object_arc.write() {
-                            if let Err(err) = object.do_command_button_at_object(
-                                button_id,
-                                &victim_guard,
-                                CommandSourceType::FromAi,
-                            ) {
-                                log::debug!(
-                                    "CommandButtonHuntUpdate::hunt_enter do_command_button_at_object failed: {}",
-                                    err
-                                );
-                            }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
+                    if let Ok(mut object) = object_arc.write() {
+                        if let Err(err) = object.do_command_button_at_object(
+                            button_id,
+                            &victim_guard,
+                            CommandSourceType::FromAi,
+                        ) {
+                            log::debug!(
+                                "CommandButtonHuntUpdate::hunt_enter do_command_button_at_object failed: {}",
+                                err
+                            );
                         }
                     }
-                }
+                    });
             }
         }
 

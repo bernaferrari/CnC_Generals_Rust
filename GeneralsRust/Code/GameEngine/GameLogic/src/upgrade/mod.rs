@@ -86,58 +86,36 @@ pub fn complete_upgrade(player_id: u32, upgrade_name: &str) -> UpgradeResult<()>
     let template = center::with_upgrade_center(|center| center.find_upgrade(upgrade_name))
         .ok_or_else(|| UpgradeError::NotFound(upgrade_name.to_string()))?;
 
-    let player_arc = {
-        let Ok(list) = crate::player::ThePlayerList().read() else {
-            return Err(UpgradeError::NotFound(format!(
-                "Player {} list unavailable",
-                player_id
-            )));
-        };
-        list.get_player(player_id as i32).cloned()
-    };
-    let Some(player_arc) = player_arc else {
+    let applied = crate::player::with_player_mut(player_id as i32, |player_guard| {
+        let objects: Vec<_> = player_guard.get_all_objects().to_vec();
+        let affects_existing = template.affects_existing_objects();
+        let upgrade_mask = template.get_mask();
+        let upgrade_key = template.get_name_key();
+        if let Some(upgrade_mgr) = player_guard.get_upgrade_manager_mut() {
+            upgrade_mgr.add_completed_upgrade(upgrade_key, upgrade_mask);
+        }
+        (objects, affects_existing)
+    });
+    let Some((objects, affects_existing)) = applied else {
         return Err(UpgradeError::NotFound(format!(
             "Player {} not found",
             player_id
         )));
     };
 
-    {
-        let Ok(mut player_guard) = player_arc.write() else {
-            return Err(UpgradeError::NotFound(format!(
-                "Player {} lock failed",
-                player_id
-            )));
-        };
-
-        // Directly apply upgrade effects to player's objects.
-        // We can't call upgrade_mgr.grant_upgrade() because it needs &mut Player
-        // while the manager itself is borrowed from Player.
-        let objects: Vec<_> = player_guard.get_all_objects().to_vec();
-        let affects_existing = template.affects_existing_objects();
-        let upgrade_mask = template.get_mask();
-        let upgrade_key = template.get_name_key();
-
-        if let Some(upgrade_mgr) = player_guard.get_upgrade_manager_mut() {
-            upgrade_mgr.add_completed_upgrade(upgrade_key, upgrade_mask);
-        }
-
-        drop(player_guard);
-
-        if affects_existing {
-            for object_id in objects {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-                    object_id,
-                    |object_guard| {
-                        if object_guard.is_destroyed()
-                            || object_guard.get_controlling_player_id() != Some(player_id)
-                        {
-                            return;
-                        }
-                        object_guard.give_upgrade(template.as_ref());
-                    },
-                );
-            }
+    if affects_existing {
+        for object_id in objects {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                object_id,
+                |object_guard| {
+                    if object_guard.is_destroyed()
+                        || object_guard.get_controlling_player_id() != Some(player_id)
+                    {
+                        return;
+                    }
+                    object_guard.give_upgrade(template.as_ref());
+                },
+            );
         }
     }
 

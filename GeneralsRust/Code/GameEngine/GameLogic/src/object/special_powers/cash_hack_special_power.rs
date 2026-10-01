@@ -141,18 +141,20 @@ impl CashHackSpecialPower {
     /// Find the amount to steal based on player's science.
     /// Matches C++ CashHackSpecialPower::findAmountToSteal().
     fn find_amount_to_steal(&self) -> Int {
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(player) = owner_guard.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        for upgrade in &self.data.upgrades {
-                            if player_guard.has_science(upgrade.science) {
-                                return upgrade.amount_to_steal;
-                            }
-                        }
-                    }
-                }
-            }
+        let stolen = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| {
+                owner_guard.get_controlling_player().and_then(|player| {
+                    let player_guard = player.read().ok()?;
+                    self.data
+                        .upgrades
+                        .iter()
+                        .find(|upgrade| player_guard.has_science(upgrade.science))
+                        .map(|upgrade| upgrade.amount_to_steal)
+                })
+            })
+            .flatten();
+        if let Some(amount) = stolen {
+            return amount;
         }
         self.data.default_amount_to_steal
     }

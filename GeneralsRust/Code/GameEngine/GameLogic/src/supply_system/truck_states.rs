@@ -315,20 +315,10 @@ impl RegroupingState {
         let owner_player_id = owner_guard
             .get_controlling_player_id()
             .ok_or_else(|| "SupplyTruck owner missing player".to_string())?;
-        let owner_player = {
-            let list_guard = player_list()
-                .read()
-                .map_err(|_| "Player list lock poisoned".to_string())?;
-            list_guard
-                .get_player(owner_player_id as i32)
-                .cloned()
-                .ok_or_else(|| "SupplyTruck owner player missing".to_string())?
-        };
-        let owner_player_guard = owner_player
-            .read()
-            .map_err(|_| "Player lock poisoned".to_string())?;
-
-        let destination_object = find_regroup_target(&owner_guard, &owner_player_guard);
+        let destination_object = crate::player::with_player(owner_player_id as i32, |owner_player_guard| {
+            find_regroup_target(&owner_guard, owner_player_guard)
+        })
+        .ok_or_else(|| "SupplyTruck owner player missing".to_string())?;
         let Some(destination_object) = destination_object else {
             return Ok(StateReturnType::Failure);
         };

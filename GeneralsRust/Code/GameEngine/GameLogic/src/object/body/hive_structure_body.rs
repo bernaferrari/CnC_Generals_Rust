@@ -280,7 +280,7 @@ impl HiveStructureBody {
                 let mut closest_dist_sq = f32::INFINITY;
 
                 for rider_id in contained_ids {
-                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                    if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) {
                         if let Ok(rider_guard) = rider.read() {
                             let rider_pos = *rider_guard.get_position();
                             let dx = rider_pos.x - shooter_pos.x;

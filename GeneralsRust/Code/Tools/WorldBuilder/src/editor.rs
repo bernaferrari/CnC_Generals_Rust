@@ -393,36 +393,38 @@ impl GameTool for WorldBuilderTool {
         Ok(())
     }
 
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) -> Result<()> {
+    fn update(&mut self, ui: &mut eframe::egui::Ui, frame: &mut eframe::Frame) -> Result<()> {
+        let ctx = ui.ctx().clone();
+
         self.update_fps();
 
         // Process dialogs first
-        self.dialog_manager.update(ctx);
+        self.dialog_manager.update(&ctx);
         self.process_dialogs()?;
 
         self.chrome.set_map_name(self.current_map_name());
         self.chrome.set_unsaved(self.has_unsaved_changes());
 
-        if let Some(settings) = self.ui.process_new_map_dialog(ctx) {
+        if let Some(settings) = self.ui.process_new_map_dialog(&ctx) {
             if let Err(e) = self.new_map(settings) {
                 log::error!("Failed to create map: {}", e);
             }
         }
-        self.ui.show_about_dialog(ctx, &mut self.chrome);
+        self.ui.show_about_dialog(&ctx, &mut self.chrome);
 
         // C++-matching File/Edit/View/Tools/Help (in addition to ToolApp chrome).
-        egui::TopBottomPanel::top("wb_main_menu").show(ctx, |ui| {
+        egui::Panel::top("wb_main_menu").show(ui, |ui| {
             ui.horizontal(|ui| {
                 self.ui.show_main_menu(ui, &mut self.chrome);
             });
         });
-        self.drain_chrome_commands(ctx)?;
+        self.drain_chrome_commands(&ctx)?;
 
         // Main editor layout
-        egui::SidePanel::left("tool_panel")
+        egui::Panel::left("tool_panel")
             .resizable(true)
-            .default_width(250.0)
-            .show(ctx, |ui| {
+            .default_size(250.0)
+            .show(ui, |ui| {
                 self.ui.show_tool_panel(
                     ui,
                     &mut self.chrome,
@@ -431,21 +433,21 @@ impl GameTool for WorldBuilderTool {
                     &mut self.object_manager,
                 );
             });
-        self.drain_chrome_commands(ctx)?;
+        self.drain_chrome_commands(&ctx)?;
 
-        egui::SidePanel::right("properties_panel")
+        egui::Panel::right("properties_panel")
             .resizable(true)
-            .default_width(300.0)
-            .show(ctx, |ui| {
+            .default_size(300.0)
+            .show(ui, |ui| {
                 self.ui
                     .show_properties_panel(ui, &mut self.object_manager, &self.tool_manager);
             });
 
         if self.chrome.show_status_bar {
-            egui::TopBottomPanel::bottom("wb_status_bar")
+            egui::Panel::bottom("wb_status_bar")
                 .resizable(false)
-                .default_height(25.0)
-                .show(ctx, |ui| {
+                .default_size(25.0)
+                .show(ui, |ui| {
                     let map_size = self.current_map.as_ref().map(|map_arc| {
                         let map = map_arc.read().unwrap();
                         (map.width(), map.height())
@@ -456,7 +458,7 @@ impl GameTool for WorldBuilderTool {
         }
 
         // Main viewport area
-        let viewport_result = egui::CentralPanel::default().show(ctx, |ui| {
+        let viewport_result = egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 self.ui.show_viewport_toolbar(
                     ui,

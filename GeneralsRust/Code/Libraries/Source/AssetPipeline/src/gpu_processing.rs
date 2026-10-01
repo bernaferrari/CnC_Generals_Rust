@@ -72,17 +72,20 @@ impl GpuProcessor {
         {
             log::info!("Initializing GPU processor");
 
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::all(), ..wgpu::InstanceDescriptor::new_without_display_handle() });
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..wgpu::InstanceDescriptor::new_without_display_handle()
+            });
 
             let adapter = instance
                 .request_adapter(&wgpu::RequestAdapterOptions {
                     power_preference: match self.config.power_preference {
                         PowerPreference::LowPower => wgpu::PowerPreference::LowPower,
                         PowerPreference::HighPerformance => wgpu::PowerPreference::HighPerformance,
-            apply_limit_buckets: false,
                     },
                     compatible_surface: None,
                     force_fallback_adapter: false,
+                    apply_limit_buckets: false,
                 })
                 .await
                 .map_err(|e| {

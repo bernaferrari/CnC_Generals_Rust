@@ -805,8 +805,16 @@ pub struct Engine {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The `Arc<wgpu::Instance>`/`Adapter`/`Device`/`Queue`
+// handles and the surface are `Rc`-backed and `!Send` on the web backend, but
+// wasm32 has no threads, so they can never move to or be observed from
+// another thread. The impl only satisfies `Send` bounds of the engine's
+// global owners. Native keeps the auto traits.
 unsafe impl Send for Engine {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so `&Engine`
+// is never accessed from two threads and the handles' `!Sync` default is
+// unreachable.
 unsafe impl Sync for Engine {}
 
 impl Engine {

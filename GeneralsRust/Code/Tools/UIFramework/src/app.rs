@@ -73,9 +73,9 @@ impl ToolApp {
             options,
             Box::new(move |cc| {
                 // Configure graphics
-                if let Some(_gl) = &cc.gl {
+                if let Some(_render_state) = &cc.wgpu_render_state {
                     // Initialize 3D rendering context
-                    info!("OpenGL context initialized");
+                    info!("Graphics context initialized");
                 }
 
                 // Apply theme
@@ -96,7 +96,9 @@ impl ToolApp {
 }
 
 impl eframe::App for ToolApp {
-    fn update(&mut self, ctx: &eframe::egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut eframe::egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         self.performance_monitor.frame_start();
 
         // Check for hot reload updates
@@ -114,7 +116,7 @@ impl eframe::App for ToolApp {
         let fps = self.performance_monitor.get_fps();
         let mem_usage = self.performance_monitor.get_memory_usage();
         let command = self.chrome.show_shell(
-            ctx,
+            ui,
             |ui| {
                 if let Err(e) = self.tool.menu_bar(ui) {
                     warn!("Tool menu error: {}", e);
@@ -129,11 +131,11 @@ impl eframe::App for ToolApp {
         );
 
         if let Some(cmd) = command {
-            self.handle_chrome_command(ctx, &cmd);
+            self.handle_chrome_command(&ctx, &cmd);
         }
 
         // Center viewport: remaining space after chrome docks.
-        if let Err(e) = self.tool.update(ctx, frame) {
+        if let Err(e) = self.tool.update(ui, frame) {
             error!("Tool update error: {}", e);
         }
 

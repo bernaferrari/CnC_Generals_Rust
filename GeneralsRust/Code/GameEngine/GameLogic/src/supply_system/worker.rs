@@ -1175,13 +1175,9 @@ impl WorkerAIUpdate {
                         let is_ai_player = owner_guard
                             .get_controlling_player_id()
                             .and_then(|player_id| {
-                                let Ok(list) = player_list().read() else {
-                                    return None;
-                                };
-                                list.get_player(player_id as i32).cloned()
-                            })
-                            .and_then(|player| {
-                                player.read().ok().map(|guard| guard.is_skirmish_ai())
+                                crate::player::with_player(player_id as i32, |guard| {
+                                    guard.is_skirmish_ai()
+                                })
                             })
                             .unwrap_or(false);
                         if distance <= self.get_warehouse_scan_distance(is_ai_player) / 4.0 {

@@ -112,9 +112,10 @@ impl RadarUpgrade {
 
         // Update the player with another radar facility
         // Matches C++ RadarUpgrade.cpp line 111: player->addRadar( md->m_isDisableProof );
-        if let Some(player_arc) = object.get_controlling_player() {
-            // Lock the player to get mutable access
-            player_arc.write().unwrap().add_radar(is_disable_proof);
+        if let Some(player_id) = object.get_controlling_player_id() {
+            let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                player.add_radar(is_disable_proof);
+            });
             log::debug!(
                 "Added radar to player (disable_proof: {})",
                 is_disable_proof
@@ -140,12 +141,10 @@ impl RadarUpgrade {
         }
 
         // Remove the radar from the player
-        if let Some(player_arc) = object.get_controlling_player() {
-            // Lock the player to get mutable access
-            player_arc
-                .write()
-                .unwrap()
-                .remove_radar(self.data.is_disable_proof);
+        if let Some(player_id) = object.get_controlling_player_id() {
+            let _ = crate::player::with_player_mut(player_id as i32, |player| {
+                player.remove_radar(self.data.is_disable_proof);
+            });
             log::debug!("Removed radar from player");
         }
 

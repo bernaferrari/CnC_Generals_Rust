@@ -210,8 +210,7 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };
@@ -269,8 +268,7 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.get_contained_objects().contains(&object_id) {
             return false;
         }
-        let Some(obj) = TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
         else {
             return false;
         };

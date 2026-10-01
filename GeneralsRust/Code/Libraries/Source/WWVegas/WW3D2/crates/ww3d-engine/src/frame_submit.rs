@@ -47,8 +47,16 @@ struct PendingCommand {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `buffer: wgpu::CommandBuffer` is an `Rc`-backed handle
+// on the web backend and therefore `!Send` by default. wasm32 has no threads,
+// so the encoder can never move to or be submitted from another thread; the
+// impl only satisfies the `Send` bound of the `static PENDING: Mutex<Vec<Self>>`
+// that queues it.
 unsafe impl Send for PendingCommand {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&PendingCommand` is never shared between threads and the encoder's
+// `!Sync` default is unreachable.
 unsafe impl Sync for PendingCommand {}
 
 static FRAME_ACTIVE: AtomicBool = AtomicBool::new(false);
