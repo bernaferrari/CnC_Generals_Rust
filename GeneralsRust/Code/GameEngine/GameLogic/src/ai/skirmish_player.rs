@@ -1493,7 +1493,7 @@ impl AISkirmishPlayer {
 
         // C++: if current enemy exists and is not in bad shape, keep it.
         if let Some(enemy_index) = self.current_enemy {
-            let in_bad_shape = crate::player::list::with_player(enemy_index, |enemy_guard| {
+            let in_bad_shape = crate::player::with_player(enemy_index, |enemy_guard| {
                 !enemy_guard.has_any_units() || !enemy_guard.has_any_build_facility()
             });
             if in_bad_shape == Some(false) {

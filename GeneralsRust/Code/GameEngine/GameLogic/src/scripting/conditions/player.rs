@@ -1032,7 +1032,7 @@ impl ScriptCondition for PlayerAllDestroyedCondition {
             None => return Ok(true), // Non-existent player is all destroyed
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(!player.has_any_objects())
                 }).unwrap_or(Ok(false));
 }
@@ -1072,7 +1072,7 @@ impl ScriptCondition for PlayerHasCreditsCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let money = player.get_money().count_money() as i64;
             Ok(perform_comparison(credits, &comparison, money))
                 }).unwrap_or(Ok(false));
@@ -1114,7 +1114,7 @@ impl ScriptCondition for PlayerHasPowerCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(player.get_energy().has_sufficient_power())
                 }).unwrap_or(Ok(false));
 }
@@ -1187,7 +1187,7 @@ impl ScriptCondition for BuiltByPlayerCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_id() as u32;
             drop(player);
 
@@ -1537,7 +1537,7 @@ impl ScriptCondition for PlayerBuiltUpgradeCondition {
         let upgrade_name = get_str_param(parameters, "upgrade")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_index = player.get_player_index() as usize;
             let completed_mask = player.get_completed_upgrade_mask();
             let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
@@ -1591,7 +1591,7 @@ impl ScriptCondition for PlayerBuiltUpgradeFromNamedCondition {
         };
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_index = player.get_player_index() as usize;
             let completed_mask = player.get_completed_upgrade_mask();
             let upgrade_mask = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
@@ -1645,7 +1645,7 @@ impl ScriptCondition for PlayerAcquiredScienceCondition {
         let science_name = get_str_param(parameters, "science")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             let Some(store) = get_science_store() else {
                 return Ok(false);
@@ -1700,7 +1700,7 @@ impl ScriptCondition for PlayerCanPurchaseScienceCondition {
         let science_name = get_str_param(parameters, "science")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             let Some(store) = get_science_store() else {
                 return Ok(false);
@@ -1747,7 +1747,7 @@ impl ScriptCondition for PlayerHasSciencePurchasePointsCondition {
         let points = crate::scripting::actions::get_int_param(parameters, "points")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             Ok((player.get_science_purchase_points() as i64) >= points)
                 }).unwrap_or(Ok(false));
@@ -1787,7 +1787,7 @@ impl ScriptCondition for PlayerPowerComparePercentCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             let ratio = player.get_energy().supply_ratio();
             Ok(perform_comparison(
@@ -1836,7 +1836,7 @@ impl ScriptCondition for PlayerExcessPowerCompareValueCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             let energy = player.get_energy();
             let actual_kwh = energy.production() - energy.consumption();

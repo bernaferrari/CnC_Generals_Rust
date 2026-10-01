@@ -205,7 +205,7 @@ impl ScriptCondition for SkirmishSpecialPowerReadyCondition {
         };
         let power_name = get_str_param(parameters, "power_name")?;
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             let Some(store) = get_special_power_store() else {
                 return Ok(false);
@@ -265,7 +265,7 @@ impl ScriptCondition for SkirmishSpecialPowerReadyFromNamedCondition {
         };
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             let Some(store) = get_special_power_store() else {
                 return Ok(false);
@@ -402,7 +402,7 @@ impl ScriptCondition for SkirmishEasyAiCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(player.get_player_type() == PlayerType::Computer
                 && player.get_player_difficulty() == GameDifficulty::Easy)
                 }).unwrap_or(Ok(false));
@@ -440,7 +440,7 @@ impl ScriptCondition for SkirmishMediumAiCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(player.get_player_type() == PlayerType::Computer
                 && player.get_player_difficulty() == GameDifficulty::Normal)
                 }).unwrap_or(Ok(false));
@@ -478,7 +478,7 @@ impl ScriptCondition for SkirmishHardAiCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(player.get_player_type() == PlayerType::Computer
                 && player.get_player_difficulty() == GameDifficulty::Hard)
                 }).unwrap_or(Ok(false));
@@ -516,7 +516,7 @@ impl ScriptCondition for SkirmishPlayerIsAiCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(player.get_player_type() == PlayerType::Computer)
                 }).unwrap_or(Ok(false));
 }
@@ -556,7 +556,7 @@ impl ScriptCondition for SkirmishHasEnoughMoneyCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let money = player.get_money().count_money() as i64;
             Ok(perform_comparison(money, &comparison, amount))
                 }).unwrap_or(Ok(false));
@@ -599,7 +599,7 @@ impl ScriptCondition for SkirmishNeedsSupplyCondition {
         };
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_player_index() as u32;
             let money = player.get_money().count_money();
             let is_skirmish_ai = player.is_skirmish_ai();
@@ -662,7 +662,7 @@ impl ScriptCondition for SkirmishBuildingsDestroyedCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_id() as u32;
 
             drop(player); // release lock before accessing object manager
@@ -733,7 +733,7 @@ impl ScriptCondition for SkirmishUnitsDestroyedCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_id() as u32;
 
             drop(player);
@@ -804,7 +804,7 @@ impl ScriptCondition for SkirmishEnemyInAreaCondition {
         let area_name = get_str_param(parameters, "area")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_id() as u32;
 
             drop(player);
@@ -937,7 +937,7 @@ impl ScriptCondition for SkirmishBaseUnderAttackCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             if is_player_recently_under_attack(&player, 90) {
                 return Ok(true);
@@ -989,7 +989,7 @@ impl ScriptCondition for SkirmishSupplySourceAttackedCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_player_index() as u32;
             let is_skirmish_ai = player.is_skirmish_ai();
 
@@ -1054,7 +1054,7 @@ impl ScriptCondition for SkirmishCanBuildCondition {
         let object_name = get_str_param(parameters, "object_name")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let Some(template) = TheThingFactory::find_template(object_name.as_str()) else {
                 return Ok(false);
             };
@@ -1095,7 +1095,7 @@ impl ScriptCondition for SkirmishCanReinforceCondition {
             None => return Ok(false),
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             Ok(player.is_skirmish_ai()
                 && !player.is_defeated()
@@ -1218,7 +1218,7 @@ impl ScriptCondition for SkirmishPlayerHasScienceCondition {
         let science_name = get_str_param(parameters, "science")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             // Use the science store to look up the science type by name
             let science_store = game_engine::common::rts::get_science_store();
@@ -1267,7 +1267,7 @@ impl ScriptCondition for SkirmishPlayerHasUpgradeCondition {
         let upgrade_name = get_str_param(parameters, "upgrade")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
 
             // Check the upgrade bitmask
             let mask_bit = crate::upgrade::upgrade_mask_for_name(&upgrade_name);
@@ -1316,7 +1316,7 @@ impl ScriptCondition for SkirmishStructureCountCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_id() as u32;
 
             drop(player);
@@ -1389,7 +1389,7 @@ impl ScriptCondition for SkirmishUnitCountCondition {
         let comparison = get_str_param(parameters, "comparison")?;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_id = player.get_id() as u32;
 
             drop(player);
@@ -1455,7 +1455,7 @@ impl ScriptCondition for SkirmishPlayerDefeatedCondition {
             None => return Ok(true), // Non-existent player is defeated
         };
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             Ok(player.is_defeated())
                 }).unwrap_or(Ok(false));
 }
@@ -1493,7 +1493,7 @@ impl ScriptCondition for SkirmishAlliedWithHumanCondition {
         };
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             let player_mask = player.get_player_mask();
             drop(player);
 
@@ -1563,7 +1563,7 @@ impl ScriptCondition for SkirmishEnemyNearBaseCondition {
         let radius = super::super::actions::get_float_param(parameters, "radius")? as f32;
 
         let player_index = player_arc;
-            return crate::player::list::with_player(player_index, |player| {
+            return crate::player::with_player(player_index, |player| {
             if has_hostile_object_near_owned_objects(&player, radius, |obj| {
                 obj.is_kind_of(KindOf::Structure)
             }) {
