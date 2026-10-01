@@ -45,7 +45,7 @@ use crate::weapon::{WeaponLockType, WeaponSlotType};
 // use crate::object::update::UpdateModule;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::{Object, SpecialPowerTemplate};
-use crate::modules::extension_traits::ExperienceTrackerExt;
+use crate::modules::ExperienceTrackerExt;
 // use game_engine::thing::ThingFactory;
 use crate::common::Color;
 use crate::common::ObjectStatusTypes;

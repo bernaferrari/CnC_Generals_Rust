@@ -550,7 +550,7 @@ impl ScriptActionDispatcher {
                             return _ObjFlow::Cont;
                         }
                         
-                        drop(member_guard);
+
                         
                         if !full {
                             let mut pos = load_origin;

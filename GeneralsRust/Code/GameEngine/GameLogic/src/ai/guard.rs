@@ -2015,7 +2015,7 @@ pub fn has_attacked_me_and_i_can_return_fire(owner_id: ObjectID) -> bool {
         if last_attacker == crate::common::INVALID_ID {
             return None;
         }
-        body_guard.clear_last_attacker();
+        body_module.clear_last_attacker();
         Some(last_attacker)
     }) else {
         return false;

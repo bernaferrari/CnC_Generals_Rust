@@ -542,7 +542,7 @@ impl BattleBusSlowDeathBehavior {
     fn construct_with_object(
         object_id: ObjectID,
         module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
-        object_id: Option<ObjectID>,
+        _source_id: Option<ObjectID>,
     ) -> Self {
         Self {
             module_data,

@@ -1393,76 +1393,72 @@ impl ProductionUpdateComplete {
             return;
         }
         let upgrade_name = prod.entry.template_name.clone();
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(player_index) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| owner.get_controlling_player())
+            .flatten()
+        else {
             self.sync_actively_constructing_flag();
             if !self.queue.is_empty() {
                 let _ = self.start_next_production();
             }
             return;
         };
-        let player = owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_controlling_player());
-        if let Some(player) = player {
-            let player_index = player
-                .read()
-                .ok()
-                .map(|p| p.get_player_index() as usize)
-                .unwrap_or(0);
-            let se_ref = crate::scripting::engine::get_script_engine();
-            if let Ok(mut se_guard) = se_ref.write() {
-                if let Some(se) = se_guard.as_mut() {
-                    se.notify_of_completed_upgrade(
-                        player_index,
-                        upgrade_name.as_str(),
-                        self.owner_id,
-                    );
-                }
+        let player_index_usize = player_index as usize;
+        let se_ref = crate::scripting::engine::get_script_engine();
+        if let Ok(mut se_guard) = se_ref.write() {
+            if let Some(se) = se_guard.as_mut() {
+                se.notify_of_completed_upgrade(
+                    player_index_usize,
+                    upgrade_name.as_str(),
+                    self.owner_id,
+                );
             }
-            if let Ok(center) = get_upgrade_center().read() {
-                if let Some(upgrade) = center.find_upgrade(&upgrade_name) {
-                    let cost = player
-                        .read()
-                        .ok()
-                        .map(|p| upgrade.calc_cost_to_build(&p).max(0) as u32)
-                        .unwrap_or(0);
-                    match upgrade.get_upgrade_type() {
-                        UpgradeType::Player => {
-                            crate::player::PlayerArcExt::add_upgrade(
-                                &player,
+        }
+        if let Ok(center) = get_upgrade_center().read() {
+            if let Some(upgrade) = center.find_upgrade(&upgrade_name) {
+                let cost = crate::player::with_player(player_index, |player| {
+                    upgrade.calc_cost_to_build(player).max(0) as u32
+                })
+                .unwrap_or(0);
+                match upgrade.get_upgrade_type() {
+                    UpgradeType::Player => {
+                        crate::player::with_player_mut(player_index, |player| {
+                            player.add_upgrade(
                                 upgrade.as_ref(),
                                 UpgradeStatus::Complete,
                                 None,
                             );
-                        }
-                        UpgradeType::Object => {
-                            if let Ok(mut obj) = owner.write() {
+                        });
+                    }
+                    UpgradeType::Object => {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                            self.owner_id,
+                            |obj| {
                                 obj.give_upgrade(upgrade.as_ref());
-                            }
-                        }
-                    }
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard
-                            .get_academy_stats_mut()
-                            .record_upgrade(upgrade.as_ref(), false);
-                        player_guard.get_score_keeper_mut().add_money_spent(cost);
-                    }
-                    if let Some(audio) = TheAudio::get() {
-                        let mut sound = crate::common::audio::AudioEventRts::new(
-                            upgrade.get_research_sound().event_name.clone(),
+                            },
                         );
-                        if !sound.get_event_name().is_empty() {
-                            sound.set_object_id(self.owner_id);
-                            audio.add_audio_event(&sound);
-                        }
-                        let mut unit_sound = crate::common::audio::AudioEventRts::new(
-                            upgrade.get_unit_specific_sound().event_name.clone(),
-                        );
-                        if !unit_sound.get_event_name().is_empty() {
-                            unit_sound.set_object_id(self.owner_id);
-                            audio.add_audio_event(&unit_sound);
-                        }
+                    }
+                }
+                crate::player::with_player_mut(player_index, |player| {
+                    player
+                        .get_academy_stats_mut()
+                        .record_upgrade(upgrade.as_ref(), false);
+                    player.get_score_keeper_mut().add_money_spent(cost);
+                });
+                if let Some(audio) = TheAudio::get() {
+                    let mut sound = crate::common::audio::AudioEventRts::new(
+                        upgrade.get_research_sound().event_name.clone(),
+                    );
+                    if !sound.get_event_name().is_empty() {
+                        sound.set_object_id(self.owner_id);
+                        audio.add_audio_event(&sound);
+                    }
+                    let mut unit_sound = crate::common::audio::AudioEventRts::new(
+                        upgrade.get_unit_specific_sound().event_name.clone(),
+                    );
+                    if !unit_sound.get_event_name().is_empty() {
+                        unit_sound.set_object_id(self.owner_id);
+                        audio.add_audio_event(&unit_sound);
                     }
                 }
             }
