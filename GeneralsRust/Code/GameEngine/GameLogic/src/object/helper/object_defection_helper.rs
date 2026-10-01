@@ -25,6 +25,49 @@ use std::sync::{Arc, RwLock};
 pub const DEFECTION_DETECTION_TIME_MAX: u32 = 30 * 10; // LOGICFRAMES_PER_SECOND * 10
 pub const LOGICFRAMES_PER_SECOND: u32 = 30;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DefectionTimerSound {
+    Tick,
+    Ding,
+}
+
+/// Run the C++ `Object::defect` presentation callbacks in their observable order.
+pub(crate) fn dispatch_defection_start_effects(
+    has_drawable: bool,
+    play_voice: impl FnOnce(),
+    flash: impl FnOnce(),
+    play_tick: impl FnOnce(),
+) {
+    play_voice();
+    if has_drawable {
+        flash();
+        play_tick();
+    }
+}
+
+/// Run `ObjectDefectionHelper::update` effects: clear cover before presentation.
+pub(crate) fn dispatch_defection_update_effects(
+    clear_defector: bool,
+    has_drawable: bool,
+    flash: bool,
+    sound: Option<DefectionTimerSound>,
+    clear: impl FnOnce(),
+    do_flash: impl FnOnce(),
+    play_sound: impl FnOnce(DefectionTimerSound),
+) {
+    if clear_defector {
+        clear();
+    }
+    if has_drawable && flash {
+        do_flash();
+    }
+    if has_drawable {
+        if let Some(sound) = sound {
+            play_sound(sound);
+        }
+    }
+}
+
 /// Module data for ObjectDefectionHelper
 ///
 /// No configuration parameters needed for this helper
@@ -262,6 +305,51 @@ mod tests {
     use super::*;
     use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
+
+    #[test]
+    fn defect_start_effects_run_voice_flash_then_tick() {
+        let events = std::cell::RefCell::new(Vec::new());
+        dispatch_defection_start_effects(
+            true,
+            || events.borrow_mut().push("voice"),
+            || events.borrow_mut().push("flash"),
+            || events.borrow_mut().push("tick"),
+        );
+        assert_eq!(*events.borrow(), ["voice", "flash", "tick"]);
+    }
+
+    #[test]
+    fn expired_defection_clears_before_white_flash_and_ding() {
+        let events = std::cell::RefCell::new(Vec::new());
+        dispatch_defection_update_effects(
+            true,
+            true,
+            true,
+            Some(DefectionTimerSound::Ding),
+            || events.borrow_mut().push("clear"),
+            || events.borrow_mut().push("flash"),
+            |sound| {
+                assert_eq!(sound, DefectionTimerSound::Ding);
+                events.borrow_mut().push("ding");
+            },
+        );
+        assert_eq!(*events.borrow(), ["clear", "flash", "ding"]);
+    }
+
+    #[test]
+    fn defection_without_drawable_clears_without_flash_or_timer_sound() {
+        let events = std::cell::RefCell::new(Vec::new());
+        dispatch_defection_update_effects(
+            true,
+            false,
+            true,
+            Some(DefectionTimerSound::Ding),
+            || events.borrow_mut().push("clear"),
+            || events.borrow_mut().push("flash"),
+            |_| events.borrow_mut().push("ding"),
+        );
+        assert_eq!(*events.borrow(), ["clear"]);
+    }
 
     #[test]
     fn test_defection_helper_creation() {

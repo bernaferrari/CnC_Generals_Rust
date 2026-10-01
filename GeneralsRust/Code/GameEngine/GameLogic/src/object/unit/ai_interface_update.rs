@@ -36,8 +36,7 @@ impl UnitAIUpdate {
         &mut self,
         turret: &std::sync::Arc<std::sync::Mutex<crate::ai::turret::TurretAI>>,
     ) {
-        let adjustment =
-            self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Idle);
+        let adjustment = self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Idle);
         if (adjustment & crate::ai::mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL) != 0 {
             return;
         }
@@ -46,7 +45,8 @@ impl UnitAIUpdate {
         };
         if let Some(owner_id) = self.owner_object_id() {
             if let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) {
-                if let (Ok(mut owner_write), Ok(target_guard)) = (owner_arc.try_write(), enemy.read())
+                if let (Ok(mut owner_write), Ok(target_guard)) =
+                    (owner_arc.try_write(), enemy.read())
                 {
                     let _ = owner_write.choose_best_weapon_for_target(
                         &target_guard,
@@ -71,7 +71,12 @@ impl UnitAIUpdate {
             .ok()
             .and_then(|guard| guard.export_idle_goal().0)
             .and_then(|weak| weak.upgrade())
-            .and_then(|machine| machine.lock().ok().and_then(|guard| guard.get_current_state_id()))
+            .and_then(|machine| {
+                machine
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.get_current_state_id())
+            })
             == Some(idle_id);
         if still_idle {
             if let Ok(mut guard) = turret.lock() {
@@ -311,7 +316,6 @@ impl UnitAIUpdate {
             Snapshotable::xfer(jet_ai, xfer)?;
         }
 
-
         Ok(true)
     }
     pub(super) fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -404,7 +408,8 @@ impl UnitAIUpdate {
             self.jet_ai = Some(jet_ai);
         }
 
-        let attack_adjust = self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
+        let attack_adjust =
+            self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
         let attack_ok = (attack_adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0;
         let has_primary = self.turret_primary_machine.is_some();
         let has_secondary = self.turret_secondary_machine.is_some();
@@ -477,7 +482,8 @@ impl UnitAIUpdate {
                 owner.ai_fire_secondary_turn_rate = secondary_turn_rate;
                 owner.ai_fire_ultra_accurate = ultra_accurate;
                 owner.ai_fire_loco_appearance = loco_appearance;
-                owner.ai_fire_mood_target = (mood_target != crate::common::INVALID_ID).then_some(mood_target);
+                owner.ai_fire_mood_target =
+                    (mood_target != crate::common::INVALID_ID).then_some(mood_target);
                 owner.ai_fire_ground_movement = ground_movement;
                 owner.ai_fire_is_idle = is_idle;
                 owner.ai_fire_ultra_accurate = ultra_accurate;
@@ -533,27 +539,25 @@ impl UnitAIUpdate {
             }
         }
         if let Some(owner_id) = self.owner_object_id() {
-            let pending_state =
-                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                    owner.ai_pending_state_id.take()
-                });
+            let pending_state = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_state_id.take());
             if let Some(Some(state_id)) = pending_state {
                 self.enter_ai_state(state_id);
             }
         }
         if let Some(owner_id) = self.owner_object_id() {
-            let pending = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_fire_pending_victim.take()
-            });
+            let pending = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_fire_pending_victim.take());
             if let Some(Some(victim)) = pending {
                 self.notify_new_victim_chosen(victim);
             }
-            let orders = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                (
-                    std::mem::take(&mut owner.ai_pending_turret_objects),
-                    std::mem::take(&mut owner.ai_pending_turret_positions),
-                )
-            });
+            let orders =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    (
+                        std::mem::take(&mut owner.ai_pending_turret_objects),
+                        std::mem::take(&mut owner.ai_pending_turret_positions),
+                    )
+                });
             if let Some((objects, positions)) = orders {
                 for (turret, target, force) in objects {
                     self.set_turret_target_object(turret, target, force);
@@ -562,67 +566,68 @@ impl UnitAIUpdate {
                     self.set_turret_target_position(turret, &pos);
                 }
             }
-            let speed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_desired_speed.take()
-            });
+            let speed = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_desired_speed.take());
             if let Some(Some(speed)) = speed {
                 self.set_desired_speed(speed);
             }
-            let clear_ignore = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let clear = owner.ai_pending_clear_ignore;
-                owner.ai_pending_clear_ignore = false;
-                clear
-            });
+            let clear_ignore =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let clear = owner.ai_pending_clear_ignore;
+                    owner.ai_pending_clear_ignore = false;
+                    clear
+                });
             if clear_ignore == Some(true) {
                 let _ = self.ignore_obstacle(None);
             }
-            let victim_dead = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let dead = owner.ai_pending_victim_dead;
-                owner.ai_pending_victim_dead = false;
-                dead
-            });
+            let victim_dead =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let dead = owner.ai_pending_victim_dead;
+                    owner.ai_pending_victim_dead = false;
+                    dead
+                });
             if victim_dead == Some(true) {
                 self.notify_victim_is_dead();
             }
-            let destroy_path = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let destroy = owner.ai_pending_destroy_path;
-                owner.ai_pending_destroy_path = false;
-                destroy
-            });
+            let destroy_path =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let destroy = owner.ai_pending_destroy_path;
+                    owner.ai_pending_destroy_path = false;
+                    destroy
+                });
             if destroy_path == Some(true) {
                 self.destroy_path();
             }
-            let ending_move = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let ending = owner.ai_pending_ending_move;
-                owner.ai_pending_ending_move = false;
-                ending
-            });
+            let ending_move =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let ending = owner.ai_pending_ending_move;
+                    owner.ai_pending_ending_move = false;
+                    ending
+                });
             if ending_move == Some(true) {
                 self.friend_ending_move();
             }
-            let completed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_completed_waypoint.take()
-            });
+            let completed = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_completed_waypoint.take());
             if let Some(Some(id)) = completed {
                 self.set_completed_waypoint_id(Some(id));
             }
-            let precise_z = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_precise_z.take()
-            });
+            let precise_z = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_precise_z.take());
             if let Some(Some(precise)) = precise_z {
                 self.with_cur_locomotor(&mut |loco| loco.set_precise_z_pos(precise));
             }
-            let path_index = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_goal_path_index.take()
-            });
+            let path_index = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_goal_path_index.take());
             if let Some(Some(index)) = path_index {
                 let _ = self.set_current_goal_path_index(index);
             }
-            let busy = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let busy = owner.ai_pending_busy;
-                owner.ai_pending_busy = false;
-                busy
-            });
+            let busy =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let busy = owner.ai_pending_busy;
+                    owner.ai_pending_busy = false;
+                    busy
+                });
             if busy == Some(true) {
                 let params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::Busy,
@@ -630,13 +635,14 @@ impl UnitAIUpdate {
                 );
                 let _ = self.execute_command(&params);
             }
-            let drop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let drop = owner.ai_pending_combat_drop;
-                let obj = owner.ai_pending_combat_drop_obj.take();
-                let pos = owner.ai_pending_combat_drop_pos.take();
-                owner.ai_pending_combat_drop = false;
-                (drop, obj, pos)
-            });
+            let drop =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let drop = owner.ai_pending_combat_drop;
+                    let obj = owner.ai_pending_combat_drop_obj.take();
+                    let pos = owner.ai_pending_combat_drop_pos.take();
+                    owner.ai_pending_combat_drop = false;
+                    (drop, obj, pos)
+                });
             if let Some((true, obj, pos)) = drop {
                 let mut params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::CombatDrop,
@@ -648,38 +654,37 @@ impl UnitAIUpdate {
                 }
                 let _ = self.execute_command(&params);
             }
-            let hack = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let hack = owner.ai_pending_hack;
-                let source = owner.ai_pending_hack_source;
-                owner.ai_pending_hack = false;
-                (hack, source)
-            });
+            let hack =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let hack = owner.ai_pending_hack;
+                    let source = owner.ai_pending_hack_source;
+                    owner.ai_pending_hack = false;
+                    (hack, source)
+                });
             if let Some((true, source)) = hack {
-                let params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::HackInternet,
-                    source,
-                );
+                let params =
+                    crate::ai::AiCommandParams::new(crate::ai::AiCommandType::HackInternet, source);
                 let _ = self.execute_command(&params);
             }
-            let idle = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let idle = owner.ai_pending_idle;
-                let source = owner.ai_pending_idle_source;
-                owner.ai_pending_idle = false;
-                (idle, source)
-            });
+            let idle =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let idle = owner.ai_pending_idle;
+                    let source = owner.ai_pending_idle_source;
+                    owner.ai_pending_idle = false;
+                    (idle, source)
+                });
             if let Some((true, source)) = idle {
-                let params = crate::ai::AiCommandParams::new(
-                    crate::ai::AiCommandType::Idle,
-                    source,
-                );
+                let params =
+                    crate::ai::AiCommandParams::new(crate::ai::AiCommandType::Idle, source);
                 let _ = self.execute_command(&params);
             }
-            let exit = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let exit = owner.ai_pending_exit.take();
-                let source = owner.ai_pending_exit_source;
-                let obj = owner.ai_pending_exit_obj.take();
-                (exit, source, obj)
-            });
+            let exit =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let exit = owner.ai_pending_exit.take();
+                    let source = owner.ai_pending_exit_source;
+                    let obj = owner.ai_pending_exit_obj.take();
+                    (exit, source, obj)
+                });
             if let Some((Some(instantly), source, obj)) = exit {
                 let cmd = if instantly {
                     crate::ai::AiCommandType::ExitInstantly
@@ -690,11 +695,12 @@ impl UnitAIUpdate {
                 params.obj = obj;
                 let _ = self.execute_command(&params);
             }
-            let evacuate = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let evacuate = owner.ai_pending_evacuate;
-                owner.ai_pending_evacuate = false;
-                evacuate
-            });
+            let evacuate =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let evacuate = owner.ai_pending_evacuate;
+                    owner.ai_pending_evacuate = false;
+                    evacuate
+                });
             if evacuate == Some(true) {
                 let params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::Evacuate,
@@ -702,9 +708,8 @@ impl UnitAIUpdate {
                 );
                 let _ = self.execute_command(&params);
             }
-            let follow = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_follow_pos.take()
-            });
+            let follow = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_follow_pos.take());
             if let Some(Some(pos)) = follow {
                 let mut params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::MoveToPosition,
@@ -713,9 +718,8 @@ impl UnitAIUpdate {
                 params.pos = pos;
                 let _ = self.execute_command(&params);
             }
-            let heal = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_heal.take()
-            });
+            let heal = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_heal.take());
             if let Some(Some(target)) = heal {
                 let mut params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::GetHealed,
@@ -724,13 +728,14 @@ impl UnitAIUpdate {
                 params.obj = Some(target);
                 let _ = self.execute_command(&params);
             }
-            let rappel = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let rappel = owner.ai_pending_rappel;
-                let obj = owner.ai_pending_rappel_obj.take();
-                let pos = owner.ai_pending_rappel_pos.take();
-                owner.ai_pending_rappel = false;
-                (rappel, obj, pos)
-            });
+            let rappel =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let rappel = owner.ai_pending_rappel;
+                    let obj = owner.ai_pending_rappel_obj.take();
+                    let pos = owner.ai_pending_rappel_pos.take();
+                    owner.ai_pending_rappel = false;
+                    (rappel, obj, pos)
+                });
             if let Some((true, obj, pos)) = rappel {
                 let mut params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::RappelInto,
@@ -742,18 +747,18 @@ impl UnitAIUpdate {
                 }
                 let _ = self.execute_command(&params);
             }
-            let path_goal = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_path_goal.take()
-            });
+            let path_goal = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| owner.ai_pending_path_goal.take());
             if let Some(Some(goal)) = path_goal {
                 let _ = self.request_path(&goal, false);
             }
-            let attack = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let ignore = owner.ai_pending_ignore_id.take();
-                let extra = owner.ai_pending_path_extra.take();
-                let path = owner.ai_pending_attack_path.take();
-                (ignore, extra, path)
-            });
+            let attack =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let ignore = owner.ai_pending_ignore_id.take();
+                    let extra = owner.ai_pending_path_extra.take();
+                    let path = owner.ai_pending_attack_path.take();
+                    (ignore, extra, path)
+                });
             if let Some((ignore, extra, path)) = attack {
                 if let Some(id) = ignore {
                     let _ = self.ignore_obstacle(Some(id));
@@ -765,21 +770,23 @@ impl UnitAIUpdate {
                     let _ = self.request_attack_path(id, &pos);
                 }
             }
-            let original_pos = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                owner.ai_pending_original_victim_pos.take()
-            });
+            let original_pos = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| {
+                    owner.ai_pending_original_victim_pos.take()
+                });
             if let Some(Some(stored)) = original_pos {
                 self.set_original_victim_pos(stored);
             }
-            let clears = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let set_victim = owner.ai_pending_set_victim.take();
-                let path_through = owner.ai_pending_path_through_units.take();
-                let victim = owner.ai_pending_clear_victim;
-                let goal = owner.ai_pending_clear_goal;
-                owner.ai_pending_clear_victim = false;
-                owner.ai_pending_clear_goal = false;
-                (set_victim, path_through, victim, goal)
-            });
+            let clears =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let set_victim = owner.ai_pending_set_victim.take();
+                    let path_through = owner.ai_pending_path_through_units.take();
+                    let victim = owner.ai_pending_clear_victim;
+                    let goal = owner.ai_pending_clear_goal;
+                    owner.ai_pending_clear_victim = false;
+                    owner.ai_pending_clear_goal = false;
+                    (set_victim, path_through, victim, goal)
+                });
             if let Some((set_victim, path_through, victim, goal)) = clears {
                 if let Some(id) = set_victim {
                     self.set_current_victim(Some(id));
@@ -787,12 +794,13 @@ impl UnitAIUpdate {
                 if let Some(allow) = path_through {
                     let _ = self.set_can_path_through_units(allow);
                 }
-                let enter = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                    (
-                        owner.ai_pending_allow_invalid_position.take(),
-                        owner.ai_pending_goal_id.take(),
-                    )
-                });
+                let enter =
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                        (
+                            owner.ai_pending_allow_invalid_position.take(),
+                            owner.ai_pending_goal_id.take(),
+                        )
+                    });
                 if let Some((allow_invalid, goal_id)) = enter {
                     if let Some(allow) = allow_invalid {
                         let _ = self.set_allow_invalid_position(allow);
@@ -808,21 +816,23 @@ impl UnitAIUpdate {
                     self.set_goal_object(None);
                 }
             }
-            let reset_mood = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let reset = owner.ai_pending_reset_mood;
-                owner.ai_pending_reset_mood = false;
-                reset
-            });
+            let reset_mood =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let reset = owner.ai_pending_reset_mood;
+                    owner.ai_pending_reset_mood = false;
+                    reset
+                });
             if reset_mood == Some(true) {
                 self.reset_next_mood_check_time();
             }
-            let idle_cmd = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                (
-                    owner.ai_pending_move_crate.take(),
-                    owner.ai_pending_attack_id.take(),
-                    owner.ai_pending_attack_move.take(),
-                )
-            });
+            let idle_cmd =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    (
+                        owner.ai_pending_move_crate.take(),
+                        owner.ai_pending_attack_id.take(),
+                        owner.ai_pending_attack_move.take(),
+                    )
+                });
             if let Some((crate_id, attack_id, attack_move)) = idle_cmd {
                 if let Some(id) = crate_id {
                     let mut params = crate::ai::AiCommandParams::new(
@@ -867,37 +877,41 @@ impl UnitAIUpdate {
                     let _ = self.execute_command(&params);
                 }
             }
-            let clear_guard = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let clear = owner.ai_pending_clear_guard_target;
-                owner.ai_pending_clear_guard_target = false;
-                clear
-            });
+            let clear_guard =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let clear = owner.ai_pending_clear_guard_target;
+                    owner.ai_pending_clear_guard_target = false;
+                    clear
+                });
             if clear_guard == Some(true) {
                 self.clear_guard_target_type();
             }
-            let wake_path = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let wake = owner.ai_pending_wake_path;
-                owner.ai_pending_wake_path = false;
-                wake
-            });
+            let wake_path =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let wake = owner.ai_pending_wake_path;
+                    owner.ai_pending_wake_path = false;
+                    wake
+                });
             if wake_path == Some(true) {
                 self.set_queue_for_path_time(0);
             }
-            let clear_move_out = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let clear = owner.ai_pending_clear_move_out;
-                owner.ai_pending_clear_move_out = false;
-                clear
-            });
+            let clear_move_out =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let clear = owner.ai_pending_clear_move_out;
+                    owner.ai_pending_clear_move_out = false;
+                    clear
+                });
             if clear_move_out == Some(true) {
                 self.clear_move_out_of_way();
             }
-            let goals = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                let orientation = owner.ai_pending_goal_orientation.take();
-                let position = owner.ai_pending_goal_position.take();
-                let none = owner.ai_pending_goal_none;
-                owner.ai_pending_goal_none = false;
-                (orientation, position, none)
-            });
+            let goals =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    let orientation = owner.ai_pending_goal_orientation.take();
+                    let position = owner.ai_pending_goal_position.take();
+                    let none = owner.ai_pending_goal_none;
+                    owner.ai_pending_goal_none = false;
+                    (orientation, position, none)
+                });
             if let Some((orientation, position, none)) = goals {
                 if let Some(angle) = orientation {
                     self.set_locomotor_goal_orientation(angle);
@@ -911,9 +925,10 @@ impl UnitAIUpdate {
             }
         }
         if let Some(owner_id) = self.owner_object_id() {
-            let produced = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
-                std::mem::take(&mut owner.ai_pending_produced_exits)
-            });
+            let produced = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(owner_id, |owner| {
+                    std::mem::take(&mut owner.ai_pending_produced_exits)
+                });
             if let Some(produced) = produced {
                 for exit in produced {
                     match exit {
@@ -983,9 +998,8 @@ impl UnitAIUpdate {
                 if let Some(turret) = machine.get_turret_ai() {
                     if let Ok(mut guard) = turret.lock() {
                         guard.set_turrets_linked_cached(self.are_turrets_linked());
-                        let adjust = self.get_mood_matrix_action_adjustment(
-                            crate::ai::MoodMatrixAction::Attack,
-                        );
+                        let adjust = self
+                            .get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
                         guard.set_attack_ok_cached(
                             (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
                         );
@@ -1015,9 +1029,8 @@ impl UnitAIUpdate {
                 if let Some(turret) = machine.get_turret_ai() {
                     if let Ok(mut guard) = turret.lock() {
                         guard.set_turrets_linked_cached(self.are_turrets_linked());
-                        let adjust = self.get_mood_matrix_action_adjustment(
-                            crate::ai::MoodMatrixAction::Attack,
-                        );
+                        let adjust = self
+                            .get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
                         guard.set_attack_ok_cached(
                             (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
                         );
@@ -1522,7 +1535,8 @@ impl UnitAIUpdate {
                     object.get_geometry_info().get_bounding_circle_radius(),
                     bridge_end,
                 ))
-        }) else {
+            })
+        else {
             return;
         };
         if !self.is_moving() {

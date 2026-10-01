@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, Real, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
@@ -92,7 +92,7 @@ impl Snapshotable for MaxHealthUpgradeModuleData {
 
 /// Upgrade module that increases max health on the owning object.
 pub struct MaxHealthUpgrade {
-    inner: Arc<Mutex<MaxHealthUpgradeInner>>,
+    inner: MaxHealthUpgradeInner,
     module_name_key: NameKeyType,
     data: Arc<MaxHealthUpgradeModuleData>,
     object_id: ObjectID,
@@ -353,11 +353,7 @@ impl MaxHealthUpgrade {
         object_id: ObjectID,
     ) -> Self {
         let data_clone = Arc::clone(&data);
-        let inner = Arc::new(Mutex::new(MaxHealthUpgradeInner::new(
-            module_name_key,
-            data,
-            object_id,
-        )));
+        let inner = MaxHealthUpgradeInner::new(module_name_key, data, object_id);
         Self {
             inner,
             module_name_key,
@@ -367,9 +363,8 @@ impl MaxHealthUpgrade {
         }
     }
 
-    fn with_inner<R>(&self, f: impl FnOnce(&mut MaxHealthUpgradeInner) -> R) -> R {
-        let mut guard = self.inner.lock().expect("MaxHealthUpgrade inner poisoned");
-        f(&mut guard)
+    fn with_inner<R>(&mut self, f: impl FnOnce(&mut MaxHealthUpgradeInner) -> R) -> R {
+        f(&mut self.inner)
     }
 }
 
@@ -405,11 +400,9 @@ impl Snapshotable for MaxHealthUpgrade {
         if version >= 2 {
             let mut has_original: bool = false;
             let mut original_val: f32 = 0.0;
-            if let Ok(guard) = self.inner.lock() {
-                if let Some(val) = guard.original_max_health {
-                    has_original = true;
-                    original_val = val;
-                }
+            if let Some(val) = self.inner.original_max_health {
+                has_original = true;
+                original_val = val;
             }
             xfer.xfer_bool(&mut has_original)
                 .map_err(|e| e.to_string())?;
@@ -428,24 +421,20 @@ impl Snapshotable for MaxHealthUpgrade {
         if version >= 2 {
             let mut has_original: bool = false;
             let mut original_val: f32 = 0.0;
-            if let Ok(guard) = self.inner.lock() {
-                if let Some(val) = guard.original_max_health {
-                    has_original = true;
-                    original_val = val;
-                }
+            if let Some(val) = self.inner.original_max_health {
+                has_original = true;
+                original_val = val;
             }
             xfer.xfer_bool(&mut has_original)
                 .map_err(|e| e.to_string())?;
             xfer.xfer_real(&mut original_val)
                 .map_err(|e| e.to_string())?;
             if xfer.is_reading() {
-                if let Ok(mut guard) = self.inner.lock() {
-                    guard.original_max_health = if has_original {
-                        Some(original_val)
-                    } else {
-                        None
-                    };
-                }
+                self.inner.original_max_health = if has_original {
+                    Some(original_val)
+                } else {
+                    None
+                };
             }
         }
         Ok(())
@@ -553,6 +542,34 @@ mod tests {
             .write()
             .expect("max health upgrade registry poisoned")
             .clear();
+    }
+
+    #[test]
+    fn max_health_owned_state_is_isolated_and_survives_xfer() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let _guard = TEST_LOCK.lock().unwrap();
+        // The registry is a separate boundary; zero ID suppresses registration.
+        let mut first = MaxHealthUpgrade::new(
+            NameKeyType::default(), Arc::new(MaxHealthUpgradeModuleData::default()), INVALID_ID,
+        );
+        let mut second = MaxHealthUpgrade::new(
+            NameKeyType::default(), Arc::new(MaxHealthUpgradeModuleData::default()), INVALID_ID,
+        );
+        first.applied = true;
+        first.inner.original_max_health = Some(125.0);
+        second.inner.original_max_health = Some(75.0);
+        let mut saved = Vec::new();
+        first.xfer(&mut XferSave::new(Cursor::new(&mut saved), 1)).unwrap();
+        assert!(!second.applied);
+        assert_eq!(second.inner.original_max_health, Some(75.0));
+        second.xfer(&mut XferLoad::new(Cursor::new(saved), 1)).unwrap();
+        assert!(second.applied);
+        assert_eq!(second.inner.original_max_health, Some(125.0));
+        second.inner.original_max_health = None;
+        assert_eq!(first.inner.original_max_health, Some(125.0));
     }
 
     #[test]

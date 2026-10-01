@@ -468,10 +468,9 @@ fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
         None,
     );
 
-    assert!(
-        !ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
-            .unwrap()
-    );
+    assert!(!ai
+        .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+        .unwrap());
 
     assert!(ai.retry_path);
     assert_eq!(ai.queue_for_path_frame, 0);
@@ -533,10 +532,9 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     ai.locomotor_goal_type = 1;
     ai.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
 
-    assert!(
-        ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
-            .unwrap()
-    );
+    assert!(ai
+        .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+        .unwrap());
 
     assert_eq!(
         ai.queue_for_path_frame,
@@ -606,7 +604,8 @@ fn set_path_from_waypoint_prepends_current_position_like_cpp() {
         "Terminal".to_string(),
     );
     let raw_terminal = Coord3D::new(33.8, 39.2, 0.0);
-    let ai_store = the_ai();let expected_terminal = ai_store
+    let ai_store = the_ai();
+    let expected_terminal = ai_store
         .read()
         .ok()
         .and_then(|ai| ai.pathfinder())
@@ -653,6 +652,28 @@ fn check_for_crate_to_pickup_consumes_marker_before_lookup_like_cpp() {
     assert_eq!(ai.get_crate_id(), INVALID_ID);
 
     crate::ai::object_registry::unregister_legacy_object(crate_id);
+}
+
+#[test]
+fn crate_created_marker_is_owned_per_ai_and_roundtrips_xfer() {
+    let mut first = unit_ai_update_without_unit();
+    let mut second = unit_ai_update_without_unit();
+    first.notify_crate(58);
+    second.notify_crate(59);
+
+    assert_eq!(first.get_crate_id(), 58);
+    assert_eq!(second.get_crate_id(), 59);
+    assert_eq!(first.check_for_crate_to_pickup_id(), INVALID_ID);
+    assert_eq!(first.get_crate_id(), INVALID_ID);
+    assert_eq!(second.get_crate_id(), 59);
+
+    let bytes = save_unit_ai_update(&mut second);
+    let mut loaded = unit_ai_update_without_unit();
+    {
+        let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+        loaded.xfer_ai_update_state(&mut xfer).unwrap();
+    }
+    assert_eq!(loaded.get_crate_id(), 59);
 }
 
 #[test]

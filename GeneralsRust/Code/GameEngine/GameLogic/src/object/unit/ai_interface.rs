@@ -42,7 +42,6 @@ impl AIUpdateInterface for UnitAIUpdate {
         UnitAIUpdate::get_turret_turn_rate(self, turret)
     }
 
-
     fn get_which_turret_for_weapon_slot(&self, slot: WeaponSlotType) -> TurretType {
         UnitAIUpdate::get_which_turret_for_weapon_slot(self, slot)
     }
@@ -532,7 +531,6 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn get_current_victim_pos(&self) -> Option<Coord3D> {
         UnitAIUpdate::get_current_victim_pos(self)
     }
-
 
     fn set_goal_position(&mut self, pos: Option<Coord3D>) {
         UnitAIUpdate::set_goal_position(self, pos)

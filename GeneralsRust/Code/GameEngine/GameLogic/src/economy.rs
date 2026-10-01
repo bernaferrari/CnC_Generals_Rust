@@ -5,7 +5,7 @@
 //!
 //! Integrates with the supply_system module for complete supply collection gameplay.
 
-use crate::common::{Coord3D, INVALID_ID, KindOf, ObjectID, PlayerId, Relationship};
+use crate::common::{Coord3D, KindOf, ObjectID, PlayerId, Relationship, INVALID_ID};
 use crate::helpers::ThePartitionManager;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::supply_system::{
@@ -23,7 +23,7 @@ fn dual_world_registry_unavailable() -> bool {
 type ObjectId = ObjectID;
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 /// Resource types in the game
@@ -244,7 +244,6 @@ pub enum EconomicEvent {
 
 /// Main economy manager
 pub struct EconomyManager {
-    // Manual Debug impl below due to Mutex<VecDeque<(Instant, EconomicEvent)>>
     /// Player resource storage
     player_resources: HashMap<u32, Arc<RwLock<ResourceStorage>>>,
     /// Economic buildings by player
@@ -254,7 +253,7 @@ pub struct EconomyManager {
     /// Economic metrics by player
     player_metrics: HashMap<u32, EconomicMetrics>,
     /// Economic event history
-    event_history: Mutex<VecDeque<(Instant, EconomicEvent)>>,
+    event_history: VecDeque<(Instant, EconomicEvent)>,
     /// Global economic modifiers
     global_modifiers: HashMap<String, f32>,
     /// Market prices for trading
@@ -285,7 +284,7 @@ impl EconomyManager {
             player_buildings: HashMap::new(),
             player_supply_lines: HashMap::new(),
             player_metrics: HashMap::new(),
-            event_history: Mutex::new(VecDeque::new()),
+            event_history: VecDeque::new(),
             global_modifiers: HashMap::new(),
             market_prices: HashMap::new(),
             player_supply_managers: HashMap::new(),
@@ -1083,33 +1082,29 @@ impl EconomyManager {
         ((functional_penalty + health_penalty + disrupted_ratio) / 3.0).clamp(0.0, 1.0)
     }
 
-    fn process_economic_events(&self, _player_id: u32) -> GameLogicResult<()> {
+    fn process_economic_events(&mut self, _player_id: u32) -> GameLogicResult<()> {
         self.cleanup_old_events();
         Ok(())
     }
 
-    fn cleanup_old_events(&self) {
+    fn cleanup_old_events(&mut self) {
         // Remove events older than 5 minutes
-        if let Ok(mut history) = self.event_history.lock() {
-            let cutoff = Instant::now() - std::time::Duration::from_secs(300);
-            while let Some((timestamp, _)) = history.front() {
-                if *timestamp < cutoff {
-                    history.pop_front();
-                } else {
-                    break;
-                }
+        let cutoff = Instant::now() - std::time::Duration::from_secs(300);
+        while let Some((timestamp, _)) = self.event_history.front() {
+            if *timestamp < cutoff {
+                self.event_history.pop_front();
+            } else {
+                break;
             }
         }
     }
 
-    fn log_economic_event(&self, event: EconomicEvent) {
-        if let Ok(mut history) = self.event_history.lock() {
-            history.push_back((Instant::now(), event));
+    fn log_economic_event(&mut self, event: EconomicEvent) {
+        self.event_history.push_back((Instant::now(), event));
 
-            // Keep history size manageable
-            if history.len() > 1000 {
-                history.pop_front();
-            }
+        // Keep history size manageable
+        if self.event_history.len() > 1000 {
+            self.event_history.pop_front();
         }
     }
 }
@@ -1174,6 +1169,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn event_history_is_instance_owned_and_keeps_fifo_capacity() {
+        let mut first = EconomyManager::new();
+        let mut second = EconomyManager::new();
+        for id in 0..1006 {
+            first.log_economic_event(EconomicEvent::BuildingDestroyed {
+                building_id: id, lost_income: 0.0, lost_power: 0.0,
+            });
+        }
+        second.log_economic_event(EconomicEvent::BuildingDestroyed {
+            building_id: 5000, lost_income: 0.0, lost_power: 0.0,
+        });
+        assert_eq!(first.event_history.len(), 1000);
+        assert_eq!(second.event_history.len(), 1);
+        assert!(matches!(first.event_history.front().unwrap().1,
+            EconomicEvent::BuildingDestroyed { building_id: 6, .. }));
+        assert!(matches!(first.event_history.back().unwrap().1,
+            EconomicEvent::BuildingDestroyed { building_id: 1005, .. }));
+        assert!(matches!(second.event_history.front().unwrap().1,
+            EconomicEvent::BuildingDestroyed { building_id: 5000, .. }));
+    }
+
+    #[test]
+    fn event_history_prunes_only_expired_front_entries() {
+        let mut economy = EconomyManager::new();
+        let now = Instant::now();
+        for (id, age) in [(1, 600), (2, 299), (3, 0)] {
+            economy.event_history.push_back((
+                now - std::time::Duration::from_secs(age),
+                EconomicEvent::BuildingDestroyed {
+                    building_id: id, lost_income: 0.0, lost_power: 0.0,
+                },
+            ));
+        }
+        economy.cleanup_old_events();
+        assert_eq!(economy.event_history.len(), 2);
+        assert!(matches!(economy.event_history.front().unwrap().1,
+            EconomicEvent::BuildingDestroyed { building_id: 2, .. }));
+    }
+
+    #[test]
     fn test_economy_initialization() {
         let mut economy = EconomyManager::new();
         let mut starting_resources = HashMap::new();
@@ -1234,6 +1269,10 @@ mod tests {
 
     #[test]
     fn test_building_management() {
+        let _guard = crate::test_sync::lock();
+        // Registration is required by the real building-admission path.
+        let object = Arc::new(RwLock::new(crate::object::Object::new_test(100, 100.0)));
+        OBJECT_REGISTRY.register_object(100, &object);
         let mut economy = EconomyManager::new();
         economy
             .initialize_player_economy(1, HashMap::new())
@@ -1259,5 +1298,6 @@ mod tests {
         let buildings = &economy.player_buildings[&1];
         assert_eq!(buildings.len(), 1);
         assert_eq!(buildings[0].object_id, 100);
+        OBJECT_REGISTRY.unregister_object(100);
     }
 }

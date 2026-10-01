@@ -85,16 +85,17 @@ impl Object {
         }
     }
 
-    /// C++ `getVoiceDefect()` + `m_defectorTimerTickSound` after the team switch.
-    pub(super) fn defect_play_voice_and_timer(&self) {
+    /// C++ `getVoiceDefect()` after the team switch and before the drawable flash.
+    pub(super) fn defect_play_voice(&self) {
         let mut voice = self.get_template().get_voice_defect();
         voice.set_object_id(self.id);
         if let Some(audio) = crate::helpers::TheAudio::get() {
             audio.add_audio_event(&voice);
         }
-        if self.drawable.is_none() {
-            return;
-        }
+    }
+
+    /// C++ defector timer tick, emitted after the drawable flash.
+    pub(super) fn defect_play_timer_tick(&self) {
         if let Some(audio) = crate::helpers::TheAudio::get() {
             if let Some(misc_audio) = game_engine::common::ini::ini_misc_audio::get_misc_audio() {
                 let misc_audio = misc_audio.read();

@@ -2,7 +2,7 @@
 # Inventory candidates, reviewed provenance, and behavioral proof are separate metrics.
 # No inventory percentage is a playable-game or behavioral-parity claim.
 SchemaVersion=1
-InputDigest=ed1bf487f0fc2f886131fefdfaa96b9b4f19c2a9ac6441274978f57f3d248e17
+InputDigest=0396e1e1f87212254d7daedd09bb2195af1ed28818ac2d6e30152d547e3e512f
 ScopedTranslationUnits=1436
 RequiredNonNetworkTranslationUnits=1389
 DeferredNetworkTranslationUnits=47

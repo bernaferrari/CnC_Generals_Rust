@@ -306,7 +306,10 @@ impl UnitAIUpdate {
                 .write()
                 .map_err(|_| "unit lock poisoned during locomotor xfer".to_string())?;
             let guard = &mut *guard;
-            let mut current_name = guard.locomotor_set.active_name().map(|name| name.to_string());
+            let mut current_name = guard
+                .locomotor_set
+                .active_name()
+                .map(|name| name.to_string());
             guard
                 .locomotor_set
                 .xfer_self_and_cur_loco_ptr(xfer, &mut current_name)?;

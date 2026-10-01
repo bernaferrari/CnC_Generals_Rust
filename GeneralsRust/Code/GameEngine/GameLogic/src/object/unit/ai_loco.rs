@@ -15,7 +15,10 @@ impl UnitAIUpdate {
     pub(super) fn get_preferred_height(&self) -> Option<Real> {
         get_unit_arc(self.unit_id).and_then(|unit| {
             unit.read().ok().and_then(|guard| {
-                guard.locomotor_set.get_active().map(|loco| loco.preferred_height)
+                guard
+                    .locomotor_set
+                    .get_active()
+                    .map(|loco| loco.preferred_height)
             })
         })
     }
@@ -514,7 +517,8 @@ impl UnitAIUpdate {
             })
             .unwrap_or(false);
 
-        let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_lock) = ai_store.read() {
             if let Some(pathfinder) = ai_lock.pathfinder() {
                 if let Ok(mut pf_guard) = pathfinder.write() {
                     if !is_ground_movement && !is_unmanned_heli {
@@ -564,7 +568,8 @@ impl UnitAIUpdate {
         let Some(base) = base_arc.read().ok() else {
             return false;
         };
-        let ai_store = the_ai();let Some(pathfinder_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = the_ai();
+        let Some(pathfinder_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
         let Some(pathfinder) = pathfinder_arc.read().ok() else {
@@ -664,9 +669,15 @@ impl UnitAIUpdate {
         }
 
         let mut guard = unit.write().map_err(|_| "unit lock poisoned")?;
-        let prev_name = guard.locomotor_set.active_name().map(|name| name.to_string());
+        let prev_name = guard
+            .locomotor_set
+            .active_name()
+            .map(|name| name.to_string());
         guard.locomotor_set = new_set;
-        let new_name = guard.locomotor_set.active_name().map(|name| name.to_string());
+        let new_name = guard
+            .locomotor_set
+            .active_name()
+            .map(|name| name.to_string());
         if prev_name != new_name {
             if let Some(loco) = guard.locomotor_set.get_active_mut() {
                 loco.set_precise_z_pos(false);
@@ -1205,7 +1216,8 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return false;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1397,7 +1409,8 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return false;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1416,7 +1429,8 @@ impl UnitAIUpdate {
         let Ok(guard) = unit.read() else {
             return false;
         };
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
+        let ai_store = the_ai();
+        let Some(ai) = ai_store.read().ok() else {
             return false;
         };
         let Some(pathfinder) = ai.pathfinder() else {
@@ -1569,7 +1583,9 @@ impl UnitAIUpdate {
         self.locomotor_goal_data = pos;
     }
     pub(super) fn apply_stored_locomotor_goal(&mut self) {
-        if self.movement_complete || (self.locomotor_goal_type != 2 && self.locomotor_goal_type != 3) {
+        if self.movement_complete
+            || (self.locomotor_goal_type != 2 && self.locomotor_goal_type != 3)
+        {
             return;
         }
         let goal_type = self.locomotor_goal_type;
@@ -1598,7 +1614,13 @@ impl UnitAIUpdate {
                 .as_ref()
                 .and_then(|physics| physics.lock().ok().map(|g| g.get_forward_speed_2d()))
                 .unwrap_or(0.0);
-            (*object.get_position(), object.get_orientation(), body, forward_speed, physics)
+            (
+                *object.get_position(),
+                object.get_orientation(),
+                body,
+                forward_speed,
+                physics,
+            )
         };
         let object_arc = guard.base_arc().clone();
         let Some(loco) = guard.locomotor_set.get_active_mut() else {
@@ -2023,7 +2045,8 @@ impl UnitAIUpdate {
             }
         }
 
-        let ai_store = the_ai();let Ok(ai) = ai_store.read() else {
+        let ai_store = the_ai();
+        let Ok(ai) = ai_store.read() else {
             return INVALID_ID;
         };
         let ai_data = ai.get_ai_data();

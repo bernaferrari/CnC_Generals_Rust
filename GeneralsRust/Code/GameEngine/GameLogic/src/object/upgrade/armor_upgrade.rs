@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
@@ -68,7 +68,7 @@ impl Snapshotable for ArmorUpgradeModuleData {
 
 /// Upgrade module that sets armor flags on the owning object.
 pub struct ArmorUpgrade {
-    inner: Arc<Mutex<ArmorUpgradeInner>>,
+    inner: ArmorUpgradeInner,
     module_name_key: NameKeyType,
     data: Arc<ArmorUpgradeModuleData>,
     object_id: ObjectID,
@@ -279,11 +279,7 @@ impl ArmorUpgrade {
         object_id: ObjectID,
     ) -> Self {
         let data_clone = Arc::clone(&data);
-        let inner = Arc::new(Mutex::new(ArmorUpgradeInner::new(
-            module_name_key,
-            data,
-            object_id,
-        )));
+        let inner = ArmorUpgradeInner::new(module_name_key, data, object_id);
         Self {
             inner,
             module_name_key,
@@ -293,9 +289,8 @@ impl ArmorUpgrade {
         }
     }
 
-    fn with_inner<R>(&self, f: impl FnOnce(&mut ArmorUpgradeInner) -> R) -> R {
-        let mut guard = self.inner.lock().expect("ArmorUpgrade inner poisoned");
-        f(&mut guard)
+    fn with_inner<R>(&mut self, f: impl FnOnce(&mut ArmorUpgradeInner) -> R) -> R {
+        f(&mut self.inner)
     }
 }
 
